@@ -1,0 +1,40 @@
+# GoShop documentation
+
+Start with the [repository README](../README.md) to run the project, then read these in order.
+
+## Product and design
+
+| Document | What it answers |
+|---|---|
+| [prd.md](prd.md) | What GoShop is, for whom, and which features each chapter builds |
+| [architecture.md](architecture.md) | How the clients, the API, the worker and the data stores fit together |
+| [erd.md](erd.md) | The initial data model: users, catalog, orders |
+| [`../api/openapi.yaml`](../api/openapi.yaml) | The API contract (OpenAPI 3.1), linted by `make lint-openapi` |
+
+## Working on the code
+
+| Document | What it answers |
+|---|---|
+| [setup.md](setup.md) | Installing Go, Node.js, pnpm, Docker and the editor; `make doctor` |
+| [configuration.md](configuration.md) | Every environment variable, dev vs staging vs prod, where secrets live |
+| [`../CONTRIBUTING.md`](../CONTRIBUTING.md) | Branch per chapter, commit format, merging fixes forward |
+| [ai-rules.md](ai-rules.md) | When to use AI, the AI box in articles, what never goes into a prompt |
+| [`../CLAUDE.md`](../CLAUDE.md) | The verified gate and the agents that run it |
+| [sdk-gaps.md](sdk-gaps.md) | Concerns santekno/sdk does not cover yet, and GoShop's adapters |
+
+## Chapter records
+
+| Document | What it answers |
+|---|---|
+| [bab-template.md](bab-template.md) | Template for `bab-N.md` |
+| `bab-N.md` | Per chapter: the verified commit, gate results, and which files each article added |
+
+## Architecture decision records
+
+An ADR records one significant decision: the context, the decision and its consequences. ADRs are never edited after they are accepted; a new ADR supersedes an old one. Copy [the template](adr/0000-template.md) and take the next number.
+
+| ADR | Decision | Status |
+|---|---|---|
+| [0001](adr/0001-monorepo-one-api.md) | One monorepo, one API for every client | Accepted |
+| [0002](adr/0002-santekno-sdk-and-chi.md) | Build the API on santekno/sdk and chi | Accepted |
+| [0003](adr/0003-seaweedfs-local-s3.md) | SeaweedFS as local S3 storage | Accepted |
