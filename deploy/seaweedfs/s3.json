@@ -1,0 +1,11 @@
+{
+  "identities": [
+    {
+      "name": "goshop",
+      "credentials": [
+        { "accessKey": "goshop", "secretKey": "goshop-secret" }
+      ],
+      "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+    }
+  ]
+}

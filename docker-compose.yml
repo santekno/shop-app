@@ -1,0 +1,53 @@
+# Full GoShop stack for local development and the verified gate.
+# Dependencies (Postgres + pgvector, Redis, SeaweedFS S3) run from the start; app services are added by the chapter
+# that introduces them (api: Bab 2, worker: Bab 6, web: Bab 7, admin: Bab 12),
+# each built from its own Dockerfile with the repo root as context, the same
+# way Railway builds them.
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: goshop
+      POSTGRES_PASSWORD: goshop
+      POSTGRES_DB: goshop
+    # All ports bind to 127.0.0.1: these dev services use fixed credentials and must not be reachable from the network.
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U goshop -d goshop"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # S3-compatible object storage (local stand-in for any S3 bucket in production).
+  # Local-only credentials; the API talks plain S3, so production swaps the endpoint.
+  storage:
+    image: chrislusf/seaweedfs:4.48
+    command: server -dir=/data -s3 -s3.port=8333 -s3.config=/etc/seaweedfs/s3.json
+    ports:
+      - "127.0.0.1:8333:8333"
+    volumes:
+      - storagedata:/data
+      - ./deploy/seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8333/healthz || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  pgdata:
+  storagedata:
