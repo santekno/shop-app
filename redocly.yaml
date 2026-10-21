@@ -1,0 +1,16 @@
+# Redocly CLI config for the API contract. Run: make lint-openapi
+# recommended-strict is the recommended ruleset with every warning raised to
+# an error, so a new problem fails `make lint` instead of scrolling past.
+extends:
+  - recommended-strict
+
+rules:
+  # This rule flags localhost servers. Local development is the only server
+  # until the API is deployed in Bab 19; turn the rule back on when the
+  # production URL is added to api/openapi.yaml.
+  no-server-example.com: off
+
+# operation-4xx-response stays on for every endpoint. The three operations
+# that take no client input (/healthz, /readyz, GET /v1/categories) have no
+# meaningful 4xx response, so those three locations, and only those, are
+# listed in .redocly.lint-ignore.yaml.

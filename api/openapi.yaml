@@ -1,0 +1,480 @@
+openapi: 3.1.0
+info:
+  title: GoShop API
+  version: 0.1.0
+  summary: The single REST API behind the GoShop storefront, admin dashboard and mobile app.
+  description: |
+    GoShop is the online store built in the Santekno Fullstack Course. This
+    contract is written before the code: the API in `apps/api` (Bab 2+) must
+    match it, and the web and mobile clients are typed from it.
+
+    Conventions:
+    - JSON everywhere, field names in `snake_case`.
+    - Money is an integer amount of rupiah plus a currency, never a float.
+    - Lists use cursor pagination: pass `page.next_cursor` back as `cursor`
+      until it is `null`.
+    - Every error uses the same body: `{"error":{"code","message","details"}}`,
+      where `details` is optional. Unknown routes and wrong methods use it too
+      (404 `NOT_FOUND`, 405 `METHOD_NOT_ALLOWED`): Bab 2 sets chi's `NotFound`
+      and `MethodNotAllowed` handlers to the same JSON error writer.
+  license:
+    name: MIT
+    identifier: MIT
+  contact:
+    name: Santekno
+    url: https://www.santekno.com/series/fullstack-goshop/
+servers:
+  - url: http://localhost:8080
+    description: Local development (make up)
+security: []
+tags:
+  - name: Health
+    description: Liveness and readiness probes for Docker and Railway.
+  - name: Catalog
+    description: Public, read-only catalog for buyers. No authentication needed.
+
+paths:
+  /healthz:
+    get:
+      tags: [Health]
+      operationId: getHealthz
+      summary: Liveness probe
+      description: Returns 200 while the process is running. It checks no dependencies, so a database outage does not restart the container.
+      responses:
+        "200":
+          description: The process is alive.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+              example:
+                status: ok
+        "503":
+          $ref: "#/components/responses/Unavailable"
+
+  /readyz:
+    get:
+      tags: [Health]
+      operationId: getReadyz
+      summary: Readiness probe
+      description: Returns 200 when every dependency (PostgreSQL, Redis) answers, 503 otherwise. Load balancers stop sending traffic while it fails.
+      responses:
+        "200":
+          description: Every dependency is reachable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+              example:
+                status: ok
+                checks:
+                  postgres: { status: ok, duration_ms: 2 }
+                  redis: { status: ok, duration_ms: 1 }
+        "503":
+          $ref: "#/components/responses/Unavailable"
+
+  /v1/categories:
+    get:
+      tags: [Catalog]
+      operationId: listCategories
+      summary: List categories
+      description: Returns every category, parents before children, sorted by name. The list is small, so it is not paginated.
+      responses:
+        "200":
+          description: All categories.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CategoryList"
+              example:
+                data:
+                  - id: 0192f3a0-1c2d-7b4e-8a10-3f5e6d7c8b90
+                    slug: pakaian
+                    name: Pakaian
+                    parent_id: null
+                  - id: 0192f3a0-1c2d-7b4e-8a10-3f5e6d7c8b91
+                    slug: kaos
+                    name: Kaos
+                    parent_id: 0192f3a0-1c2d-7b4e-8a10-3f5e6d7c8b90
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/products:
+    get:
+      tags: [Catalog]
+      operationId: listProducts
+      summary: List and search products
+      description: Returns active products, one page at a time. Filters can be combined. To get the next page, send the same filters plus `cursor` set to the previous `page.next_cursor`.
+      parameters:
+        - name: category
+          in: query
+          description: Category slug. Products in its child categories are included. A slug that names no category returns 400 `UNKNOWN_CATEGORY`, so a typo is not mistaken for an empty category.
+          schema:
+            type: string
+            pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
+            maxLength: 100
+          example: kaos
+        - name: q
+          in: query
+          description: Search text, matched against product name and description.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 100
+          example: kaos polos
+        - name: sort
+          in: query
+          description: Sort order. Price sorting uses the cheapest sellable variant (`price_from`).
+          schema:
+            type: string
+            enum: [newest, price_asc, price_desc]
+            default: newest
+        - name: cursor
+          in: query
+          description: Opaque cursor from `page.next_cursor` of the previous page. Omit it for the first page. Clients must not parse or build it; it is only valid with the same `category`, `q` and `sort`.
+          schema:
+            type: string
+            maxLength: 512
+        - name: limit
+          in: query
+          description: Page size.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: One page of products.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductList"
+              example:
+                data:
+                  - id: 0192f3a1-5e6f-7a8b-9c0d-1e2f3a4b5c6d
+                    slug: kaos-polos-hitam
+                    name: Kaos Polos Hitam
+                    description: Kaos katun combed 30s, nyaman dipakai sehari-hari.
+                    category:
+                      id: 0192f3a0-1c2d-7b4e-8a10-3f5e6d7c8b91
+                      slug: kaos
+                      name: Kaos
+                      parent_id: 0192f3a0-1c2d-7b4e-8a10-3f5e6d7c8b90
+                    price_from: { amount: 89000, currency: IDR }
+                    in_stock: true
+                    variants:
+                      - id: 0192f3a1-5e6f-7a8b-9c0d-1e2f3a4b5c70
+                        sku: KPH-M
+                        name: M
+                        price: { amount: 89000, currency: IDR }
+                        stock: 12
+                      - id: 0192f3a1-5e6f-7a8b-9c0d-1e2f3a4b5c71
+                        sku: KPH-XL
+                        name: XL
+                        price: { amount: 99000, currency: IDR }
+                        stock: 0
+                    created_at: "2026-11-01T08:00:00Z"
+                page:
+                  next_cursor: eyJjIjoiMjAyNi0xMS0wMVQwODowMDowMFoiLCJpZCI6IjAxOTJmM2ExIn0
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/products/{slug}:
+    get:
+      tags: [Catalog]
+      operationId: getProduct
+      summary: Get one product
+      description: Returns an active product with its sellable (non-archived) variants. A slug that does not match the slug pattern returns 404 `NOT_FOUND`, exactly like a slug that matches no product, so clients handle one case.
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          description: Product slug.
+          schema:
+            type: string
+            pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
+            maxLength: 200
+          example: kaos-polos-hitam
+      responses:
+        "200":
+          description: The product.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductDetail"
+              example:
+                data:
+                  id: 0192f3a1-5e6f-7a8b-9c0d-1e2f3a4b5c6d
+                  slug: kaos-polos-hitam
+                  name: Kaos Polos Hitam
+                  description: Kaos katun combed 30s, nyaman dipakai sehari-hari.
+                  category:
+                    id: 0192f3a0-1c2d-7b4e-8a10-3f5e6d7c8b91
+                    slug: kaos
+                    name: Kaos
+                    parent_id: 0192f3a0-1c2d-7b4e-8a10-3f5e6d7c8b90
+                  price_from: { amount: 89000, currency: IDR }
+                  in_stock: true
+                  variants:
+                    - id: 0192f3a1-5e6f-7a8b-9c0d-1e2f3a4b5c70
+                      sku: KPH-M
+                      name: M
+                      price: { amount: 89000, currency: IDR }
+                      stock: 12
+                  created_at: "2026-11-01T08:00:00Z"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+components:
+  schemas:
+    Money:
+      type: object
+      description: An amount of money. Rupiah has no minor unit in practice, so `amount` is whole rupiah.
+      required: [amount, currency]
+      additionalProperties: false
+      properties:
+        amount:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Whole rupiah. 89000 means Rp89.000.
+          example: 89000
+        currency:
+          type: string
+          const: IDR
+          description: ISO 4217 currency code. Always IDR.
+
+    Category:
+      type: object
+      required: [id, slug, name, parent_id]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+          pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
+          maxLength: 100
+          example: kaos
+        name:
+          type: string
+          example: Kaos
+        parent_id:
+          type: [string, "null"]
+          format: uuid
+          description: Parent category, or `null` for a top-level category.
+
+    ProductVariant:
+      type: object
+      description: One sellable item of a product (for example one size). Price and stock live here, not on the product.
+      required: [id, sku, name, price, stock]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        sku:
+          type: string
+          description: Unique across the store, upper-case.
+          example: KPH-M
+        name:
+          type: string
+          example: M
+        price:
+          $ref: "#/components/schemas/Money"
+        stock:
+          type: integer
+          minimum: 0
+          description: Units available right now.
+
+    Product:
+      type: object
+      required: [id, slug, name, description, category, price_from, in_stock, variants, created_at]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+          pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
+          maxLength: 200
+          example: kaos-polos-hitam
+        name:
+          type: string
+          example: Kaos Polos Hitam
+        description:
+          type: string
+        category:
+          $ref: "#/components/schemas/Category"
+        price_from:
+          $ref: "#/components/schemas/Money"
+          description: Price of the cheapest sellable (non-archived) variant.
+        in_stock:
+          type: boolean
+          description: True when at least one sellable variant has stock. Computed per request, never stored.
+        variants:
+          type: array
+          description: The sellable variants. Archived variants are never returned.
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/ProductVariant"
+        created_at:
+          type: string
+          format: date-time
+
+    PageInfo:
+      type: object
+      required: [next_cursor]
+      additionalProperties: false
+      properties:
+        next_cursor:
+          type: [string, "null"]
+          description: Cursor for the next page, or `null` on the last page.
+
+    CategoryList:
+      type: object
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Category"
+
+    ProductList:
+      type: object
+      required: [data, page]
+      additionalProperties: false
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Product"
+        page:
+          $ref: "#/components/schemas/PageInfo"
+
+    ProductDetail:
+      type: object
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          $ref: "#/components/schemas/Product"
+
+    HealthCheck:
+      type: object
+      required: [status, duration_ms]
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          enum: [ok, unavailable]
+        error:
+          type: string
+          description: Why the check failed. Present only when `status` is `unavailable` and the server runs in development; elsewhere the API sets `healthx.Handler.HideErrors`, which drops the text (it can contain internal addresses) from the response. `healthx` itself does not log it; GoShop's own check wrappers log the error before returning it (Bab 2).
+        duration_ms:
+          type: integer
+          minimum: 0
+
+    HealthStatus:
+      type: object
+      description: Health probe body, as written by santekno/sdk `healthx` (v0.2.0 sends it as `application/json`). Probes use this body for 503 too, not the `Error` body.
+      required: [status]
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          enum: [ok, unavailable]
+        checks:
+          type: object
+          description: One entry per dependency check, keyed by its name. Omitted when there are no checks.
+          additionalProperties:
+            $ref: "#/components/schemas/HealthCheck"
+
+    Error:
+      type: object
+      description: The only error body the API returns (except health probes). It is what `DefaultErrorWriter` in santekno/sdk `middleware/chi` (v0.2.0) writes from an `errx.AppError`; `details` is omitted when the error has none.
+      required: [error]
+      additionalProperties: false
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          additionalProperties: false
+          properties:
+            code:
+              type: string
+              pattern: "^[A-Z][A-Z0-9_]*$"
+              description: Machine-readable, SCREAMING_SNAKE_CASE. Clients branch on this, never on `message`.
+              example: NOT_FOUND
+            message:
+              type: string
+              description: Human-readable and safe to show; never contains internals.
+              example: product not found
+            details:
+              type: object
+              description: Optional structured context, for example which fields failed validation.
+              additionalProperties: true
+
+  responses:
+    BadRequest:
+      description: A query parameter is invalid, or `category` names no category.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            validationFailed:
+              summary: A parameter is out of range
+              value:
+                error:
+                  code: VALIDATION_FAILED
+                  message: invalid query parameters
+                  details:
+                    limit: must be between 1 and 100
+            unknownCategory:
+              summary: The category slug does not exist
+              value:
+                error:
+                  code: UNKNOWN_CATEGORY
+                  message: category not found
+                  details:
+                    category: sepatu
+    NotFound:
+      description: The resource does not exist, is not active, or its slug is malformed.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: NOT_FOUND
+              message: product not found
+    InternalError:
+      description: Unexpected server error. The code is always `INTERNAL_ERROR`, the code sdk `middleware/chi` `Recovery` writes after a panic, and handlers use the same code for every other 500. The details are in the server log, never in the response.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: INTERNAL_ERROR
+              message: internal server error
+    Unavailable:
+      description: The process or one of its dependencies is not healthy.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/HealthStatus"
+          example:
+            status: unavailable
+            checks:
+              postgres: { status: unavailable, duration_ms: 3 }
+              redis: { status: ok, duration_ms: 1 }

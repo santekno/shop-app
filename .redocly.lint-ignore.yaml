@@ -1,0 +1,10 @@
+# Problems Redocly's linter ignores on purpose, one location at a time.
+# Every entry needs a reason; see redocly.yaml. Do not regenerate this file
+# blindly with --generate-ignore-file: that would hide new problems too.
+api/openapi.yaml:
+  # These operations take no parameters or body, so no client mistake can
+  # produce a 4xx. Their failure modes are 5xx (500, or 503 for the probes).
+  operation-4xx-response:
+    - '#/paths/~1healthz/get/responses'
+    - '#/paths/~1readyz/get/responses'
+    - '#/paths/~1v1~1categories/get/responses'
