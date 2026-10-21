@@ -1,0 +1,9 @@
+{
+  "name": "goshop",
+  "private": true,
+  "description": "GoShop — the companion monorepo of the Santekno Fullstack course",
+  "packageManager": "pnpm@10.33.4",
+  "engines": {
+    "node": ">=22.12"
+  }
+}
