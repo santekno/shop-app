@@ -1,0 +1,60 @@
+# golangci-lint v2 config for the GoShop API. Run: make lint
+# The standard set plus linters that catch real bugs in HTTP and SQL code;
+# no style-only linters, so a finding is always worth reading.
+version: "2"
+
+run:
+  # Lint the integration tests (apps/api/tests) as well.
+  build-tags:
+    - integration
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - bodyclose # an unclosed response body leaks a connection
+    - contextcheck # a function that has a context must pass it on
+    - errorlint # compare wrapped errors with errors.Is / errors.As
+    - gosec # unsafe patterns, e.g. a server without ReadHeaderTimeout
+    - misspell
+    - noctx # outgoing HTTP requests must carry a context
+    - nolintlint # every //nolint names a linter and says why
+    - revive # exported identifiers are documented
+    - sqlclosecheck # rows and statements are closed (from Bab 3)
+    - unconvert
+    - wrapcheck # errors from other packages get context before they travel up
+  settings:
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+    revive:
+      rules:
+        - name: exported
+        - name: package-comments
+        - name: unused-parameter
+    wrapcheck:
+      ignore-sigs:
+        # Errors that are already the API's own type, or that the caller
+        # inspects directly, need no extra wrapping.
+        - .Errorf(
+        - errors.New(
+        - errors.Unwrap(
+        - errors.Join(
+        - errx.New(
+        - errx.Wrap(
+        - .Wrap(
+        - .Wrapf(
+        - .WithDetail(
+        - .WithDetails(
+        - .WithHTTPStatus(
+  exclusions:
+    presets:
+      - std-error-handling
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/santekno/shop-app

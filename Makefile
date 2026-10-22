@@ -13,6 +13,13 @@ COMPOSE ?= $(shell docker compose version >/dev/null 2>&1 && echo "docker compos
 HAS_API  := $(wildcard $(API)/go.mod)
 HAS_PNPM := $(wildcard pnpm-lock.yaml)
 
+# golangci-lint refuses a module whose `go` line is newer than the Go it was
+# built with, and a prebuilt binary may lag behind (go1.25 vs our go 1.26).
+# make lint therefore builds this pinned version once, with the module's own
+# toolchain, into apps/api/bin (gitignored).
+GOLANGCI_VERSION := v2.15.0
+GOLANGCI := $(CURDIR)/$(API)/bin/golangci-lint-$(GOLANGCI_VERSION)/golangci-lint
+
 # Pinned so every chapter lints the contract with the same rules.
 REDOCLY := REDOCLY_TELEMETRY=off REDOCLY_SUPPRESS_UPDATE_NOTICE=true npx --yes @redocly/cli@2.66.1
 
@@ -32,7 +39,7 @@ doctor: ## Check that the required tools are installed
 
 build: ## Compile and type-check every app present
 ifneq ($(HAS_API),)
-	cd $(API) && go build ./...
+	cd $(API) && go build -o bin/ ./...
 endif
 ifneq ($(HAS_PNPM),)
 	pnpm -r --if-present run typecheck
@@ -40,14 +47,18 @@ ifneq ($(HAS_PNPM),)
 endif
 	@echo "build: ok"
 
-lint: lint-openapi ## Lint every app present and the API contract
+lint: lint-openapi $(if $(HAS_API),$(GOLANGCI)) ## Lint every app present and the API contract
 ifneq ($(HAS_API),)
-	cd $(API) && go vet ./... && golangci-lint run ./...
+	cd $(API) && go vet -tags=integration ./... && $(GOLANGCI) run ./...
 endif
 ifneq ($(HAS_PNPM),)
 	pnpm -r --if-present run lint
 endif
 	@echo "lint: ok"
+
+$(GOLANGCI):
+	cd $(API) && GOBIN=$(dir $(GOLANGCI)) GOTOOLCHAIN=$$(go env GOVERSION) \
+		go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION)
 
 lint-openapi: ## Lint the API contract (api/openapi.yaml, rules in redocly.yaml)
 	$(REDOCLY) lint api/openapi.yaml
