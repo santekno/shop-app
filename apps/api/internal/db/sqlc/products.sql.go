@@ -187,9 +187,11 @@ WITH page AS (
     WHERE p.status = 'active'
       AND ($1::uuid[] IS NULL
            OR p.category_id = ANY($1::uuid[]))
-      AND (p.created_at, p.id) < ($2::timestamptz, $3::uuid)
+      AND ($2::text IS NULL
+           OR p.search @@ websearch_to_tsquery('indonesian', $2))
+      AND (p.created_at, p.id) < ($3::timestamptz, $4::uuid)
     ORDER BY p.created_at DESC, p.id DESC
-    LIMIT $4
+    LIMIT $5
 )
 SELECT page.id, page.slug, page.name, page.description, page.price_from, page.created_at,
        c.id AS category_id, c.slug AS category_slug, c.name AS category_name, c.parent_id AS category_parent_id,
@@ -202,6 +204,7 @@ ORDER BY page.created_at DESC, page.id DESC, v.price, v.position, v.id
 
 type ListProductsNewestParams struct {
 	CategoryIds     []string
+	Search          sql.NullString
 	CursorCreatedAt time.Time
 	CursorID        string
 	PageSize        int32
@@ -243,12 +246,17 @@ type ListProductsNewestRow struct {
 // The filters are the same in all three. category_ids NULL means every
 // category; otherwise it holds the IDs of a category and its children
 // (ListCategoryTreeIDs), matched with = ANY, so Postgres can also read
-// products_active_category_newest_idx once per category.
+// products_active_category_newest_idx once per category. search NULL means
+// no search; otherwise full-text search on the generated column (name
+// weighted above description) with the GIN index products_search_idx.
+// websearch_to_tsquery accepts what people type (words, "quoted phrases",
+// -excluded, or) and never fails on syntax.
 // sort=newest, served by products_active_newest_idx (or
 // products_active_category_newest_idx with a category).
 func (q *Queries) ListProductsNewest(ctx context.Context, arg ListProductsNewestParams) ([]ListProductsNewestRow, error) {
 	rows, err := q.db.QueryContext(ctx, listProductsNewest,
 		pq.Array(arg.CategoryIds),
+		arg.Search,
 		arg.CursorCreatedAt,
 		arg.CursorID,
 		arg.PageSize,
@@ -297,9 +305,11 @@ WITH page AS (
     WHERE p.status = 'active'
       AND ($1::uuid[] IS NULL
            OR p.category_id = ANY($1::uuid[]))
-      AND (p.price_from, p.id) > ($2::bigint, $3::uuid)
+      AND ($2::text IS NULL
+           OR p.search @@ websearch_to_tsquery('indonesian', $2))
+      AND (p.price_from, p.id) > ($3::bigint, $4::uuid)
     ORDER BY p.price_from, p.id
-    LIMIT $4
+    LIMIT $5
 )
 SELECT page.id, page.slug, page.name, page.description, page.price_from, page.created_at,
        c.id AS category_id, c.slug AS category_slug, c.name AS category_name, c.parent_id AS category_parent_id,
@@ -312,6 +322,7 @@ ORDER BY page.price_from, page.id, v.price, v.position, v.id
 
 type ListProductsPriceAscParams struct {
 	CategoryIds []string
+	Search      sql.NullString
 	CursorPrice int64
 	CursorID    string
 	PageSize    int32
@@ -339,6 +350,7 @@ type ListProductsPriceAscRow struct {
 func (q *Queries) ListProductsPriceAsc(ctx context.Context, arg ListProductsPriceAscParams) ([]ListProductsPriceAscRow, error) {
 	rows, err := q.db.QueryContext(ctx, listProductsPriceAsc,
 		pq.Array(arg.CategoryIds),
+		arg.Search,
 		arg.CursorPrice,
 		arg.CursorID,
 		arg.PageSize,
@@ -387,9 +399,11 @@ WITH page AS (
     WHERE p.status = 'active'
       AND ($1::uuid[] IS NULL
            OR p.category_id = ANY($1::uuid[]))
-      AND (p.price_from, p.id) < ($2::bigint, $3::uuid)
+      AND ($2::text IS NULL
+           OR p.search @@ websearch_to_tsquery('indonesian', $2))
+      AND (p.price_from, p.id) < ($3::bigint, $4::uuid)
     ORDER BY p.price_from DESC, p.id DESC
-    LIMIT $4
+    LIMIT $5
 )
 SELECT page.id, page.slug, page.name, page.description, page.price_from, page.created_at,
        c.id AS category_id, c.slug AS category_slug, c.name AS category_name, c.parent_id AS category_parent_id,
@@ -402,6 +416,7 @@ ORDER BY page.price_from DESC, page.id DESC, v.price, v.position, v.id
 
 type ListProductsPriceDescParams struct {
 	CategoryIds []string
+	Search      sql.NullString
 	CursorPrice int64
 	CursorID    string
 	PageSize    int32
@@ -429,6 +444,7 @@ type ListProductsPriceDescRow struct {
 func (q *Queries) ListProductsPriceDesc(ctx context.Context, arg ListProductsPriceDescParams) ([]ListProductsPriceDescRow, error) {
 	rows, err := q.db.QueryContext(ctx, listProductsPriceDesc,
 		pq.Array(arg.CategoryIds),
+		arg.Search,
 		arg.CursorPrice,
 		arg.CursorID,
 		arg.PageSize,

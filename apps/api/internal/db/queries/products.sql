@@ -17,7 +17,11 @@
 -- The filters are the same in all three. category_ids NULL means every
 -- category; otherwise it holds the IDs of a category and its children
 -- (ListCategoryTreeIDs), matched with = ANY, so Postgres can also read
--- products_active_category_newest_idx once per category.
+-- products_active_category_newest_idx once per category. search NULL means
+-- no search; otherwise full-text search on the generated column (name
+-- weighted above description) with the GIN index products_search_idx.
+-- websearch_to_tsquery accepts what people type (words, "quoted phrases",
+-- -excluded, or) and never fails on syntax.
 
 -- name: ListProductsNewest :many
 -- sort=newest, served by products_active_newest_idx (or
@@ -28,6 +32,8 @@ WITH page AS (
     WHERE p.status = 'active'
       AND (sqlc.narg('category_ids')::uuid[] IS NULL
            OR p.category_id = ANY(sqlc.narg('category_ids')::uuid[]))
+      AND (sqlc.narg('search')::text IS NULL
+           OR p.search @@ websearch_to_tsquery('indonesian', sqlc.narg('search')))
       AND (p.created_at, p.id) < (@cursor_created_at::timestamptz, @cursor_id::uuid)
     ORDER BY p.created_at DESC, p.id DESC
     LIMIT @page_size
@@ -48,6 +54,8 @@ WITH page AS (
     WHERE p.status = 'active'
       AND (sqlc.narg('category_ids')::uuid[] IS NULL
            OR p.category_id = ANY(sqlc.narg('category_ids')::uuid[]))
+      AND (sqlc.narg('search')::text IS NULL
+           OR p.search @@ websearch_to_tsquery('indonesian', sqlc.narg('search')))
       AND (p.price_from, p.id) > (@cursor_price::bigint, @cursor_id::uuid)
     ORDER BY p.price_from, p.id
     LIMIT @page_size
@@ -68,6 +76,8 @@ WITH page AS (
     WHERE p.status = 'active'
       AND (sqlc.narg('category_ids')::uuid[] IS NULL
            OR p.category_id = ANY(sqlc.narg('category_ids')::uuid[]))
+      AND (sqlc.narg('search')::text IS NULL
+           OR p.search @@ websearch_to_tsquery('indonesian', sqlc.narg('search')))
       AND (p.price_from, p.id) < (@cursor_price::bigint, @cursor_id::uuid)
     ORDER BY p.price_from DESC, p.id DESC
     LIMIT @page_size

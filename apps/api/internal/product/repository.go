@@ -31,12 +31,19 @@ type ListQuery struct {
 	// CategoryIDs limits the page to these categories (a category and its
 	// children); nil for every category.
 	CategoryIDs []string
+	// Search is the text to search for; empty for no search.
+	Search string
 	// Sort picks the order, and so which of the three queries runs.
 	Sort Sort
 	// After is where the page starts: just after this position.
 	After position
 	// Limit is the most products to return.
 	Limit int
+}
+
+// search is q.Search as the query parameter: NULL when there is none.
+func (q ListQuery) search() sql.NullString {
+	return sql.NullString{String: q.Search, Valid: q.Search != ""}
 }
 
 // List returns up to q.Limit active products after q.After in q.Sort order,
@@ -47,7 +54,7 @@ func (r *PostgresRepository) List(ctx context.Context, q ListQuery) ([]Product, 
 	switch q.Sort {
 	case SortNewest:
 		rows, err := r.q.ListProductsNewest(ctx, sqlc.ListProductsNewestParams{
-			CategoryIds: q.CategoryIDs, CursorCreatedAt: q.After.CreatedAt, CursorID: q.After.ID, PageSize: limit,
+			CategoryIds: q.CategoryIDs, Search: q.search(), CursorCreatedAt: q.After.CreatedAt, CursorID: q.After.ID, PageSize: limit,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("query products: %w", err)
@@ -55,7 +62,7 @@ func (r *PostgresRepository) List(ctx context.Context, q ListQuery) ([]Product, 
 		page = rows
 	case SortPriceAsc:
 		rows, err := r.q.ListProductsPriceAsc(ctx, sqlc.ListProductsPriceAscParams{
-			CategoryIds: q.CategoryIDs, CursorPrice: q.After.Price, CursorID: q.After.ID, PageSize: limit,
+			CategoryIds: q.CategoryIDs, Search: q.search(), CursorPrice: q.After.Price, CursorID: q.After.ID, PageSize: limit,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("query products: %w", err)
@@ -67,7 +74,7 @@ func (r *PostgresRepository) List(ctx context.Context, q ListQuery) ([]Product, 
 		}
 	case SortPriceDesc:
 		rows, err := r.q.ListProductsPriceDesc(ctx, sqlc.ListProductsPriceDescParams{
-			CategoryIds: q.CategoryIDs, CursorPrice: q.After.Price, CursorID: q.After.ID, PageSize: limit,
+			CategoryIds: q.CategoryIDs, Search: q.search(), CursorPrice: q.After.Price, CursorID: q.After.ID, PageSize: limit,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("query products: %w", err)

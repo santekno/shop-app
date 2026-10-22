@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/santekno/shop-app/apps/api/internal/category"
 )
@@ -45,6 +46,9 @@ type ListParams struct {
 	// Category is a category slug; empty for every category. Products of
 	// its child categories are included.
 	Category string
+	// Query is search text matched against name and description; empty
+	// (or only spaces) for no search. It combines with Category and Sort.
+	Query string
 	// Sort is the order; the zero value is not valid, use SortNewest.
 	Sort Sort
 	// Cursor is page.next_cursor of the previous page; empty for the first.
@@ -77,11 +81,12 @@ func (s *Service) List(ctx context.Context, params ListParams) (Page, error) {
 	default:
 		return Page{}, fmt.Errorf("list products: unknown sort %q", params.Sort)
 	}
+	params.Query = strings.TrimSpace(params.Query)
 	after, err := decodeCursor(params)
 	if err != nil {
 		return Page{}, err
 	}
-	query := ListQuery{Sort: params.Sort, After: after, Limit: params.Limit + 1}
+	query := ListQuery{Search: params.Query, Sort: params.Sort, After: after, Limit: params.Limit + 1}
 	if params.Category != "" {
 		ids, err := s.categories.IDsBySlug(ctx, params.Category)
 		if errors.Is(err, category.ErrNotFound) {

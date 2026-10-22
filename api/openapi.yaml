@@ -140,7 +140,14 @@ paths:
           example: kaos
         - name: q
           in: query
-          description: Search text, matched against product name and description.
+          description: |
+            Search text, matched against product name and description with
+            PostgreSQL full-text search (Indonesian stemming, so `dipakai`
+            also finds `pakai`; a match in the name counts more). Accepts
+            words, `"quoted phrases"`, `-excluded` words and `or`; it never
+            fails on syntax. Combines with `category`, `sort` and `cursor`;
+            results follow `sort`, not relevance. Text that is only spaces is
+            no search.
           schema:
             type: string
             minLength: 1

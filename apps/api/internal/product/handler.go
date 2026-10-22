@@ -62,6 +62,7 @@ func (h *Handler) Routes(r chi.Router) {
 // defaults set before binding.
 type listQuery struct {
 	Category string `query:"category" validate:"omitempty,max=100"`
+	Q        string `query:"q" validate:"omitempty,max=100"`
 	Sort     string `query:"sort" validate:"oneof=newest price_asc price_desc"`
 	Cursor   string `query:"cursor" validate:"omitempty,max=512"`
 	Limit    int    `query:"limit" validate:"min=1,max=100"`
@@ -81,7 +82,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page, err := h.catalog.List(r.Context(), ListParams{
-		Category: q.Category, Sort: Sort(q.Sort), Cursor: q.Cursor, Limit: q.Limit,
+		Category: q.Category, Query: q.Q, Sort: Sort(q.Sort), Cursor: q.Cursor, Limit: q.Limit,
 	})
 	if errors.Is(err, ErrUnknownCategory) {
 		// A typo is not mistaken for an empty category.
