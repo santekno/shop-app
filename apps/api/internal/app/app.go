@@ -76,18 +76,28 @@ func (a *App) Serve(ctx context.Context, ln net.Listener) error {
 	})
 }
 
-// Run is the whole program: it loads the config from the environment, logs
-// to stdout, listens on the configured port and serves until ctx is
-// cancelled. main only adds signal handling and the exit code.
-func Run(ctx context.Context, stdout io.Writer) error {
+// Run is the whole program. With no arguments it loads the config from the
+// environment, logs to stdout, listens on the configured port and serves
+// until ctx is cancelled. With "healthcheck" it probes a running API on the
+// same port instead (see Probe). main only adds signal handling and the exit
+// code.
+func Run(ctx context.Context, args []string, stdout io.Writer) error {
 	// Fail fast: an invalid variable stops the program here, before
 	// anything listens. There is no logger yet; its format depends on cfg.
 	cfg, err := config.Load()
 	if err != nil {
 		return err
 	}
-	logger := logging.New(stdout, cfg.IsDevelopment(), cfg.LogLevel).With("env", cfg.Env)
 
+	switch {
+	case len(args) == 0:
+	case len(args) == 1 && args[0] == "healthcheck":
+		return Probe(ctx, cfg.Port)
+	default:
+		return fmt.Errorf("unknown arguments %q (usage: api [healthcheck])", args)
+	}
+
+	logger := logging.New(stdout, cfg.IsDevelopment(), cfg.LogLevel).With("env", cfg.Env)
 	a := New(cfg, logger)
 
 	var lc net.ListenConfig

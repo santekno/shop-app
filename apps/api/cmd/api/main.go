@@ -1,6 +1,9 @@
 // Command api is the GoShop REST API. The program lives in internal/app;
 // main only turns signals into a cancelled context and an error into an exit
 // code.
+//
+//	api              serve the API
+//	api healthcheck  exit 0 when the API on this machine answers /healthz
 package main
 
 import (
@@ -21,7 +24,7 @@ func main() {
 	// kills the process at once instead of waiting for the drain.
 	context.AfterFunc(ctx, stop)
 
-	err := app.Run(ctx, os.Stdout)
+	err := app.Run(ctx, os.Args[1:], os.Stdout)
 	stop()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "api:", err)

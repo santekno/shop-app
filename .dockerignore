@@ -1,4 +1,6 @@
 .git
+# Local Go builds and the pinned golangci-lint (make lint) are large and not needed.
+apps/api/bin
 **/node_modules
 **/dist
 **/.next
