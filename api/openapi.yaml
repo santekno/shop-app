@@ -39,6 +39,15 @@ tags:
     description: Liveness and readiness probes for Docker and Railway.
   - name: Catalog
     description: Public, read-only catalog for buyers. No authentication needed.
+  - name: Admin
+    description: |
+      Product management for the admin dashboard.
+
+      **Development only until Bab 4.** These endpoints have no
+      authentication yet, so the API mounts them only when
+      `APP_ENV=development`; in staging and production they answer 404. Bab 4
+      puts them behind the `admin` role and mounts them everywhere. Never
+      expose a development API to the internet.
 
 paths:
   /healthz:
@@ -245,6 +254,100 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /v1/admin/products:
+    post:
+      tags: [Admin]
+      operationId: createProduct
+      summary: Create a product with its variants
+      description: |
+        Development only until Bab 4 (see the Admin tag). The product and its
+        variants are stored in one transaction, and `price_from` is computed
+        from the variants in the same transaction. SKUs are trimmed and
+        upper-cased before they are stored. Variants must not carry an `id`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProductWrite"
+      responses:
+        "201":
+          description: The product was created.
+          headers:
+            Location:
+              description: URL of the new product, `/v1/admin/products/{id}`.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminProductDetail"
+        "400":
+          $ref: "#/components/responses/BadWrite"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/admin/products/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: Product ID. One that is not a UUID returns 404 `NOT_FOUND`.
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags: [Admin]
+      operationId: getAdminProduct
+      summary: Get any product
+      description: Development only until Bab 4. Returns the product whatever its status, with its sellable (non-archived) variants.
+      responses:
+        "200":
+          description: The product.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminProductDetail"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    put:
+      tags: [Admin]
+      operationId: updateProduct
+      summary: Save a product and its variants
+      description: |
+        Development only until Bab 4. The body is the whole product, as an
+        admin form sends it. A variant with an `id` (a sellable variant of
+        this product) is updated, one without an `id` is added. Everything
+        runs in one transaction that also recomputes `price_from`, and every
+        variant update increments its internal `version`. Bab 5 adds an
+        optimistic `version` check for stock edits; until then the last
+        save wins.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProductWrite"
+      responses:
+        "200":
+          description: The saved product.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminProductDetail"
+        "400":
+          $ref: "#/components/responses/BadWrite"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 components:
   schemas:
     Money:
@@ -343,6 +446,143 @@ components:
         created_at:
           type: string
           format: date-time
+
+    ProductWrite:
+      type: object
+      description: A product as the admin writes it.
+      required: [category_id, slug, name, status, variants]
+      additionalProperties: false
+      properties:
+        category_id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+          pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
+          maxLength: 200
+          example: kaos-polos-hitam
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 5000
+          default: ""
+        status:
+          type: string
+          enum: [draft, active, archived]
+          description: Only `active` products appear in the storefront.
+        variants:
+          type: array
+          description: Every sellable variant of the product. SKUs must be unique within the list.
+          minItems: 1
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/VariantWrite"
+
+    VariantWrite:
+      type: object
+      required: [sku, name, price, stock, weight_grams]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: An existing sellable variant of this product, to update it. Leave it out for a new variant, and always on create.
+        sku:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: Trimmed and upper-cased by the API. Unique across the store, archived variants included.
+          example: KPH-M
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          example: M
+        price:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 1000000000
+          description: Whole rupiah.
+          example: 89000
+        stock:
+          type: integer
+          minimum: 0
+          maximum: 1000000
+        weight_grams:
+          type: integer
+          minimum: 1
+          maximum: 100000
+
+    AdminVariant:
+      type: object
+      required: [id, sku, name, price, stock, weight_grams]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        sku:
+          type: string
+        name:
+          type: string
+        price:
+          $ref: "#/components/schemas/Money"
+        stock:
+          type: integer
+          minimum: 0
+        weight_grams:
+          type: integer
+          minimum: 1
+
+    AdminProduct:
+      type: object
+      description: A product as the admin sees it, in any status.
+      required: [id, category_id, slug, name, description, status, price_from, variants, created_at, updated_at]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        category_id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+          enum: [draft, active, archived]
+        price_from:
+          description: Price of the cheapest sellable variant, or `null` when the product has none.
+          oneOf:
+            - $ref: "#/components/schemas/Money"
+            - type: "null"
+        variants:
+          type: array
+          description: The sellable (non-archived) variants, cheapest first.
+          items:
+            $ref: "#/components/schemas/AdminVariant"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    AdminProductDetail:
+      type: object
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          $ref: "#/components/schemas/AdminProduct"
 
     PageInfo:
       type: object
@@ -462,6 +702,56 @@ components:
                   message: category not found
                   details:
                     category: sepatu
+    BadWrite:
+      description: The body is not valid JSON or breaks the schema (`VALIDATION_FAILED`, with one entry per field such as `variants[0].price`), or `category_id` names no category (`UNKNOWN_CATEGORY`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            validationFailed:
+              summary: Fields break the schema
+              value:
+                error:
+                  code: VALIDATION_FAILED
+                  message: invalid request
+                  details:
+                    slug: must be lower-case letters and digits in words joined by single hyphens
+                    variants[0].price: must be between 1 and 1000000000
+            unknownCategory:
+              summary: The category does not exist
+              value:
+                error:
+                  code: UNKNOWN_CATEGORY
+                  message: category not found
+                  details:
+                    category_id: names no category
+    Conflict:
+      description: |
+        Another product already has the slug (`SLUG_TAKEN`), or a variant anywhere in the store, archived ones included, already has one of the SKUs (`SKU_TAKEN`).
+
+        Known Bab 3 limitation: within one save, each variant's SKU is checked when that variant is written, so swapping the SKUs of two variants, or giving one variant the SKU another variant of the same product has right now, answers 409 `SKU_TAKEN`. Save twice instead, through a temporary SKU.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            slugTaken:
+              summary: The slug is in use
+              value:
+                error:
+                  code: SLUG_TAKEN
+                  message: another product already uses this slug
+                  details:
+                    slug: another product already uses this slug
+            skuTaken:
+              summary: A SKU is in use
+              value:
+                error:
+                  code: SKU_TAKEN
+                  message: a variant with one of these SKUs already exists
+                  details:
+                    variants: a variant with one of these SKUs already exists
     NotFound:
       description: The resource does not exist, is not active, or its slug is malformed.
       content:

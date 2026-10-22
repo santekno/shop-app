@@ -19,8 +19,10 @@ import (
 	"github.com/santekno/shop-app/apps/api/internal/config"
 	"github.com/santekno/shop-app/apps/api/internal/database"
 	"github.com/santekno/shop-app/apps/api/internal/health"
+	"github.com/santekno/shop-app/apps/api/internal/httpapi"
 	"github.com/santekno/shop-app/apps/api/internal/httpserver"
 	"github.com/santekno/shop-app/apps/api/internal/logging"
+	"github.com/santekno/shop-app/apps/api/internal/product"
 )
 
 // App is the wired API, ready to serve.
@@ -40,12 +42,16 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB) *App {
 
 	// Repositories: SQL on the shared pool.
 	categoryRepo := category.NewPostgresRepository(db)
+	productRepo := product.NewPostgresRepository(db)
 
 	// Services: the business rules, given their repositories.
 	categoryService := category.NewService(categoryRepo)
+	productService := product.NewService(productRepo)
 
 	// Handlers: HTTP in and out, given their services.
+	validator := httpapi.NewValidator()
 	categoryHandler := category.NewHandler(categoryService)
+	productHandler := product.NewHandler(productService, productService, validator)
 	healthHandler := health.NewHandler(logger, readiness, !cfg.IsDevelopment(),
 		health.PostgresCheck(db))
 
@@ -55,7 +61,18 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB) *App {
 		RequestTimeout: cfg.RequestTimeout,
 		Probes:         func(r chi.Router) { health.Routes(r, healthHandler) },
 	}, func(r chi.Router) {
-		r.Route("/v1", categoryHandler.Routes)
+		r.Route("/v1", func(r chi.Router) {
+			categoryHandler.Routes(r)
+			productHandler.Routes(r)
+			// The admin routes have no authentication until Bab 4, so they
+			// exist only on a developer's machine. Bab 4 mounts them
+			// everywhere, behind the admin role.
+			if cfg.IsDevelopment() {
+				logger.Warn("admin routes are mounted WITHOUT authentication (APP_ENV=development only, until Bab 4)",
+					"prefix", "/v1/admin")
+				r.Route("/admin", productHandler.AdminRoutes)
+			}
+		})
 	})
 
 	return &App{cfg: cfg, logger: logger, readiness: readiness, handler: router}

@@ -13,8 +13,17 @@ The Go REST API behind the GoShop storefront, admin dashboard and mobile app. Th
 | GET | `/healthz` | Liveness: 200 while the process runs |
 | GET | `/readyz` | Readiness: 503 while the server drains during shutdown, or while PostgreSQL does not answer a ping (`postgres` check) |
 | GET | `/v1/categories` | Every category, top-level first, sorted by name, from PostgreSQL (`make seed` fills it) |
+| GET | `/v1/products` | One page of active products with their sellable variants, `price_from` and a computed `in_stock` |
+| GET | `/v1/products/{slug}` | One active product; a malformed or unknown slug is 404 |
+| POST | `/v1/admin/products` | **Development only.** Create a product with its variants |
+| GET | `/v1/admin/products/{id}` | **Development only.** Any product, whatever its status |
+| PUT | `/v1/admin/products/{id}` | **Development only.** Save a product and its variants |
 
-`GET /v1/products` and `GET /v1/products/{slug}` are in the contract but arrive in Bab 3 with PostgreSQL; until then they answer the JSON 404 for unknown routes. Every error, including unknown routes (404 `NOT_FOUND`) and wrong methods (405 `METHOD_NOT_ALLOWED`), uses the body `{"error":{"code","message","details?"}}`.
+> **The admin routes have no authentication until Bab 4.** The API mounts them only when `APP_ENV=development`, logs a warning when it does, and answers 404 for them everywhere else. Bab 4 puts them behind the `admin` role. Never expose a development API to the internet.
+
+Every write runs in one transaction that also recomputes `price_from` from the sellable variants. Two Bab 3 limitations: there is no optimistic locking yet, so when two admins save the same product at once the last save wins (Bab 5 adds the `version` check); and swapping two variants' SKUs, or reusing a SKU another variant of the product has right now, in one save answers 409 `SKU_TAKEN`, because each SKU is checked as its variant is written (save twice, through a temporary SKU).
+
+Every error, including unknown routes (404 `NOT_FOUND`) and wrong methods (405 `METHOD_NOT_ALLOWED`), uses the body `{"error":{"code","message","details?"}}`.
 
 ## Run it
 

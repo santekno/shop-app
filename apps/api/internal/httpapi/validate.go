@@ -82,15 +82,52 @@ func (v *Validator) Struct(s any) error {
 	return v.check(s, "json", "invalid request")
 }
 
+// StructFields validates s like Struct but returns the failures as a map
+// instead of an error, with every key prefixed by prefix. A handler with a
+// list in its body validates each element this way and reports all of them
+// in one VALIDATION_FAILED, under the path a client knows:
+//
+//	for i, item := range body.Variants {
+//		fields, err := h.validator.StructFields(item, fmt.Sprintf("variants[%d].", i))
+//		// fields: {"variants[0].price": "must be between 1 and 1000000000"}
+//	}
+//
+// The map is empty when s is valid. The error is only for a programming
+// mistake (s is not a struct).
+func (v *Validator) StructFields(s any, prefix string) (map[string]any, error) {
+	details, err := v.fields(s, "json")
+	if err != nil {
+		return nil, err
+	}
+	prefixed := make(map[string]any, len(details))
+	for name, msg := range details {
+		prefixed[prefix+name] = msg
+	}
+	return prefixed, nil
+}
+
 // check validates s and names each failed field by its nameTag.
 func (v *Validator) check(s any, nameTag, message string) error {
+	details, err := v.fields(s, nameTag)
+	if err != nil {
+		return err
+	}
+	if len(details) > 0 {
+		return ValidationError(message, details)
+	}
+	return nil
+}
+
+// fields validates s and returns one message per failed field, named by its
+// nameTag. A valid s gives an empty map.
+func (v *Validator) fields(s any, nameTag string) (map[string]any, error) {
 	err := v.v.Struct(s)
 	if err == nil {
-		return nil
+		return map[string]any{}, nil
 	}
 	var fieldErrs validator.ValidationErrors
 	if !errors.As(err, &fieldErrs) {
-		return fmt.Errorf("validate %T: %w", s, err)
+		return nil, fmt.Errorf("validate %T: %w", s, err)
 	}
 
 	root := reflect.TypeOf(s)
@@ -115,7 +152,7 @@ func (v *Validator) check(s any, nameTag, message string) error {
 		}
 		details[name] = fieldMessage(fe, rules)
 	}
-	return ValidationError(message, details)
+	return details, nil
 }
 
 // topLevelField returns the field of root that fe is about, but only when fe

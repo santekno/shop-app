@@ -1,0 +1,268 @@
+package product
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/santekno/sdk/uuidx"
+
+	"github.com/santekno/shop-app/apps/api/internal/category"
+	"github.com/santekno/shop-app/apps/api/internal/db/sqlc"
+)
+
+// PostgresRepository stores products in PostgreSQL with the queries sqlc
+// generated from internal/db/queries/products.sql.
+type PostgresRepository struct {
+	db *sql.DB
+	q  *sqlc.Queries
+}
+
+// NewPostgresRepository returns a repository on db, the API's connection
+// pool (or any database a test opens).
+func NewPostgresRepository(db *sql.DB) *PostgresRepository {
+	return &PostgresRepository{db: db, q: sqlc.New(db)}
+}
+
+// ListQuery selects one page of the storefront list.
+type ListQuery struct {
+	// Limit is the most products to return.
+	Limit int
+}
+
+// List returns up to q.Limit active products, newest first, each with its
+// sellable variants.
+func (r *PostgresRepository) List(ctx context.Context, q ListQuery) ([]Product, error) {
+	rows, err := r.q.ListProductsNewest(ctx, int32(q.Limit)) // #nosec G115 -- the service caps Limit at 101
+	if err != nil {
+		return nil, fmt.Errorf("query products: %w", err)
+	}
+	return groupProducts(rows), nil
+}
+
+// GetBySlug returns the active product with slug, or ErrNotFound.
+func (r *PostgresRepository) GetBySlug(ctx context.Context, slug string) (Product, error) {
+	rows, err := r.q.GetActiveProductBySlug(ctx, slug)
+	if err != nil {
+		return Product{}, fmt.Errorf("query product: %w", err)
+	}
+	// The generated row types of the two reads have the same fields, so
+	// Go converts one into the other.
+	page := make([]productRow, len(rows))
+	for i, row := range rows {
+		page[i] = productRow(row)
+	}
+	products := groupProducts(page)
+	if len(products) == 0 {
+		return Product{}, ErrNotFound
+	}
+	return products[0], nil
+}
+
+// productRow is one row of the storefront reads: a product, its category
+// and one of its sellable variants.
+type productRow = sqlc.ListProductsNewestRow
+
+// groupProducts folds rows, which arrive ordered by product, into products
+// with their variants, keeping the order.
+func groupProducts(rows []productRow) []Product {
+	var products []Product
+	for _, row := range rows {
+		if len(products) == 0 || products[len(products)-1].ID != row.ID {
+			products = append(products, Product{
+				ID:          row.ID,
+				Slug:        row.Slug,
+				Name:        row.Name,
+				Description: row.Description,
+				Category: category.Category{
+					ID:       row.CategoryID,
+					Slug:     row.CategorySlug,
+					Name:     row.CategoryName,
+					ParentID: row.CategoryParentID,
+				},
+				PriceFrom: row.PriceFrom.Int64, // never NULL for an active product
+				CreatedAt: row.CreatedAt,
+			})
+		}
+		last := &products[len(products)-1]
+		last.Variants = append(last.Variants, Variant{
+			ID:    row.VariantID,
+			SKU:   row.VariantSku,
+			Name:  row.VariantName,
+			Price: row.VariantPrice,
+			Stock: row.VariantStock,
+		})
+	}
+	return products
+}
+
+// GetAdmin returns the product with id, whatever its status, with its
+// sellable variants, or ErrNotFound.
+func (r *PostgresRepository) GetAdmin(ctx context.Context, id string) (AdminProduct, error) {
+	row, err := r.q.GetProduct(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return AdminProduct{}, ErrNotFound
+	}
+	if err != nil {
+		return AdminProduct{}, fmt.Errorf("query product: %w", err)
+	}
+	variants, err := r.q.ListSellableVariants(ctx, id)
+	if err != nil {
+		return AdminProduct{}, fmt.Errorf("query variants: %w", err)
+	}
+
+	p := AdminProduct{
+		ID:          row.ID,
+		CategoryID:  row.CategoryID,
+		Slug:        row.Slug,
+		Name:        row.Name,
+		Description: row.Description,
+		Status:      row.Status,
+		CreatedAt:   row.CreatedAt,
+		UpdatedAt:   row.UpdatedAt,
+		Variants:    make([]AdminVariant, 0, len(variants)),
+	}
+	if row.PriceFrom.Valid {
+		p.PriceFrom = &row.PriceFrom.Int64
+	}
+	for _, v := range variants {
+		p.Variants = append(p.Variants, AdminVariant{
+			ID: v.ID, SKU: v.Sku, Name: v.Name, Price: v.Price, Stock: v.Stock, WeightGrams: v.WeightGrams,
+		})
+	}
+	return p, nil
+}
+
+// Create stores a new product with its variants in one transaction and
+// returns its ID. Either all of it is stored or none of it.
+func (r *PostgresRepository) Create(ctx context.Context, in Input) (string, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return "", fmt.Errorf("begin: %w", err)
+	}
+	// Rollback after Commit does nothing, so this undoes the work on every
+	// early return and is harmless after success.
+	defer func() { _ = tx.Rollback() }()
+	q := r.q.WithTx(tx)
+
+	id := uuidx.NewV7()
+	err = q.InsertProduct(ctx, sqlc.InsertProductParams{
+		ID: id, CategoryID: in.CategoryID, Slug: in.Slug, Name: in.Name, Description: in.Description,
+	})
+	if err != nil {
+		return "", writeError("insert product", err)
+	}
+	for i, v := range in.Variants {
+		if err := insertVariant(ctx, q, id, i, v); err != nil {
+			return "", err
+		}
+	}
+	if err := updateProduct(ctx, q, id, in); err != nil {
+		return "", err
+	}
+	if err := tx.Commit(); err != nil {
+		return "", fmt.Errorf("commit: %w", err)
+	}
+	return id, nil
+}
+
+// Update saves the product with id and its variants in one transaction: a
+// variant with an ID is updated, one without is added. It returns
+// ErrNotFound for an unknown product and ErrUnknownVariant for a variant ID
+// that is not a sellable variant of it.
+func (r *PostgresRepository) Update(ctx context.Context, id string, in Input) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	q := r.q.WithTx(tx)
+
+	if _, err := q.LockProduct(ctx, id); errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	} else if err != nil {
+		return fmt.Errorf("lock product: %w", err)
+	}
+	for i, v := range in.Variants {
+		if v.ID == "" {
+			err = insertVariant(ctx, q, id, i, v)
+		} else {
+			err = updateVariant(ctx, q, id, i, v)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	if err := updateProduct(ctx, q, id, in); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
+}
+
+// insertVariant and updateVariant store v at position, its index in the
+// admin's list, which orders variants with the same price.
+func insertVariant(ctx context.Context, q *sqlc.Queries, productID string, position int, v VariantInput) error {
+	err := q.InsertVariant(ctx, sqlc.InsertVariantParams{
+		ID: uuidx.NewV7(), ProductID: productID, Position: int16(position), // #nosec G115 -- at most 50 variants
+		Sku: v.SKU, Name: v.Name, Price: v.Price, Stock: v.Stock, WeightGrams: v.WeightGrams,
+	})
+	return writeError("insert variant "+v.SKU, err)
+}
+
+func updateVariant(ctx context.Context, q *sqlc.Queries, productID string, position int, v VariantInput) error {
+	n, err := q.UpdateVariant(ctx, sqlc.UpdateVariantParams{
+		ID: v.ID, ProductID: productID, Position: int16(position), // #nosec G115 -- at most 50 variants
+		Sku: v.SKU, Name: v.Name, Price: v.Price, Stock: v.Stock, WeightGrams: v.WeightGrams,
+	})
+	if err != nil {
+		return writeError("update variant "+v.SKU, err)
+	}
+	if n == 0 {
+		return ErrUnknownVariant
+	}
+	return nil
+}
+
+// updateProduct writes the product's fields and recomputes price_from. It is
+// the last step of every write, after the variants have changed.
+func updateProduct(ctx context.Context, q *sqlc.Queries, id string, in Input) error {
+	n, err := q.UpdateProduct(ctx, sqlc.UpdateProductParams{
+		ID: id, CategoryID: in.CategoryID, Slug: in.Slug, Name: in.Name, Description: in.Description, Status: in.Status,
+	})
+	if err != nil {
+		return writeError("update product", err)
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// writeError turns the constraint violations a client can cause into the
+// package's errors, matched by the constraint names in the migration, and
+// wraps anything else with what was being done. A nil err stays nil.
+func writeError(action string, err error) error {
+	if err == nil {
+		return nil
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		if pgErr.Code == "22021" { // invalid UTF-8 or NUL: a backstop for the handler's checks
+			return ErrInvalidText
+		}
+		switch pgErr.ConstraintName {
+		case "products_slug_key":
+			return ErrSlugTaken
+		case "product_variants_sku_key":
+			return ErrSKUTaken
+		case "products_category_fkey":
+			return ErrUnknownCategory
+		}
+	}
+	return fmt.Errorf("%s: %w", action, err)
+}
