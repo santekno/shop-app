@@ -27,11 +27,13 @@ AIR := $(CURDIR)/$(API)/bin/air-$(AIR_VERSION)/air
 # Pinned so every chapter lints the contract with the same rules.
 REDOCLY := REDOCLY_TELEMETRY=off REDOCLY_SUPPRESS_UPDATE_NOTICE=true npx --yes @redocly/cli@2.66.1
 
-# Where integration tests find the Compose dependencies. testx reads
-# POSTGRES_DSN and REDIS_ADDR and skips the test when they are unset.
+# Where integration tests find the Compose services. testx reads
+# POSTGRES_DSN and REDIS_ADDR and skips the test when they are unset;
+# GOSHOP_API_URL is the api container, which the stack test requires.
 IT_ENV := POSTGRES_DSN='postgres://goshop:goshop@localhost:5432/goshop?sslmode=disable' \
 	REDIS_ADDR=localhost:6379 \
-	S3_ENDPOINT=http://localhost:8333
+	S3_ENDPOINT=http://localhost:8333 \
+	GOSHOP_API_URL=http://127.0.0.1:8080
 
 .PHONY: help doctor build lint lint-openapi test-unit test-integration test-mobile-e2e docker-build scan verify up down dev-api docs-api
 
@@ -76,10 +78,10 @@ ifneq ($(HAS_PNPM),)
 endif
 	@echo "test-unit: ok"
 
-test-integration: ## Integration and e2e tests against the Compose deps; fails on any skipped test
+test-integration: ## Integration and e2e tests against the Compose stack; fails on any skipped test
 	./scripts/no-skips.sh --self-test
 ifneq ($(HAS_API),)
-	$(COMPOSE) up -d --wait postgres redis storage
+	$(COMPOSE) up -d --wait --build postgres redis storage api
 	cd $(API) && $(IT_ENV) ../../scripts/no-skips.sh go test -tags=integration -count=1 -json ./...
 endif
 ifneq ($(HAS_PNPM),)
