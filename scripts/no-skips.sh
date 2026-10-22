@@ -6,8 +6,9 @@
 # as green.
 #
 # usage: scripts/no-skips.sh go test -tags=integration -count=1 -json ./...
-#        scripts/no-skips.sh --self-test   (pass, skip, fail, build failure and
-#                                           missing -json, with jq and without)
+#        scripts/no-skips.sh --self-test   (pass, skip, fail, build failure,
+#                                           unwritable log and missing -json,
+#                                           with jq and without)
 set -uo pipefail
 
 script_path="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
@@ -75,7 +76,7 @@ list_skips() {
 }
 
 run() {
-	local a has_json=0 log status skipped
+	local a has_json=0 log status tee_status skipped
 	for a in "$@"; do [ "$a" = "-json" ] && has_json=1; done
 	if [ $has_json -eq 0 ]; then
 		echo "no-skips: refusing to run: the command has no -json flag, so skips cannot be detected" >&2
@@ -83,10 +84,24 @@ run() {
 		return 2
 	fi
 
-	log=$(mktemp)
-	trap 'rm -f "$log"' RETURN
+	# NO_SKIPS_SELFTEST_LOG lets the self-test point tee at a path it cannot
+	# write; that file is never deleted, only the mktemp one is.
+	if [ -n "${NO_SKIPS_SELFTEST_LOG:-}" ]; then
+		log=$NO_SKIPS_SELFTEST_LOG
+	else
+		log=$(mktemp)
+		trap 'rm -f "$log"' RETURN
+	fi
 	"$@" | tee "$log" | print_events
-	status=${PIPESTATUS[0]} # pipefail semantics: the test command's own status
+	# Copy both statuses at once: the next command resets PIPESTATUS.
+	status=${PIPESTATUS[0]} tee_status=${PIPESTATUS[1]}
+
+	# The skip check reads the log tee wrote. If tee could not write it, an
+	# empty log would look like "no test was skipped", so that must fail.
+	if [ "$tee_status" -ne 0 ]; then
+		echo "no-skips: could not record the test events (tee exit $tee_status), so skips cannot be checked"
+		return 2
+	fi
 
 	skipped=$(list_skips "$log")
 	if [ -n "$skipped" ]; then
@@ -157,6 +172,9 @@ EOF
 		expect 1 'selftest/p TestMaybeSkip' "$no_jq" SELFTEST_SKIP=1
 		expect 1 'boom' "$no_jq" SELFTEST_FAIL=1
 		expect 1 'undefined: undefinedThing' "$no_jq" GOFLAGS=-tags=broken
+		# tee cannot write the log, so a skip would go unseen: must fail.
+		expect 2 'could not record the test events' "$no_jq" SELFTEST_SKIP=1 \
+			NO_SKIPS_SELFTEST_LOG="$tmp/missing-dir/events.json"
 	done
 
 	mode=args
@@ -169,7 +187,7 @@ EOF
 		echo "$out"
 		return 1
 	fi
-	echo "no-skips self-test: ok (pass, skip, fail, build failure with jq and awk decoding; missing -json refused)"
+	echo "no-skips self-test: ok (pass, skip, fail, build failure, unwritable log with jq and awk decoding; missing -json refused)"
 }
 
 case "${1:-}" in

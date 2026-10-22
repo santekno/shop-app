@@ -179,13 +179,35 @@ self_test() {
 	rc=$?
 	[ $rc -ne 0 ] || fail "outside a repository: expected a non-zero exit, got 0"
 
+	# 5. A file grep cannot read: the scan must fail with exit 2 ("grep
+	#    failed"), not pass as "nothing found". root reads any file, so the
+	#    case cannot be set up there and is skipped.
+	local unreadable="unreadable-file run"
+	if [ "$(id -u)" -eq 0 ]; then
+		unreadable="unreadable-file case skipped (running as root)"
+	else
+		mkdir -p "$tmp/locked" && (
+			cd "$tmp/locked" || exit 1
+			git init -q .
+			printf 'nothing secret\n' > readable.txt
+			git add -A >/dev/null
+			printf 'nothing secret\n' > locked.txt
+			chmod 000 locked.txt
+		)
+		out=$(cd "$tmp/locked" && "$script_path" 2>&1)
+		rc=$?
+		chmod 644 "$tmp/locked/locked.txt"
+		[ $rc -eq 2 ] || fail "unreadable file: expected exit 2, got $rc"
+		grep -qF -- 'grep failed' <<<"$out" || fail "unreadable file: output lacks 'grep failed'"
+	fi
+
 	if [ $failed -ne 0 ]; then
 		echo "--- last scanner output ---"
 		echo "$out"
 		return 1
 	fi
 	echo "secret-scan self-test: ok ($caught planted samples caught, $allowed allowed cases passed;" \
-		"subdirectory, one-file and outside-repository runs behave; no secret text printed)"
+		"subdirectory, one-file, outside-repository and $unreadable behave; no secret text printed)"
 }
 
 case "${1:-}" in

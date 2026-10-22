@@ -62,6 +62,7 @@ endif
 	@echo "test-unit: ok"
 
 test-integration: ## Integration and e2e tests against the Compose deps; fails on any skipped test
+	./scripts/no-skips.sh --self-test
 ifneq ($(HAS_API),)
 	$(COMPOSE) up -d --wait postgres redis storage
 	cd $(API) && $(IT_ENV) ../../scripts/no-skips.sh go test -tags=integration -count=1 -json ./...
