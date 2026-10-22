@@ -4,6 +4,14 @@ This is the logical model for the first GoShop features: users, the catalog and 
 
 Every column is `NOT NULL` unless the diagram says `nullable`.
 
+## Built so far
+
+| Chapter | Migration | Tables |
+|---|---|---|
+| Bab 3 | `apps/api/migrations/000001_create_catalog` | `categories`, `products`, `product_variants`, with every constraint and index below that belongs to them |
+
+`users` and `addresses` arrive with their own migration in Bab 4, `orders` and `order_items` in Bab 5. Constraints that the API maps to an error have explicit names (`products_slug_key`, `product_variants_sku_key`, …), so the code matches on a stable name rather than on Postgres's generated one.
+
 ```mermaid
 erDiagram
     users ||--o{ addresses : "has"
@@ -75,6 +83,7 @@ erDiagram
         integer stock "0 or more"
         integer version "optimistic lock, default 0"
         integer weight_grams "above 0"
+        smallint position "order among equal prices, 0 first"
         timestamptz archived_at "nullable, null = sellable"
         timestamptz created_at
         timestamptz updated_at
@@ -160,6 +169,7 @@ The Midtrans `order_id` is not `orders.code`: a buyer may retry payment after an
 | Money is `bigint NOT NULL` whole rupiah | every money column | IDR has no cents in practice; integers are exact, floats are not |
 | `price > 0`, `unit_price > 0`, `weight_grams > 0`, `total_weight_grams > 0`, `quantity > 0` | variants, orders, order items | the database refuses nonsense values even when the code has a bug |
 | `stock integer NOT NULL CHECK (stock >= 0)` | `product_variants` | the last line of defence against overselling (see "Stock and concurrency") |
+| `position smallint NOT NULL CHECK (position >= 0)` | `product_variants` | the order of a product's variants with the same price (S, M, L): the admin's list order. Variants are listed by `price, position, id`; the id alone is not enough, because UUIDv7 ids made in the same millisecond are random among themselves |
 | `line_total = unit_price * quantity` | `order_items` | stored for reporting, but can never disagree with its inputs |
 | `subtotal >= 0 AND shipping_fee >= 0 AND total = subtotal + shipping_fee` | `orders` | the amount charged always adds up |
 | `status <> 'active' OR price_from IS NOT NULL` | `products` | an active product always has a price, so it always has a sellable variant |
