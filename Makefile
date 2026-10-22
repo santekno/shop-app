@@ -33,7 +33,7 @@ IT_ENV := POSTGRES_DSN='postgres://goshop:goshop@localhost:5432/goshop?sslmode=d
 	REDIS_ADDR=localhost:6379 \
 	S3_ENDPOINT=http://localhost:8333
 
-.PHONY: help doctor build lint lint-openapi test-unit test-integration test-mobile-e2e docker-build scan verify up down dev-api
+.PHONY: help doctor build lint lint-openapi test-unit test-integration test-mobile-e2e docker-build scan verify up down dev-api docs-api
 
 help: ## List targets
 	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -93,6 +93,13 @@ ifneq ($(wildcard apps/mobile/.maestro),)
 else
 	@echo "test-mobile-e2e: no Maestro flows yet (they arrive in Bab 15)"
 endif
+
+# Rendered API reference, written to a gitignored folder (dist/ is ignored).
+API_DOCS := dist/api-docs/index.html
+
+docs-api: ## Render api/openapi.yaml to static HTML in dist/api-docs/
+	$(REDOCLY) build-docs api/openapi.yaml --output $(API_DOCS) --title "GoShop API"
+	@echo "docs-api: open $(API_DOCS)"
 
 docker-build: ## Build every service image the compose file defines
 	$(COMPOSE) build

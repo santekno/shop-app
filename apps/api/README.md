@@ -42,6 +42,15 @@ Nothing needs installing: the first run builds the pinned Air version (`AIR_VERS
 
 The Docker `api` service from `make up` also uses port 8080. Stop it first (`docker compose stop api`) or pick another port: `APP_PORT=8081 make dev-api`.
 
+## API documentation
+
+```bash
+make docs-api                 # from the repository root
+open dist/api-docs/index.html # macOS; xdg-open on Linux
+```
+
+`make docs-api` renders `api/openapi.yaml` into one static HTML page with the same pinned Redocly CLI that `make lint` uses for the contract. `dist/` is gitignored: the page is rebuilt from the contract, never edited or committed. The API itself does not serve the docs: `api/openapi.yaml` lives outside the Go module, so embedding it would mean keeping a second copy in sync, and a static page can be opened or hosted anywhere.
+
 ## Checks
 
 ```bash
