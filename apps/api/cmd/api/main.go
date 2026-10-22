@@ -10,10 +10,18 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/santekno/shop-app/apps/api/internal/category"
+	"github.com/santekno/shop-app/apps/api/internal/config"
 	"github.com/santekno/shop-app/apps/api/internal/httpserver"
 )
 
 func main() {
+	// Fail fast: a missing or invalid variable stops the process here, with
+	// a message naming it, before anything listens.
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	categoryRepo := category.NewMemoryRepository(category.SeedCategories())
 	categoryService := category.NewService(categoryRepo)
 	categoryHandler := category.NewHandler(categoryService)
@@ -26,8 +34,8 @@ func main() {
 		r.Route("/v1", categoryHandler.Routes)
 	})
 
-	srv := httpserver.New(":8080", router, 15*time.Second)
-	log.Printf("GoShop API listening on %s", srv.Addr)
+	srv := httpserver.New(cfg.Addr(), router, 15*time.Second)
+	log.Printf("GoShop API (%s) listening on %s", cfg.Env, srv.Addr)
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
 	}
