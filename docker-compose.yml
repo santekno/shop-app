@@ -88,7 +88,12 @@ services:
       APP_REQUEST_TIMEOUT: ${APP_REQUEST_TIMEOUT:-15s}
       APP_DRAIN_DELAY: ${APP_DRAIN_DELAY:-0s}
       APP_SHUTDOWN_TIMEOUT: ${APP_SHUTDOWN_TIMEOUT:-10s}
+      # Inside the Compose network the database host is "postgres", so this
+      # is not taken from .env, whose DATABASE_URL is for tools on the host.
       DATABASE_URL: postgres://goshop:goshop@postgres:5432/goshop?sslmode=disable
+      APP_DB_MAX_OPEN_CONNS: ${APP_DB_MAX_OPEN_CONNS:-10}
+      APP_DB_MAX_IDLE_CONNS: ${APP_DB_MAX_IDLE_CONNS:-5}
+      APP_DB_CONN_MAX_LIFETIME: ${APP_DB_CONN_MAX_LIFETIME:-30m}
     ports:
       - "127.0.0.1:8080:8080"
     healthcheck:

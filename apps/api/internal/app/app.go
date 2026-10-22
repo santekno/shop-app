@@ -1,11 +1,12 @@
 // Package app wires the API together by hand, with no dependency-injection
-// framework: config → logger → repositories → services → handlers → router →
-// server. Reading New from top to bottom shows exactly what the API is made
+// framework: config → logger → database → repositories → services → handlers
+// → router → server. Reading New from top to bottom shows exactly what the API is made
 // of and in which order it starts.
 package app
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"io"
 	"net"
@@ -30,21 +31,23 @@ type App struct {
 	handler   http.Handler
 }
 
-// New builds the API from cfg. Every dependency is created here and passed
-// to the code that needs it; nothing reaches for a global.
-func New(cfg config.Config, logger logx.Logger) *App {
+// New builds the API from cfg on db, the PostgreSQL pool that Run opened.
+// Every dependency is created here and passed to the code that needs it;
+// nothing reaches for a global. New does not close db: whoever opened it
+// does, after the server has stopped.
+func New(cfg config.Config, logger logx.Logger, db *sql.DB) *App {
 	readiness := &health.Readiness{}
 
-	// Repositories: in memory in Bab 2. Bab 3 opens the database here and
-	// passes it to the PostgreSQL repositories instead.
-	categoryRepo := category.NewMemoryRepository(category.SeedCategories())
+	// Repositories: SQL on the shared pool.
+	categoryRepo := category.NewPostgresRepository(db)
 
 	// Services: the business rules, given their repositories.
 	categoryService := category.NewService(categoryRepo)
 
 	// Handlers: HTTP in and out, given their services.
 	categoryHandler := category.NewHandler(categoryService)
-	healthHandler := health.NewHandler(logger, readiness, !cfg.IsDevelopment())
+	healthHandler := health.NewHandler(logger, readiness, !cfg.IsDevelopment(),
+		health.PostgresCheck(db))
 
 	router := httpserver.NewRouter(httpserver.Options{
 		Logger:         logger,
@@ -102,7 +105,15 @@ func Run(ctx context.Context, args []string, stdout io.Writer) error {
 		return fmt.Errorf("unknown arguments %q (usage: api [healthcheck|migrate])", args)
 	}
 
-	a := New(cfg, logger)
+	db, err := database.Open(ctx, cfg.Database, logger)
+	if err != nil {
+		return err
+	}
+	// Deferred, so the pool closes only after Serve has returned, which is
+	// after the last in-flight request finished during graceful shutdown.
+	defer closeDB(db, logger)
+
+	a := New(cfg, logger, db)
 
 	var lc net.ListenConfig
 	ln, err := lc.Listen(ctx, "tcp", cfg.Addr())
@@ -110,6 +121,15 @@ func Run(ctx context.Context, args []string, stdout io.Writer) error {
 		return fmt.Errorf("listen on %s: %w", cfg.Addr(), err)
 	}
 	return a.Serve(ctx, ln)
+}
+
+// closeDB closes the pool, waiting for queries still running to finish.
+func closeDB(db *sql.DB, logger logx.Logger) {
+	if err := db.Close(); err != nil {
+		logger.Error("close database", "error", err.Error())
+		return
+	}
+	logger.Info("database closed")
 }
 
 // runMigrations is `api migrate`: the one way a deployed database gets its

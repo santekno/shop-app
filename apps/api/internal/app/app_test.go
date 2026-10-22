@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -22,8 +23,8 @@ import (
 	"github.com/santekno/shop-app/apps/api/internal/config"
 )
 
-// testDatabaseURL is a valid DATABASE_URL. Serving does not open the
-// database yet, so nothing has to listen there.
+// testDatabaseURL is a valid DATABASE_URL. Nothing listens there in a unit
+// test; Run's tests that reach the database use closedDatabaseURL instead.
 const testDatabaseURL = "postgres://localhost:5432/goshop?sslmode=disable"
 
 // setEnv clears every APP_* variable, PORT and DATABASE_URL for the test,
@@ -60,56 +61,67 @@ func testConfig(env string) config.Config {
 }
 
 func TestApp_Handler(t *testing.T) {
-	a := app.New(testConfig(config.EnvDevelopment), logx.Noop())
+	a := app.New(testConfig(config.EnvDevelopment), logx.Noop(), (&fakeDB{}).open(t))
 	h := a.Handler()
 
 	tests := []struct {
 		path       string
 		wantStatus int
-		check      func(t *testing.T, body []byte)
+		wantBody   string
 	}{
-		{
-			path:       "/v1/categories",
-			wantStatus: http.StatusOK,
-			check: func(t *testing.T, body []byte) {
-				var resp struct {
-					Data []struct {
-						Slug     string  `json:"slug"`
-						ParentID *string `json:"parent_id"`
-					} `json:"data"`
-				}
-				if err := json.Unmarshal(body, &resp); err != nil {
-					t.Fatalf("decode: %v", err)
-				}
-				testx.AssertEqual(t, len(resp.Data), 13, "seeded categories")
-				if len(resp.Data) > 0 {
-					testx.AssertEqual(t, resp.Data[0].Slug, "elektronik", "sorted by the service")
-					testx.AssertTrue(t, resp.Data[0].ParentID == nil)
-				}
-			},
-		},
+		// The route reaches the PostgreSQL repository: the fake database
+		// has no rows, so the list is empty.
+		{path: "/v1/categories", wantStatus: http.StatusOK, wantBody: `{"data":[]}`},
 		{path: "/healthz", wantStatus: http.StatusOK},
 		{path: "/readyz", wantStatus: http.StatusOK},
 		{path: "/categories", wantStatus: http.StatusNotFound},
+		{path: "/products", wantStatus: http.StatusNotFound},
 	}
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
 			rec := httptest.NewRecorder()
 			h.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, tt.path, nil))
-			testx.AssertEqual(t, rec.Code, tt.wantStatus)
+			testx.AssertEqual(t, rec.Code, tt.wantStatus, "body %s", rec.Body.String())
 			testx.AssertTrue(t, rec.Header().Get("X-Request-ID") != "", "the full middleware chain is wired")
-			if tt.check != nil {
-				tt.check(t, rec.Body.Bytes())
+			if tt.wantBody != "" {
+				testx.AssertEqual(t, strings.TrimSpace(rec.Body.String()), tt.wantBody)
 			}
 		})
 	}
 	testx.AssertTrue(t, a.Ready())
 }
 
+// The handlers and /readyz use the pool New was given, not one of their own.
+func TestApp_UsesTheGivenPool(t *testing.T) {
+	db := (&fakeDB{pingErr: errors.New("connection refused"), queryErr: errors.New("connection refused")}).open(t)
+	h := app.New(testConfig(config.EnvDevelopment), logx.Noop(), db).Handler()
+
+	for _, path := range []string{"/v1/categories"} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, path, nil))
+		testx.AssertEqual(t, rec.Code, http.StatusInternalServerError, "%s: body %s", path, rec.Body.String())
+		testx.AssertFalse(t, strings.Contains(rec.Body.String(), "connection refused"), "%s leaks the cause", path)
+	}
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/readyz", nil))
+	testx.AssertEqual(t, rec.Code, http.StatusServiceUnavailable)
+	var probe struct {
+		Checks map[string]struct {
+			Status string `json:"status"`
+		} `json:"checks"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &probe); err != nil {
+		t.Fatalf("decode /readyz %q: %v", rec.Body.String(), err)
+	}
+	testx.AssertEqual(t, probe.Checks["postgres"].Status, "unavailable")
+	testx.AssertEqual(t, probe.Checks["server"].Status, "ok")
+}
+
 // HEAD works on the API and on the probes, with an empty body. It goes
 // through a real server: httptest.ResponseRecorder would keep the GET body.
 func TestApp_Head(t *testing.T) {
-	srv := httptest.NewServer(app.New(testConfig(config.EnvDevelopment), logx.Noop()).Handler())
+	srv := httptest.NewServer(app.New(testConfig(config.EnvDevelopment), logx.Noop(), (&fakeDB{}).open(t)).Handler())
 	defer srv.Close()
 
 	for _, path := range []string{"/v1/categories", "/healthz", "/readyz"} {
@@ -143,7 +155,7 @@ func TestApp_ServeDrainsReadiness(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.env, func(t *testing.T) {
 			var logs bytes.Buffer
-			a := app.New(testConfig(tt.env), logx.New(logx.WithOutput(&logs), logx.WithFormat("json")))
+			a := app.New(testConfig(tt.env), logx.New(logx.WithOutput(&logs), logx.WithFormat("json")), (&fakeDB{}).open(t))
 			var lc net.ListenConfig
 			ln, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
 			if err != nil {
@@ -211,35 +223,6 @@ func (b *syncBuffer) String() string {
 	return b.buf.String()
 }
 
-func TestRun_Serves(t *testing.T) {
-	port := freePort(t)
-	setEnv(t, map[string]string{"APP_ENV": "production", "PORT": strconv.Itoa(port)})
-	var out syncBuffer
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- app.Run(ctx, nil, &out) }()
-
-	waitHealthy(t, port)
-	cancel()
-	select {
-	case err := <-done:
-		testx.AssertNoError(t, err)
-	case <-time.After(5 * time.Second):
-		t.Fatal("Run did not return after cancel")
-	}
-
-	// Production logs are JSON, tagged with service and env.
-	first, _, _ := strings.Cut(out.String(), "\n")
-	var line map[string]any
-	if err := json.Unmarshal([]byte(first), &line); err != nil {
-		t.Fatalf("first log line %q is not JSON: %v", first, err)
-	}
-	testx.AssertEqual(t, line["msg"], any("api listening"))
-	testx.AssertEqual(t, line["service"], any("api"))
-	testx.AssertEqual(t, line["env"], any("production"))
-	testx.AssertContains(t, out.String(), `"msg":"shutdown complete"`)
-}
-
 func TestRun_Healthcheck(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -299,6 +282,18 @@ func TestRun_Errors(t *testing.T) {
 			wantErr: `unknown arguments ["serve"] (usage: api [healthcheck|migrate])`,
 		},
 		{
+			name:    "migrate with extra arguments",
+			env:     map[string]string{"APP_ENV": "production"},
+			args:    []string{"migrate", "now"},
+			wantErr: `unknown arguments ["migrate" "now"] (usage: api [healthcheck|migrate])`,
+		},
+		{
+			name:    "DATABASE_URL is required",
+			env:     map[string]string{"APP_ENV": "production", "DATABASE_URL": ""},
+			args:    nil,
+			wantErr: "DATABASE_URL: is required",
+		},
+		{
 			name:    "healthcheck with extra arguments",
 			env:     map[string]string{"APP_ENV": "production"},
 			args:    []string{"healthcheck", "now"},
@@ -319,20 +314,48 @@ func TestRun_Errors(t *testing.T) {
 	}
 }
 
-func TestRun_ListenError(t *testing.T) {
+// closedDatabaseURL returns a DATABASE_URL for a local port nothing
+// listens on, so opening it fails at once with "connection refused".
+func closedDatabaseURL(t *testing.T) string {
+	t.Helper()
 	var lc net.ListenConfig
-	busy, err := lc.Listen(context.Background(), "tcp", ":0")
+	ln, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	defer func() { _ = busy.Close() }()
-	port := busy.Addr().(*net.TCPAddr).Port
-	setEnv(t, map[string]string{"APP_ENV": "production", "PORT": strconv.Itoa(port)})
+	addr := ln.Addr().String()
+	_ = ln.Close()
+	return "postgres://user:pass@" + addr + "/goshop?sslmode=disable"
+}
 
-	err = app.Run(context.Background(), nil, &bytes.Buffer{})
-
-	if err == nil {
-		t.Fatal("Run: want listen error, got nil")
+// Serving and migrating both start by opening the database, and neither
+// goes on without it. Serving with a reachable database is tested in
+// tests/integration.
+func TestRun_DatabaseUnreachable(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "serve", args: nil},
+		{name: "migrate", args: []string{"migrate"}},
 	}
-	testx.AssertContains(t, err.Error(), "listen on :"+strconv.Itoa(port)+": ")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			port := freePort(t)
+			setEnv(t, map[string]string{
+				"APP_ENV": "production", "PORT": strconv.Itoa(port), "DATABASE_URL": closedDatabaseURL(t),
+			})
+			var out syncBuffer
+
+			err := app.Run(context.Background(), tt.args, &out)
+
+			if err == nil {
+				t.Fatal("Run: want error, got nil")
+			}
+			testx.AssertTrue(t, strings.HasPrefix(err.Error(), "open database: "), "err = %v", err)
+			testx.AssertFalse(t, strings.Contains(err.Error(), "user:pass"), "error repeats the URL: %v", err)
+			testx.AssertFalse(t, strings.Contains(out.String(), "api listening"), "nothing listens without a database")
+			testx.AssertFalse(t, strings.Contains(out.String(), "database migrated"), "nothing is migrated")
+		})
+	}
 }

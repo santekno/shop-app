@@ -28,6 +28,7 @@ import (
 
 	"github.com/santekno/shop-app/apps/api/internal/app"
 	"github.com/santekno/shop-app/apps/api/internal/config"
+	"github.com/santekno/shop-app/apps/api/internal/database"
 	"github.com/santekno/shop-app/apps/api/internal/logging"
 )
 
@@ -59,7 +60,14 @@ func startServer(t *testing.T, env map[string]string) *server {
 
 	logs := &syncBuffer{}
 	logger := logging.New(logs, cfg.IsDevelopment(), cfg.LogLevel).With("env", cfg.Env)
-	a := app.New(cfg, logger)
+	// The pool on DATABASE_URL, as Run opens it. Registered before the
+	// server's cleanup, so it closes after the server has stopped.
+	db, err := database.Open(context.Background(), cfg.Database, logger)
+	if err != nil {
+		t.Fatalf("database.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	a := app.New(cfg, logger, db)
 
 	var lc net.ListenConfig
 	ln, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")

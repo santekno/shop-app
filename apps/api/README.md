@@ -6,28 +6,28 @@ The Go REST API behind the GoShop storefront, admin dashboard and mobile app. Th
 - Entry point: `cmd/api` (`api` serves; `api healthcheck` probes a running API, for Docker)
 - Structure: one folder per feature under `internal/`, each with `model.go`, `repository.go`, `service.go` and `handler.go` ([ADR 0004](../../docs/adr/0004-api-layering.md)); the wiring is plain Go in `internal/app`
 
-## Endpoints (Bab 2)
+## Endpoints
 
 | Method | Path | What |
 |---|---|---|
 | GET | `/healthz` | Liveness: 200 while the process runs |
-| GET | `/readyz` | Readiness: 503 while the server drains during shutdown (dependency checks arrive in Bab 3) |
-| GET | `/v1/categories` | Every category, top-level first, sorted by name. Served from an in-memory repository with seed data; IDs are new UUIDv7s on every start |
+| GET | `/readyz` | Readiness: 503 while the server drains during shutdown, or while PostgreSQL does not answer a ping (`postgres` check) |
+| GET | `/v1/categories` | Every category, top-level first, sorted by name, from PostgreSQL (`make seed` fills it) |
 
 `GET /v1/products` and `GET /v1/products/{slug}` are in the contract but arrive in Bab 3 with PostgreSQL; until then they answer the JSON 404 for unknown routes. Every error, including unknown routes (404 `NOT_FOUND`) and wrong methods (405 `METHOD_NOT_ALLOWED`), uses the body `{"error":{"code","message","details?"}}`.
 
 ## Run it
 
-All settings come from environment variables ([docs/configuration.md](../../docs/configuration.md)). `APP_ENV` is required; everything else has a default.
+All settings come from environment variables ([docs/configuration.md](../../docs/configuration.md)). `APP_ENV` and `DATABASE_URL` are required; everything else has a default. The API pings PostgreSQL once at start and exits if it cannot, then shares one connection pool (`APP_DB_*` sizes it) for its whole life and closes it after graceful shutdown.
 
 ```bash
 # from the repository root
 make up                       # the API in Docker on 127.0.0.1:8080, next to Postgres, Redis, SeaweedFS
 curl -i localhost:8080/v1/categories
 
-# or directly with Go
+# or directly with Go, against the Compose postgres (make migrate-up && make seed first)
 cd apps/api
-APP_ENV=development go run ./cmd/api
+APP_ENV=development DATABASE_URL='postgres://goshop:goshop@localhost:5432/goshop?sslmode=disable' go run ./cmd/api
 ```
 
 ### Hot reload
@@ -69,6 +69,8 @@ Two things to know before the first Railway deploy:
 - **Migrations run while the old version still serves.** The pre-deploy command runs before the new instances start, so the running code must keep working on the new schema. Change it in two steps: *expand* (add a nullable column or a new table) and ship the code that uses it, then *contract* (drop what is no longer used) in a later migration.
 
 `preDeployCommand` is `["/api migrate"]`. The image has no shell, so confirm on the first deploy that Railway splits it into the binary and its argument; if not, write it as `["/api", "migrate"]`.
+
+Railway's deploy healthcheck (`healthcheckPath` in `deploy/railway/api.json`) is `/readyz`, not `/healthz`: Railway only calls it while a new deployment starts, to decide when to switch traffic to it, and never restarts a running container because of it. So it should answer "can this instance serve requests", which includes reaching PostgreSQL. Docker's `HEALTHCHECK` keeps probing `/healthz`, because a container restart does not fix a database outage.
 
 ## Queries with sqlc
 

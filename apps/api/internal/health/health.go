@@ -8,8 +8,20 @@ import (
 	"github.com/santekno/sdk/logx"
 )
 
-// ServerCheckName is the readiness check that fails while the server drains.
-const ServerCheckName = "server"
+// Names of the readiness checks, as they appear under "checks" in /readyz.
+const (
+	// ServerCheckName fails while the server drains.
+	ServerCheckName = "server"
+	// PostgresCheckName fails while the database cannot be reached.
+	PostgresCheckName = "postgres"
+)
+
+// PostgresCheck is the readiness check for the database: a ping through the
+// pool, bounded by healthx's per-check timeout. Pass it to NewHandler, which
+// logs a failure.
+func PostgresCheck(db healthx.Pinger) healthx.NamedCheck {
+	return healthx.NamedCheck{Name: PostgresCheckName, Check: healthx.PingPinger(db)}
+}
 
 // NewHandler returns the probes, built on sdk healthx:
 //

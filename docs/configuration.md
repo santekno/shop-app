@@ -22,7 +22,10 @@ cp .env.example .env   # .env is gitignored; never commit it
 | `APP_REQUEST_TIMEOUT` | api | no | How long one request may run (Go duration, `1s`–`60s`, default `15s`). Past it the context is cancelled and the client gets 503 `TIMEOUT`. | Bab 2 |
 | `APP_DRAIN_DELAY` | api | no | After SIGTERM, how long `/readyz` answers 503 while requests are still served, so a load balancer stops routing here first (Go duration, `0s`–`60s`, default `0s`; use a few seconds behind a load balancer). | Bab 2 |
 | `APP_SHUTDOWN_TIMEOUT` | api | no | How long in-flight requests may take to finish during shutdown (Go duration, `1s`–`60s`, default `10s`). Keep drain delay + shutdown timeout below the platform's kill timeout. | Bab 2 |
-| `DATABASE_URL` | api, worker | **yes** | PostgreSQL connection string. Locally points at the Compose `postgres` service. | Bab 3 |
+| `DATABASE_URL` | api, worker | **yes** | PostgreSQL connection string, `postgres://user:pass@host:5432/dbname?sslmode=…`. Required: the API does not start without it, or when the first ping fails. Locally `.env` points at the Compose `postgres` on `localhost` (for `make dev-api`, `make seed`); the Compose `api` and `migrate` services use the host `postgres` instead. No error message or log line repeats it. | Bab 3 |
+| `APP_DB_MAX_OPEN_CONNS` | api | no | Most connections one API instance opens (`1`–`100`, default `10`). A request that needs one more waits for a free one. Instances × this value must stay below the Postgres plan's connection limit, with room for the worker and migrations. | Bab 3 |
+| `APP_DB_MAX_IDLE_CONNS` | api | no | Unused connections kept open for the next request (`1` up to `APP_DB_MAX_OPEN_CONNS`, default `5`). | Bab 3 |
+| `APP_DB_CONN_MAX_LIFETIME` | api | no | Age after which a connection is closed and replaced (Go duration, `1m`–`24h`, default `30m`), so a database failover or proxy can move connections. | Bab 3 |
 | `REDIS_ADDR` | api, worker | no | Redis `host:port`. | Bab 4 |
 | `JWT_SECRET` | api | **yes** | Key that signs access tokens. At least 32 random bytes; different per environment. | Bab 4 |
 | `S3_ENDPOINT` | api, worker | no | S3 API endpoint. SeaweedFS locally (`http://localhost:8333`), the provider's endpoint in production. | Bab 6 |
@@ -39,11 +42,12 @@ A variable that a chapter does not use yet may stay empty. When a chapter starts
 
 ### Integration tests
 
-`make test-integration` starts the Compose dependencies and sets three variables for the Go integration tests:
+`make test-integration` starts the Compose dependencies (the one-shot `migrate` service applies the migrations first) and sets these variables for the Go integration tests:
 
 | Variable | Value | Read by |
 |---|---|---|
 | `POSTGRES_DSN` | `postgres://goshop:goshop@localhost:5432/goshop?sslmode=disable` | `testx.PostgresContainer` only. **Test-only**: the services read `DATABASE_URL`. |
+| `DATABASE_URL` | the same database | the API when an integration test starts it in-process with `config.Load` |
 | `REDIS_ADDR` | `localhost:6379` | `testx.RedisContainer`, and the api/worker at runtime (see the table above) |
 | `S3_ENDPOINT` | `http://localhost:8333` | storage integration tests, and the api/worker at runtime (see the table above) |
 

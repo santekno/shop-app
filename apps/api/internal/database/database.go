@@ -21,16 +21,24 @@ import (
 const connectTimeout = 10 * time.Second
 
 // Open opens a connection pool to cfg.URL through sdk sqlx with the pgx
-// driver, and pings the database once: the API refuses to start without it.
-// The caller closes the pool.
+// driver, sized by cfg, and pings the database once: the API refuses to
+// start without it. The caller closes the pool.
+//
+// A *sql.DB is a pool, not one connection: it is safe for concurrent use,
+// opens connections when requests need them (up to MaxOpenConns), keeps up
+// to MaxIdleConns of them for reuse, and replaces any older than
+// ConnMaxLifetime. Open it once at start and share it.
 func Open(ctx context.Context, cfg config.Database, logger logx.Logger) (*sql.DB, error) {
 	ctx, cancel := context.WithTimeout(ctx, connectTimeout)
 	defer cancel()
 
 	db, err := sqlx.Open(ctx, sqlx.Config{
-		Driver: "pgx",
-		DSN:    cfg.URL,
-		Logger: logger,
+		Driver:          "pgx",
+		DSN:             cfg.URL,
+		MaxOpenConns:    cfg.MaxOpenConns,
+		MaxIdleConns:    cfg.MaxIdleConns,
+		ConnMaxLifetime: cfg.ConnMaxLifetime,
+		Logger:          logger,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)

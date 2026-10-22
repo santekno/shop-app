@@ -56,8 +56,11 @@ REDOCLY := REDOCLY_TELEMETRY=off REDOCLY_SUPPRESS_UPDATE_NOTICE=true npx --yes @
 
 # Where integration tests find the Compose services. testx reads
 # POSTGRES_DSN and REDIS_ADDR and skips the test when they are unset;
-# GOSHOP_API_URL is the api container, which the stack test requires.
+# DATABASE_URL is the same database for an API started in-process with
+# config.Load; GOSHOP_API_URL is the api container, which the stack test
+# requires.
 IT_ENV := POSTGRES_DSN='postgres://goshop:goshop@localhost:5432/goshop?sslmode=disable' \
+	DATABASE_URL='postgres://goshop:goshop@localhost:5432/goshop?sslmode=disable' \
 	REDIS_ADDR=localhost:6379 \
 	S3_ENDPOINT=http://localhost:8333 \
 	GOSHOP_API_URL=http://127.0.0.1:8080

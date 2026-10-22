@@ -68,10 +68,11 @@ paths:
         Returns 200 when every readiness check passes, 503 otherwise. Load
         balancers stop sending traffic while it fails.
 
-        Bab 2 has one check, `server`: it fails from the moment the API
-        receives SIGTERM until it exits, so traffic drains before shutdown.
-        Bab 3 adds `postgres` and Bab 4 `redis`. The probes run outside the
-        request timeout, so they never answer 503 `TIMEOUT`.
+        Checks: `server` fails from the moment the API receives SIGTERM
+        until it exits, so traffic drains before shutdown; `postgres` (Bab 3)
+        fails while a ping through the connection pool fails or takes longer
+        than 2s. Bab 4 adds `redis`. The probes run outside the request
+        timeout, so they never answer 503 `TIMEOUT`.
       responses:
         "200":
           description: Every readiness check passes.
@@ -83,6 +84,7 @@ paths:
                 status: ok
                 checks:
                   server: { status: ok, duration_ms: 0 }
+                  postgres: { status: ok, duration_ms: 1 }
         "503":
           $ref: "#/components/responses/Unavailable"
 

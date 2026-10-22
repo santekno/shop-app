@@ -40,6 +40,18 @@ const (
 	// Railway kill the process some time after SIGTERM, so waiting longer
 	// would only be cut short.
 	maxStopTime = 60 * time.Second
+
+	// DefaultDBMaxOpenConns is used when APP_DB_MAX_OPEN_CONNS is not set.
+	// Ten connections per instance leave room for several instances, the
+	// worker and migrations under a small Postgres plan's connection limit.
+	DefaultDBMaxOpenConns = 10
+	// DefaultDBMaxIdleConns is used when APP_DB_MAX_IDLE_CONNS is not set.
+	DefaultDBMaxIdleConns = 5
+	// DefaultDBConnMaxLifetime is used when APP_DB_CONN_MAX_LIFETIME is not
+	// set. Recycling connections lets a failover or a load balancer in front
+	// of Postgres move them.
+	DefaultDBConnMaxLifetime = 30 * time.Minute
+	maxDBConns               = 100
 )
 
 // Config is the validated configuration of the API.
@@ -69,11 +81,20 @@ type Config struct {
 	Database Database
 }
 
-// Database configures the PostgreSQL connection.
+// Database configures the PostgreSQL connection pool.
 type Database struct {
 	// URL is DATABASE_URL, e.g. postgres://user:pass@host:5432/db?sslmode=disable.
 	// It holds the password, so it is never logged or put in an error.
 	URL string
+	// MaxOpenConns is APP_DB_MAX_OPEN_CONNS (1-100, default 10): the most
+	// connections this instance opens. A request that needs one more waits.
+	MaxOpenConns int
+	// MaxIdleConns is APP_DB_MAX_IDLE_CONNS (1 to MaxOpenConns, default 5):
+	// how many unused connections stay open for the next request.
+	MaxIdleConns int
+	// ConnMaxLifetime is APP_DB_CONN_MAX_LIFETIME (1m-24h, default 30m):
+	// a connection older than this is closed and replaced.
+	ConnMaxLifetime time.Duration
 }
 
 // IsDevelopment reports whether the API runs on a developer's machine.
@@ -129,6 +150,22 @@ func Load() (Config, error) {
 	// DATABASE_URL has no APP_ prefix: it is the name Railway's Postgres
 	// plugin and most tools use.
 	cfg.Database.URL, err = parseDatabaseURL(os.Getenv("DATABASE_URL"))
+	errs = append(errs, err)
+
+	cfg.Database.MaxOpenConns, err = parseInt("APP_DB_MAX_OPEN_CONNS", src.String("db.max.open.conns"),
+		DefaultDBMaxOpenConns, 1, maxDBConns)
+	errs = append(errs, err)
+
+	cfg.Database.MaxIdleConns, err = parseInt("APP_DB_MAX_IDLE_CONNS", src.String("db.max.idle.conns"),
+		DefaultDBMaxIdleConns, 1, maxDBConns)
+	errs = append(errs, err)
+	if err == nil && cfg.Database.MaxOpenConns > 0 && cfg.Database.MaxIdleConns > cfg.Database.MaxOpenConns {
+		errs = append(errs, fmt.Errorf("APP_DB_MAX_IDLE_CONNS: must not be above APP_DB_MAX_OPEN_CONNS (%d), got %d",
+			cfg.Database.MaxOpenConns, cfg.Database.MaxIdleConns))
+	}
+
+	cfg.Database.ConnMaxLifetime, err = parseDuration("APP_DB_CONN_MAX_LIFETIME", src.String("db.conn.max.lifetime"),
+		DefaultDBConnMaxLifetime, time.Minute, 24*time.Hour)
 	errs = append(errs, err)
 
 	if err := errors.Join(errs...); err != nil {
@@ -215,6 +252,19 @@ func checkOrigin(origin string) error {
 		return errors.New("must not end with a slash: browsers send the origin without one")
 	}
 	return nil
+}
+
+// parseInt parses a whole number between minValue and maxValue; an empty
+// value means def.
+func parseInt(name, value string, def, minValue, maxValue int) (int, error) {
+	if value == "" {
+		return def, nil
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil || n < minValue || n > maxValue {
+		return 0, fmt.Errorf("%s: must be a number between %d and %d, got %q", name, minValue, maxValue, value)
+	}
+	return n, nil
 }
 
 // parseDuration parses a Go duration ("15s", "1m") between minDuration and
