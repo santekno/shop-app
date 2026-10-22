@@ -3,8 +3,9 @@ package main
 
 import (
 	"errors"
-	"log"
+	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -12,21 +13,27 @@ import (
 	"github.com/santekno/shop-app/apps/api/internal/category"
 	"github.com/santekno/shop-app/apps/api/internal/config"
 	"github.com/santekno/shop-app/apps/api/internal/httpserver"
+	"github.com/santekno/shop-app/apps/api/internal/logging"
 )
 
 func main() {
 	// Fail fast: a missing or invalid variable stops the process here, with
-	// a message naming it, before anything listens.
+	// a message naming it, before anything listens. There is no logger yet,
+	// because its format depends on the config.
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatal(err)
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
+
+	logger := logging.New(os.Stdout, cfg.IsDevelopment(), cfg.LogLevel).With("env", cfg.Env)
 
 	categoryRepo := category.NewMemoryRepository(category.SeedCategories())
 	categoryService := category.NewService(categoryRepo)
 	categoryHandler := category.NewHandler(categoryService)
 
 	router := httpserver.NewRouter(func(r chi.Router) {
+		r.Use(logging.Middleware(logger))
 		r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"status":"ok"}` + "\n"))
@@ -35,8 +42,9 @@ func main() {
 	})
 
 	srv := httpserver.New(cfg.Addr(), router, 15*time.Second)
-	log.Printf("GoShop API (%s) listening on %s", cfg.Env, srv.Addr)
+	logger.Info("api listening", "addr", srv.Addr)
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Fatal(err)
+		logger.Error("api stopped", "error", err)
+		os.Exit(1)
 	}
 }

@@ -32,6 +32,8 @@ type Config struct {
 	// Port is the TCP port to listen on: PORT (set by Railway) when present,
 	// otherwise APP_PORT, otherwise DefaultPort.
 	Port int
+	// LogLevel is APP_LOG_LEVEL: debug, info (default), warn or error.
+	LogLevel string
 }
 
 // IsDevelopment reports whether the API runs on a developer's machine.
@@ -43,7 +45,8 @@ func (c Config) Addr() string { return ":" + strconv.Itoa(c.Port) }
 // Load reads the configuration from the process environment and validates it.
 // The error lists every invalid variable, not just the first one.
 func Load() (Config, error) {
-	// configx maps APP_<NAME> to the key "<name>" (APP_ENV → "env").
+	// configx maps APP_<NAME> to the key "<name>", with every _ turned into
+	// a dot: APP_ENV → "env", APP_LOG_LEVEL → "log.level".
 	src, err := configx.Load(
 		configx.WithEnv("APP"),
 		configx.WithRequired("env"),
@@ -53,8 +56,11 @@ func Load() (Config, error) {
 			err, EnvDevelopment, EnvStaging, EnvProduction)
 	}
 
-	cfg := Config{Env: src.String("env")}
-	errs := []error{validateEnv(cfg.Env)}
+	cfg := Config{
+		Env:      src.String("env"),
+		LogLevel: src.StringDefault("log.level", "info"),
+	}
+	errs := []error{validateEnv(cfg.Env), validateLogLevel(cfg.LogLevel)}
 
 	// configx's typed getters turn a malformed number into 0 without an
 	// error, so numbers are read as strings and parsed here.
@@ -78,6 +84,15 @@ func validateEnv(env string) error {
 	default:
 		return fmt.Errorf("APP_ENV: must be %s, %s or %s, got %q",
 			EnvDevelopment, EnvStaging, EnvProduction, env)
+	}
+}
+
+func validateLogLevel(level string) error {
+	switch level {
+	case "debug", "info", "warn", "error":
+		return nil
+	default:
+		return fmt.Errorf("APP_LOG_LEVEL: must be debug, info, warn or error, got %q", level)
 	}
 }
 

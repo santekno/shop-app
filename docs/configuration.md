@@ -17,6 +17,7 @@ cp .env.example .env   # .env is gitignored; never commit it
 | `APP_ENV` | api, worker | no | `development`, `staging` or `production`. Switches log format and safety checks, never business logic. | Bab 2 |
 | `APP_PORT` | api | no | Port to listen on when `PORT` is not set (local default `8080`). | Bab 2 |
 | `PORT` | api | no | Set by Railway at runtime. When present it wins over `APP_PORT`. Do not put it in `.env`. | Bab 2 |
+| `APP_LOG_LEVEL` | api, worker | no | `debug`, `info` (default), `warn` or `error`. Development logs human-readable text, every other environment one JSON object per line. | Bab 2 |
 | `DATABASE_URL` | api, worker | **yes** | PostgreSQL connection string. Locally points at the Compose `postgres` service. | Bab 3 |
 | `REDIS_ADDR` | api, worker | no | Redis `host:port`. | Bab 4 |
 | `JWT_SECRET` | api | **yes** | Key that signs access tokens. At least 32 random bytes; different per environment. | Bab 4 |
