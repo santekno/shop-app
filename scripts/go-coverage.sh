@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
 # Run Go unit tests for a module and fail when statement coverage is below a
-# threshold. Generated code (sqlc output, *_gen.go) and cmd/ entrypoints are
-# excluded, because tests there would only re-test generated or wiring code.
+# threshold.
+#
+# What is measured: every package of the module except cmd/ entrypoints
+# (wiring that internal/app already covers) and generated sqlc code; files
+# named *_gen.go are dropped from the profile too.
+#
+# Every measured package must have at least one test file. That rule is
+# stricter than "the total is high enough", and it also keeps `go test`
+# away from packages without tests, which on Go >= 1.22 need the `covdata`
+# tool that toolchains downloaded by GOTOOLCHAIN=auto do not ship.
 #
 # usage: scripts/go-coverage.sh <module-dir> <min-percent>
 set -euo pipefail
@@ -12,10 +20,41 @@ profile=$(mktemp)
 trap 'rm -f "$profile" "$profile.f"' EXIT
 
 cd "$dir"
-go test -count=1 -coverprofile="$profile" ./...
 
-# Keep the mode line, drop excluded files.
-grep -vE '/(cmd|internal/db/sqlc)/|_gen\.go:' "$profile" > "$profile.f" || true
+# 1. The packages to measure, each with its number of test files
+#    (in-package _test.go files plus external package_test ones).
+listing=$(go list -f '{{.ImportPath}} {{len .TestGoFiles}} {{len .XTestGoFiles}}' ./...)
+packages=()
+untested=()
+while read -r pkg tests xtests; do
+	case "$pkg" in
+	*/cmd/* | */internal/db/sqlc | */internal/db/sqlc/*) continue ;;
+	esac
+	packages+=("$pkg")
+	if [ $((tests + xtests)) -eq 0 ]; then
+		untested+=("$pkg")
+	fi
+done <<<"$listing"
+
+if [ "${#packages[@]}" -eq 0 ]; then
+	echo "coverage: no packages to measure yet"
+	exit 0
+fi
+
+# 2. Every measured package needs tests.
+if [ "${#untested[@]}" -gt 0 ]; then
+	echo "coverage: these packages have no test files (every package needs tests):"
+	for pkg in "${untested[@]}"; do
+		echo "  - $pkg"
+	done
+	exit 1
+fi
+
+# 3. Test only the measured packages; all of them have tests.
+go test -count=1 -coverprofile="$profile" "${packages[@]}"
+
+# 4. Drop generated files (keeping the mode line), then check the total.
+grep -vE '_gen\.go:' "$profile" > "$profile.f" || true
 
 if [ "$(wc -l < "$profile.f")" -le 1 ]; then
 	echo "coverage: no measurable statements yet"
