@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -43,16 +42,14 @@ func main() {
 	categoryRepo := category.NewMemoryRepository(category.SeedCategories())
 	categoryService := category.NewService(categoryRepo)
 	categoryHandler := category.NewHandler(categoryService)
+	healthHandler := health.NewHandler(logger, readiness, !cfg.IsDevelopment())
 
 	router := httpserver.NewRouter(httpserver.Options{
 		Logger:         logger,
 		AllowedOrigins: cfg.CORSAllowedOrigins,
 		RequestTimeout: cfg.RequestTimeout,
+		Probes:         func(r chi.Router) { health.Routes(r, healthHandler) },
 	}, func(r chi.Router) {
-		r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"status":"ok"}` + "\n"))
-		})
 		r.Route("/v1", categoryHandler.Routes)
 	})
 

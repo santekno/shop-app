@@ -64,10 +64,17 @@ paths:
       tags: [Health]
       operationId: getReadyz
       summary: Readiness probe
-      description: Returns 200 when every dependency (PostgreSQL, Redis) answers, 503 otherwise. Load balancers stop sending traffic while it fails.
+      description: |
+        Returns 200 when every readiness check passes, 503 otherwise. Load
+        balancers stop sending traffic while it fails.
+
+        Bab 2 has one check, `server`: it fails from the moment the API
+        receives SIGTERM until it exits, so traffic drains before shutdown.
+        Bab 3 adds `postgres` and Bab 4 `redis`. The probes run outside the
+        request timeout, so they never answer 503 `TIMEOUT`.
       responses:
         "200":
-          description: Every dependency is reachable.
+          description: Every readiness check passes.
           content:
             application/json:
               schema:
@@ -75,8 +82,7 @@ paths:
               example:
                 status: ok
                 checks:
-                  postgres: { status: ok, duration_ms: 2 }
-                  redis: { status: ok, duration_ms: 1 }
+                  server: { status: ok, duration_ms: 0 }
         "503":
           $ref: "#/components/responses/Unavailable"
 

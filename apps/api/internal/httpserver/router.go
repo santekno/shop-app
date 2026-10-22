@@ -23,6 +23,10 @@ type Options struct {
 	AllowedOrigins []string
 	// RequestTimeout is the deadline of each request.
 	RequestTimeout time.Duration
+	// Probes, when set, registers the health probes. They get every
+	// middleware except the request timeout: a probe must stay cheap
+	// and answer on its own terms, never with 503 TIMEOUT.
+	Probes func(r chi.Router)
 }
 
 // NewRouter returns the chi router of the API with the middleware chain every
@@ -57,8 +61,6 @@ func NewRouter(opts Options, mount func(r chi.Router)) http.Handler {
 		//    so clients can check a resource without a HEAD route of its
 		//    own. After CORS, which answers preflights first.
 		chimiddleware.GetHead,
-		// 7. Last, so the deadline covers only the handler's own work.
-		httpapi.Timeout(opts.RequestTimeout),
 	)
 
 	// Unknown routes and wrong methods get the same JSON error body as
@@ -74,7 +76,16 @@ func NewRouter(opts Options, mount func(r chi.Router)) http.Handler {
 		httpapi.Error(w, req, httpapi.MethodNotAllowedError())
 	})
 
-	mount(r)
+	if opts.Probes != nil {
+		opts.Probes(r)
+	}
+	// Everything else runs under the request deadline. A group shares the
+	// router, and its NotFound and 405 handlers, but adds a middleware.
+	r.Group(func(r chi.Router) {
+		// 7. Last, so the deadline covers only the handler's own work.
+		r.Use(httpapi.Timeout(opts.RequestTimeout))
+		mount(r)
+	})
 	return r
 }
 
