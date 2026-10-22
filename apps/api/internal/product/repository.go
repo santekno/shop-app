@@ -28,24 +28,57 @@ func NewPostgresRepository(db *sql.DB) *PostgresRepository {
 
 // ListQuery selects one page of the storefront list.
 type ListQuery struct {
+	// CategoryIDs limits the page to these categories (a category and its
+	// children); nil for every category.
+	CategoryIDs []string
+	// Sort picks the order, and so which of the three queries runs.
+	Sort Sort
 	// After is where the page starts: just after this position.
 	After position
 	// Limit is the most products to return.
 	Limit int
 }
 
-// List returns up to q.Limit active products after q.After, newest first,
+// List returns up to q.Limit active products after q.After in q.Sort order,
 // each with its sellable variants.
 func (r *PostgresRepository) List(ctx context.Context, q ListQuery) ([]Product, error) {
-	rows, err := r.q.ListProductsNewest(ctx, sqlc.ListProductsNewestParams{
-		CursorCreatedAt: q.After.CreatedAt,
-		CursorID:        q.After.ID,
-		PageSize:        int32(q.Limit), // #nosec G115 -- the service caps Limit at 101
-	})
-	if err != nil {
-		return nil, fmt.Errorf("query products: %w", err)
+	limit := int32(q.Limit) // #nosec G115 -- the service caps Limit at 101
+	var page []productRow
+	switch q.Sort {
+	case SortNewest:
+		rows, err := r.q.ListProductsNewest(ctx, sqlc.ListProductsNewestParams{
+			CategoryIds: q.CategoryIDs, CursorCreatedAt: q.After.CreatedAt, CursorID: q.After.ID, PageSize: limit,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("query products: %w", err)
+		}
+		page = rows
+	case SortPriceAsc:
+		rows, err := r.q.ListProductsPriceAsc(ctx, sqlc.ListProductsPriceAscParams{
+			CategoryIds: q.CategoryIDs, CursorPrice: q.After.Price, CursorID: q.After.ID, PageSize: limit,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("query products: %w", err)
+		}
+		// The three list queries return the same columns, so their
+		// generated row types convert into one another.
+		for _, row := range rows {
+			page = append(page, productRow(row))
+		}
+	case SortPriceDesc:
+		rows, err := r.q.ListProductsPriceDesc(ctx, sqlc.ListProductsPriceDescParams{
+			CategoryIds: q.CategoryIDs, CursorPrice: q.After.Price, CursorID: q.After.ID, PageSize: limit,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("query products: %w", err)
+		}
+		for _, row := range rows {
+			page = append(page, productRow(row))
+		}
+	default:
+		return nil, fmt.Errorf("query products: unknown sort %q", q.Sort)
 	}
-	return groupProducts(rows), nil
+	return groupProducts(page), nil
 }
 
 // GetBySlug returns the active product with slug, or ErrNotFound.

@@ -18,6 +18,9 @@ import (
 type Repository interface {
 	// List returns every category, in no particular order.
 	List(ctx context.Context) ([]Category, error)
+	// IDsBySlug returns the IDs of the category with slug and of its
+	// children, or ErrNotFound.
+	IDsBySlug(ctx context.Context, slug string) ([]string, error)
 }
 
 // PostgresRepository reads categories from PostgreSQL with the queries sqlc
@@ -50,6 +53,19 @@ func (r *PostgresRepository) List(ctx context.Context) ([]Category, error) {
 	return categories, nil
 }
 
+// IDsBySlug returns the IDs of the category with slug and of its children,
+// or ErrNotFound.
+func (r *PostgresRepository) IDsBySlug(ctx context.Context, slug string) ([]string, error) {
+	ids, err := r.q.ListCategoryTreeIDs(ctx, slug)
+	if err != nil {
+		return nil, fmt.Errorf("query category %s: %w", slug, err)
+	}
+	if len(ids) == 0 {
+		return nil, ErrNotFound
+	}
+	return ids, nil
+}
+
 // MemoryRepository keeps categories in memory. It is read-only, so it is safe
 // for concurrent use without a lock.
 type MemoryRepository struct {
@@ -70,6 +86,30 @@ func (m *MemoryRepository) List(ctx context.Context) ([]Category, error) {
 		return nil, err
 	}
 	return slices.Clone(m.categories), nil
+}
+
+// IDsBySlug returns the IDs of the category with slug and of its children,
+// or ErrNotFound.
+func (m *MemoryRepository) IDsBySlug(ctx context.Context, slug string) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	var id string
+	for _, c := range m.categories {
+		if c.Slug == slug {
+			id = c.ID
+		}
+	}
+	if id == "" {
+		return nil, ErrNotFound
+	}
+	ids := []string{id}
+	for _, c := range m.categories {
+		if c.ParentID != nil && *c.ParentID == id {
+			ids = append(ids, c.ID)
+		}
+	}
+	return ids, nil
 }
 
 // SeedCategories returns the categories GoShop starts with: cmd/seed (make

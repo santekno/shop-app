@@ -9,6 +9,8 @@ import (
 	"context"
 	"database/sql"
 	"time"
+
+	"github.com/lib/pq"
 )
 
 const getActiveProductBySlug = `-- name: GetActiveProductBySlug :many
@@ -178,13 +180,16 @@ func (q *Queries) InsertVariant(ctx context.Context, arg InsertVariantParams) er
 
 const listProductsNewest = `-- name: ListProductsNewest :many
 
+
 WITH page AS (
     SELECT p.id, p.category_id, p.slug, p.name, p.description, p.price_from, p.created_at
     FROM products p
     WHERE p.status = 'active'
-      AND (p.created_at, p.id) < ($1::timestamptz, $2::uuid)
+      AND ($1::uuid[] IS NULL
+           OR p.category_id = ANY($1::uuid[]))
+      AND (p.created_at, p.id) < ($2::timestamptz, $3::uuid)
     ORDER BY p.created_at DESC, p.id DESC
-    LIMIT $3
+    LIMIT $4
 )
 SELECT page.id, page.slug, page.name, page.description, page.price_from, page.created_at,
        c.id AS category_id, c.slug AS category_slug, c.name AS category_name, c.parent_id AS category_parent_id,
@@ -196,6 +201,7 @@ ORDER BY page.created_at DESC, page.id DESC, v.price, v.position, v.id
 `
 
 type ListProductsNewestParams struct {
+	CategoryIds     []string
 	CursorCreatedAt time.Time
 	CursorID        string
 	PageSize        int32
@@ -226,13 +232,27 @@ type ListProductsNewestRow struct {
 // one sellable variant (products_active_price_check, with UpdateProduct
 // recomputing price_from in the same transaction), so an inner join never
 // drops one. Variants with the same price keep the admin's order (position).
-// A page of active products, newest first, with their sellable variants in
-// the same query (no N+1). The page CTE picks the products, so LIMIT counts
-// products, not variant rows. The page starts after the cursor's
-// (created_at, id); the row comparison matches the index
-// products_active_newest_idx, so Postgres jumps straight to it.
+// The three list queries differ only in their sort, and so in their cursor
+// condition and ORDER BY: one fixed query per sort, never SQL built from
+// the request. Each is a page of active products with their sellable
+// variants in the same query (no N+1); the page CTE picks the products, so
+// LIMIT counts products, not variant rows. The page starts just after the
+// cursor; the row comparison (a, b) < (x, y) matches the index on (a, b),
+// so Postgres jumps straight to it.
+//
+// The filters are the same in all three. category_ids NULL means every
+// category; otherwise it holds the IDs of a category and its children
+// (ListCategoryTreeIDs), matched with = ANY, so Postgres can also read
+// products_active_category_newest_idx once per category.
+// sort=newest, served by products_active_newest_idx (or
+// products_active_category_newest_idx with a category).
 func (q *Queries) ListProductsNewest(ctx context.Context, arg ListProductsNewestParams) ([]ListProductsNewestRow, error) {
-	rows, err := q.db.QueryContext(ctx, listProductsNewest, arg.CursorCreatedAt, arg.CursorID, arg.PageSize)
+	rows, err := q.db.QueryContext(ctx, listProductsNewest,
+		pq.Array(arg.CategoryIds),
+		arg.CursorCreatedAt,
+		arg.CursorID,
+		arg.PageSize,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -240,6 +260,186 @@ func (q *Queries) ListProductsNewest(ctx context.Context, arg ListProductsNewest
 	var items []ListProductsNewestRow
 	for rows.Next() {
 		var i ListProductsNewestRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Slug,
+			&i.Name,
+			&i.Description,
+			&i.PriceFrom,
+			&i.CreatedAt,
+			&i.CategoryID,
+			&i.CategorySlug,
+			&i.CategoryName,
+			&i.CategoryParentID,
+			&i.VariantID,
+			&i.VariantSku,
+			&i.VariantName,
+			&i.VariantPrice,
+			&i.VariantStock,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listProductsPriceAsc = `-- name: ListProductsPriceAsc :many
+WITH page AS (
+    SELECT p.id, p.category_id, p.slug, p.name, p.description, p.price_from, p.created_at
+    FROM products p
+    WHERE p.status = 'active'
+      AND ($1::uuid[] IS NULL
+           OR p.category_id = ANY($1::uuid[]))
+      AND (p.price_from, p.id) > ($2::bigint, $3::uuid)
+    ORDER BY p.price_from, p.id
+    LIMIT $4
+)
+SELECT page.id, page.slug, page.name, page.description, page.price_from, page.created_at,
+       c.id AS category_id, c.slug AS category_slug, c.name AS category_name, c.parent_id AS category_parent_id,
+       v.id AS variant_id, v.sku AS variant_sku, v.name AS variant_name, v.price AS variant_price, v.stock AS variant_stock
+FROM page
+JOIN categories c ON c.id = page.category_id
+JOIN product_variants v ON v.product_id = page.id AND v.archived_at IS NULL
+ORDER BY page.price_from, page.id, v.price, v.position, v.id
+`
+
+type ListProductsPriceAscParams struct {
+	CategoryIds []string
+	CursorPrice int64
+	CursorID    string
+	PageSize    int32
+}
+
+type ListProductsPriceAscRow struct {
+	ID               string
+	Slug             string
+	Name             string
+	Description      string
+	PriceFrom        sql.NullInt64
+	CreatedAt        time.Time
+	CategoryID       string
+	CategorySlug     string
+	CategoryName     string
+	CategoryParentID *string
+	VariantID        string
+	VariantSku       string
+	VariantName      string
+	VariantPrice     int64
+	VariantStock     int32
+}
+
+// sort=price_asc, served by products_active_price_idx.
+func (q *Queries) ListProductsPriceAsc(ctx context.Context, arg ListProductsPriceAscParams) ([]ListProductsPriceAscRow, error) {
+	rows, err := q.db.QueryContext(ctx, listProductsPriceAsc,
+		pq.Array(arg.CategoryIds),
+		arg.CursorPrice,
+		arg.CursorID,
+		arg.PageSize,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListProductsPriceAscRow
+	for rows.Next() {
+		var i ListProductsPriceAscRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Slug,
+			&i.Name,
+			&i.Description,
+			&i.PriceFrom,
+			&i.CreatedAt,
+			&i.CategoryID,
+			&i.CategorySlug,
+			&i.CategoryName,
+			&i.CategoryParentID,
+			&i.VariantID,
+			&i.VariantSku,
+			&i.VariantName,
+			&i.VariantPrice,
+			&i.VariantStock,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listProductsPriceDesc = `-- name: ListProductsPriceDesc :many
+WITH page AS (
+    SELECT p.id, p.category_id, p.slug, p.name, p.description, p.price_from, p.created_at
+    FROM products p
+    WHERE p.status = 'active'
+      AND ($1::uuid[] IS NULL
+           OR p.category_id = ANY($1::uuid[]))
+      AND (p.price_from, p.id) < ($2::bigint, $3::uuid)
+    ORDER BY p.price_from DESC, p.id DESC
+    LIMIT $4
+)
+SELECT page.id, page.slug, page.name, page.description, page.price_from, page.created_at,
+       c.id AS category_id, c.slug AS category_slug, c.name AS category_name, c.parent_id AS category_parent_id,
+       v.id AS variant_id, v.sku AS variant_sku, v.name AS variant_name, v.price AS variant_price, v.stock AS variant_stock
+FROM page
+JOIN categories c ON c.id = page.category_id
+JOIN product_variants v ON v.product_id = page.id AND v.archived_at IS NULL
+ORDER BY page.price_from DESC, page.id DESC, v.price, v.position, v.id
+`
+
+type ListProductsPriceDescParams struct {
+	CategoryIds []string
+	CursorPrice int64
+	CursorID    string
+	PageSize    int32
+}
+
+type ListProductsPriceDescRow struct {
+	ID               string
+	Slug             string
+	Name             string
+	Description      string
+	PriceFrom        sql.NullInt64
+	CreatedAt        time.Time
+	CategoryID       string
+	CategorySlug     string
+	CategoryName     string
+	CategoryParentID *string
+	VariantID        string
+	VariantSku       string
+	VariantName      string
+	VariantPrice     int64
+	VariantStock     int32
+}
+
+// sort=price_desc, served by products_active_price_idx scanned backwards.
+func (q *Queries) ListProductsPriceDesc(ctx context.Context, arg ListProductsPriceDescParams) ([]ListProductsPriceDescRow, error) {
+	rows, err := q.db.QueryContext(ctx, listProductsPriceDesc,
+		pq.Array(arg.CategoryIds),
+		arg.CursorPrice,
+		arg.CursorID,
+		arg.PageSize,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListProductsPriceDescRow
+	for rows.Next() {
+		var i ListProductsPriceDescRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Slug,

@@ -6,16 +6,28 @@
 -- recomputing price_from in the same transaction), so an inner join never
 -- drops one. Variants with the same price keep the admin's order (position).
 
+-- The three list queries differ only in their sort, and so in their cursor
+-- condition and ORDER BY: one fixed query per sort, never SQL built from
+-- the request. Each is a page of active products with their sellable
+-- variants in the same query (no N+1); the page CTE picks the products, so
+-- LIMIT counts products, not variant rows. The page starts just after the
+-- cursor; the row comparison (a, b) < (x, y) matches the index on (a, b),
+-- so Postgres jumps straight to it.
+--
+-- The filters are the same in all three. category_ids NULL means every
+-- category; otherwise it holds the IDs of a category and its children
+-- (ListCategoryTreeIDs), matched with = ANY, so Postgres can also read
+-- products_active_category_newest_idx once per category.
+
 -- name: ListProductsNewest :many
--- A page of active products, newest first, with their sellable variants in
--- the same query (no N+1). The page CTE picks the products, so LIMIT counts
--- products, not variant rows. The page starts after the cursor's
--- (created_at, id); the row comparison matches the index
--- products_active_newest_idx, so Postgres jumps straight to it.
+-- sort=newest, served by products_active_newest_idx (or
+-- products_active_category_newest_idx with a category).
 WITH page AS (
     SELECT p.id, p.category_id, p.slug, p.name, p.description, p.price_from, p.created_at
     FROM products p
     WHERE p.status = 'active'
+      AND (sqlc.narg('category_ids')::uuid[] IS NULL
+           OR p.category_id = ANY(sqlc.narg('category_ids')::uuid[]))
       AND (p.created_at, p.id) < (@cursor_created_at::timestamptz, @cursor_id::uuid)
     ORDER BY p.created_at DESC, p.id DESC
     LIMIT @page_size
@@ -27,6 +39,46 @@ FROM page
 JOIN categories c ON c.id = page.category_id
 JOIN product_variants v ON v.product_id = page.id AND v.archived_at IS NULL
 ORDER BY page.created_at DESC, page.id DESC, v.price, v.position, v.id;
+
+-- name: ListProductsPriceAsc :many
+-- sort=price_asc, served by products_active_price_idx.
+WITH page AS (
+    SELECT p.id, p.category_id, p.slug, p.name, p.description, p.price_from, p.created_at
+    FROM products p
+    WHERE p.status = 'active'
+      AND (sqlc.narg('category_ids')::uuid[] IS NULL
+           OR p.category_id = ANY(sqlc.narg('category_ids')::uuid[]))
+      AND (p.price_from, p.id) > (@cursor_price::bigint, @cursor_id::uuid)
+    ORDER BY p.price_from, p.id
+    LIMIT @page_size
+)
+SELECT page.id, page.slug, page.name, page.description, page.price_from, page.created_at,
+       c.id AS category_id, c.slug AS category_slug, c.name AS category_name, c.parent_id AS category_parent_id,
+       v.id AS variant_id, v.sku AS variant_sku, v.name AS variant_name, v.price AS variant_price, v.stock AS variant_stock
+FROM page
+JOIN categories c ON c.id = page.category_id
+JOIN product_variants v ON v.product_id = page.id AND v.archived_at IS NULL
+ORDER BY page.price_from, page.id, v.price, v.position, v.id;
+
+-- name: ListProductsPriceDesc :many
+-- sort=price_desc, served by products_active_price_idx scanned backwards.
+WITH page AS (
+    SELECT p.id, p.category_id, p.slug, p.name, p.description, p.price_from, p.created_at
+    FROM products p
+    WHERE p.status = 'active'
+      AND (sqlc.narg('category_ids')::uuid[] IS NULL
+           OR p.category_id = ANY(sqlc.narg('category_ids')::uuid[]))
+      AND (p.price_from, p.id) < (@cursor_price::bigint, @cursor_id::uuid)
+    ORDER BY p.price_from DESC, p.id DESC
+    LIMIT @page_size
+)
+SELECT page.id, page.slug, page.name, page.description, page.price_from, page.created_at,
+       c.id AS category_id, c.slug AS category_slug, c.name AS category_name, c.parent_id AS category_parent_id,
+       v.id AS variant_id, v.sku AS variant_sku, v.name AS variant_name, v.price AS variant_price, v.stock AS variant_stock
+FROM page
+JOIN categories c ON c.id = page.category_id
+JOIN product_variants v ON v.product_id = page.id AND v.archived_at IS NULL
+ORDER BY page.price_from DESC, page.id DESC, v.price, v.position, v.id;
 
 -- name: GetActiveProductBySlug :many
 -- One active product with its sellable variants, cheapest first. No rows

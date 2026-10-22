@@ -680,7 +680,7 @@ components:
 
   responses:
     BadRequest:
-      description: A query parameter is invalid, or `category` names no category.
+      description: A query parameter is invalid (including a `cursor` the API did not make for the same `category`, `q` and `sort`), or `category` names no category.
       content:
         application/json:
           schema:
@@ -702,6 +702,14 @@ components:
                   message: category not found
                   details:
                     category: sepatu
+            invalidCursor:
+              summary: The cursor is not from page.next_cursor for these filters
+              value:
+                error:
+                  code: VALIDATION_FAILED
+                  message: invalid query parameters
+                  details:
+                    cursor: is not a cursor from page.next_cursor for these filters; start again without it
     BadWrite:
       description: The body is not valid JSON or breaks the schema (`VALIDATION_FAILED`, with one entry per field such as `variants[0].price`), or `category_id` names no category (`UNKNOWN_CATEGORY`).
       content:

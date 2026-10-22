@@ -17,6 +17,18 @@ type fakeRepo struct {
 	err        error
 }
 
+func (f fakeRepo) IDsBySlug(_ context.Context, slug string) ([]string, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	for _, c := range f.categories {
+		if c.Slug == slug {
+			return []string{c.ID, c.ID + "-child"}, nil
+		}
+	}
+	return nil, category.ErrNotFound
+}
+
 func (f fakeRepo) List(context.Context) ([]category.Category, error) {
 	if f.err != nil {
 		return nil, f.err

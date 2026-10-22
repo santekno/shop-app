@@ -9,20 +9,6 @@ import (
 	"context"
 )
 
-const getCategoryIDBySlug = `-- name: GetCategoryIDBySlug :one
-SELECT id
-FROM categories
-WHERE slug = $1
-`
-
-// Resolves the ?category= filter; no row means the slug is unknown.
-func (q *Queries) GetCategoryIDBySlug(ctx context.Context, slug string) (string, error) {
-	row := q.db.QueryRowContext(ctx, getCategoryIDBySlug, slug)
-	var id string
-	err := row.Scan(&id)
-	return id, err
-}
-
 const listCategories = `-- name: ListCategories :many
 SELECT id, parent_id, name, slug
 FROM categories
@@ -54,6 +40,39 @@ func (q *Queries) ListCategories(ctx context.Context) ([]ListCategoriesRow, erro
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCategoryTreeIDs = `-- name: ListCategoryTreeIDs :many
+SELECT c.id
+FROM categories c
+JOIN categories t ON c.id = t.id OR c.parent_id = t.id
+WHERE t.slug = $1
+`
+
+// What ?category= covers: the category with slug and its children (two
+// levels at most, so one level of children is all). No rows means the slug
+// is unknown.
+func (q *Queries) ListCategoryTreeIDs(ctx context.Context, slug string) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listCategoryTreeIDs, slug)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err

@@ -2,7 +2,10 @@ package product
 
 import (
 	"context"
+	"errors"
 	"fmt"
+
+	"github.com/santekno/shop-app/apps/api/internal/category"
 )
 
 // Repository is where products are stored. The service depends on this
@@ -15,20 +18,35 @@ type Repository interface {
 	Update(ctx context.Context, id string, in Input) error
 }
 
+// CategoryFinder resolves a category slug; category.Service is one. The
+// product feature asks the category feature instead of reading its tables.
+type CategoryFinder interface {
+	// IDsBySlug returns the IDs of the category and its children, or
+	// category.ErrNotFound for an unknown slug.
+	IDsBySlug(ctx context.Context, slug string) ([]string, error)
+}
+
 // Service holds the product rules: what a page is, and what a valid save
 // is. The repository holds the SQL and the transactions.
 type Service struct {
-	repo Repository
+	repo       Repository
+	categories CategoryFinder
 }
 
-// NewService returns a Service on repo.
-func NewService(repo Repository) *Service {
-	return &Service{repo: repo}
+// NewService returns a Service on repo that resolves category filters with
+// categories.
+func NewService(repo Repository, categories CategoryFinder) *Service {
+	return &Service{repo: repo, categories: categories}
 }
 
 // ListParams is one storefront list request, already validated by the
 // handler.
 type ListParams struct {
+	// Category is a category slug; empty for every category. Products of
+	// its child categories are included.
+	Category string
+	// Sort is the order; the zero value is not valid, use SortNewest.
+	Sort Sort
 	// Cursor is page.next_cursor of the previous page; empty for the first.
 	Cursor string
 	// Limit is the page size, 1 to MaxLimit.
@@ -46,20 +64,38 @@ type Page struct {
 	NextCursor string
 }
 
-// List returns one page of active products, newest first, and the cursor
-// of the next page. It returns ErrInvalidCursor for a cursor this API did
-// not make.
+// List returns one page of active products and the cursor of the next
+// page. It returns ErrUnknownCategory for a category slug that names no
+// category, and ErrInvalidCursor for a cursor this API did not make for the
+// same sort and filters.
 func (s *Service) List(ctx context.Context, params ListParams) (Page, error) {
 	if params.Limit < 1 || params.Limit > MaxLimit {
 		return Page{}, fmt.Errorf("list products: limit %d out of range", params.Limit)
 	}
-	after, err := decodeCursor(params.Cursor)
+	switch params.Sort {
+	case SortNewest, SortPriceAsc, SortPriceDesc:
+	default:
+		return Page{}, fmt.Errorf("list products: unknown sort %q", params.Sort)
+	}
+	after, err := decodeCursor(params)
 	if err != nil {
 		return Page{}, err
 	}
+	query := ListQuery{Sort: params.Sort, After: after, Limit: params.Limit + 1}
+	if params.Category != "" {
+		ids, err := s.categories.IDsBySlug(ctx, params.Category)
+		if errors.Is(err, category.ErrNotFound) {
+			return Page{}, ErrUnknownCategory
+		}
+		if err != nil {
+			return Page{}, fmt.Errorf("list products: %w", err)
+		}
+		query.CategoryIDs = ids
+	}
+
 	// One more than asked: if it comes back, there is a next page, and no
 	// COUNT(*) is needed to know it.
-	products, err := s.repo.List(ctx, ListQuery{After: after, Limit: params.Limit + 1})
+	products, err := s.repo.List(ctx, query)
 	if err != nil {
 		return Page{}, fmt.Errorf("list products: %w", err)
 	}
@@ -67,7 +103,7 @@ func (s *Service) List(ctx context.Context, params ListParams) (Page, error) {
 		return Page{Products: products}, nil
 	}
 	products = products[:params.Limit]
-	return Page{Products: products, NextCursor: encodeCursor(products[len(products)-1])}, nil
+	return Page{Products: products, NextCursor: encodeCursor(params, products[len(products)-1])}, nil
 }
 
 // Get returns the active product with slug, or ErrNotFound.

@@ -61,18 +61,35 @@ func (h *Handler) Routes(r chi.Router) {
 // listQuery is the query string of GET /v1/products, with the contract's
 // defaults set before binding.
 type listQuery struct {
-	Cursor string `query:"cursor" validate:"omitempty,max=512"`
-	Limit  int    `query:"limit" validate:"min=1,max=100"`
+	Category string `query:"category" validate:"omitempty,max=100"`
+	Sort     string `query:"sort" validate:"oneof=newest price_asc price_desc"`
+	Cursor   string `query:"cursor" validate:"omitempty,max=512"`
+	Limit    int    `query:"limit" validate:"min=1,max=100"`
 }
 
 // List serves GET /v1/products.
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
-	q := listQuery{Limit: 20}
+	q := listQuery{Sort: string(SortNewest), Limit: 20}
 	if err := h.validator.BindQuery(r, &q); err != nil {
 		httpapi.Error(w, r, err)
 		return
 	}
-	page, err := h.catalog.List(r.Context(), ListParams{Cursor: q.Cursor, Limit: q.Limit})
+	if q.Category != "" && !slugPattern.MatchString(q.Category) {
+		httpapi.Error(w, r, httpapi.ValidationError("invalid query parameters", map[string]any{
+			"category": "must be a category slug such as kaos",
+		}))
+		return
+	}
+	page, err := h.catalog.List(r.Context(), ListParams{
+		Category: q.Category, Sort: Sort(q.Sort), Cursor: q.Cursor, Limit: q.Limit,
+	})
+	if errors.Is(err, ErrUnknownCategory) {
+		// A typo is not mistaken for an empty category.
+		httpapi.Error(w, r, errx.New(CodeUnknownCategory, "category not found").
+			WithHTTPStatus(http.StatusBadRequest).
+			WithDetails(map[string]any{"category": q.Category}))
+		return
+	}
 	if err != nil {
 		httpapi.Error(w, r, toHTTPError(err))
 		return

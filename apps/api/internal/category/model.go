@@ -2,6 +2,11 @@
 // browse by, two levels deep (for example Pakaian → Kaos).
 package category
 
+import "errors"
+
+// ErrNotFound means no category has the slug.
+var ErrNotFound = errors.New("category not found")
+
 // Category is one category. ParentID is nil for a top-level category.
 type Category struct {
 	ID       string

@@ -223,6 +223,9 @@ func decodeQuery(query url.Values, dst any) (map[string]any, error) {
 func setField(f reflect.Value, raw string) (string, error) {
 	switch f.Kind() {
 	case reflect.String:
+		if !ValidText(raw) {
+			return InvalidTextMessage, nil
+		}
 		f.SetString(raw)
 	case reflect.Int, reflect.Int64:
 		n, err := strconv.ParseInt(raw, 10, 64)

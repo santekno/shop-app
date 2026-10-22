@@ -92,6 +92,8 @@ make sqlc-check   # fail when the committed code does not match the SQL (part of
 
 Repositories call the generated methods and map their rows to the feature's own types, so a column change surfaces as a compile error in one place. Like golangci-lint, sqlc is pinned (`SQLC_VERSION`) and built into `apps/api/bin/` on first use; it needs a C compiler, because it embeds PostgreSQL's parser.
 
+`go.mod` lists `github.com/lib/pq` although the API talks to PostgreSQL through pgx. sqlc's `database/sql` output passes array parameters (the category filter's `uuid[]`, the variants to keep when archiving) through `pq.Array`, which only turns a Go slice into a Postgres array literal. No connection is ever opened with lib/pq.
+
 ## API documentation
 
 ```bash

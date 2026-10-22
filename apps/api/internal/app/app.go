@@ -46,7 +46,7 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB) *App {
 
 	// Services: the business rules, given their repositories.
 	categoryService := category.NewService(categoryRepo)
-	productService := product.NewService(productRepo)
+	productService := product.NewService(productRepo, categoryService)
 
 	// Handlers: HTTP in and out, given their services.
 	validator := httpapi.NewValidator()

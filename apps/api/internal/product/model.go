@@ -17,6 +17,16 @@ const (
 	StatusArchived = "archived"
 )
 
+// Sort is the order of the storefront list.
+type Sort string
+
+// The sorts the contract allows. Price sorts use price_from.
+const (
+	SortNewest    Sort = "newest"
+	SortPriceAsc  Sort = "price_asc"
+	SortPriceDesc Sort = "price_desc"
+)
+
 // Product is a product as the storefront shows it: active, with its
 // sellable variants only.
 type Product struct {
