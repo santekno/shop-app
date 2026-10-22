@@ -288,3 +288,146 @@ func TestValidator_Struct_NotAStruct(t *testing.T) {
 	testx.AssertFalse(t, errors.As(err, &appErr), "want a plain error, got %v", err)
 	testx.AssertContains(t, err.Error(), "validate int: ")
 }
+
+// tagged has a top-level slice checked with dive: rules before dive apply
+// to the slice, rules after it to each element.
+type tagged struct {
+	Name string   `json:"name" validate:"required"`
+	Tags []string `json:"tags" validate:"required,min=1,max=3,dive,min=2,max=5"`
+}
+
+func TestValidator_Struct_Dive(t *testing.T) {
+	tests := []struct {
+		name string
+		in   tagged
+		want map[string]any // nil: valid
+	}{
+		{name: "valid", in: tagged{Name: "n", Tags: []string{"ab", "abcde"}}},
+		{name: "slice rules: required", in: tagged{Name: "n"}, want: map[string]any{"tags": "is required"}},
+		{
+			name: "slice rules: min and max are the slice's, without characters",
+			in:   tagged{Name: "n", Tags: []string{"ab", "ab", "ab", "ab"}},
+			want: map[string]any{"tags": "must be between 1 and 3"},
+		},
+		{
+			name: "element rules name the element by index",
+			in:   tagged{Name: "n", Tags: []string{"ab", "a", "abcdef"}},
+			want: map[string]any{"tags[1]": "must be between 2 and 5 characters", "tags[2]": "must be between 2 and 5 characters"},
+		},
+		{
+			name: "element and field failures together",
+			in:   tagged{Tags: []string{"a"}},
+			want: map[string]any{"name": "is required", "tags[0]": "must be between 2 and 5 characters"},
+		},
+	}
+	v := httpapi.NewValidator()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := v.Struct(tt.in)
+			if tt.want == nil {
+				testx.AssertNoError(t, err)
+				return
+			}
+			if got := details(t, err, "invalid request"); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("details = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestValidator_StructFields(t *testing.T) {
+	type variant struct {
+		SKU   string `json:"sku" validate:"required"`
+		Price int64  `json:"price" validate:"min=1,max=1000000000"`
+	}
+	tests := []struct {
+		name   string
+		in     any
+		prefix string
+		want   map[string]any
+	}{
+		{name: "valid gives an empty map", in: variant{SKU: "A", Price: 1}, prefix: "variants[0].", want: map[string]any{}},
+		{
+			name: "every key is prefixed", in: variant{Price: 0}, prefix: "variants[3].",
+			want: map[string]any{"variants[3].sku": "is required", "variants[3].price": "must be between 1 and 1000000000"},
+		},
+		{name: "empty prefix keeps the json names", in: &variant{Price: 1}, prefix: "", want: map[string]any{"sku": "is required"}},
+	}
+	v := httpapi.NewValidator()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := v.StructFields(tt.in, tt.prefix)
+			testx.AssertNoError(t, err)
+			testx.AssertTrue(t, got != nil, "a valid struct gives an empty map, not nil")
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("fields = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestValidator_StructFields_NotAStruct(t *testing.T) {
+	got, err := httpapi.NewValidator().StructFields("text", "x.")
+	if err == nil {
+		t.Fatal("StructFields(string): want error, got nil")
+	}
+	var appErr *errx.AppError
+	testx.AssertFalse(t, errors.As(err, &appErr), "want a plain error, got %v", err)
+	testx.AssertContains(t, err.Error(), "validate string: ")
+	testx.AssertTrue(t, got == nil, "no fields alongside an error")
+}
+
+func TestValidText(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want bool
+	}{
+		{name: "empty", in: "", want: true},
+		{name: "ascii", in: "kaos polos", want: true},
+		{name: "multi-byte", in: "Kopi & Teh – Rp15.000 ☕", want: true},
+		{name: "control characters other than NUL", in: "a\tb\nc", want: true},
+		{name: "NUL", in: "kaos\x00", want: false},
+		{name: "only NUL", in: "\x00", want: false},
+		{name: "invalid byte", in: "kaos\xff", want: false},
+		{name: "truncated sequence", in: "\xc3", want: false},
+		{name: "surrogate half", in: "\xed\xa0\x80", want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testx.AssertEqual(t, httpapi.ValidText(tt.in), tt.want)
+		})
+	}
+	testx.AssertEqual(t, httpapi.InvalidTextMessage, "must be valid UTF-8 text without NUL characters")
+}
+
+func TestBindQuery_InvalidText(t *testing.T) {
+	tests := []struct {
+		name     string
+		rawQuery string
+		want     map[string]any
+	}{
+		{name: "NUL", rawQuery: "q=kaos%00", want: map[string]any{"q": httpapi.InvalidTextMessage}},
+		{name: "invalid UTF-8", rawQuery: "q=%FF", want: map[string]any{"q": httpapi.InvalidTextMessage}},
+		{
+			// Refused before the rules run: "oneof" would add a second,
+			// confusing message about the same value.
+			name: "every string field is checked", rawQuery: "q=%00&sort=%FF",
+			want: map[string]any{"q": httpapi.InvalidTextMessage, "sort": httpapi.InvalidTextMessage},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			q, err := bind(t, tt.rawQuery)
+			if got := details(t, err, "invalid query parameters"); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("details = %v, want %v", got, tt.want)
+			}
+			testx.AssertEqual(t, q.Q, "", "an invalid value is not stored")
+		})
+	}
+
+	// Valid multi-byte text still binds.
+	q, err := bind(t, "q=kopi%20%E2%98%95")
+	testx.AssertNoError(t, err)
+	testx.AssertEqual(t, q.Q, "kopi ☕")
+}
