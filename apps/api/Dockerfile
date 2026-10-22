@@ -7,7 +7,8 @@
 # No secret is baked in: every setting comes from env vars at run time.
 
 # --- build: compile a static binary -------------------------------------
-FROM golang:1.26-alpine AS build
+# Same patch release as the toolchain line in apps/api/go.mod.
+FROM golang:1.26.10-alpine AS build
 WORKDIR /src/apps/api
 
 # Dependencies first, so this layer is reused until go.mod or go.sum change.
