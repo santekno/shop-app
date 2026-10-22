@@ -29,6 +29,8 @@ func NewService(repo Repository) *Service {
 // ListParams is one storefront list request, already validated by the
 // handler.
 type ListParams struct {
+	// Cursor is page.next_cursor of the previous page; empty for the first.
+	Cursor string
 	// Limit is the page size, 1 to MaxLimit.
 	Limit int
 }
@@ -44,16 +46,28 @@ type Page struct {
 	NextCursor string
 }
 
-// List returns one page of active products, newest first.
+// List returns one page of active products, newest first, and the cursor
+// of the next page. It returns ErrInvalidCursor for a cursor this API did
+// not make.
 func (s *Service) List(ctx context.Context, params ListParams) (Page, error) {
 	if params.Limit < 1 || params.Limit > MaxLimit {
 		return Page{}, fmt.Errorf("list products: limit %d out of range", params.Limit)
 	}
-	products, err := s.repo.List(ctx, ListQuery{Limit: params.Limit})
+	after, err := decodeCursor(params.Cursor)
+	if err != nil {
+		return Page{}, err
+	}
+	// One more than asked: if it comes back, there is a next page, and no
+	// COUNT(*) is needed to know it.
+	products, err := s.repo.List(ctx, ListQuery{After: after, Limit: params.Limit + 1})
 	if err != nil {
 		return Page{}, fmt.Errorf("list products: %w", err)
 	}
-	return Page{Products: products}, nil
+	if len(products) <= params.Limit {
+		return Page{Products: products}, nil
+	}
+	products = products[:params.Limit]
+	return Page{Products: products, NextCursor: encodeCursor(products[len(products)-1])}, nil
 }
 
 // Get returns the active product with slug, or ErrNotFound.

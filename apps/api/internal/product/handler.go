@@ -61,7 +61,8 @@ func (h *Handler) Routes(r chi.Router) {
 // listQuery is the query string of GET /v1/products, with the contract's
 // defaults set before binding.
 type listQuery struct {
-	Limit int `query:"limit" validate:"min=1,max=100"`
+	Cursor string `query:"cursor" validate:"omitempty,max=512"`
+	Limit  int    `query:"limit" validate:"min=1,max=100"`
 }
 
 // List serves GET /v1/products.
@@ -71,7 +72,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, r, err)
 		return
 	}
-	page, err := h.catalog.List(r.Context(), ListParams{Limit: q.Limit})
+	page, err := h.catalog.List(r.Context(), ListParams{Cursor: q.Cursor, Limit: q.Limit})
 	if err != nil {
 		httpapi.Error(w, r, toHTTPError(err))
 		return
@@ -101,6 +102,10 @@ func toHTTPError(err error) error {
 	switch {
 	case errors.Is(err, ErrNotFound):
 		return httpapi.NotFoundError("product not found")
+	case errors.Is(err, ErrInvalidCursor):
+		return httpapi.ValidationError("invalid query parameters", map[string]any{
+			"cursor": "is not a cursor from page.next_cursor for these filters; start again without it",
+		})
 	case errors.Is(err, ErrSlugTaken):
 		return conflict(CodeSlugTaken, "another product already uses this slug", "slug")
 	case errors.Is(err, ErrSKUTaken):

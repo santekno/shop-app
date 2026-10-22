@@ -9,11 +9,14 @@
 -- name: ListProductsNewest :many
 -- A page of active products, newest first, with their sellable variants in
 -- the same query (no N+1). The page CTE picks the products, so LIMIT counts
--- products, not variant rows.
+-- products, not variant rows. The page starts after the cursor's
+-- (created_at, id); the row comparison matches the index
+-- products_active_newest_idx, so Postgres jumps straight to it.
 WITH page AS (
     SELECT p.id, p.category_id, p.slug, p.name, p.description, p.price_from, p.created_at
     FROM products p
     WHERE p.status = 'active'
+      AND (p.created_at, p.id) < (@cursor_created_at::timestamptz, @cursor_id::uuid)
     ORDER BY p.created_at DESC, p.id DESC
     LIMIT @page_size
 )

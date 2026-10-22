@@ -28,14 +28,20 @@ func NewPostgresRepository(db *sql.DB) *PostgresRepository {
 
 // ListQuery selects one page of the storefront list.
 type ListQuery struct {
+	// After is where the page starts: just after this position.
+	After position
 	// Limit is the most products to return.
 	Limit int
 }
 
-// List returns up to q.Limit active products, newest first, each with its
-// sellable variants.
+// List returns up to q.Limit active products after q.After, newest first,
+// each with its sellable variants.
 func (r *PostgresRepository) List(ctx context.Context, q ListQuery) ([]Product, error) {
-	rows, err := r.q.ListProductsNewest(ctx, int32(q.Limit)) // #nosec G115 -- the service caps Limit at 101
+	rows, err := r.q.ListProductsNewest(ctx, sqlc.ListProductsNewestParams{
+		CursorCreatedAt: q.After.CreatedAt,
+		CursorID:        q.After.ID,
+		PageSize:        int32(q.Limit), // #nosec G115 -- the service caps Limit at 101
+	})
 	if err != nil {
 		return nil, fmt.Errorf("query products: %w", err)
 	}

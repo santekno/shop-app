@@ -182,8 +182,9 @@ WITH page AS (
     SELECT p.id, p.category_id, p.slug, p.name, p.description, p.price_from, p.created_at
     FROM products p
     WHERE p.status = 'active'
+      AND (p.created_at, p.id) < ($1::timestamptz, $2::uuid)
     ORDER BY p.created_at DESC, p.id DESC
-    LIMIT $1
+    LIMIT $3
 )
 SELECT page.id, page.slug, page.name, page.description, page.price_from, page.created_at,
        c.id AS category_id, c.slug AS category_slug, c.name AS category_name, c.parent_id AS category_parent_id,
@@ -193,6 +194,12 @@ JOIN categories c ON c.id = page.category_id
 JOIN product_variants v ON v.product_id = page.id AND v.archived_at IS NULL
 ORDER BY page.created_at DESC, page.id DESC, v.price, v.position, v.id
 `
+
+type ListProductsNewestParams struct {
+	CursorCreatedAt time.Time
+	CursorID        string
+	PageSize        int32
+}
 
 type ListProductsNewestRow struct {
 	ID               string
@@ -221,9 +228,11 @@ type ListProductsNewestRow struct {
 // drops one. Variants with the same price keep the admin's order (position).
 // A page of active products, newest first, with their sellable variants in
 // the same query (no N+1). The page CTE picks the products, so LIMIT counts
-// products, not variant rows.
-func (q *Queries) ListProductsNewest(ctx context.Context, pageSize int32) ([]ListProductsNewestRow, error) {
-	rows, err := q.db.QueryContext(ctx, listProductsNewest, pageSize)
+// products, not variant rows. The page starts after the cursor's
+// (created_at, id); the row comparison matches the index
+// products_active_newest_idx, so Postgres jumps straight to it.
+func (q *Queries) ListProductsNewest(ctx context.Context, arg ListProductsNewestParams) ([]ListProductsNewestRow, error) {
+	rows, err := q.db.QueryContext(ctx, listProductsNewest, arg.CursorCreatedAt, arg.CursorID, arg.PageSize)
 	if err != nil {
 		return nil, err
 	}
