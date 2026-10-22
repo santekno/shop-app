@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/santekno/sdk/testx"
@@ -162,6 +163,39 @@ func TestService_List_Error(t *testing.T) {
 			}
 			testx.AssertTrue(t, errors.Is(err, tt.err), "errors.Is(%v, %v)", err, tt.err)
 			testx.AssertContains(t, err.Error(), "list categories: ")
+		})
+	}
+}
+
+func TestService_IDsBySlug(t *testing.T) {
+	boom := errors.New("connection refused")
+	repo := fakeRepo{categories: []category.Category{{ID: "id-pakaian", Slug: "pakaian", Name: "Pakaian"}}}
+	tests := []struct {
+		name    string
+		repo    fakeRepo
+		slug    string
+		want    string // IDs joined with commas
+		wantErr error
+	}{
+		{name: "found, with what the store returned", repo: repo, slug: "pakaian", want: "id-pakaian,id-pakaian-child"},
+		{name: "unknown slug", repo: repo, slug: "kemeja", wantErr: category.ErrNotFound},
+		{name: "store failure", repo: fakeRepo{err: boom}, slug: "pakaian", wantErr: boom},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := category.NewService(tt.repo).IDsBySlug(context.Background(), tt.slug)
+			testx.AssertEqual(t, strings.Join(got, ","), tt.want)
+			if tt.wantErr == nil {
+				testx.AssertNoError(t, err)
+				return
+			}
+			if err == nil {
+				t.Fatalf("IDsBySlug: want error %v, got nil", tt.wantErr)
+			}
+			testx.AssertTrue(t, got == nil, "no IDs alongside an error")
+			// Wrapped with the slug, still matchable by callers.
+			testx.AssertTrue(t, errors.Is(err, tt.wantErr), "errors.Is(%v, %v)", err, tt.wantErr)
+			testx.AssertEqual(t, err.Error(), "find category "+tt.slug+": "+tt.wantErr.Error())
 		})
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -135,4 +136,67 @@ func TestCategory_IsTopLevel(t *testing.T) {
 	parent := "p"
 	testx.AssertTrue(t, category.Category{}.IsTopLevel())
 	testx.AssertFalse(t, category.Category{ParentID: &parent}.IsTopLevel())
+}
+
+func TestMemoryRepository_IDsBySlug(t *testing.T) {
+	pakaian, elektronik := "p1", "p2"
+	repo := category.NewMemoryRepository([]category.Category{
+		{ID: "p1", Slug: "pakaian", Name: "Pakaian"},
+		{ID: "c1", Slug: "kaos", Name: "Kaos", ParentID: &pakaian},
+		{ID: "p2", Slug: "elektronik", Name: "Elektronik"},
+		{ID: "c2", Slug: "kemeja", Name: "Kemeja", ParentID: &pakaian},
+		{ID: "c3", Slug: "ponsel", Name: "Ponsel", ParentID: &elektronik},
+		{ID: "p3", Slug: "kosong", Name: "Kosong"},
+	})
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	tests := []struct {
+		name    string
+		ctx     context.Context
+		slug    string
+		want    string // IDs joined with commas, the category first
+		wantErr error
+	}{
+		{name: "top-level with its children, in stored order", ctx: context.Background(), slug: "pakaian", want: "p1,c1,c2"},
+		{name: "other parent's children are not included", ctx: context.Background(), slug: "elektronik", want: "p2,c3"},
+		{name: "top-level without children", ctx: context.Background(), slug: "kosong", want: "p3"},
+		{name: "child alone", ctx: context.Background(), slug: "kaos", want: "c1"},
+		{name: "unknown", ctx: context.Background(), slug: "sepatu", wantErr: category.ErrNotFound},
+		{name: "slug match is exact", ctx: context.Background(), slug: "Kaos", wantErr: category.ErrNotFound},
+		{name: "empty slug", ctx: context.Background(), slug: "", wantErr: category.ErrNotFound},
+		{name: "cancelled context wins over a match", ctx: cancelled, slug: "kaos", wantErr: context.Canceled},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := repo.IDsBySlug(tt.ctx, tt.slug)
+			testx.AssertEqual(t, strings.Join(got, ","), tt.want)
+			if tt.wantErr == nil {
+				testx.AssertNoError(t, err)
+				return
+			}
+			testx.AssertTrue(t, got == nil, "no IDs alongside an error")
+			testx.AssertTrue(t, errors.Is(err, tt.wantErr), "err = %v, want %v", err, tt.wantErr)
+		})
+	}
+}
+
+func TestMemoryRepository_IDsBySlug_Seed(t *testing.T) {
+	seed := category.SeedCategories()
+	repo := category.NewMemoryRepository(seed)
+	children := map[string]int{}
+	for _, c := range seed {
+		if c.ParentID != nil {
+			children[*c.ParentID]++
+		}
+	}
+	for _, c := range seed {
+		got, err := repo.IDsBySlug(context.Background(), c.Slug)
+		testx.AssertNoError(t, err)
+		if len(got) == 0 {
+			t.Fatalf("slug %s: no IDs", c.Slug)
+		}
+		testx.AssertEqual(t, got[0], c.ID, "slug %s: the category itself comes first", c.Slug)
+		testx.AssertEqual(t, len(got), 1+children[c.ID], "slug %s", c.Slug)
+	}
 }
