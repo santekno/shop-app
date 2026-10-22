@@ -88,6 +88,7 @@ func assertCategoryList(t *testing.T, resp response) []listedCategory {
 
 func TestCategories_List(t *testing.T) {
 	s := startServer(t, nil)
+	seedCategories(t, s.db)
 	resp := s.get(t, "/v1/categories")
 	cats := assertCategoryList(t, resp)
 
@@ -151,6 +152,7 @@ func TestCategories_List(t *testing.T) {
 // sees.
 func TestCategories_StableAndConcurrent(t *testing.T) {
 	s := startServer(t, nil)
+	seedCategories(t, s.db)
 	want := s.get(t, "/v1/categories").Body
 
 	const n = 20

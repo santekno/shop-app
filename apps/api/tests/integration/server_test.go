@@ -2,22 +2,26 @@
 
 // Package integration_test runs the GoShop API the way production does,
 // minus Docker: the configuration is read from environment variables by
-// config.Load, the app is wired by app.New, and app.Serve listens on a real
-// TCP port. Every request goes over HTTP through the real router and the
-// full middleware chain, so these tests catch what the httptest-based unit
-// tests cannot: wiring, middleware order, real headers and graceful shutdown.
+// config.Load, the pool is opened by database.Open on a real PostgreSQL, the
+// app is wired by app.New, and app.Serve listens on a real TCP port. Every
+// request goes over HTTP through the real router and the full middleware
+// chain, so these tests catch what the httptest-based unit tests cannot:
+// wiring, middleware order, real headers, real SQL and graceful shutdown.
 //
-// Run them with `make test-integration`, which also starts the Compose stack
-// for the tests in stack_test.go.
+// Each test gets its own throwaway database (see db_test.go). Run them with
+// `make test-integration`, which starts the Compose stack, exports
+// POSTGRES_DSN, and also serves the tests in stack_test.go.
 package integration_test
 
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"os"
@@ -35,7 +39,10 @@ import (
 // server is one running API instance on 127.0.0.1 and a random port.
 type server struct {
 	// URL is the base URL, e.g. http://127.0.0.1:53124.
-	URL    string
+	URL string
+	// db is a pool on the server's own test database, for the test to put
+	// fixtures in and check rows; nil when the test passed its own pool.
+	db     *sql.DB
 	app    *app.App
 	logs   *syncBuffer
 	client *http.Client
@@ -47,9 +54,31 @@ type server struct {
 }
 
 // startServer clears every APP_* variable and PORT, sets env (APP_ENV
-// defaults to development), loads the config exactly like `api` does, and
-// serves the app on a free port. The server is stopped when the test ends.
+// defaults to development), loads the config exactly like `api` does, opens
+// the pool with database.Open and serves the app on a free port. Unless env
+// sets DATABASE_URL, the app gets a new, migrated, empty database of its
+// own (newTestDB), never the shared one. The server is stopped when the test
+// ends.
 func startServer(t *testing.T, env map[string]string) *server {
+	t.Helper()
+	env = maps.Clone(env)
+	if env == nil {
+		env = map[string]string{}
+	}
+	var fixtures *sql.DB
+	if _, ok := env["DATABASE_URL"]; !ok {
+		env["DATABASE_URL"], fixtures = newTestDB(t)
+	}
+	s := startServerWithPool(t, env, nil)
+	s.db = fixtures
+	return s
+}
+
+// startServerWithPool is startServer on pool instead of a pool opened from
+// DATABASE_URL, for a pool database.Open would refuse, such as one that
+// cannot connect. A nil pool means "open DATABASE_URL"; env must set
+// DATABASE_URL either way, because config.Load requires it.
+func startServerWithPool(t *testing.T, env map[string]string, pool *sql.DB) *server {
 	t.Helper()
 	setEnv(t, env)
 
@@ -60,14 +89,16 @@ func startServer(t *testing.T, env map[string]string) *server {
 
 	logs := &syncBuffer{}
 	logger := logging.New(logs, cfg.IsDevelopment(), cfg.LogLevel).With("env", cfg.Env)
-	// The pool on DATABASE_URL, as Run opens it. Registered before the
-	// server's cleanup, so it closes after the server has stopped.
-	db, err := database.Open(context.Background(), cfg.Database, logger)
-	if err != nil {
-		t.Fatalf("database.Open: %v", err)
+	if pool == nil {
+		pool, err = database.Open(context.Background(), cfg.Database, logger)
+		if err != nil {
+			t.Fatalf("database.Open: %v", err)
+		}
 	}
-	t.Cleanup(func() { _ = db.Close() })
-	a := app.New(cfg, logger, db)
+	// Registered before the server's own cleanup, so it runs after it: the
+	// pool closes once the server has stopped, as in Run.
+	t.Cleanup(func() { _ = pool.Close() })
+	a := app.New(cfg, logger, pool)
 
 	var lc net.ListenConfig
 	ln, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")

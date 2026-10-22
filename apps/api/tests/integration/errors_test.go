@@ -58,7 +58,7 @@ func assertErrorBody(t *testing.T, body []byte, wantCode string) {
 
 // TestErrors_UnknownRoutesAndMethods checks that requests no handler serves
 // get the API's one error body as JSON, over the real router: 404 NOT_FOUND
-// for unknown paths (including /v1/products, which arrives in Bab 3) and 405
+// for unknown paths (and for a product slug that names no product) and 405
 // METHOD_NOT_ALLOWED with an Allow header for a wrong method.
 func TestErrors_UnknownRoutesAndMethods(t *testing.T) {
 	s := startServer(t, nil)
@@ -74,7 +74,6 @@ func TestErrors_UnknownRoutesAndMethods(t *testing.T) {
 		{http.MethodGet, "/does-not-exist", http.StatusNotFound, "NOT_FOUND", ""},
 		{http.MethodGet, "/v1", http.StatusNotFound, "NOT_FOUND", ""},
 		{http.MethodGet, "/v1/does-not-exist", http.StatusNotFound, "NOT_FOUND", ""},
-		{http.MethodGet, "/v1/products", http.StatusNotFound, "NOT_FOUND", ""},
 		{http.MethodGet, "/v1/products/kaos-polos-hitam", http.StatusNotFound, "NOT_FOUND", ""},
 		{http.MethodGet, "/v1/categories/kaos", http.StatusNotFound, "NOT_FOUND", ""},
 		{http.MethodPost, "/v1/does-not-exist", http.StatusNotFound, "NOT_FOUND", ""},

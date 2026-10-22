@@ -200,7 +200,7 @@ func TestCORS(t *testing.T) {
 	})
 
 	t.Run("error response to an allowed origin carries CORS headers", func(t *testing.T) {
-		resp := s.do(t, http.MethodGet, "/v1/products", map[string]string{"Origin": admin})
+		resp := s.do(t, http.MethodGet, "/v1/does-not-exist", map[string]string{"Origin": admin})
 		if resp.Status != http.StatusNotFound {
 			t.Fatalf("status = %d, want 404", resp.Status)
 		}
@@ -254,7 +254,8 @@ func TestHead(t *testing.T) {
 		{"/healthz", http.StatusOK},
 		{"/readyz", http.StatusOK},
 		{"/does-not-exist", http.StatusNotFound},
-		{"/v1/products", http.StatusNotFound},
+		{"/v1/products", http.StatusOK},
+		{"/v1/products/no-such-product", http.StatusNotFound},
 	}
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {

@@ -82,10 +82,15 @@ func TestHealth_Probes(t *testing.T) {
 		if status != "ok" {
 			t.Errorf("/readyz status = %q, want ok", status)
 		}
-		// Bab 2 has no database yet: the only readiness check is "server".
+		// The readiness checks: "server" (not draining) and, from Bab 3,
+		// "postgres" (a ping through the pool).
 		server, ok := checks["server"]
-		if len(checks) != 1 || !ok {
-			t.Fatalf("/readyz checks = %s, want only \"server\"", resp.Body)
+		pg, okPG := checks["postgres"]
+		if len(checks) != 2 || !ok || !okPG {
+			t.Fatalf("/readyz checks = %s, want \"server\" and \"postgres\"", resp.Body)
+		}
+		if got := jsonString(t, pg["status"]); got != "ok" {
+			t.Errorf("checks.postgres.status = %q, want ok", got)
 		}
 		if got := jsonString(t, server["status"]); got != "ok" {
 			t.Errorf("checks.server.status = %q, want ok", got)
