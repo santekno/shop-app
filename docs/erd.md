@@ -216,6 +216,7 @@ Bab 5 teaches both techniques; the columns above make them possible.
   ```
 
   Two checkouts that share variants then lock them in the same order and cannot deadlock. Fewer rows than requested means a variant is no longer sellable.
+  `FOR UPDATE OF v` locks the variant rows only, not the product row, so the product can still change status while the checkout runs; Bab 5 decides how checkout handles that.
 - **Optimistic locking.** The admin dashboard updates stock with `UPDATE product_variants SET stock = $new, version = version + 1 WHERE id = $id AND version = $v`; zero rows means someone else changed it first, and the seller reloads.
 - **Idempotent stock restore.** Cancelling first runs a guarded transition and restores stock only when it returns a row:
 
