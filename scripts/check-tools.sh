@@ -99,12 +99,13 @@ else
 	missing compose "install the Docker Compose v2 plugin or docker-compose"
 fi
 
-# Not needed until apps/api exists (Bab 2), so it never fails the check.
-if has golangci-lint; then
-	optional golangci-lint "$(golangci-lint --version | first_version) (used by make lint from Bab 2)"
-else
-	optional golangci-lint "not installed; needed by make lint from Bab 2 (see docs/setup.md)"
-fi
+# golangci-lint and Air are not installed by hand: the Makefile builds the
+# pinned versions into apps/api/bin on first use, so they never fail the check.
+provided() { printf '  %-15s provided  %s\n' "$1" "$2"; }
+makefile="$(cd "$(dirname "$0")/.." && pwd)/Makefile"
+pinned() { sed -n "s/^$1 := //p" "$makefile" 2>/dev/null; }
+provided golangci-lint "$(pinned GOLANGCI_VERSION), built by make lint into apps/api/bin; nothing to install"
+provided air "$(pinned AIR_VERSION), built by make dev-api into apps/api/bin; nothing to install"
 
 if [ $failed -ne 0 ]; then
 	echo "doctor: some required tools are missing, see docs/setup.md"

@@ -1,14 +1,15 @@
 # Development setup
 
-GoShop needs five tools. The versions the repo expects are pinned in files, so tools that read them pick the right version automatically.
+GoShop needs four tools. The versions the repo expects are pinned in files, so tools that read them pick the right version automatically.
 
 | Tool | Version | Pinned in |
 |---|---|---|
-| Go | 1.26+ | `.go-version`, later `apps/api/go.mod` |
+| Go | 1.26+ (the API builds with go1.26.10) | `.go-version`, later `apps/api/go.mod` (`go 1.26`, `toolchain go1.26.10`) |
 | Node.js | 24 LTS (22.12+ works) | `.nvmrc`, `package.json` `engines` |
 | pnpm | 10 | `package.json` `packageManager` |
 | Docker + Compose v2 | any recent | — |
-| golangci-lint | v2 (needed from Bab 2) | — |
+
+The Go developer tools need no install. The Makefile builds the pinned golangci-lint v2.15.0 (`GOLANGCI_VERSION`, used by `make lint`) and Air v1.67.4 (`AIR_VERSION`, used by `make dev-api` from Bab 2) into `apps/api/bin` (gitignored) the first time they are needed, with the module's own Go toolchain. A golangci-lint you installed yourself is not used: one built with an older Go refuses to lint a `go 1.26` module.
 
 When everything is installed, run the check from the repository root:
 
@@ -16,11 +17,11 @@ When everything is installed, run the check from the repository root:
 ./scripts/check-tools.sh     # `make doctor` runs the same script (the Makefile arrives in artikel-12)
 ```
 
-Every line must say `ok`. `golangci-lint` is reported as `optional` until Bab 2, when `apps/api` appears and `make lint` starts using it.
+Every line must say `ok`. golangci-lint and Air are listed as `provided` by make; there is nothing to install for them.
 
 ## Go and GOTOOLCHAIN
 
-Since Go 1.21 the `go` command can download the toolchain a module asks for. With the default `GOTOOLCHAIN=auto`, an older Go (1.21 or newer) builds `apps/api` (which declares `go 1.26`) by fetching Go 1.26 on the first build. The tool check accepts that setup. If you set `GOTOOLCHAIN=local`, you must install Go 1.26 or newer yourself.
+Since Go 1.21 the `go` command can download the toolchain a module asks for. `apps/api/go.mod` declares `go 1.26` and `toolchain go1.26.10`, so with the default `GOTOOLCHAIN=auto` any Go from 1.21 up to go1.26.9 fetches go1.26.10 on the first build, and a newer local Go is used as is. The Docker image builds with the same patch release (`golang:1.26.10-alpine`). The tool check accepts that setup. If you set `GOTOOLCHAIN=local`, you must install Go 1.26 or newer yourself.
 
 ```bash
 go version
@@ -41,9 +42,6 @@ corepack enable pnpm        # pnpm version comes from package.json
 # Docker: either Docker Desktop, or colima (no desktop app needed)
 brew install colima docker docker-compose
 colima start --cpu 4 --memory 6
-
-# Linter for Go (from Bab 2)
-brew install golangci-lint
 ```
 
 With colima, `docker compose` (the plugin) may be missing and `docker-compose` (the standalone binary) is used instead. The Makefile detects both.
@@ -67,8 +65,6 @@ corepack enable pnpm
 
 # Docker Engine + Compose plugin: https://docs.docker.com/engine/install/ubuntu/
 sudo usermod -aG docker "$USER"   # log out and in again afterwards
-
-# Linter for Go (from Bab 2): https://golangci-lint.run/welcome/install/
 ```
 
 On ARM machines use the `linux-arm64` download instead of `linux-amd64`.
