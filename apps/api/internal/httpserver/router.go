@@ -2,6 +2,7 @@ package httpserver
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -60,8 +61,40 @@ func NewRouter(opts Options, mount func(r chi.Router)) http.Handler {
 		httpapi.Timeout(opts.RequestTimeout),
 	)
 
+	// Unknown routes and wrong methods get the same JSON error body as
+	// everything else. They are set before mount, so chi copies them into
+	// every sub-router (r.Route) created there.
+	r.NotFound(func(w http.ResponseWriter, req *http.Request) {
+		httpapi.Error(w, req, httpapi.NotFoundError("route not found"))
+	})
+	r.MethodNotAllowed(func(w http.ResponseWriter, req *http.Request) {
+		// HTTP requires a 405 to list the allowed methods. chi only sets
+		// Allow in its own default handler, so it is computed here.
+		w.Header().Set("Allow", strings.Join(allowedMethods(r, req.URL.Path), ", "))
+		httpapi.Error(w, req, httpapi.MethodNotAllowedError())
+	})
+
 	mount(r)
 	return r
+}
+
+// allowedMethods lists the methods routes has a handler for at path. HEAD
+// is allowed wherever GET is, because GetHead serves it with the GET
+// handler.
+func allowedMethods(routes chi.Routes, path string) []string {
+	var allowed []string
+	for _, m := range []string{
+		http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete,
+	} {
+		if !routes.Match(chi.NewRouteContext(), m, path) {
+			continue
+		}
+		allowed = append(allowed, m)
+		if m == http.MethodGet {
+			allowed = append(allowed, http.MethodHead)
+		}
+	}
+	return allowed
 }
 
 // corsMiddleware allows browser calls from origins only.

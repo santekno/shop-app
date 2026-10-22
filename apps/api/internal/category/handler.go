@@ -2,10 +2,11 @@ package category
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+
+	"github.com/santekno/shop-app/apps/api/internal/httpapi"
 )
 
 // Lister is what the handler needs from the service. Declaring it here, where
@@ -33,11 +34,10 @@ func (h *Handler) Routes(r chi.Router) {
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	categories, err := h.svc.List(r.Context())
 	if err != nil {
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		httpapi.Error(w, r, err)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	_ = json.NewEncoder(w).Encode(toListResponse(categories))
+	httpapi.JSON(w, r, http.StatusOK, toListResponse(categories))
 }
 
 // categoryJSON is the contract's Category schema. The HTTP shape lives in the

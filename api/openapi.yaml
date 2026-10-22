@@ -15,8 +15,15 @@ info:
       until it is `null`.
     - Every error uses the same body: `{"error":{"code","message","details"}}`,
       where `details` is optional. Unknown routes and wrong methods use it too
-      (404 `NOT_FOUND`, 405 `METHOD_NOT_ALLOWED`): Bab 2 sets chi's `NotFound`
-      and `MethodNotAllowed` handlers to the same JSON error writer.
+      (404 `NOT_FOUND`, 405 `METHOD_NOT_ALLOWED` with an `Allow` header): Bab 2
+      sets chi's `NotFound` and `MethodNotAllowed` handlers to the same JSON
+      error writer.
+    - Any endpoint except the health probes may answer 503 `TIMEOUT` with the
+      same body when a request runs past the server's time limit
+      (`APP_REQUEST_TIMEOUT`, 15s by default). Retry later.
+    - Every response carries `X-Request-ID`: the caller's value when it is
+      1-128 characters of `A-Za-z0-9._:-`, otherwise a generated one. Quote
+      it when reporting a problem; the server logs carry the same ID.
   license:
     name: MIT
     identifier: MIT

@@ -7,7 +7,6 @@ import (
 	"time"
 
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
-	sdkmw "github.com/santekno/sdk/middleware/chi"
 )
 
 // Timeout gives every request a deadline d away. Handlers see it through
@@ -32,7 +31,7 @@ func Timeout(d time.Duration) func(http.Handler) http.Handler {
 			next.ServeHTTP(ww, r.WithContext(ctx))
 
 			if ww.Status() == 0 && errors.Is(ctx.Err(), context.DeadlineExceeded) {
-				sdkmw.DefaultErrorWriter(ww, r, TimeoutError())
+				Error(ww, r, TimeoutError())
 			}
 		})
 	}
