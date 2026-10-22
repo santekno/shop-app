@@ -25,7 +25,7 @@ apps/api/
     ├── config/              # env vars, validated at start
     ├── logging/             # logx setup, request-scoped logger
     ├── httpserver/          # http.Server timeouts, chi router, middleware order
-    ├── httpapi/               # JSON responses, error mapping, timeout, query binding
+    ├── httpapi/             # JSON responses, error mapping, timeout, query binding
     ├── health/              # /healthz, /readyz
     └── category/            # one feature
         ├── model.go         # the data the feature works with
