@@ -34,6 +34,12 @@ const (
 	// maxRequestTimeout keeps one slow request from holding a connection,
 	// and the server's write timeout derived from it, for minutes.
 	maxRequestTimeout = 60 * time.Second
+	// DefaultShutdownTimeout is used when APP_SHUTDOWN_TIMEOUT is not set.
+	DefaultShutdownTimeout = 10 * time.Second
+	// maxStopTime caps the drain delay and shutdown timeout. Docker and
+	// Railway kill the process some time after SIGTERM, so waiting longer
+	// would only be cut short.
+	maxStopTime = 60 * time.Second
 )
 
 // Config is the validated configuration of the API.
@@ -52,6 +58,13 @@ type Config struct {
 	// RequestTimeout is APP_REQUEST_TIMEOUT (a Go duration such as "15s"):
 	// how long a handler may run before the request ends with 503 TIMEOUT.
 	RequestTimeout time.Duration
+	// DrainDelay is APP_DRAIN_DELAY (default 0s): after SIGTERM, how long
+	// /readyz reports "unavailable" while the server still accepts requests,
+	// so a load balancer stops routing to it before connections close.
+	DrainDelay time.Duration
+	// ShutdownTimeout is APP_SHUTDOWN_TIMEOUT (default 10s): how long
+	// in-flight requests may take to finish once shutdown starts.
+	ShutdownTimeout time.Duration
 }
 
 // IsDevelopment reports whether the API runs on a developer's machine.
@@ -93,7 +106,15 @@ func Load() (Config, error) {
 	errs = append(errs, err)
 
 	cfg.RequestTimeout, err = parseDuration("APP_REQUEST_TIMEOUT", src.String("request.timeout"),
-		DefaultRequestTimeout, maxRequestTimeout)
+		DefaultRequestTimeout, time.Second, maxRequestTimeout)
+	errs = append(errs, err)
+
+	cfg.DrainDelay, err = parseDuration("APP_DRAIN_DELAY", src.String("drain.delay"),
+		0, 0, maxStopTime)
+	errs = append(errs, err)
+
+	cfg.ShutdownTimeout, err = parseDuration("APP_SHUTDOWN_TIMEOUT", src.String("shutdown.timeout"),
+		DefaultShutdownTimeout, time.Second, maxStopTime)
 	errs = append(errs, err)
 
 	if err := errors.Join(errs...); err != nil {
@@ -169,16 +190,16 @@ func checkOrigin(origin string) error {
 	return nil
 }
 
-// parseDuration parses a Go duration ("15s", "1m") between 1s and max; an
-// empty value means def.
-func parseDuration(name, value string, def, maxDuration time.Duration) (time.Duration, error) {
+// parseDuration parses a Go duration ("15s", "1m") between minDuration and
+// maxDuration; an empty value means def.
+func parseDuration(name, value string, def, minDuration, maxDuration time.Duration) (time.Duration, error) {
 	if value == "" {
 		return def, nil
 	}
 	d, err := time.ParseDuration(value)
-	if err != nil || d < time.Second || d > maxDuration {
-		return 0, fmt.Errorf("%s: must be a duration between 1s and %s, such as \"15s\", got %q",
-			name, maxDuration, value)
+	if err != nil || d < minDuration || d > maxDuration {
+		return 0, fmt.Errorf("%s: must be a duration between %s and %s, such as \"15s\", got %q",
+			name, minDuration, maxDuration, value)
 	}
 	return d, nil
 }
