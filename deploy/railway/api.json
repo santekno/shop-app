@@ -6,6 +6,7 @@
     "watchPatterns": ["apps/api/**", "api/openapi.yaml", "deploy/railway/api.json"]
   },
   "deploy": {
+    "preDeployCommand": ["/api migrate"],
     "healthcheckPath": "/healthz",
     "healthcheckTimeout": 60,
     "restartPolicyType": "ON_FAILURE",

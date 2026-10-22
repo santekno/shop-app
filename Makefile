@@ -24,6 +24,27 @@ GOLANGCI := $(CURDIR)/$(API)/bin/golangci-lint-$(GOLANGCI_VERSION)/golangci-lint
 AIR_VERSION := v1.67.4
 AIR := $(CURDIR)/$(API)/bin/air-$(AIR_VERSION)/air
 
+# golang-migrate CLI for make migrate-*, pinned to the library version in
+# apps/api/go.mod (keep them equal) and built with only the postgres driver.
+MIGRATE_VERSION := v4.20.1
+MIGRATE := $(CURDIR)/$(API)/bin/migrate-$(MIGRATE_VERSION)/migrate
+
+# The database make migrate-*, seed and sqlc-check talk to: the Compose
+# postgres by default. A DATABASE_URL in your shell wins (.env is not read
+# here, so a production URL in .env is never picked up by accident).
+DATABASE_URL ?= postgres://goshop:goshop@localhost:5432/goshop?sslmode=disable
+
+# Destructive targets refuse any database that is not on this machine. A
+# host= or hostaddr= parameter is refused outright: pgx lets it override the
+# host in the URL, and the local Compose URL never needs one.
+define require_local_db
+	@case '$(DATABASE_URL)' in \
+		*[?\&]host=*|*[?\&]hostaddr=*) echo "$@: refusing a DATABASE_URL with a host or hostaddr parameter" >&2; exit 1 ;; \
+		*@localhost:*|*@localhost/*|*@127.0.0.1:*|*@127.0.0.1/*) ;; \
+		*) echo "$@: refusing a DATABASE_URL that is not localhost or 127.0.0.1" >&2; exit 1 ;; \
+	esac
+endef
+
 # Pinned so every chapter lints the contract with the same rules.
 REDOCLY := REDOCLY_TELEMETRY=off REDOCLY_SUPPRESS_UPDATE_NOTICE=true npx --yes @redocly/cli@2.66.1
 
@@ -35,7 +56,8 @@ IT_ENV := POSTGRES_DSN='postgres://goshop:goshop@localhost:5432/goshop?sslmode=d
 	S3_ENDPOINT=http://localhost:8333 \
 	GOSHOP_API_URL=http://127.0.0.1:8080
 
-.PHONY: help doctor build lint lint-openapi test-unit test-integration test-mobile-e2e docker-build scan verify up down dev-api docs-api
+.PHONY: help doctor build lint lint-openapi test-unit test-integration test-mobile-e2e docker-build scan verify up down dev-api docs-api \
+	migrate-up migrate-down migrate-new
 
 help: ## List targets
 	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -121,6 +143,21 @@ dev-api: $(AIR) ## Run the API with hot reload (Air), reading .env when present
 $(AIR):
 	cd $(API) && GOBIN=$(dir $(AIR)) GOTOOLCHAIN=$$(go env GOVERSION) \
 		go install github.com/air-verse/air@$(AIR_VERSION)
+
+migrate-up: $(MIGRATE) ## Apply new migrations to DATABASE_URL (default: the Compose postgres)
+	@$(MIGRATE) -path $(API)/migrations -database '$(DATABASE_URL)' up
+
+migrate-down: $(MIGRATE) ## Roll back the newest migration (local databases only)
+	$(require_local_db)
+	@$(MIGRATE) -path $(API)/migrations -database '$(DATABASE_URL)' down 1
+
+migrate-new: $(MIGRATE) ## Create an empty up/down pair: make migrate-new name=add_users
+	@[[ "$(name)" =~ ^[a-z][a-z0-9_]*$$ ]] || { echo "usage: make migrate-new name=add_users (lower case, digits, _)" >&2; exit 1; }
+	$(MIGRATE) create -ext sql -dir $(API)/migrations -seq -digits 6 $(name)
+
+$(MIGRATE):
+	cd $(API) && GOBIN=$(dir $(MIGRATE)) GOTOOLCHAIN=$$(go env GOVERSION) \
+		go install -tags postgres github.com/golang-migrate/migrate/v4/cmd/migrate@$(MIGRATE_VERSION)
 
 up: ## Start the full stack locally
 	$(COMPOSE) up -d --build

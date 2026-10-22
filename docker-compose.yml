@@ -48,14 +48,38 @@ services:
       timeout: 3s
       retries: 30
 
+  # Applies the database migrations once and exits (Bab 3): the api image
+  # running `api migrate`, the same command Railway runs before each deploy.
+  # The api waits for it to finish successfully; the server never migrates.
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    command: ["migrate"]
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      APP_LOG_LEVEL: ${APP_LOG_LEVEL:-info}
+      # The host is the Compose service name, not localhost, so this is not
+      # taken from .env (whose DATABASE_URL is for tools on your machine).
+      DATABASE_URL: postgres://goshop:goshop@postgres:5432/goshop?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
   # GoShop API (Bab 2). Built from its Dockerfile with the repo root as context,
-  # like Railway. Bab 2 has no database yet, so it depends on nothing; Bab 3
-  # adds depends_on postgres. Values below are local defaults; a .env file
-  # next to this one overrides them.
+  # like Railway. It starts once postgres is healthy and the migrate service
+  # has finished. Values below are local defaults; a .env file next to this
+  # one overrides them.
   api:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
       APP_ENV: ${APP_ENV:-development}
       APP_PORT: "8080"
@@ -64,6 +88,7 @@ services:
       APP_REQUEST_TIMEOUT: ${APP_REQUEST_TIMEOUT:-15s}
       APP_DRAIN_DELAY: ${APP_DRAIN_DELAY:-0s}
       APP_SHUTDOWN_TIMEOUT: ${APP_SHUTDOWN_TIMEOUT:-10s}
+      DATABASE_URL: postgres://goshop:goshop@postgres:5432/goshop?sslmode=disable
     ports:
       - "127.0.0.1:8080:8080"
     healthcheck:

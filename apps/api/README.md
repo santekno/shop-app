@@ -42,6 +42,34 @@ Nothing needs installing: the first run builds the pinned Air version (`AIR_VERS
 
 The Docker `api` service from `make up` also uses port 8080. Stop it first (`docker compose stop api`) or pick another port: `PORT=8081 make dev-api`. Use `PORT`, not `APP_PORT`: `make dev-api` loads `.env` after your shell, so the `APP_PORT` in `.env` would replace yours, while `.env` never sets `PORT` and `PORT` wins over `APP_PORT`.
 
+## Database migrations
+
+The schema lives in [`migrations/`](migrations) as [golang-migrate](https://github.com/golang-migrate/migrate) pairs: `000001_create_catalog.up.sql` applies a change, `000001_create_catalog.down.sql` reverses it exactly. Every migration has both halves, and a migration that has run anywhere but your machine is never edited: write a new one.
+
+```bash
+make migrate-up                  # apply new migrations to the Compose postgres
+make migrate-down                # roll back the newest one (refuses a non-local database)
+make migrate-new name=add_users  # create 000002_add_users.up.sql / .down.sql
+```
+
+These targets use the golang-migrate CLI, pinned (`MIGRATE_VERSION` in the `Makefile`) and built into `apps/api/bin/` on first use. They talk to `DATABASE_URL` from your shell, or the Compose postgres when it is unset; `.env` is deliberately not read, so a URL you pasted there never receives a `migrate-down`. `make migrate-down` with nothing left to roll back prints golang-migrate's `error: file does not exist`.
+
+**The API never migrates when it starts.** During a rollout, old and new instances run side by side; a server that migrated on start would change the schema under the old ones, and several new instances would race to do it. Instead the migrations are embedded in the binary and applied by a separate command, `api migrate`, which only goes up:
+
+| Where | Who runs `api migrate` |
+|---|---|
+| `make up`, `make test-integration` | the one-shot Compose service `migrate` (same image as `api`); `api` waits until it exits successfully |
+| Railway | the api service's `preDeployCommand` in `deploy/railway/api.json`; a failed migration stops the deploy, and the old version keeps serving |
+
+The CLI and `api migrate` share golang-migrate's `schema_migrations` table and its advisory lock, so they agree on the version and never run at the same time.
+
+Two things to know before the first Railway deploy:
+
+- **A failed migration stops every later deploy.** golang-migrate marks the version *dirty* when a migration fails halfway, and refuses to run again until someone repairs the schema by hand and runs `migrate force <version>` (with the CLI, against that database). Test each migration locally with `make migrate-up`, `make migrate-down` and `make migrate-up` before it ships.
+- **Migrations run while the old version still serves.** The pre-deploy command runs before the new instances start, so the running code must keep working on the new schema. Change it in two steps: *expand* (add a nullable column or a new table) and ship the code that uses it, then *contract* (drop what is no longer used) in a later migration.
+
+`preDeployCommand` is `["/api migrate"]`. The image has no shell, so confirm on the first deploy that Railway splits it into the binary and its argument; if not, write it as `["/api", "migrate"]`.
+
 ## API documentation
 
 ```bash

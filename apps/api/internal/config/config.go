@@ -65,6 +65,15 @@ type Config struct {
 	// ShutdownTimeout is APP_SHUTDOWN_TIMEOUT (default 10s): how long
 	// in-flight requests may take to finish once shutdown starts.
 	ShutdownTimeout time.Duration
+	// Database is the PostgreSQL connection.
+	Database Database
+}
+
+// Database configures the PostgreSQL connection.
+type Database struct {
+	// URL is DATABASE_URL, e.g. postgres://user:pass@host:5432/db?sslmode=disable.
+	// It holds the password, so it is never logged or put in an error.
+	URL string
 }
 
 // IsDevelopment reports whether the API runs on a developer's machine.
@@ -117,6 +126,11 @@ func Load() (Config, error) {
 		DefaultShutdownTimeout, time.Second, maxStopTime)
 	errs = append(errs, err)
 
+	// DATABASE_URL has no APP_ prefix: it is the name Railway's Postgres
+	// plugin and most tools use.
+	cfg.Database.URL, err = parseDatabaseURL(os.Getenv("DATABASE_URL"))
+	errs = append(errs, err)
+
 	if err := errors.Join(errs...); err != nil {
 		return Config{}, fmt.Errorf("config: %w", err)
 	}
@@ -153,6 +167,19 @@ func parsePort(name, value string) (int, error) {
 		return 0, fmt.Errorf("%s: must be a number between 1 and 65535, got %q", name, value)
 	}
 	return port, nil
+}
+
+// parseDatabaseURL checks that value is a postgres:// URL. The value is a
+// secret, so no error repeats it.
+func parseDatabaseURL(value string) (string, error) {
+	if value == "" {
+		return "", errors.New("DATABASE_URL: is required, e.g. postgres://goshop:goshop@localhost:5432/goshop?sslmode=disable")
+	}
+	u, err := url.Parse(value)
+	if err != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") || u.Host == "" {
+		return "", errors.New("DATABASE_URL: must be a URL like postgres://user:pass@host:5432/dbname")
+	}
+	return value, nil
 }
 
 // parseOrigins splits a comma-separated list of origins and checks each one.

@@ -12,10 +12,15 @@ import (
 	"github.com/santekno/shop-app/apps/api/internal/config"
 )
 
-// setEnv gives the test a clean environment: every APP_* variable and PORT
-// is removed (and restored afterwards), then vars is applied. configx reads
-// every APP_* variable of the process, so a stray one on the developer's
-// machine must not leak into a test.
+// testDatabaseURL is a valid DATABASE_URL, the one required variable
+// without a default.
+const testDatabaseURL = "postgres://localhost:5432/goshop?sslmode=disable"
+
+// setEnv gives the test a clean environment: every APP_* variable, PORT and
+// DATABASE_URL is removed (and restored afterwards), then DATABASE_URL is set
+// to testDatabaseURL, the one required variable without a default, and vars
+// is applied over it. configx reads every APP_* variable of the process, so a
+// stray one on the developer's machine must not leak into a test.
 func setEnv(t *testing.T, vars map[string]string) {
 	t.Helper()
 	for _, kv := range os.Environ() {
@@ -25,6 +30,10 @@ func setEnv(t *testing.T, vars map[string]string) {
 		}
 	}
 	unsetEnv(t, "PORT")
+	unsetEnv(t, "DATABASE_URL")
+	if _, ok := vars["DATABASE_URL"]; !ok {
+		t.Setenv("DATABASE_URL", testDatabaseURL)
+	}
 	for k, v := range vars {
 		t.Setenv(k, v)
 	}

@@ -22,10 +22,15 @@ import (
 	"github.com/santekno/shop-app/apps/api/internal/config"
 )
 
-// setEnv clears every APP_* variable and PORT for the test, then sets vars.
+// testDatabaseURL is a valid DATABASE_URL. Serving does not open the
+// database yet, so nothing has to listen there.
+const testDatabaseURL = "postgres://localhost:5432/goshop?sslmode=disable"
+
+// setEnv clears every APP_* variable, PORT and DATABASE_URL for the test,
+// sets DATABASE_URL (required) to testDatabaseURL, then sets vars over it.
 func setEnv(t *testing.T, vars map[string]string) {
 	t.Helper()
-	names := []string{"PORT"}
+	names := []string{"PORT", "DATABASE_URL"}
 	for _, kv := range os.Environ() {
 		if name, _, _ := strings.Cut(kv, "="); strings.HasPrefix(name, "APP_") {
 			names = append(names, name)
@@ -36,6 +41,9 @@ func setEnv(t *testing.T, vars map[string]string) {
 		if err := os.Unsetenv(name); err != nil {
 			t.Fatalf("unset %s: %v", name, err)
 		}
+	}
+	if _, ok := vars["DATABASE_URL"]; !ok {
+		t.Setenv("DATABASE_URL", testDatabaseURL)
 	}
 	for k, v := range vars {
 		t.Setenv(k, v)
@@ -288,7 +296,7 @@ func TestRun_Errors(t *testing.T) {
 			name:    "unknown argument",
 			env:     map[string]string{"APP_ENV": "production"},
 			args:    []string{"serve"},
-			wantErr: `unknown arguments ["serve"] (usage: api [healthcheck])`,
+			wantErr: `unknown arguments ["serve"] (usage: api [healthcheck|migrate])`,
 		},
 		{
 			name:    "healthcheck with extra arguments",
