@@ -10,9 +10,17 @@ Branch: `bab-2` (from `bab-1` @ `9ade893`)
 | 1 unit tests | test-engineer | pass | 99.4% coverage; every measured package must have tests (`go-coverage.sh` no longer needs `covdata`, which GOTOOLCHAIN-downloaded toolchains lack); mutation-checked |
 | 2 DB audit | database-auditor | pass, no SQL change | no database in Bab 2 |
 | 3 integration | integration-engineer | pass | real HTTP against the wired app plus the compose `api` container; contract-driven field checks; 387 passed, 0 skipped on a cold `make verify` |
-| 4 quality review | quality-review | _pending re-review_ | first pass: 1 blocking (ownership record, below) and 11 advice items, applied |
+| 4 quality review | quality-review | pass | 2 rounds: 1 blocking (ownership record, below) cleared, 11 advice items applied; re-review clean, every rewritten commit builds on its own |
 
-**Verified SHA:** _recorded after stage 4 passes_
+**Verified SHA:** `5844fd94fbb28cc16287807380ddbfc467f59191` (2026-10-22)
+
+Toolchain at verification: Node 24.22.1, Go 1.26.10, santekno/sdk v0.2.0.
+
+### Deferred to the start of Bab 3
+
+- `Struct` names a top-level slice element by its Go name (`Tags[0]`, not `tags[0]`): cut the `[…]` suffix before `FieldByName` or document it with a pinning test.
+- Realign the `httpapi/` comment in the ADR 0004 tree.
+- From the Bab 1 ERD review: lock variants in id order before a stock restore; delete addresses when anonymising a user; note that `FOR UPDATE OF v` does not lock the product row.
 
 ### Bugs the gate caught and fixed
 
