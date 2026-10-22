@@ -3,8 +3,10 @@
 # threshold.
 #
 # What is measured: every package of the module except cmd/ entrypoints
-# (wiring that internal/app already covers) and generated sqlc code; files
-# named *_gen.go are dropped from the profile too.
+# (wiring that internal/app already covers), generated sqlc code and the
+# embed-only migrations package (a //go:embed of SQL files, no statements;
+# internal/database tests what it embeds); files named *_gen.go are dropped
+# from the profile too.
 #
 # Every measured package must have at least one test file. That rule is
 # stricter than "the total is high enough", and it also keeps `go test`
@@ -28,7 +30,7 @@ packages=()
 untested=()
 while read -r pkg tests xtests; do
 	case "$pkg" in
-	*/cmd/* | */internal/db/sqlc | */internal/db/sqlc/*) continue ;;
+	*/cmd/* | */internal/db/sqlc | */internal/db/sqlc/* | */migrations) continue ;;
 	esac
 	packages+=("$pkg")
 	if [ $((tests + xtests)) -eq 0 ]; then
