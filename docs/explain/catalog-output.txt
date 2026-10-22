@@ -1,0 +1,522 @@
+Output of docs/explain/catalog.sql on the make seed-large catalog (9,428 active, 400 draft, 200 archived products; 20,132 variants), PostgreSQL 17.11, 2026-10-22, plan_cache_mode=force_custom_plan as on the API's connections. Explained in docs/explain/catalog.md.
+
+SELECT array_agg(c.id)::text AS pakaian FROM categories c JOIN categories t ON c.id = t.id OR c.parent_id = t.id WHERE t.slug = 'pakaian' 
+SELECT array_agg(c.id)::text AS kaos FROM categories c JOIN categories t ON c.id = t.id OR c.parent_id = t.id WHERE t.slug = 'kaos' 
+EXPLAIN (ANALYZE, BUFFERS, COSTS OFF) EXECUTE list_newest(NULL, NULL, '9999-12-31', 'ffffffff-ffff-ffff-ffff-ffffffffffff', 21);
+                                                                             QUERY PLAN                                                                              
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort (actual time=0.133..0.136 rows=34 loops=1)
+   Sort Key: p.created_at DESC, p.id DESC, v.price, v."position", v.id
+   Sort Method: quicksort  Memory: 33kB
+   Buffers: shared hit=68
+   ->  Nested Loop Left Join (actual time=0.033..0.102 rows=34 loops=1)
+         Buffers: shared hit=68
+         ->  Hash Join (actual time=0.029..0.046 rows=21 loops=1)
+               Hash Cond: (p.category_id = c.id)
+               Buffers: shared hit=5
+               ->  Limit (actual time=0.017..0.026 rows=21 loops=1)
+                     Buffers: shared hit=4
+                     ->  Index Scan using products_active_newest_idx on products p (actual time=0.017..0.024 rows=21 loops=1)
+                           Index Cond: (ROW(created_at, id) < ROW('9999-12-31 00:00:00+00'::timestamp with time zone, 'ffffffff-ffff-ffff-ffff-ffffffffffff'::uuid))
+                           Buffers: shared hit=4
+               ->  Hash (actual time=0.006..0.006 rows=13 loops=1)
+                     Buckets: 1024  Batches: 1  Memory Usage: 10kB
+                     Buffers: shared hit=1
+                     ->  Seq Scan on categories c (actual time=0.003..0.003 rows=13 loops=1)
+                           Buffers: shared hit=1
+         ->  Index Scan using product_variants_product_id_idx on product_variants v (actual time=0.002..0.002 rows=2 loops=21)
+               Index Cond: (product_id = p.id)
+               Filter: (archived_at IS NULL)
+               Buffers: shared hit=63
+ Planning:
+   Buffers: shared hit=142
+ Planning Time: 0.525 ms
+ Execution Time: 0.192 ms
+(27 rows)
+
+SELECT created_at AS c_time, id AS c_id FROM products WHERE status = 'active'
+ORDER BY created_at DESC, id DESC OFFSET 4999 LIMIT 1 
+EXPLAIN (ANALYZE, BUFFERS, COSTS OFF) EXECUTE list_newest(NULL, NULL, '2026-08-20 21:50:15.347894+00', '01a162b5-3b91-7a76-a9c8-5540bd08aafa', 21);
+                                                                                 QUERY PLAN                                                                                 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort (actual time=0.066..0.067 rows=44 loops=1)
+   Sort Key: p.created_at DESC, p.id DESC, v.price, v."position", v.id
+   Sort Method: quicksort  Memory: 39kB
+   Buffers: shared hit=70
+   ->  Nested Loop Left Join (actual time=0.024..0.054 rows=44 loops=1)
+         Buffers: shared hit=70
+         ->  Hash Join (actual time=0.016..0.025 rows=21 loops=1)
+               Hash Cond: (p.category_id = c.id)
+               Buffers: shared hit=6
+               ->  Limit (actual time=0.007..0.013 rows=21 loops=1)
+                     Buffers: shared hit=5
+                     ->  Index Scan using products_active_newest_idx on products p (actual time=0.007..0.011 rows=21 loops=1)
+                           Index Cond: (ROW(created_at, id) < ROW('2026-08-20 21:50:15.347894+00'::timestamp with time zone, '01a162b5-3b91-7a76-a9c8-5540bd08aafa'::uuid))
+                           Buffers: shared hit=5
+               ->  Hash (actual time=0.007..0.007 rows=13 loops=1)
+                     Buckets: 1024  Batches: 1  Memory Usage: 10kB
+                     Buffers: shared hit=1
+                     ->  Seq Scan on categories c (actual time=0.003..0.004 rows=13 loops=1)
+                           Buffers: shared hit=1
+         ->  Index Scan using product_variants_product_id_idx on product_variants v (actual time=0.001..0.001 rows=2 loops=21)
+               Index Cond: (product_id = p.id)
+               Filter: (archived_at IS NULL)
+               Buffers: shared hit=64
+ Planning:
+   Buffers: shared hit=11
+ Planning Time: 0.242 ms
+ Execution Time: 0.084 ms
+(27 rows)
+
+EXPLAIN (ANALYZE, BUFFERS, COSTS OFF)
+SELECT id FROM products WHERE status = 'active' ORDER BY created_at DESC, id DESC OFFSET 5000 LIMIT 21;
+                                                   QUERY PLAN                                                    
+-----------------------------------------------------------------------------------------------------------------
+ Limit (actual time=0.490..0.492 rows=21 loops=1)
+   Buffers: shared hit=28
+   ->  Index Only Scan using products_active_newest_idx on products (actual time=0.004..0.356 rows=5021 loops=1)
+         Heap Fetches: 17
+         Buffers: shared hit=28
+ Planning Time: 0.024 ms
+ Execution Time: 0.497 ms
+(7 rows)
+
+EXPLAIN (ANALYZE, BUFFERS, COSTS OFF) EXECUTE list_newest('{01a162b3-eaf9-72ce-971b-ff96e5824de0,01a162b3-eaf9-7cc2-94ba-8f1e2a7f5f74,01a162b3-eaf9-70e5-b103-7e42df5f8743,01a162b3-eaf9-7a23-97e1-c39a6e1f8dca}', NULL, '9999-12-31', 'ffffffff-ffff-ffff-ffff-ffffffffffff', 21);
+                                                                                                       QUERY PLAN                                                                                                        
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort (actual time=0.071..0.073 rows=49 loops=1)
+   Sort Key: p.created_at DESC, p.id DESC, v.price, v."position", v.id
+   Sort Method: quicksort  Memory: 38kB
+   Buffers: shared hit=72
+   ->  Nested Loop Left Join (actual time=0.016..0.056 rows=49 loops=1)
+         Buffers: shared hit=72
+         ->  Hash Join (actual time=0.014..0.030 rows=21 loops=1)
+               Hash Cond: (p.category_id = c.id)
+               Buffers: shared hit=8
+               ->  Limit (actual time=0.007..0.020 rows=21 loops=1)
+                     Buffers: shared hit=7
+                     ->  Index Scan using products_active_newest_idx on products p (actual time=0.007..0.018 rows=21 loops=1)
+                           Index Cond: (ROW(created_at, id) < ROW('9999-12-31 00:00:00+00'::timestamp with time zone, 'ffffffff-ffff-ffff-ffff-ffffffffffff'::uuid))
+                           Filter: (category_id = ANY ('{01a162b3-eaf9-72ce-971b-ff96e5824de0,01a162b3-eaf9-7cc2-94ba-8f1e2a7f5f74,01a162b3-eaf9-70e5-b103-7e42df5f8743,01a162b3-eaf9-7a23-97e1-c39a6e1f8dca}'::uuid[]))
+                           Rows Removed by Filter: 38
+                           Buffers: shared hit=7
+               ->  Hash (actual time=0.005..0.006 rows=13 loops=1)
+                     Buckets: 1024  Batches: 1  Memory Usage: 10kB
+                     Buffers: shared hit=1
+                     ->  Seq Scan on categories c (actual time=0.002..0.003 rows=13 loops=1)
+                           Buffers: shared hit=1
+         ->  Index Scan using product_variants_product_id_idx on product_variants v (actual time=0.001..0.001 rows=2 loops=21)
+               Index Cond: (product_id = p.id)
+               Filter: (archived_at IS NULL)
+               Rows Removed by Filter: 0
+               Buffers: shared hit=64
+ Planning:
+   Buffers: shared hit=11
+ Planning Time: 0.221 ms
+ Execution Time: 0.092 ms
+(30 rows)
+
+EXPLAIN (ANALYZE, BUFFERS, COSTS OFF) EXECUTE list_newest('{01a162b3-eaf9-7cc2-94ba-8f1e2a7f5f74}', NULL, '9999-12-31', 'ffffffff-ffff-ffff-ffff-ffffffffffff', 21);
+                                                                             QUERY PLAN                                                                              
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort (actual time=0.087..0.089 rows=51 loops=1)
+   Sort Key: p.created_at DESC, p.id DESC, v.price, v."position", v.id
+   Sort Method: quicksort  Memory: 40kB
+   Buffers: shared hit=81
+   ->  Nested Loop Left Join (actual time=0.013..0.073 rows=51 loops=1)
+         Buffers: shared hit=81
+         ->  Hash Join (actual time=0.011..0.044 rows=21 loops=1)
+               Hash Cond: (p.category_id = c.id)
+               Buffers: shared hit=16
+               ->  Limit (actual time=0.006..0.036 rows=21 loops=1)
+                     Buffers: shared hit=15
+                     ->  Index Scan using products_active_newest_idx on products p (actual time=0.006..0.034 rows=21 loops=1)
+                           Index Cond: (ROW(created_at, id) < ROW('9999-12-31 00:00:00+00'::timestamp with time zone, 'ffffffff-ffff-ffff-ffff-ffffffffffff'::uuid))
+                           Filter: (category_id = ANY ('{01a162b3-eaf9-7cc2-94ba-8f1e2a7f5f74}'::uuid[]))
+                           Rows Removed by Filter: 125
+                           Buffers: shared hit=15
+               ->  Hash (actual time=0.004..0.004 rows=13 loops=1)
+                     Buckets: 1024  Batches: 1  Memory Usage: 10kB
+                     Buffers: shared hit=1
+                     ->  Seq Scan on categories c (actual time=0.001..0.002 rows=13 loops=1)
+                           Buffers: shared hit=1
+         ->  Index Scan using product_variants_product_id_idx on product_variants v (actual time=0.001..0.001 rows=2 loops=21)
+               Index Cond: (product_id = p.id)
+               Filter: (archived_at IS NULL)
+               Rows Removed by Filter: 0
+               Buffers: shared hit=65
+ Planning:
+   Buffers: shared hit=11
+ Planning Time: 0.180 ms
+ Execution Time: 0.104 ms
+(30 rows)
+
+BEGIN;
+BEGIN
+INSERT INTO categories (id, parent_id, level, parent_level, name, slug)
+SELECT '01a16299-0000-7000-8000-000000000001', id, 2, 1, 'Kosong', 'kosong' FROM categories WHERE slug = 'pakaian';
+INSERT 0 1
+EXPLAIN (ANALYZE, BUFFERS, COSTS OFF) EXECUTE list_newest('{01a16299-0000-7000-8000-000000000001}', NULL, '9999-12-31', 'ffffffff-ffff-ffff-ffff-ffffffffffff', 21);
+                                                                                                                       QUERY PLAN                                                                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Incremental Sort (actual time=0.020..0.021 rows=0 loops=1)
+   Sort Key: p.created_at DESC, p.id DESC, v.price, v."position", v.id
+   Presorted Key: p.created_at, p.id
+   Full-sort Groups: 1  Sort Method: quicksort  Average Memory: 25kB  Peak Memory: 25kB
+   Buffers: shared hit=2
+   ->  Nested Loop Left Join (actual time=0.018..0.019 rows=0 loops=1)
+         Buffers: shared hit=2
+         ->  Nested Loop (actual time=0.018..0.019 rows=0 loops=1)
+               Join Filter: (c.id = p.category_id)
+               Buffers: shared hit=2
+               ->  Limit (actual time=0.018..0.018 rows=0 loops=1)
+                     Buffers: shared hit=2
+                     ->  Sort (actual time=0.018..0.018 rows=0 loops=1)
+                           Sort Key: p.created_at DESC, p.id DESC
+                           Sort Method: quicksort  Memory: 25kB
+                           Buffers: shared hit=2
+                           ->  Index Scan using products_active_category_newest_idx on products p (actual time=0.017..0.017 rows=0 loops=1)
+                                 Index Cond: ((category_id = ANY ('{01a16299-0000-7000-8000-000000000001}'::uuid[])) AND (ROW(created_at, id) < ROW('9999-12-31 00:00:00+00'::timestamp with time zone, 'ffffffff-ffff-ffff-ffff-ffffffffffff'::uuid)))
+                                 Buffers: shared hit=2
+               ->  Seq Scan on categories c (never executed)
+         ->  Index Scan using product_variants_product_id_idx on product_variants v (never executed)
+               Index Cond: (product_id = p.id)
+               Filter: (archived_at IS NULL)
+ Planning:
+   Buffers: shared hit=11
+ Planning Time: 0.116 ms
+ Execution Time: 0.037 ms
+(27 rows)
+
+EXPLAIN (ANALYZE, BUFFERS, COSTS OFF) EXECUTE list_price_asc('{01a16299-0000-7000-8000-000000000001}', NULL, 0, '00000000-0000-0000-0000-000000000000', 21);
+                                                                 QUERY PLAN                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------
+ Incremental Sort (actual time=0.004..0.004 rows=0 loops=1)
+   Sort Key: p.price_from, p.id, v.price, v."position", v.id
+   Presorted Key: p.price_from, p.id
+   Full-sort Groups: 1  Sort Method: quicksort  Average Memory: 25kB  Peak Memory: 25kB
+   Buffers: shared hit=2
+   ->  Nested Loop Left Join (actual time=0.003..0.003 rows=0 loops=1)
+         Buffers: shared hit=2
+         ->  Nested Loop (actual time=0.003..0.003 rows=0 loops=1)
+               Join Filter: (c.id = p.category_id)
+               Buffers: shared hit=2
+               ->  Limit (actual time=0.003..0.003 rows=0 loops=1)
+                     Buffers: shared hit=2
+                     ->  Sort (actual time=0.002..0.002 rows=0 loops=1)
+                           Sort Key: p.price_from, p.id
+                           Sort Method: quicksort  Memory: 25kB
+                           Buffers: shared hit=2
+                           ->  Index Scan using products_active_category_newest_idx on products p (actual time=0.002..0.002 rows=0 loops=1)
+                                 Index Cond: (category_id = ANY ('{01a16299-0000-7000-8000-000000000001}'::uuid[]))
+                                 Filter: (ROW(price_from, id) > ROW('0'::bigint, '00000000-0000-0000-0000-000000000000'::uuid))
+                                 Buffers: shared hit=2
+               ->  Seq Scan on categories c (never executed)
+         ->  Index Scan using product_variants_product_id_idx on product_variants v (never executed)
+               Index Cond: (product_id = p.id)
+               Filter: (archived_at IS NULL)
+ Planning:
+   Buffers: shared hit=11
+ Planning Time: 0.112 ms
+ Execution Time: 0.018 ms
+(28 rows)
+
+ROLLBACK;
+ROLLBACK
+EXPLAIN (ANALYZE, BUFFERS, COSTS OFF) EXECUTE list_price_asc(NULL, NULL, 0, '00000000-0000-0000-0000-000000000000', 21);
+                                                          QUERY PLAN                                                           
+-------------------------------------------------------------------------------------------------------------------------------
+ Sort (actual time=0.262..0.264 rows=33 loops=1)
+   Sort Key: p.price_from, p.id, v.price, v."position", v.id
+   Sort Method: quicksort  Memory: 35kB
+   Buffers: shared hit=87
+   ->  Nested Loop Left Join (actual time=0.034..0.249 rows=33 loops=1)
+         Buffers: shared hit=87
+         ->  Hash Join (actual time=0.022..0.073 rows=21 loops=1)
+               Hash Cond: (p.category_id = c.id)
+               Buffers: shared hit=24
+               ->  Limit (actual time=0.016..0.060 rows=21 loops=1)
+                     Buffers: shared hit=23
+                     ->  Index Scan using products_active_price_idx on products p (actual time=0.016..0.058 rows=21 loops=1)
+                           Index Cond: (ROW(price_from, id) > ROW('0'::bigint, '00000000-0000-0000-0000-000000000000'::uuid))
+                           Buffers: shared hit=23
+               ->  Hash (actual time=0.004..0.004 rows=13 loops=1)
+                     Buckets: 1024  Batches: 1  Memory Usage: 10kB
+                     Buffers: shared hit=1
+                     ->  Seq Scan on categories c (actual time=0.001..0.002 rows=13 loops=1)
+                           Buffers: shared hit=1
+         ->  Index Scan using product_variants_product_id_idx on product_variants v (actual time=0.008..0.008 rows=2 loops=21)
+               Index Cond: (product_id = p.id)
+               Filter: (archived_at IS NULL)
+               Buffers: shared hit=63
+ Planning:
+   Buffers: shared hit=11
+ Planning Time: 0.104 ms
+ Execution Time: 0.277 ms
+(27 rows)
+
+EXPLAIN (ANALYZE, BUFFERS, COSTS OFF) EXECUTE list_price_desc(NULL, NULL, 9223372036854775807, 'ffffffff-ffff-ffff-ffff-ffffffffffff', 21);
+                                                                   QUERY PLAN                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort (actual time=0.128..0.130 rows=44 loops=1)
+   Sort Key: p.price_from DESC, p.id DESC, v.price, v."position", v.id
+   Sort Method: quicksort  Memory: 39kB
+   Buffers: shared hit=87
+   ->  Nested Loop Left Join (actual time=0.011..0.116 rows=44 loops=1)
+         Buffers: shared hit=87
+         ->  Hash Join (actual time=0.009..0.034 rows=21 loops=1)
+               Hash Cond: (p.category_id = c.id)
+               Buffers: shared hit=24
+               ->  Limit (actual time=0.004..0.026 rows=21 loops=1)
+                     Buffers: shared hit=23
+                     ->  Index Scan Backward using products_active_price_idx on products p (actual time=0.004..0.024 rows=21 loops=1)
+                           Index Cond: (ROW(price_from, id) < ROW('9223372036854775807'::bigint, 'ffffffff-ffff-ffff-ffff-ffffffffffff'::uuid))
+                           Buffers: shared hit=23
+               ->  Hash (actual time=0.004..0.004 rows=13 loops=1)
+                     Buckets: 1024  Batches: 1  Memory Usage: 10kB
+                     Buffers: shared hit=1
+                     ->  Seq Scan on categories c (actual time=0.002..0.003 rows=13 loops=1)
+                           Buffers: shared hit=1
+         ->  Index Scan using product_variants_product_id_idx on product_variants v (actual time=0.003..0.004 rows=2 loops=21)
+               Index Cond: (product_id = p.id)
+               Filter: (archived_at IS NULL)
+               Buffers: shared hit=63
+ Planning:
+   Buffers: shared hit=11
+ Planning Time: 0.209 ms
+ Execution Time: 0.144 ms
+(27 rows)
+
+EXPLAIN (ANALYZE, BUFFERS, COSTS OFF) EXECUTE list_price_asc('{01a162b3-eaf9-72ce-971b-ff96e5824de0,01a162b3-eaf9-7cc2-94ba-8f1e2a7f5f74,01a162b3-eaf9-70e5-b103-7e42df5f8743,01a162b3-eaf9-7a23-97e1-c39a6e1f8dca}', NULL, 0, '00000000-0000-0000-0000-000000000000', 21);
+                                                                                                       QUERY PLAN                                                                                                        
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort (actual time=0.162..0.164 rows=38 loops=1)
+   Sort Key: p.price_from, p.id, v.price, v."position", v.id
+   Sort Method: quicksort  Memory: 37kB
+   Buffers: shared hit=122
+   ->  Nested Loop Left Join (actual time=0.016..0.151 rows=38 loops=1)
+         Buffers: shared hit=122
+         ->  Hash Join (actual time=0.014..0.074 rows=21 loops=1)
+               Hash Cond: (p.category_id = c.id)
+               Buffers: shared hit=59
+               ->  Limit (actual time=0.006..0.062 rows=21 loops=1)
+                     Buffers: shared hit=58
+                     ->  Index Scan using products_active_price_idx on products p (actual time=0.006..0.060 rows=21 loops=1)
+                           Index Cond: (ROW(price_from, id) > ROW('0'::bigint, '00000000-0000-0000-0000-000000000000'::uuid))
+                           Filter: (category_id = ANY ('{01a162b3-eaf9-72ce-971b-ff96e5824de0,01a162b3-eaf9-7cc2-94ba-8f1e2a7f5f74,01a162b3-eaf9-70e5-b103-7e42df5f8743,01a162b3-eaf9-7a23-97e1-c39a6e1f8dca}'::uuid[]))
+                           Rows Removed by Filter: 35
+                           Buffers: shared hit=58
+               ->  Hash (actual time=0.006..0.006 rows=13 loops=1)
+                     Buckets: 1024  Batches: 1  Memory Usage: 10kB
+                     Buffers: shared hit=1
+                     ->  Seq Scan on categories c (actual time=0.002..0.003 rows=13 loops=1)
+                           Buffers: shared hit=1
+         ->  Index Scan using product_variants_product_id_idx on product_variants v (actual time=0.003..0.003 rows=2 loops=21)
+               Index Cond: (product_id = p.id)
+               Filter: (archived_at IS NULL)
+               Buffers: shared hit=63
+ Planning:
+   Buffers: shared hit=11
+ Planning Time: 0.181 ms
+ Execution Time: 0.180 ms
+(29 rows)
+
+EXPLAIN (ANALYZE, BUFFERS, COSTS OFF) EXECUTE list_newest(NULL, 'kopi arabika', '9999-12-31', 'ffffffff-ffff-ffff-ffff-ffffffffffff', 21);
+                                                                                              QUERY PLAN                                                                                               
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort (actual time=0.874..0.877 rows=47 loops=1)
+   Sort Key: p.created_at DESC, p.id DESC, v.price, v."position", v.id
+   Sort Method: quicksort  Memory: 40kB
+   Buffers: shared hit=347
+   ->  Nested Loop Left Join (actual time=0.806..0.860 rows=47 loops=1)
+         Buffers: shared hit=347
+         ->  Hash Join (actual time=0.801..0.808 rows=21 loops=1)
+               Hash Cond: (p.category_id = c.id)
+               Buffers: shared hit=284
+               ->  Limit (actual time=0.787..0.789 rows=21 loops=1)
+                     Buffers: shared hit=283
+                     ->  Sort (actual time=0.786..0.787 rows=21 loops=1)
+                           Sort Key: p.created_at DESC, p.id DESC
+                           Sort Method: top-N heapsort  Memory: 32kB
+                           Buffers: shared hit=283
+                           ->  Bitmap Heap Scan on products p (actual time=0.208..0.722 rows=349 loops=1)
+                                 Recheck Cond: (search @@ '''kopi'' & ''arabika'''::tsquery)
+                                 Filter: ((status = 'active'::text) AND (ROW(created_at, id) < ROW('9999-12-31 00:00:00+00'::timestamp with time zone, 'ffffffff-ffff-ffff-ffff-ffffffffffff'::uuid)))
+                                 Rows Removed by Filter: 16
+                                 Heap Blocks: exact=278
+                                 Buffers: shared hit=283
+                                 ->  Bitmap Index Scan on products_search_idx (actual time=0.186..0.186 rows=365 loops=1)
+                                       Index Cond: (search @@ '''kopi'' & ''arabika'''::tsquery)
+                                       Buffers: shared hit=5
+               ->  Hash (actual time=0.011..0.011 rows=13 loops=1)
+                     Buckets: 1024  Batches: 1  Memory Usage: 10kB
+                     Buffers: shared hit=1
+                     ->  Seq Scan on categories c (actual time=0.007..0.008 rows=13 loops=1)
+                           Buffers: shared hit=1
+         ->  Index Scan using product_variants_product_id_idx on product_variants v (actual time=0.002..0.002 rows=2 loops=21)
+               Index Cond: (product_id = p.id)
+               Filter: (archived_at IS NULL)
+               Buffers: shared hit=63
+ Planning:
+   Buffers: shared hit=47
+ Planning Time: 3.996 ms
+ Execution Time: 0.983 ms
+(37 rows)
+
+EXPLAIN (ANALYZE, BUFFERS, COSTS OFF) EXECUTE list_price_asc('{01a162b3-eaf9-72ce-971b-ff96e5824de0,01a162b3-eaf9-7cc2-94ba-8f1e2a7f5f74,01a162b3-eaf9-70e5-b103-7e42df5f8743,01a162b3-eaf9-7a23-97e1-c39a6e1f8dca}', 'kaos', 0, '00000000-0000-0000-0000-000000000000', 21);
+                                                                                                                          QUERY PLAN                                                                                                                           
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort (actual time=0.199..0.201 rows=34 loops=1)
+   Sort Key: p.price_from, p.id, v.price, v."position", v.id
+   Sort Method: quicksort  Memory: 35kB
+   Buffers: shared hit=204
+   ->  Nested Loop Left Join (actual time=0.030..0.188 rows=34 loops=1)
+         Buffers: shared hit=204
+         ->  Hash Join (actual time=0.027..0.133 rows=21 loops=1)
+               Hash Cond: (p.category_id = c.id)
+               Buffers: shared hit=141
+               ->  Limit (actual time=0.020..0.122 rows=21 loops=1)
+                     Buffers: shared hit=140
+                     ->  Index Scan using products_active_price_idx on products p (actual time=0.020..0.120 rows=21 loops=1)
+                           Index Cond: (ROW(price_from, id) > ROW('0'::bigint, '00000000-0000-0000-0000-000000000000'::uuid))
+                           Filter: ((search @@ '''kaos'''::tsquery) AND (category_id = ANY ('{01a162b3-eaf9-72ce-971b-ff96e5824de0,01a162b3-eaf9-7cc2-94ba-8f1e2a7f5f74,01a162b3-eaf9-70e5-b103-7e42df5f8743,01a162b3-eaf9-7a23-97e1-c39a6e1f8dca}'::uuid[])))
+                           Rows Removed by Filter: 117
+                           Buffers: shared hit=140
+               ->  Hash (actual time=0.005..0.006 rows=13 loops=1)
+                     Buckets: 1024  Batches: 1  Memory Usage: 10kB
+                     Buffers: shared hit=1
+                     ->  Seq Scan on categories c (actual time=0.002..0.003 rows=13 loops=1)
+                           Buffers: shared hit=1
+         ->  Index Scan using product_variants_product_id_idx on product_variants v (actual time=0.002..0.002 rows=2 loops=21)
+               Index Cond: (product_id = p.id)
+               Filter: (archived_at IS NULL)
+               Buffers: shared hit=63
+ Planning:
+   Buffers: shared hit=12
+ Planning Time: 0.242 ms
+ Execution Time: 0.225 ms
+(29 rows)
+
+SET plan_cache_mode = force_generic_plan;
+SET
+EXPLAIN (ANALYZE, BUFFERS, COSTS OFF) EXECUTE list_newest(NULL, 'sepatu', '9999-12-31', 'ffffffff-ffff-ffff-ffff-ffffffffffff', 21);
+                                                                             QUERY PLAN                                                                             
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Incremental Sort (actual time=7.712..7.713 rows=0 loops=1)
+   Sort Key: p.created_at DESC, p.id DESC, v.price, v."position", v.id
+   Presorted Key: p.created_at, p.id
+   Full-sort Groups: 1  Sort Method: quicksort  Average Memory: 25kB  Peak Memory: 25kB
+   Buffers: shared hit=838
+   ->  Nested Loop Left Join (actual time=7.710..7.711 rows=0 loops=1)
+         Buffers: shared hit=838
+         ->  Nested Loop (actual time=7.710..7.710 rows=0 loops=1)
+               Join Filter: (c.id = p.category_id)
+               Buffers: shared hit=838
+               ->  Limit (actual time=7.709..7.709 rows=0 loops=1)
+                     Buffers: shared hit=838
+                     ->  Index Scan using products_active_newest_idx on products p (actual time=7.708..7.709 rows=0 loops=1)
+                           Index Cond: (ROW(created_at, id) < ROW($3, $4))
+                           Filter: ((($1 IS NULL) OR (category_id = ANY ($1))) AND (($2 IS NULL) OR (search @@ websearch_to_tsquery('indonesian'::regconfig, $2))))
+                           Rows Removed by Filter: 9428
+                           Buffers: shared hit=838
+               ->  Materialize (never executed)
+                     ->  Seq Scan on categories c (never executed)
+         ->  Index Scan using product_variants_product_id_idx on product_variants v (never executed)
+               Index Cond: (product_id = p.id)
+               Filter: (archived_at IS NULL)
+ Planning:
+   Buffers: shared hit=11
+ Planning Time: 0.192 ms
+ Execution Time: 7.729 ms
+(26 rows)
+
+SET plan_cache_mode = force_custom_plan;
+SET
+EXPLAIN (ANALYZE, BUFFERS, COSTS OFF) EXECUTE list_newest(NULL, 'sepatu', '9999-12-31', 'ffffffff-ffff-ffff-ffff-ffffffffffff', 21);
+                                                                                              QUERY PLAN                                                                                               
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort (actual time=0.030..0.031 rows=0 loops=1)
+   Sort Key: p.created_at DESC, p.id DESC, v.price, v."position", v.id
+   Sort Method: quicksort  Memory: 25kB
+   Buffers: shared hit=4
+   ->  Nested Loop Left Join (actual time=0.029..0.029 rows=0 loops=1)
+         Buffers: shared hit=4
+         ->  Hash Join (actual time=0.028..0.029 rows=0 loops=1)
+               Hash Cond: (p.category_id = c.id)
+               Buffers: shared hit=4
+               ->  Limit (actual time=0.021..0.021 rows=0 loops=1)
+                     Buffers: shared hit=3
+                     ->  Sort (actual time=0.020..0.020 rows=0 loops=1)
+                           Sort Key: p.created_at DESC, p.id DESC
+                           Sort Method: quicksort  Memory: 25kB
+                           Buffers: shared hit=3
+                           ->  Bitmap Heap Scan on products p (actual time=0.019..0.019 rows=0 loops=1)
+                                 Recheck Cond: (search @@ '''sepatu'''::tsquery)
+                                 Filter: ((status = 'active'::text) AND (ROW(created_at, id) < ROW('9999-12-31 00:00:00+00'::timestamp with time zone, 'ffffffff-ffff-ffff-ffff-ffffffffffff'::uuid)))
+                                 Buffers: shared hit=3
+                                 ->  Bitmap Index Scan on products_search_idx (actual time=0.018..0.018 rows=0 loops=1)
+                                       Index Cond: (search @@ '''sepatu'''::tsquery)
+                                       Buffers: shared hit=3
+               ->  Hash (actual time=0.006..0.007 rows=13 loops=1)
+                     Buckets: 1024  Batches: 1  Memory Usage: 10kB
+                     Buffers: shared hit=1
+                     ->  Seq Scan on categories c (actual time=0.003..0.004 rows=13 loops=1)
+                           Buffers: shared hit=1
+         ->  Index Scan using product_variants_product_id_idx on product_variants v (never executed)
+               Index Cond: (product_id = p.id)
+               Filter: (archived_at IS NULL)
+ Planning:
+   Buffers: shared hit=12
+ Planning Time: 0.287 ms
+ Execution Time: 0.048 ms
+(34 rows)
+
+EXPLAIN (ANALYZE, BUFFERS, COSTS OFF) EXECUTE product_by_slug('kaos-polos-hitam');
+                                                             QUERY PLAN                                                             
+------------------------------------------------------------------------------------------------------------------------------------
+ Sort (actual time=0.029..0.030 rows=4 loops=1)
+   Sort Key: v.price, v."position", v.id
+   Sort Method: quicksort  Memory: 25kB
+   Buffers: shared hit=7
+   ->  Hash Join (actual time=0.023..0.026 rows=4 loops=1)
+         Hash Cond: (p.category_id = c.id)
+         Buffers: shared hit=7
+         ->  Nested Loop Left Join (actual time=0.015..0.017 rows=4 loops=1)
+               Buffers: shared hit=6
+               ->  Index Scan using products_slug_key on products p (actual time=0.013..0.013 rows=1 loops=1)
+                     Index Cond: (slug = 'kaos-polos-hitam'::text)
+                     Filter: (status = 'active'::text)
+                     Buffers: shared hit=3
+               ->  Index Scan using product_variants_product_id_idx on product_variants v (actual time=0.001..0.002 rows=4 loops=1)
+                     Index Cond: (product_id = p.id)
+                     Filter: (archived_at IS NULL)
+                     Rows Removed by Filter: 1
+                     Buffers: shared hit=3
+         ->  Hash (actual time=0.006..0.006 rows=13 loops=1)
+               Buckets: 1024  Batches: 1  Memory Usage: 10kB
+               Buffers: shared hit=1
+               ->  Seq Scan on categories c (actual time=0.002..0.004 rows=13 loops=1)
+                     Buffers: shared hit=1
+ Planning:
+   Buffers: shared hit=20
+ Planning Time: 0.188 ms
+ Execution Time: 0.041 ms
+(27 rows)
+
+EXPLAIN (ANALYZE, BUFFERS, COSTS OFF) EXECUTE category_tree_ids('pakaian');
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
+ Nested Loop (actual time=0.003..0.006 rows=4 loops=1)
+   Join Filter: ((c.id = t.id) OR (c.parent_id = t.id))
+   Rows Removed by Join Filter: 9
+   Buffers: shared hit=2
+   ->  Seq Scan on categories t (actual time=0.002..0.003 rows=1 loops=1)
+         Filter: (slug = 'pakaian'::text)
+         Rows Removed by Filter: 12
+         Buffers: shared hit=1
+   ->  Seq Scan on categories c (actual time=0.001..0.001 rows=13 loops=1)
+         Buffers: shared hit=1
+ Planning Time: 0.042 ms
+ Execution Time: 0.011 ms
+(12 rows)
+

@@ -29,6 +29,8 @@ Every error, including unknown routes (404 `NOT_FOUND`) and wrong methods (405 `
 
 All settings come from environment variables ([docs/configuration.md](../../docs/configuration.md)). `APP_ENV` and `DATABASE_URL` are required; everything else has a default. The API pings PostgreSQL once at start and exits if it cannot, then shares one connection pool (`APP_DB_*` sizes it) for its whole life and closes it after graceful shutdown.
 
+Every connection asks Postgres for `plan_cache_mode=force_custom_plan` ([why](../../docs/explain/catalog.md#12-and-13-why-the-api-forces-custom-plans)); the API logs a warning at start when the session did not get it, and [docs/configuration.md](../../docs/configuration.md) says what to do behind a pooler.
+
 ```bash
 # from the repository root
 make up                       # the API in Docker on 127.0.0.1:8080, next to Postgres, Redis, SeaweedFS
