@@ -17,7 +17,7 @@ For routing we need path parameters, route groups and middleware, but no framewo
 We will build `apps/api` on the standard library, the [chi](https://github.com/go-chi/chi) router, and santekno/sdk.
 
 - Use the sdk package for every concern it covers. Do not reimplement it in GoShop.
-- Pin the sdk to a released tag in `go.mod`, starting with **v0.2.0 (commit 97a873a, published on the Go module proxy 2026-10-22)**, always pinned explicitly as `@v0.2.0`, never `@latest`. Never use a `replace` directive, so readers get exactly the same code. The one exception is a module the sdk has not tagged yet, which is pinned by pseudo-version and listed in [`docs/sdk-gaps.md`](../sdk-gaps.md).
+- Pin the sdk to a released tag in `go.mod`, starting with **v0.2.0, released 2026-10-22 (tag v0.2.0, commit 97a873a)**, always pinned explicitly as `@v0.2.0`, never `@latest`. Never use a `replace` directive, so readers get exactly the same code. The one exception is a module the sdk has not tagged yet, which is pinned by pseudo-version and listed in [`docs/sdk-gaps.md`](../sdk-gaps.md).
 - HTTP middleware (`RequestID`, `Logger`, `Recovery`, `Tracing`, `JWTAuth`) comes from the sdk's `middleware/chi` package (v0.2.0), whose handlers are plain `func(http.Handler) http.Handler`.
 - `errx` defines the errors (code, message, details, HTTP status) but writes no HTTP response. The body is written by `DefaultErrorWriter` in `middleware/chi`: `{"error":{"code":"…","message":"…","details":{…}}}`, with `details` omitted when the error has none. Handlers and chi's `NotFound`/`MethodNotAllowed` use the same writer.
 - IDs come from `uuidx.NewV7`, and health probes from `healthx` with `HideErrors` set outside development (both v0.2.0).
@@ -33,5 +33,5 @@ We will build `apps/api` on the standard library, the [chi](https://github.com/g
 
 - Handlers are standard `http.Handler`s, testable with `httptest`, and the knowledge transfers to any Go codebase.
 - GoShop depends on the sdk's release cycle: a missing feature means an adapter now and an upstream change later.
-- `middleware/chi`, `uuidx.NewV7` and the `healthx` fixes shipped in sdk v0.2.0 (commit 97a873a, published on the Go module proxy 2026-10-22), so Bab 2 pins `github.com/santekno/sdk v0.2.0` explicitly.
+- `middleware/chi`, `uuidx.NewV7` and the `healthx` fixes shipped in sdk v0.2.0, released 2026-10-22 (tag v0.2.0, commit 97a873a), so Bab 2 pins `github.com/santekno/sdk v0.2.0` explicitly.
 - Every error the API returns, from handlers or middleware, has the same shape, as specified in `api/openapi.yaml`.
