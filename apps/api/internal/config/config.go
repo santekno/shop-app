@@ -8,8 +8,11 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/santekno/sdk/configx"
 )
@@ -22,8 +25,16 @@ const (
 	EnvProduction  = "production"
 )
 
-// DefaultPort is used when neither PORT nor APP_PORT is set.
-const DefaultPort = 8080
+// Defaults for variables that may be left unset.
+const (
+	// DefaultPort is used when neither PORT nor APP_PORT is set.
+	DefaultPort = 8080
+	// DefaultRequestTimeout is used when APP_REQUEST_TIMEOUT is not set.
+	DefaultRequestTimeout = 15 * time.Second
+	// maxRequestTimeout keeps one slow request from holding a connection,
+	// and the server's write timeout derived from it, for minutes.
+	maxRequestTimeout = 60 * time.Second
+)
 
 // Config is the validated configuration of the API.
 type Config struct {
@@ -34,6 +45,13 @@ type Config struct {
 	Port int
 	// LogLevel is APP_LOG_LEVEL: debug, info (default), warn or error.
 	LogLevel string
+	// CORSAllowedOrigins is APP_CORS_ALLOWED_ORIGINS, a comma-separated list
+	// of browser origins (scheme://host[:port]) that may call the API. Empty
+	// means no cross-origin browser access.
+	CORSAllowedOrigins []string
+	// RequestTimeout is APP_REQUEST_TIMEOUT (a Go duration such as "15s"):
+	// how long a handler may run before the request ends with 503 TIMEOUT.
+	RequestTimeout time.Duration
 }
 
 // IsDevelopment reports whether the API runs on a developer's machine.
@@ -69,6 +87,13 @@ func Load() (Config, error) {
 		portVar, portValue = "PORT", v
 	}
 	cfg.Port, err = parsePort(portVar, portValue)
+	errs = append(errs, err)
+
+	cfg.CORSAllowedOrigins, err = parseOrigins(src.String("cors.allowed.origins"))
+	errs = append(errs, err)
+
+	cfg.RequestTimeout, err = parseDuration("APP_REQUEST_TIMEOUT", src.String("request.timeout"),
+		DefaultRequestTimeout, maxRequestTimeout)
 	errs = append(errs, err)
 
 	if err := errors.Join(errs...); err != nil {
@@ -107,4 +132,53 @@ func parsePort(name, value string) (int, error) {
 		return 0, fmt.Errorf("%s: must be a number between 1 and 65535, got %q", name, value)
 	}
 	return port, nil
+}
+
+// parseOrigins splits a comma-separated list of origins and checks each one.
+// "*" is refused: the allowed origins are always listed explicitly, so a
+// copied production config cannot open the API to every website.
+func parseOrigins(value string) ([]string, error) {
+	var origins []string
+	var errs []error
+	for raw := range strings.SplitSeq(value, ",") {
+		origin := strings.TrimSpace(raw)
+		if origin == "" {
+			continue
+		}
+		if err := checkOrigin(origin); err != nil {
+			errs = append(errs, fmt.Errorf("APP_CORS_ALLOWED_ORIGINS: %q %w", origin, err))
+			continue
+		}
+		origins = append(origins, origin)
+	}
+	return origins, errors.Join(errs...)
+}
+
+func checkOrigin(origin string) error {
+	if origin == "*" {
+		return errors.New("is not allowed: list each origin explicitly")
+	}
+	u, err := url.Parse(origin)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" ||
+		u.User != nil || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
+		return errors.New("must be an origin like https://shop.example.com or http://localhost:5173")
+	}
+	if u.Path == "/" {
+		return errors.New("must not end with a slash: browsers send the origin without one")
+	}
+	return nil
+}
+
+// parseDuration parses a Go duration ("15s", "1m") between 1s and max; an
+// empty value means def.
+func parseDuration(name, value string, def, maxDuration time.Duration) (time.Duration, error) {
+	if value == "" {
+		return def, nil
+	}
+	d, err := time.ParseDuration(value)
+	if err != nil || d < time.Second || d > maxDuration {
+		return 0, fmt.Errorf("%s: must be a duration between 1s and %s, such as \"15s\", got %q",
+			name, maxDuration, value)
+	}
+	return d, nil
 }

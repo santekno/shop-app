@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -32,8 +31,11 @@ func main() {
 	categoryService := category.NewService(categoryRepo)
 	categoryHandler := category.NewHandler(categoryService)
 
-	router := httpserver.NewRouter(func(r chi.Router) {
-		r.Use(logging.Middleware(logger))
+	router := httpserver.NewRouter(httpserver.Options{
+		Logger:         logger,
+		AllowedOrigins: cfg.CORSAllowedOrigins,
+		RequestTimeout: cfg.RequestTimeout,
+	}, func(r chi.Router) {
 		r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"status":"ok"}` + "\n"))
@@ -41,7 +43,7 @@ func main() {
 		r.Route("/v1", categoryHandler.Routes)
 	})
 
-	srv := httpserver.New(cfg.Addr(), router, 15*time.Second)
+	srv := httpserver.New(cfg.Addr(), router, cfg.RequestTimeout)
 	logger.Info("api listening", "addr", srv.Addr)
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		logger.Error("api stopped", "error", err)

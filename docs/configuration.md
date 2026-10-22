@@ -18,6 +18,8 @@ cp .env.example .env   # .env is gitignored; never commit it
 | `APP_PORT` | api | no | Port to listen on when `PORT` is not set (local default `8080`). | Bab 2 |
 | `PORT` | api | no | Set by Railway at runtime. When present it wins over `APP_PORT`. Do not put it in `.env`. | Bab 2 |
 | `APP_LOG_LEVEL` | api, worker | no | `debug`, `info` (default), `warn` or `error`. Development logs human-readable text, every other environment one JSON object per line. | Bab 2 |
+| `APP_CORS_ALLOWED_ORIGINS` | api | no | Comma-separated browser origins allowed to call the API, e.g. `http://localhost:5173,https://shop.example.com` (scheme and host, no path or trailing slash). Empty means no cross-origin browser access; `*` is refused. | Bab 2 |
+| `APP_REQUEST_TIMEOUT` | api | no | How long one request may run (Go duration, `1s`–`60s`, default `15s`). Past it the context is cancelled and the client gets 503 `TIMEOUT`. | Bab 2 |
 | `DATABASE_URL` | api, worker | **yes** | PostgreSQL connection string. Locally points at the Compose `postgres` service. | Bab 3 |
 | `REDIS_ADDR` | api, worker | no | Redis `host:port`. | Bab 4 |
 | `JWT_SECRET` | api | **yes** | Key that signs access tokens. At least 32 random bytes; different per environment. | Bab 4 |
