@@ -49,6 +49,9 @@ linters:
         # purpose, so a model change cannot silently change the JSON.
         - -S1016
     wrapcheck:
+      # GoShop's own packages already add context to the errors they return.
+      ignore-package-globs:
+        - github.com/santekno/shop-app/*
       ignore-sigs:
         # Errors that are already the API's own type, or that the caller
         # inspects directly, need no extra wrapping.
