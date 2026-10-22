@@ -41,8 +41,10 @@ type server struct {
 	// URL is the base URL, e.g. http://127.0.0.1:53124.
 	URL string
 	// db is a pool on the server's own test database, for the test to put
-	// fixtures in and check rows; nil when the test passed its own pool.
+	// fixtures in and check rows, and dbURL is that database's URL; both
+	// are empty when the test passed its own DATABASE_URL.
 	db     *sql.DB
+	dbURL  string
 	app    *app.App
 	logs   *syncBuffer
 	client *http.Client
@@ -70,7 +72,9 @@ func startServer(t *testing.T, env map[string]string) *server {
 		env["DATABASE_URL"], fixtures = newTestDB(t)
 	}
 	s := startServerWithPool(t, env, nil)
-	s.db = fixtures
+	if fixtures != nil {
+		s.db, s.dbURL = fixtures, env["DATABASE_URL"]
+	}
 	return s
 }
 
