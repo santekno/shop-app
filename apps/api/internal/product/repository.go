@@ -207,15 +207,19 @@ func (r *PostgresRepository) Create(ctx context.Context, in Input) (string, erro
 }
 
 // Update saves the product with id and its variants in one transaction: a
-// variant with an ID is updated, one without is added. It returns
-// ErrNotFound for an unknown product and ErrUnknownVariant for a variant ID
-// that is not a sellable variant of it.
+// variant with an ID is updated, one without is added, and a sellable
+// variant missing from in.Variants is archived. It returns ErrNotFound for
+// an unknown product and ErrUnknownVariant for a variant ID that is not a
+// sellable variant of it.
 func (r *PostgresRepository) Update(ctx context.Context, id string, in Input) error {
 	return database.WithTx(ctx, r.db, func(q *sqlc.Queries) error {
 		if _, err := q.LockProduct(ctx, id); errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound
 		} else if err != nil {
 			return fmt.Errorf("lock product: %w", err)
+		}
+		if err := archiveMissingVariants(ctx, q, id, in.Variants); err != nil {
+			return err
 		}
 		for i, v := range in.Variants {
 			var err error
@@ -230,6 +234,38 @@ func (r *PostgresRepository) Update(ctx context.Context, id string, in Input) er
 		}
 		return updateProduct(ctx, q, id, in)
 	})
+}
+
+// Archive takes the product with id off the storefront (status archived).
+// Its variants keep their state, so restoring it is a status change.
+func (r *PostgresRepository) Archive(ctx context.Context, id string) error {
+	n, err := r.q.ArchiveProduct(ctx, id)
+	if err != nil {
+		return fmt.Errorf("archive product: %w", err)
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// archiveMissingVariants archives, in one statement, every sellable variant
+// of the product that keep does not list by ID. keep always has at least one
+// variant, so the product never ends up without a sellable one.
+func archiveMissingVariants(ctx context.Context, q *sqlc.Queries, productID string, keep []VariantInput) error {
+	// Not nil: an empty array keeps nothing, but NULL would make
+	// "id <> ALL(NULL)" unknown and archive nothing.
+	keepIDs := make([]string, 0, len(keep))
+	for _, v := range keep {
+		if v.ID != "" {
+			keepIDs = append(keepIDs, v.ID)
+		}
+	}
+	err := q.ArchiveVariantsNotIn(ctx, sqlc.ArchiveVariantsNotInParams{ProductID: productID, KeepIds: keepIDs})
+	if err != nil {
+		return fmt.Errorf("archive variants: %w", err)
+	}
+	return nil
 }
 
 // insertVariant and updateVariant store v at position, its index in the

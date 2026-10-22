@@ -328,11 +328,12 @@ paths:
       description: |
         Development only until Bab 4. The body is the whole product, as an
         admin form sends it. A variant with an `id` (a sellable variant of
-        this product) is updated, one without an `id` is added. Everything
-        runs in one transaction that also recomputes `price_from`, and every
-        variant update increments its internal `version`. Bab 5 adds an
-        optimistic `version` check for stock edits; until then the last
-        save wins.
+        this product) is updated, one without an `id` is added, and a
+        sellable variant left out of the list is archived (kept for order
+        history, never deleted; its SKU stays taken). Everything runs in one
+        transaction that also recomputes `price_from`, and every variant
+        update increments its internal `version`. Bab 5 adds an optimistic
+        `version` check for stock edits; until then the last save wins.
       requestBody:
         required: true
         content:
@@ -352,6 +353,23 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      tags: [Admin]
+      operationId: archiveProduct
+      summary: Archive a product
+      description: |
+        Development only until Bab 4. Sets the status to `archived`, which
+        takes the product off the storefront. Nothing is deleted: orders
+        keep pointing at the product and its variants, and saving it again
+        with another status restores it. Archiving an archived product
+        answers 204 as well.
+      responses:
+        "204":
+          description: The product is archived.
+        "404":
+          $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/InternalError"
 

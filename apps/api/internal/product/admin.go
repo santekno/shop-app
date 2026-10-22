@@ -23,6 +23,7 @@ func (h *Handler) AdminRoutes(r chi.Router) {
 	r.Post("/products", h.CreateProduct)
 	r.Get("/products/{id}", h.GetProduct)
 	r.Put("/products/{id}", h.UpdateProduct)
+	r.Delete("/products/{id}", h.ArchiveProduct)
 }
 
 // productBody is the request body of POST and PUT /v1/admin/products.
@@ -79,7 +80,8 @@ func (h *Handler) CreateProduct(w http.ResponseWriter, r *http.Request) {
 }
 
 // UpdateProduct serves PUT /v1/admin/products/{id}. The body is the whole
-// product: a variant with an id is updated, one without is added.
+// product: a variant with an id is updated, one without is added, and a
+// sellable variant left out is archived.
 func (h *Handler) UpdateProduct(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if !uuidx.IsValidUUID(id) {
@@ -97,6 +99,21 @@ func (h *Handler) UpdateProduct(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpapi.JSON(w, r, http.StatusOK, dataResponse{Data: toAdminJSON(p)})
+}
+
+// ArchiveProduct serves DELETE /v1/admin/products/{id}: 204, and the product
+// is archived, not deleted. Archiving an archived product is a 204 too.
+func (h *Handler) ArchiveProduct(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if !uuidx.IsValidUUID(id) {
+		httpapi.Error(w, r, toHTTPError(ErrNotFound))
+		return
+	}
+	if err := h.admin.Archive(r.Context(), id); err != nil {
+		httpapi.Error(w, r, toHTTPError(err))
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // decodeInput decodes and validates the body, and returns it as an Input
@@ -138,7 +155,7 @@ func (h *Handler) validate(body productBody) error {
 			details[field] = httpapi.InvalidTextMessage
 		}
 	}
-	skus := map[string]bool{}
+	skus, ids := map[string]bool{}, map[string]bool{}
 	for i, v := range body.Variants {
 		prefix := fmt.Sprintf("variants[%d].", i)
 		fields, err := h.validator.StructFields(v, prefix)
@@ -154,7 +171,10 @@ func (h *Handler) validate(body productBody) error {
 		if v.SKU != "" && skus[v.SKU] {
 			details[prefix+"sku"] = "is used by another variant in this request"
 		}
-		skus[v.SKU] = true
+		if v.ID != "" && ids[v.ID] {
+			details[prefix+"id"] = "is listed twice in this request"
+		}
+		skus[v.SKU], ids[v.ID] = true, true
 	}
 	if len(details) > 0 {
 		return httpapi.ValidationError("invalid request", details)

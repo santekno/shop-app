@@ -17,7 +17,8 @@ The Go REST API behind the GoShop storefront, admin dashboard and mobile app. Th
 | GET | `/v1/products/{slug}` | One active product; a malformed or unknown slug is 404 |
 | POST | `/v1/admin/products` | **Development only.** Create a product with its variants |
 | GET | `/v1/admin/products/{id}` | **Development only.** Any product, whatever its status |
-| PUT | `/v1/admin/products/{id}` | **Development only.** Save a product and its variants |
+| PUT | `/v1/admin/products/{id}` | **Development only.** Save a product and its variants; variants left out are archived |
+| DELETE | `/v1/admin/products/{id}` | **Development only.** Archive a product (soft delete) |
 
 > **The admin routes have no authentication until Bab 4.** The API mounts them only when `APP_ENV=development`, logs a warning when it does, and answers 404 for them everywhere else. Bab 4 puts them behind the `admin` role. Never expose a development API to the internet.
 

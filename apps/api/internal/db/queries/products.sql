@@ -164,3 +164,26 @@ SET sku          = @sku,
     version      = version + 1,
     updated_at   = now()
 WHERE id = @id AND product_id = @product_id AND archived_at IS NULL;
+
+-- Soft delete: products and variants are archived, never deleted, because
+-- order items (Bab 5) point to them. updated_at is set by every UPDATE in
+-- this file, not by a trigger, so each write shows it.
+
+-- name: ArchiveProduct :execrows
+-- Takes the product off the storefront. Archiving it again changes nothing
+-- but updated_at. Zero rows: there is no such product.
+UPDATE products
+SET status = 'archived', updated_at = now()
+WHERE id = @id;
+
+-- name: ArchiveVariantsNotIn :exec
+-- Archives every sellable variant of the product whose id is not in
+-- keep_ids: they leave the storefront, price_from and in_stock, while their
+-- rows, SKUs and stock stay for order history. An empty keep_ids archives
+-- them all. Run UpdateProduct afterwards in the same transaction to
+-- recompute price_from.
+UPDATE product_variants
+SET archived_at = now(), updated_at = now()
+WHERE product_id = @product_id
+  AND archived_at IS NULL
+  AND id <> ALL(@keep_ids::uuid[]);

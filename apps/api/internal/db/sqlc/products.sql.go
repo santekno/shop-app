@@ -13,6 +13,49 @@ import (
 	"github.com/lib/pq"
 )
 
+const archiveProduct = `-- name: ArchiveProduct :execrows
+
+UPDATE products
+SET status = 'archived', updated_at = now()
+WHERE id = $1
+`
+
+// Soft delete: products and variants are archived, never deleted, because
+// order items (Bab 5) point to them. updated_at is set by every UPDATE in
+// this file, not by a trigger, so each write shows it.
+// Takes the product off the storefront. Archiving it again changes nothing
+// but updated_at. Zero rows: there is no such product.
+func (q *Queries) ArchiveProduct(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, archiveProduct, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const archiveVariantsNotIn = `-- name: ArchiveVariantsNotIn :exec
+UPDATE product_variants
+SET archived_at = now(), updated_at = now()
+WHERE product_id = $1
+  AND archived_at IS NULL
+  AND id <> ALL($2::uuid[])
+`
+
+type ArchiveVariantsNotInParams struct {
+	ProductID string
+	KeepIds   []string
+}
+
+// Archives every sellable variant of the product whose id is not in
+// keep_ids: they leave the storefront, price_from and in_stock, while their
+// rows, SKUs and stock stay for order history. An empty keep_ids archives
+// them all. Run UpdateProduct afterwards in the same transaction to
+// recompute price_from.
+func (q *Queries) ArchiveVariantsNotIn(ctx context.Context, arg ArchiveVariantsNotInParams) error {
+	_, err := q.db.ExecContext(ctx, archiveVariantsNotIn, arg.ProductID, pq.Array(arg.KeepIds))
+	return err
+}
+
 const getActiveProductBySlug = `-- name: GetActiveProductBySlug :many
 SELECT p.id, p.slug, p.name, p.description, p.price_from, p.created_at,
        c.id AS category_id, c.slug AS category_slug, c.name AS category_name, c.parent_id AS category_parent_id,

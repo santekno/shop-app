@@ -10,6 +10,11 @@ Every column is `NOT NULL` unless the diagram says `nullable`.
 |---|---|---|
 | Bab 3 | `apps/api/migrations/000001_create_catalog` | `categories`, `products`, `product_variants`, with every constraint and index below that belongs to them |
 
+Two choices made while building it:
+
+- **Timestamps are set by the queries, not by triggers.** `created_at` comes from the column default; every `UPDATE` in `apps/api/internal/db/queries` writes `updated_at = now()`. A trigger would also catch hand-written SQL, but it hides the rule from someone reading the query, and the API is the only writer. `now()` is the transaction's start time, so everything one transaction writes carries the same timestamp.
+- **Soft delete only.** `DELETE /v1/admin/products/{id}` sets `status = 'archived'`; a variant left out of `PUT /v1/admin/products/{id}` gets `archived_at`. The API has no SQL `DELETE` for the catalog. Because a save always carries at least one variant, the "last sellable variant" case in the catalog rules below cannot happen through the API yet.
+
 `users` and `addresses` arrive with their own migration in Bab 4, `orders` and `order_items` in Bab 5. Constraints that the API maps to an error have explicit names (`products_slug_key`, `product_variants_sku_key`, …), so the code matches on a stable name rather than on Postgres's generated one.
 
 ```mermaid
@@ -179,7 +184,7 @@ The Midtrans `order_id` is not `orders.code`: a buyer may retry payment after an
 | `CHECK (status NOT IN ('shipped', 'completed') OR (tracking_number IS NOT NULL AND shipped_at IS NOT NULL))` | `orders` | a shipped order always has an airway bill and a ship time |
 | `CHECK (status <> 'completed' OR completed_at IS NOT NULL)` | `orders` | a completed order always has a completion time |
 | `description NOT NULL DEFAULT ''` | `products` | no `NULL` vs empty-string ambiguity for clients |
-| `created_at`, `updated_at` are `NOT NULL DEFAULT now()` | every table | the service sets `updated_at` on every update; `order_items` rows never change, so they have no `updated_at` |
+| `created_at`, `updated_at` are `NOT NULL DEFAULT now()` | every table | every `UPDATE` the API runs sets `updated_at = now()` itself (no trigger), so the rule is visible in each query; `order_items` rows never change, so they have no `updated_at` |
 
 Nullable by design: `users.password_hash` (Google-only accounts), `users.phone`, `users.email_verified_at`, `users.anonymized_at`, `categories.parent_id` and `categories.parent_level` (top-level categories), `products.price_from` (nullable when the product has no sellable variant, which is only allowed for `draft` or `archived`), `product_variants.archived_at`, and the order timestamps, `cancel_reason` and `tracking_number` that are only set at a later step.
 

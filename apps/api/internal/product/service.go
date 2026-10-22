@@ -17,6 +17,7 @@ type Repository interface {
 	GetAdmin(ctx context.Context, id string) (AdminProduct, error)
 	Create(ctx context.Context, in Input) (string, error)
 	Update(ctx context.Context, id string, in Input) error
+	Archive(ctx context.Context, id string) error
 }
 
 // CategoryFinder resolves a category slug; category.Service is one. The
@@ -151,4 +152,13 @@ func (s *Service) Update(ctx context.Context, id string, in Input) (AdminProduct
 		return AdminProduct{}, fmt.Errorf("update product %s: %w", id, err)
 	}
 	return s.GetAdmin(ctx, id)
+}
+
+// Archive takes the product with id off the storefront, or returns
+// ErrNotFound. Nothing is deleted: order history keeps pointing at it.
+func (s *Service) Archive(ctx context.Context, id string) error {
+	if err := s.repo.Archive(ctx, id); err != nil {
+		return fmt.Errorf("archive product %s: %w", id, err)
+	}
+	return nil
 }

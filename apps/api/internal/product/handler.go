@@ -37,6 +37,7 @@ type Admin interface {
 	GetAdmin(ctx context.Context, id string) (AdminProduct, error)
 	Create(ctx context.Context, in Input) (AdminProduct, error)
 	Update(ctx context.Context, id string, in Input) (AdminProduct, error)
+	Archive(ctx context.Context, id string) error
 }
 
 // Handler serves the product endpoints.
