@@ -20,6 +20,8 @@ Toolchain at verification: Node 24.22.1, Go 1.26.10, santekno/sdk v0.2.0.
 
 - `Struct` names a top-level slice element by its Go name (`Tags[0]`, not `tags[0]`): cut the `[…]` suffix before `FieldByName` or document it with a pinning test.
 - Realign the `httpapi/` comment in the ADR 0004 tree.
+- From writing the articles: `apps/api/README.md` suggests `APP_PORT=8081 make dev-api`, but after `cp .env.example .env` the `.env` value wins, so the override has no effect. Recommend `PORT=8081`, or make the Makefile respect a shell override.
+- `make docs-api` output loads Redoc from `cdn.redocly.com` and fonts from Google Fonts, so the "static" page needs network access. Bundle the script or say so in the README.
 - From the Bab 1 ERD review: lock variants in id order before a stock restore; delete addresses when anonymising a user; note that `FOR UPDATE OF v` does not lock the product row.
 
 ### Bugs the gate caught and fixed
