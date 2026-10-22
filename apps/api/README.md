@@ -115,6 +115,21 @@ make test-unit                # unit tests with the coverage threshold
 
 `make lint` builds the pinned golangci-lint (`GOLANGCI_VERSION` in the `Makefile`) with the module's Go toolchain on first use, because a golangci-lint built with an older Go refuses to lint a `go 1.26` module.
 
+## Testing against PostgreSQL
+
+Every repository takes a `*sql.DB` (`category.NewPostgresRepository(db)`, `product.NewPostgresRepository(db)`), and `app.New(cfg, logger, db)` takes the pool too, so a test hands them a real database instead of a mock. The integration tests (`apps/api/tests/integration`, owned by integration-engineer) give **every test its own database**, from `db_test.go`:
+
+```go
+dsn, db := newTestDB(t) // a new it_<random> database, migrated and empty, plus a pool on it
+dsn := newDatabase(t)   // the same without migrations, for the migration tests
+```
+
+- **Where Postgres comes from.** santekno/sdk v0.2.0's `testx.PostgresContainer` does not start a container: it returns `POSTGRES_DSN`, or skips the test ([sdk gaps](../../docs/sdk-gaps.md)). `make test-integration` starts the Compose stack, exports `POSTGRES_DSN`, and fails on any skipped test.
+- **One database per test.** `newDatabase` connects to the server in `POSTGRES_DSN`, runs `CREATE DATABASE it_<random>`, and registers a cleanup that runs `DROP DATABASE … WITH (FORCE)` after the test's own pools and servers have closed, ending any connection still open. `newTestDB` applies the migrations with `database.Migrate` and opens a small pool through `database.Open`, as the API does. A test that starts the API in-process sets `DATABASE_URL` to its own database.
+- **The `goshop` database is never touched.** It holds your seed and is what `make up` serves; only the Compose stack test reads it, through the API, and it checks shapes, not counts.
+- **Why not one shared database.** A shared one makes every test defensive: unique slugs, no counting, cleanup by hand, and a crash that leaves rows behind for the next run. Tests running in parallel would also see each other's rows. With a database per test, each one starts from empty tables, may count rows and assert exact pages, and leaves nothing behind. Creating a database takes a few tens of milliseconds.
+- **Admin routes** exist only with `APP_ENV=development`, so an in-process API for admin tests needs that environment.
+
 ## Validation for later chapters
 
 `httpapi.Validator.BindQuery` fills a struct from the URL query (`query:"name"` tags; string, int, int64, bool) and validates it with `validx` (`validate:"…"` tags). Failures become one 400 `VALIDATION_FAILED` with a message per field, as in the contract. Its first consumer is `GET /v1/products` in Bab 3: `GET /v1/categories` has no parameters.
