@@ -70,6 +70,17 @@ Two things to know before the first Railway deploy:
 
 `preDeployCommand` is `["/api migrate"]`. The image has no shell, so confirm on the first deploy that Railway splits it into the binary and its argument; if not, write it as `["/api", "migrate"]`.
 
+## Queries with sqlc
+
+SQL is written by hand in [`internal/db/queries/`](internal/db/queries), one file per table group, and [sqlc](https://sqlc.dev) turns each named query into a typed Go method in `internal/db/sqlc` (configuration: [`sqlc.yaml`](sqlc.yaml); schema read from `migrations/`). The generated code is committed, never edited, and excluded from coverage.
+
+```bash
+make sqlc         # regenerate after changing a query or a migration
+make sqlc-check   # fail when the committed code does not match the SQL (part of make lint)
+```
+
+Repositories call the generated methods and map their rows to the feature's own types, so a column change surfaces as a compile error in one place. Like golangci-lint, sqlc is pinned (`SQLC_VERSION`) and built into `apps/api/bin/` on first use; it needs a C compiler, because it embeds PostgreSQL's parser.
+
 ## API documentation
 
 ```bash

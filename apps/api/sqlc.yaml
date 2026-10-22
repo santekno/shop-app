@@ -1,0 +1,25 @@
+# sqlc reads the schema from the migrations and the queries from
+# internal/db/queries, and writes type-safe Go into internal/db/sqlc.
+# Regenerate with `make sqlc`; `make lint` fails when the generated code is
+# out of date. Never edit internal/db/sqlc by hand.
+version: "2"
+sql:
+  - engine: postgresql
+    # golang-migrate files; sqlc skips the *.down.sql halves.
+    schema: migrations
+    queries: internal/db/queries
+    gen:
+      go:
+        package: sqlc
+        out: internal/db/sqlc
+        # Plain database/sql, so the code runs on the pool from sdk sqlx.
+        sql_package: database/sql
+        overrides:
+          # IDs are UUIDv7 strings from uuidx.NewV7 everywhere in the API.
+          - db_type: uuid
+            go_type: string
+          - db_type: uuid
+            nullable: true
+            go_type:
+              type: string
+              pointer: true

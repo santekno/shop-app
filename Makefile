@@ -29,7 +29,13 @@ AIR := $(CURDIR)/$(API)/bin/air-$(AIR_VERSION)/air
 MIGRATE_VERSION := v4.20.1
 MIGRATE := $(CURDIR)/$(API)/bin/migrate-$(MIGRATE_VERSION)/migrate
 
-# The database make migrate-*, seed and sqlc-check talk to: the Compose
+# sqlc (make sqlc), pinned and built the same way. It needs cgo (a C
+# compiler) because it embeds PostgreSQL's own SQL parser; the first build
+# takes about a minute.
+SQLC_VERSION := v1.31.1
+SQLC := $(CURDIR)/$(API)/bin/sqlc-$(SQLC_VERSION)/sqlc
+
+# The database make migrate-* and seed talk to: the Compose
 # postgres by default. A DATABASE_URL in your shell wins (.env is not read
 # here, so a production URL in .env is never picked up by accident).
 DATABASE_URL ?= postgres://goshop:goshop@localhost:5432/goshop?sslmode=disable
@@ -57,7 +63,7 @@ IT_ENV := POSTGRES_DSN='postgres://goshop:goshop@localhost:5432/goshop?sslmode=d
 	GOSHOP_API_URL=http://127.0.0.1:8080
 
 .PHONY: help doctor build lint lint-openapi test-unit test-integration test-mobile-e2e docker-build scan verify up down dev-api docs-api \
-	migrate-up migrate-down migrate-new seed seed-large
+	migrate-up migrate-down migrate-new seed seed-large sqlc sqlc-check
 
 help: ## List targets
 	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -75,7 +81,7 @@ ifneq ($(HAS_PNPM),)
 endif
 	@echo "build: ok"
 
-lint: lint-openapi $(if $(HAS_API),$(GOLANGCI)) ## Lint every app present and the API contract
+lint: lint-openapi $(if $(HAS_API),$(GOLANGCI) sqlc-check) ## Lint every app present, the API contract and the sqlc output
 ifneq ($(HAS_API),)
 	cd $(API) && go vet -tags=integration ./... && $(GOLANGCI) run ./...
 endif
@@ -162,6 +168,16 @@ seed: ## Insert the example catalog (idempotent; local databases only)
 seed-large: ## The example catalog plus 10000 generated products, for EXPLAIN ANALYZE
 	$(require_local_db)
 	@cd $(API) && DATABASE_URL='$(DATABASE_URL)' go run ./cmd/seed -generated 10000
+
+sqlc: $(SQLC) ## Generate internal/db/sqlc from migrations/ and internal/db/queries/
+	cd $(API) && $(SQLC) generate
+
+sqlc-check: $(SQLC) ## Fail when internal/db/sqlc does not match the SQL (run make sqlc)
+	@cd $(API) && $(SQLC) diff || { echo "sqlc-check: generated code is out of date; run make sqlc and commit the result" >&2; exit 1; }
+
+$(SQLC):
+	cd $(API) && GOBIN=$(dir $(SQLC)) GOTOOLCHAIN=$$(go env GOVERSION) \
+		go install github.com/sqlc-dev/sqlc/cmd/sqlc@$(SQLC_VERSION)
 
 $(MIGRATE):
 	cd $(API) && GOBIN=$(dir $(MIGRATE)) GOTOOLCHAIN=$$(go env GOVERSION) \

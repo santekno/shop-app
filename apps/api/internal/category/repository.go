@@ -2,17 +2,52 @@ package category
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
 	"slices"
 
 	"github.com/santekno/sdk/uuidx"
+
+	"github.com/santekno/shop-app/apps/api/internal/db/sqlc"
 )
 
 // Repository is where categories are stored. The service depends on this
-// interface, not on a concrete store: Bab 2 uses MemoryRepository, Bab 3
-// swaps in PostgreSQL without touching the service or the handler.
+// interface, not on a concrete store: the API uses PostgresRepository, and
+// tests can use MemoryRepository, without touching the service or the
+// handler.
 type Repository interface {
 	// List returns every category, in no particular order.
 	List(ctx context.Context) ([]Category, error)
+}
+
+// PostgresRepository reads categories from PostgreSQL with the queries sqlc
+// generated from internal/db/queries/categories.sql.
+type PostgresRepository struct {
+	q *sqlc.Queries
+}
+
+// NewPostgresRepository returns a repository on db, the API's connection
+// pool (or any database a test opens).
+func NewPostgresRepository(db *sql.DB) *PostgresRepository {
+	return &PostgresRepository{q: sqlc.New(db)}
+}
+
+// List returns every category, in no particular order.
+func (r *PostgresRepository) List(ctx context.Context) ([]Category, error) {
+	rows, err := r.q.ListCategories(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("query categories: %w", err)
+	}
+	categories := make([]Category, 0, len(rows))
+	for _, row := range rows {
+		categories = append(categories, Category{
+			ID:       row.ID,
+			Slug:     row.Slug,
+			Name:     row.Name,
+			ParentID: row.ParentID,
+		})
+	}
+	return categories, nil
 }
 
 // MemoryRepository keeps categories in memory. It is read-only, so it is safe
