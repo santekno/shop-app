@@ -1,0 +1,27 @@
+# Air rebuilds and restarts the API whenever a .go file changes.
+# Run it from the repository root with: make dev-api
+# (make builds the pinned Air version into apps/api/bin on first use).
+root = "."
+tmp_dir = "bin/air"
+
+[build]
+  cmd = "go build -o ./bin/air/api ./cmd/api"
+  entrypoint = ["./bin/air/api"]
+  include_ext = ["go"]
+  # Tests do not change the running server.
+  exclude_dir = ["bin", "tests"]
+  exclude_regex = ["_test\\.go$"]
+  # Wait for an editor's burst of writes to settle before rebuilding.
+  delay = 300 # ms
+  # Keep the last good server running when the new code does not compile.
+  stop_on_error = true
+  # Stop the old server with SIGINT, so it shuts down gracefully like it
+  # does in production, and give it up to 12s before killing it.
+  send_interrupt = true
+  kill_delay = 12000 # ms (Air reads values below 1ms as milliseconds)
+
+[log]
+  time = false
+
+[misc]
+  clean_on_exit = true

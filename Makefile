@@ -20,6 +20,10 @@ HAS_PNPM := $(wildcard pnpm-lock.yaml)
 GOLANGCI_VERSION := v2.15.0
 GOLANGCI := $(CURDIR)/$(API)/bin/golangci-lint-$(GOLANGCI_VERSION)/golangci-lint
 
+# Air (hot reload for make dev-api), pinned and built the same way.
+AIR_VERSION := v1.67.4
+AIR := $(CURDIR)/$(API)/bin/air-$(AIR_VERSION)/air
+
 # Pinned so every chapter lints the contract with the same rules.
 REDOCLY := REDOCLY_TELEMETRY=off REDOCLY_SUPPRESS_UPDATE_NOTICE=true npx --yes @redocly/cli@2.66.1
 
@@ -29,7 +33,7 @@ IT_ENV := POSTGRES_DSN='postgres://goshop:goshop@localhost:5432/goshop?sslmode=d
 	REDIS_ADDR=localhost:6379 \
 	S3_ENDPOINT=http://localhost:8333
 
-.PHONY: help doctor build lint lint-openapi test-unit test-integration test-mobile-e2e docker-build scan verify up down
+.PHONY: help doctor build lint lint-openapi test-unit test-integration test-mobile-e2e docker-build scan verify up down dev-api
 
 help: ## List targets
 	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -100,6 +104,14 @@ scan: ## Fail on secrets or .env files in tracked and new files (self-test first
 
 verify: build lint docker-build test-unit test-integration scan ## The full verified gate
 	@echo "verify: all stages passed"
+
+dev-api: $(AIR) ## Run the API with hot reload (Air), reading .env when present
+	set -a; [ ! -f .env ] || . ./.env; set +a; \
+		cd $(API) && APP_ENV=$${APP_ENV:-development} $(AIR) -c .air.toml
+
+$(AIR):
+	cd $(API) && GOBIN=$(dir $(AIR)) GOTOOLCHAIN=$$(go env GOVERSION) \
+		go install github.com/air-verse/air@$(AIR_VERSION)
 
 up: ## Start the full stack locally
 	$(COMPOSE) up -d --build
