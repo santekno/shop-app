@@ -57,7 +57,7 @@ IT_ENV := POSTGRES_DSN='postgres://goshop:goshop@localhost:5432/goshop?sslmode=d
 	GOSHOP_API_URL=http://127.0.0.1:8080
 
 .PHONY: help doctor build lint lint-openapi test-unit test-integration test-mobile-e2e docker-build scan verify up down dev-api docs-api \
-	migrate-up migrate-down migrate-new
+	migrate-up migrate-down migrate-new seed seed-large
 
 help: ## List targets
 	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -154,6 +154,14 @@ migrate-down: $(MIGRATE) ## Roll back the newest migration (local databases only
 migrate-new: $(MIGRATE) ## Create an empty up/down pair: make migrate-new name=add_users
 	@[[ "$(name)" =~ ^[a-z][a-z0-9_]*$$ ]] || { echo "usage: make migrate-new name=add_users (lower case, digits, _)" >&2; exit 1; }
 	$(MIGRATE) create -ext sql -dir $(API)/migrations -seq -digits 6 $(name)
+
+seed: ## Insert the example catalog (idempotent; local databases only)
+	$(require_local_db)
+	@cd $(API) && DATABASE_URL='$(DATABASE_URL)' go run ./cmd/seed
+
+seed-large: ## The example catalog plus 10000 generated products, for EXPLAIN ANALYZE
+	$(require_local_db)
+	@cd $(API) && DATABASE_URL='$(DATABASE_URL)' go run ./cmd/seed -generated 10000
 
 $(MIGRATE):
 	cd $(API) && GOBIN=$(dir $(MIGRATE)) GOTOOLCHAIN=$$(go env GOVERSION) \

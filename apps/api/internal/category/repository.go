@@ -37,8 +37,9 @@ func (m *MemoryRepository) List(ctx context.Context) ([]Category, error) {
 	return slices.Clone(m.categories), nil
 }
 
-// SeedCategories returns the categories GoShop starts with until Bab 3 moves
-// them into PostgreSQL. IDs are UUIDv7, so they differ on every start.
+// SeedCategories returns the categories GoShop starts with: cmd/seed (make
+// seed) writes them to PostgreSQL, and tests use them with MemoryRepository.
+// Parents come before their children. IDs are new UUIDv7s on every call.
 func SeedCategories() []Category {
 	type child struct{ slug, name string }
 	tree := []struct {
