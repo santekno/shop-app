@@ -40,7 +40,7 @@ make dev-api                  # from the repository root
 
 Nothing needs installing: the first run builds the pinned Air version (`AIR_VERSION` in the `Makefile`) into `apps/api/bin/` (gitignored). To use your own copy instead: `go install github.com/air-verse/air@v1.67.4` and run `air` inside `apps/api`.
 
-The Docker `api` service from `make up` also uses port 8080. Stop it first (`docker compose stop api`) or pick another port: `APP_PORT=8081 make dev-api`.
+The Docker `api` service from `make up` also uses port 8080. Stop it first (`docker compose stop api`) or pick another port: `PORT=8081 make dev-api`. Use `PORT`, not `APP_PORT`: `make dev-api` loads `.env` after your shell, so the `APP_PORT` in `.env` would replace yours, while `.env` never sets `PORT` and `PORT` wins over `APP_PORT`.
 
 ## API documentation
 
@@ -49,7 +49,7 @@ make docs-api                 # from the repository root
 open dist/api-docs/index.html # macOS; xdg-open on Linux
 ```
 
-`make docs-api` renders `api/openapi.yaml` into one static HTML page with the same pinned Redocly CLI that `make lint` uses for the contract. `dist/` is gitignored: the page is rebuilt from the contract, never edited or committed. The API itself does not serve the docs: `api/openapi.yaml` lives outside the Go module, so embedding it would mean keeping a second copy in sync, and a static page can be opened or hosted anywhere.
+`make docs-api` renders `api/openapi.yaml` into one static HTML page with the same pinned Redocly CLI that `make lint` uses for the contract. The page is static but not self-contained: it loads the Redoc script from `cdn.redocly.com` and fonts from Google Fonts, so opening it needs network access. `dist/` is gitignored: the page is rebuilt from the contract, never edited or committed. The API itself does not serve the docs: `api/openapi.yaml` lives outside the Go module, so embedding it would mean keeping a second copy in sync, and a static page can be opened or hosted anywhere.
 
 ## Checks
 
