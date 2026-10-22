@@ -69,7 +69,8 @@ func (v *Validator) BindQuery(r *http.Request, dst any) error {
 }
 
 // Struct validates s (a struct or a pointer to one) by its `validate` tags.
-// Fields are named in the error by their `json` tag, as a client sees them.
+// Fields are named in the error by their `json` tag, as a client sees them;
+// an element of a top-level slice checked with dive is named "tags[0]".
 //
 // Only top-level fields are named that way. A field inside a nested struct,
 // including one promoted from an embedded struct, is reported by its Go name
@@ -102,7 +103,15 @@ func (v *Validator) check(s any, nameTag, message string) error {
 		// failed rule alone (fe.Tag, fe.Param).
 		name, rules := fe.StructField(), ""
 		if field, ok := topLevelField(root, fe); ok {
-			name, rules = fieldName(field, nameTag), field.Tag.Get("validate")
+			name = fieldName(field, nameTag)
+			// Rules before "dive" check the slice itself, rules after it
+			// each element. An element ("Tags[0]") keeps its index after
+			// the client's name: "tags[0]".
+			sliceRules, elemRules, _ := strings.Cut(field.Tag.Get("validate"), "dive")
+			rules = sliceRules
+			if _, index, isElem := strings.Cut(fe.StructField(), "["); isElem {
+				name, rules = name+"["+index, elemRules
+			}
 		}
 		details[name] = fieldMessage(fe, rules)
 	}
@@ -110,8 +119,9 @@ func (v *Validator) check(s any, nameTag, message string) error {
 }
 
 // topLevelField returns the field of root that fe is about, but only when fe
-// is about a field of root itself. A nested field may share a Go name with a
-// top-level one, and must not borrow its tags.
+// is about a field of root itself, or an element of one (a slice field with
+// a dive rule). A nested field may share a Go name with a top-level one, and
+// must not borrow its tags.
 //
 // The validator's namespace starts with the root type's name only for a
 // named type ("order.Name", "order.Address.Name"); an anonymous struct starts
@@ -125,7 +135,8 @@ func topLevelField(root reflect.Type, fe validator.FieldError) (reflect.StructFi
 	if strings.Contains(path, ".") {
 		return reflect.StructField{}, false
 	}
-	return root.FieldByName(fe.StructField())
+	goName, _, _ := strings.Cut(fe.StructField(), "[")
+	return root.FieldByName(goName)
 }
 
 // fieldName is the name a client knows the field by: the part of its tag
