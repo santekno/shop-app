@@ -1,2 +1,4 @@
 github.com/go-chi/chi/v5 v5.5.0 h1:xdKQ1dJmVJsmgahrXSKhUx8NyVPzpwdlyrrQFpMPJgg=
 github.com/go-chi/chi/v5 v5.5.0/go.mod h1:d1IG7GtKPSjPyBP365PH8sAGVHk3qfB/IhjFNRH1wWM=
+github.com/santekno/sdk v0.2.0 h1:1dTrwy9qI0q/P6QV4yvYvXj/PE9w6oPZ7fzGfwpR1rE=
+github.com/santekno/sdk v0.2.0/go.mod h1:j08M/Mlu0Y6IFPV/iJryBqMBpvOpOMs+Gek1yKNquCc=

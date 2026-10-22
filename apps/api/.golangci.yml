@@ -23,6 +23,10 @@ linters:
     - unconvert
     - wrapcheck # errors from other packages get context before they travel up
   settings:
+    misspell:
+      # Indonesian words in seed data and copy, not typos of English ones.
+      ignore-rules:
+        - teh
     nolintlint:
       require-explanation: true
       require-specific: true
@@ -31,6 +35,19 @@ linters:
         - name: exported
         - name: package-comments
         - name: unused-parameter
+    staticcheck:
+      checks:
+        # The defaults (all but a few style checks) ...
+        - all
+        - -ST1000
+        - -ST1003
+        - -ST1016
+        - -ST1020
+        - -ST1021
+        - -ST1022
+        # ... minus S1016: response structs are filled field by field on
+        # purpose, so a model change cannot silently change the JSON.
+        - -S1016
     wrapcheck:
       ignore-sigs:
         # Errors that are already the API's own type, or that the caller
@@ -46,6 +63,9 @@ linters:
         - .WithDetail(
         - .WithDetails(
         - .WithHTTPStatus(
+        # ctx.Err() is context.Canceled or DeadlineExceeded; callers match it
+        # with errors.Is, and wrapping adds nothing.
+        - .Err()
   exclusions:
     presets:
       - std-error-handling
