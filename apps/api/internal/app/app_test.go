@@ -69,9 +69,12 @@ func TestApp_Handler(t *testing.T) {
 		wantStatus int
 		wantBody   string
 	}{
-		// The route reaches the PostgreSQL repository: the fake database
-		// has no rows, so the list is empty.
+		// The routes reach the PostgreSQL repositories: the fake database
+		// has no rows, so both lists are empty.
 		{path: "/v1/categories", wantStatus: http.StatusOK, wantBody: `{"data":[]}`},
+		{path: "/v1/products", wantStatus: http.StatusOK, wantBody: `{"data":[],"page":{"next_cursor":null}}`},
+		{path: "/v1/products/kaos-polos-hitam", wantStatus: http.StatusNotFound},
+		{path: "/v1/products?limit=0", wantStatus: http.StatusBadRequest},
 		{path: "/healthz", wantStatus: http.StatusOK},
 		{path: "/readyz", wantStatus: http.StatusOK},
 		{path: "/categories", wantStatus: http.StatusNotFound},
@@ -96,7 +99,7 @@ func TestApp_UsesTheGivenPool(t *testing.T) {
 	db := (&fakeDB{pingErr: errors.New("connection refused"), queryErr: errors.New("connection refused")}).open(t)
 	h := app.New(testConfig(config.EnvDevelopment), logx.Noop(), db).Handler()
 
-	for _, path := range []string{"/v1/categories"} {
+	for _, path := range []string{"/v1/categories", "/v1/products"} {
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, path, nil))
 		testx.AssertEqual(t, rec.Code, http.StatusInternalServerError, "%s: body %s", path, rec.Body.String())
@@ -116,6 +119,65 @@ func TestApp_UsesTheGivenPool(t *testing.T) {
 	}
 	testx.AssertEqual(t, probe.Checks["postgres"].Status, "unavailable")
 	testx.AssertEqual(t, probe.Checks["server"].Status, "ok")
+}
+
+// The admin routes have no authentication until Bab 4, so they exist only
+// in development; elsewhere they are an unknown route.
+func TestApp_AdminRoutesOnlyInDevelopment(t *testing.T) {
+	const id = "0190c8a0-0000-7000-8000-000000000001"
+	requests := []struct{ method, path string }{
+		{http.MethodPost, "/v1/admin/products"},
+		{http.MethodPut, "/v1/admin/products/" + id},
+		{http.MethodGet, "/v1/admin/products/" + id},
+		{http.MethodDelete, "/v1/admin/products/" + id},
+	}
+	tests := []struct {
+		env     string
+		mounted bool
+	}{
+		{env: config.EnvDevelopment, mounted: true},
+		{env: config.EnvStaging, mounted: false},
+		{env: config.EnvProduction, mounted: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.env, func(t *testing.T) {
+			var logs bytes.Buffer
+			logger := logx.New(logx.WithOutput(&logs), logx.WithFormat("json"))
+			h := app.New(testConfig(tt.env), logger, (&fakeDB{}).open(t)).Handler()
+
+			for _, req := range requests {
+				rec := httptest.NewRecorder()
+				h.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), req.method, req.path, strings.NewReader("{}")))
+				var body struct {
+					Error struct {
+						Code    string `json:"code"`
+						Message string `json:"message"`
+					} `json:"error"`
+				}
+				_ = json.Unmarshal(rec.Body.Bytes(), &body)
+				if !tt.mounted {
+					testx.AssertEqual(t, rec.Code, http.StatusNotFound, "%s %s", req.method, req.path)
+					testx.AssertEqual(t, body.Error.Message, "route not found", "%s %s", req.method, req.path)
+					continue
+				}
+				switch req.method {
+				case http.MethodPost, http.MethodPut:
+					// The empty object reaches the admin handler's validation.
+					testx.AssertEqual(t, rec.Code, http.StatusBadRequest, "%s %s", req.method, req.path)
+					testx.AssertEqual(t, body.Error.Code, "VALIDATION_FAILED")
+				case http.MethodGet:
+					testx.AssertEqual(t, rec.Code, http.StatusNotFound, "%s %s", req.method, req.path)
+					testx.AssertEqual(t, body.Error.Message, "product not found", "the handler answered, not the router")
+				case http.MethodDelete:
+					// The fake archives no row: the product is unknown.
+					testx.AssertEqual(t, rec.Code, http.StatusNotFound, "%s %s", req.method, req.path)
+					testx.AssertEqual(t, body.Error.Message, "product not found", "the handler answered, not the router")
+				}
+			}
+			warned := strings.Contains(logs.String(), "admin routes are mounted WITHOUT authentication")
+			testx.AssertEqual(t, warned, tt.mounted, "warning logged: %s", logs.String())
+		})
+	}
 }
 
 // HEAD works on the API and on the probes, with an empty body. It goes

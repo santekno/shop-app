@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"io"
 	"sync"
 	"testing"
 )
@@ -24,6 +25,12 @@ type fakeDB struct {
 	commitErr   error
 	rollbackErr error
 	execErr     error
+
+	// A query answers with one column holding queryValues, one row each,
+	// or with queryErr.
+	queries     []string
+	queryValues []string
+	queryErr    error
 }
 
 // fakeExec is one statement run through the fake, and whether a
@@ -98,6 +105,30 @@ func (c *fakeConn) ExecContext(_ context.Context, query string, _ []driver.Named
 		return nil, c.db.execErr
 	}
 	return driver.RowsAffected(1), nil
+}
+
+func (c *fakeConn) QueryContext(_ context.Context, query string, _ []driver.NamedValue) (driver.Rows, error) {
+	c.db.mu.Lock()
+	defer c.db.mu.Unlock()
+	c.db.queries = append(c.db.queries, query)
+	if c.db.queryErr != nil {
+		return nil, c.db.queryErr
+	}
+	return &fakeRows{values: append([]string(nil), c.db.queryValues...)}, nil
+}
+
+// fakeRows is a one-column result.
+type fakeRows struct{ values []string }
+
+func (r *fakeRows) Columns() []string { return []string{"value"} }
+func (r *fakeRows) Close() error      { return nil }
+
+func (r *fakeRows) Next(dest []driver.Value) error {
+	if len(r.values) == 0 {
+		return io.EOF
+	}
+	dest[0], r.values = r.values[0], r.values[1:]
+	return nil
 }
 
 // CheckNamedValue accepts every argument as it is.

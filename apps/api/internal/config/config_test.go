@@ -12,8 +12,9 @@ import (
 	"github.com/santekno/shop-app/apps/api/internal/config"
 )
 
-// testDatabaseURL is a valid DATABASE_URL, the one required variable
-// without a default.
+// testDatabaseURL is a valid DATABASE_URL. It has no login: the rows of
+// TestLoad_DatabaseURL that need one use the secret scanner's placeholder
+// (user:pass), the only one make scan allows in a URL.
 const testDatabaseURL = "postgres://localhost:5432/goshop?sslmode=disable"
 
 // setEnv gives the test a clean environment: every APP_* variable, PORT and
@@ -63,6 +64,14 @@ func TestLoad_Defaults(t *testing.T) {
 	testx.AssertEqual(t, cfg.RequestTimeout, config.DefaultRequestTimeout)
 	testx.AssertEqual(t, cfg.DrainDelay, time.Duration(0))
 	testx.AssertEqual(t, cfg.ShutdownTimeout, config.DefaultShutdownTimeout)
+	testx.AssertEqual(t, cfg.Database.URL, testDatabaseURL)
+	testx.AssertEqual(t, cfg.Database.MaxOpenConns, config.DefaultDBMaxOpenConns)
+	testx.AssertEqual(t, cfg.Database.MaxIdleConns, config.DefaultDBMaxIdleConns)
+	testx.AssertEqual(t, cfg.Database.ConnMaxLifetime, config.DefaultDBConnMaxLifetime)
+	// The documented defaults, so a changed constant is a visible decision.
+	testx.AssertEqual(t, config.DefaultDBMaxOpenConns, 10)
+	testx.AssertEqual(t, config.DefaultDBMaxIdleConns, 5)
+	testx.AssertEqual(t, config.DefaultDBConnMaxLifetime, 30*time.Minute)
 }
 
 func TestLoad_Env(t *testing.T) {
@@ -349,6 +358,10 @@ func TestLoad_ReportsEveryInvalidVariable(t *testing.T) {
 		"APP_REQUEST_TIMEOUT":      "0s",
 		"APP_DRAIN_DELAY":          "-1s",
 		"APP_SHUTDOWN_TIMEOUT":     "2m",
+		"DATABASE_URL":             "",
+		"APP_DB_MAX_OPEN_CONNS":    "0",
+		"APP_DB_MAX_IDLE_CONNS":    "lots",
+		"APP_DB_CONN_MAX_LIFETIME": "1s",
 	})
 
 	cfg, err := config.Load()
@@ -359,12 +372,13 @@ func TestLoad_ReportsEveryInvalidVariable(t *testing.T) {
 	for _, name := range []string{
 		"APP_ENV:", "APP_LOG_LEVEL:", "APP_PORT:", "APP_CORS_ALLOWED_ORIGINS:",
 		"APP_REQUEST_TIMEOUT:", "APP_DRAIN_DELAY:", "APP_SHUTDOWN_TIMEOUT:",
+		"DATABASE_URL:", "APP_DB_MAX_OPEN_CONNS:", "APP_DB_MAX_IDLE_CONNS:", "APP_DB_CONN_MAX_LIFETIME:",
 	} {
 		testx.AssertContains(t, msg, name)
 	}
 	// One line per invalid variable (errors.Join), each named once: a bad
 	// port must not also produce a second "port 0" error.
-	testx.AssertEqual(t, strings.Count(msg, "\n"), 6, "lines in %q", msg)
+	testx.AssertEqual(t, strings.Count(msg, "\n"), 10, "lines in %q", msg)
 	testx.AssertEqual(t, strings.Count(msg, "APP_PORT"), 1, "APP_PORT mentions in %q", msg)
 	testx.AssertEqual(t, cfg.Port, 0, "a failed Load returns the zero Config")
 	testx.AssertEqual(t, cfg.Env, "")
@@ -404,3 +418,146 @@ func TestConfig_Addr(t *testing.T) {
 }
 
 func ptr(s string) *string { return &s }
+
+func TestLoad_DatabaseURL(t *testing.T) {
+	const shapeErr = "DATABASE_URL: must be a URL like postgres://"
+	tests := []struct {
+		name    string
+		url     *string // nil: unset
+		wantErr string
+	}{
+		{name: "postgres scheme", url: ptr("postgres://user:pass@db.internal:5432/goshop?sslmode=require")},
+		{name: "postgresql scheme", url: ptr("postgresql://user:pass@db.internal/goshop")},
+		{name: "no login", url: ptr("postgres://db.internal:5432/goshop")},
+		{name: "unset is required", url: nil, wantErr: "DATABASE_URL: is required, e.g. postgres://"},
+		{name: "empty is required", url: ptr(""), wantErr: "DATABASE_URL: is required"},
+		{name: "other scheme", url: ptr("mysql://user:pass@db.internal:3306/goshop"), wantErr: shapeErr},
+		{name: "no scheme", url: ptr("db.internal:5432/goshop"), wantErr: shapeErr},
+		{name: "no host", url: ptr("postgres:///goshop"), wantErr: shapeErr},
+		{name: "key=value DSN is not a URL", url: ptr("host=db.internal dbname=goshop"), wantErr: shapeErr},
+		{name: "unparsable", url: ptr("postgres://user:pass@[::1/goshop"), wantErr: shapeErr},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			vars := map[string]string{"APP_ENV": "production", "DATABASE_URL": ""}
+			if tt.url != nil {
+				vars["DATABASE_URL"] = *tt.url
+			}
+			setEnv(t, vars)
+			if tt.url == nil {
+				unsetEnv(t, "DATABASE_URL")
+			}
+
+			cfg, err := config.Load()
+			if tt.wantErr == "" {
+				testx.AssertNoError(t, err)
+				testx.AssertEqual(t, cfg.Database.URL, *tt.url, "the URL is kept as given")
+				return
+			}
+			if err == nil {
+				t.Fatalf("Load: want error containing %q, got nil", tt.wantErr)
+			}
+			testx.AssertContains(t, err.Error(), tt.wantErr)
+			if tt.url != nil && *tt.url != "" {
+				// The URL holds the password: no part of it may be echoed.
+				testx.AssertFalse(t, strings.Contains(err.Error(), *tt.url), "error repeats the URL: %v", err)
+				testx.AssertFalse(t, strings.Contains(err.Error(), "db.internal"), "error repeats the host: %v", err)
+			}
+		})
+	}
+}
+
+func TestLoad_DatabasePool(t *testing.T) {
+	tests := []struct {
+		name      string
+		vars      map[string]string
+		wantOpen  int
+		wantIdle  int
+		wantLife  time.Duration
+		wantErr   string
+		wantNoErr []string // variables the error must not name
+	}{
+		{name: "defaults", wantOpen: 10, wantIdle: 5, wantLife: 30 * time.Minute},
+		{
+			name:     "all set",
+			vars:     map[string]string{"APP_DB_MAX_OPEN_CONNS": "20", "APP_DB_MAX_IDLE_CONNS": "8", "APP_DB_CONN_MAX_LIFETIME": "1h"},
+			wantOpen: 20, wantIdle: 8, wantLife: time.Hour,
+		},
+		{
+			name:     "lower bounds",
+			vars:     map[string]string{"APP_DB_MAX_OPEN_CONNS": "1", "APP_DB_MAX_IDLE_CONNS": "1", "APP_DB_CONN_MAX_LIFETIME": "1m"},
+			wantOpen: 1, wantIdle: 1, wantLife: time.Minute,
+		},
+		{
+			name:     "upper bounds",
+			vars:     map[string]string{"APP_DB_MAX_OPEN_CONNS": "100", "APP_DB_MAX_IDLE_CONNS": "100", "APP_DB_CONN_MAX_LIFETIME": "24h"},
+			wantOpen: 100, wantIdle: 100, wantLife: 24 * time.Hour,
+		},
+		{
+			name:     "idle equal to open",
+			vars:     map[string]string{"APP_DB_MAX_OPEN_CONNS": "5", "APP_DB_MAX_IDLE_CONNS": "5"},
+			wantOpen: 5, wantIdle: 5, wantLife: 30 * time.Minute,
+		},
+		{
+			name:    "open zero",
+			vars:    map[string]string{"APP_DB_MAX_OPEN_CONNS": "0"},
+			wantErr: `APP_DB_MAX_OPEN_CONNS: must be a number between 1 and 100, got "0"`,
+			// The idle default (5) is not compared with an invalid max.
+			wantNoErr: []string{"APP_DB_MAX_IDLE_CONNS"},
+		},
+		{name: "open above 100", vars: map[string]string{"APP_DB_MAX_OPEN_CONNS": "101"}, wantErr: `APP_DB_MAX_OPEN_CONNS: must be a number between 1 and 100, got "101"`},
+		{name: "open not a number", vars: map[string]string{"APP_DB_MAX_OPEN_CONNS": "ten"}, wantErr: `APP_DB_MAX_OPEN_CONNS: must be a number between 1 and 100, got "ten"`},
+		{name: "idle zero", vars: map[string]string{"APP_DB_MAX_IDLE_CONNS": "0"}, wantErr: `APP_DB_MAX_IDLE_CONNS: must be a number between 1 and 100, got "0"`},
+		{name: "idle above 100", vars: map[string]string{"APP_DB_MAX_IDLE_CONNS": "101"}, wantErr: `APP_DB_MAX_IDLE_CONNS: must be a number between 1 and 100, got "101"`},
+		{
+			name:    "idle above open",
+			vars:    map[string]string{"APP_DB_MAX_OPEN_CONNS": "4", "APP_DB_MAX_IDLE_CONNS": "5"},
+			wantErr: "APP_DB_MAX_IDLE_CONNS: must not be above APP_DB_MAX_OPEN_CONNS (4), got 5",
+		},
+		{
+			name:    "idle default above a small open",
+			vars:    map[string]string{"APP_DB_MAX_OPEN_CONNS": "2"},
+			wantErr: "APP_DB_MAX_IDLE_CONNS: must not be above APP_DB_MAX_OPEN_CONNS (2), got 5",
+		},
+		{
+			name:    "lifetime below 1m",
+			vars:    map[string]string{"APP_DB_CONN_MAX_LIFETIME": "59s"},
+			wantErr: `APP_DB_CONN_MAX_LIFETIME: must be a duration between 1m0s and 24h0m0s, such as "15s", got "59s"`,
+		},
+		{
+			name:    "lifetime above 24h",
+			vars:    map[string]string{"APP_DB_CONN_MAX_LIFETIME": "25h"},
+			wantErr: `APP_DB_CONN_MAX_LIFETIME: must be a duration between 1m0s and 24h0m0s`,
+		},
+		{
+			name:    "lifetime without unit",
+			vars:    map[string]string{"APP_DB_CONN_MAX_LIFETIME": "30"},
+			wantErr: `APP_DB_CONN_MAX_LIFETIME: must be a duration between 1m0s and 24h0m0s, such as "15s", got "30"`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			vars := map[string]string{"APP_ENV": "production"}
+			for k, v := range tt.vars {
+				vars[k] = v
+			}
+			setEnv(t, vars)
+
+			cfg, err := config.Load()
+			if tt.wantErr == "" {
+				testx.AssertNoError(t, err)
+				testx.AssertEqual(t, cfg.Database.MaxOpenConns, tt.wantOpen)
+				testx.AssertEqual(t, cfg.Database.MaxIdleConns, tt.wantIdle)
+				testx.AssertEqual(t, cfg.Database.ConnMaxLifetime, tt.wantLife)
+				return
+			}
+			if err == nil {
+				t.Fatalf("Load: want error containing %q, got nil", tt.wantErr)
+			}
+			testx.AssertContains(t, err.Error(), tt.wantErr)
+			for _, name := range tt.wantNoErr {
+				testx.AssertFalse(t, strings.Contains(err.Error(), name), "error names %s: %v", name, err)
+			}
+		})
+	}
+}
