@@ -10,6 +10,7 @@ import (
 	"github.com/santekno/sdk/uuidx"
 
 	"github.com/santekno/shop-app/apps/api/internal/category"
+	"github.com/santekno/shop-app/apps/api/internal/database"
 	"github.com/santekno/shop-app/apps/api/internal/db/sqlc"
 )
 
@@ -184,32 +185,23 @@ func (r *PostgresRepository) GetAdmin(ctx context.Context, id string) (AdminProd
 // Create stores a new product with its variants in one transaction and
 // returns its ID. Either all of it is stored or none of it.
 func (r *PostgresRepository) Create(ctx context.Context, in Input) (string, error) {
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		return "", fmt.Errorf("begin: %w", err)
-	}
-	// Rollback after Commit does nothing, so this undoes the work on every
-	// early return and is harmless after success.
-	defer func() { _ = tx.Rollback() }()
-	q := r.q.WithTx(tx)
-
 	id := uuidx.NewV7()
-	err = q.InsertProduct(ctx, sqlc.InsertProductParams{
-		ID: id, CategoryID: in.CategoryID, Slug: in.Slug, Name: in.Name, Description: in.Description,
+	err := database.WithTx(ctx, r.db, func(q *sqlc.Queries) error {
+		err := q.InsertProduct(ctx, sqlc.InsertProductParams{
+			ID: id, CategoryID: in.CategoryID, Slug: in.Slug, Name: in.Name, Description: in.Description,
+		})
+		if err != nil {
+			return writeError("insert product", err)
+		}
+		for i, v := range in.Variants {
+			if err := insertVariant(ctx, q, id, i, v); err != nil {
+				return err
+			}
+		}
+		return updateProduct(ctx, q, id, in)
 	})
 	if err != nil {
-		return "", writeError("insert product", err)
-	}
-	for i, v := range in.Variants {
-		if err := insertVariant(ctx, q, id, i, v); err != nil {
-			return "", err
-		}
-	}
-	if err := updateProduct(ctx, q, id, in); err != nil {
 		return "", err
-	}
-	if err := tx.Commit(); err != nil {
-		return "", fmt.Errorf("commit: %w", err)
 	}
 	return id, nil
 }
@@ -219,35 +211,25 @@ func (r *PostgresRepository) Create(ctx context.Context, in Input) (string, erro
 // ErrNotFound for an unknown product and ErrUnknownVariant for a variant ID
 // that is not a sellable variant of it.
 func (r *PostgresRepository) Update(ctx context.Context, id string, in Input) error {
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-	q := r.q.WithTx(tx)
-
-	if _, err := q.LockProduct(ctx, id); errors.Is(err, sql.ErrNoRows) {
-		return ErrNotFound
-	} else if err != nil {
-		return fmt.Errorf("lock product: %w", err)
-	}
-	for i, v := range in.Variants {
-		if v.ID == "" {
-			err = insertVariant(ctx, q, id, i, v)
-		} else {
-			err = updateVariant(ctx, q, id, i, v)
+	return database.WithTx(ctx, r.db, func(q *sqlc.Queries) error {
+		if _, err := q.LockProduct(ctx, id); errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		} else if err != nil {
+			return fmt.Errorf("lock product: %w", err)
 		}
-		if err != nil {
-			return err
+		for i, v := range in.Variants {
+			var err error
+			if v.ID == "" {
+				err = insertVariant(ctx, q, id, i, v)
+			} else {
+				err = updateVariant(ctx, q, id, i, v)
+			}
+			if err != nil {
+				return err
+			}
 		}
-	}
-	if err := updateProduct(ctx, q, id, in); err != nil {
-		return err
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit: %w", err)
-	}
-	return nil
+		return updateProduct(ctx, q, id, in)
+	})
 }
 
 // insertVariant and updateVariant store v at position, its index in the
