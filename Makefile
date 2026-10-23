@@ -93,7 +93,7 @@ ifneq ($(HAS_API),)
 endif
 ifneq ($(HAS_PNPM),)
 	pnpm -r --if-present run typecheck
-	pnpm -r --if-present run build
+	VITE_API_URL=$${VITE_API_URL:-http://localhost:8080} pnpm -r --if-present run build
 endif
 	@echo "build: ok"
 
