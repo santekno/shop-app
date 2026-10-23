@@ -28,6 +28,7 @@ export type {
 export { createApiClient } from "./api/client.ts";
 export type {
   ApiClient,
+  ApiClientConfig,
   ApiClientOptions,
   HttpMethod,
   RequestOptions,

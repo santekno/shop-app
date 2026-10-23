@@ -6,22 +6,47 @@ import type { QueryParams } from "./url.ts";
 /** The HTTP methods the GoShop API uses. */
 export type HttpMethod = "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE";
 
-/** How the client is set up; only `baseUrl` is required. */
-export interface ApiClientOptions {
+/** Every client setting: what the client runs with once defaults are filled in. */
+export interface ApiClientConfig {
   /** Where the API lives, for example "http://localhost:8080". */
   baseUrl: string;
   /** Abort an attempt that has no complete response after this long. Default 10 000. */
-  timeoutMs?: number;
+  timeoutMs: number;
   /** Extra attempts for a GET that failed on the network, timed out, or got 502/503/504. Default 0. */
-  retries?: number;
+  retries: number;
   /** Wait before the first retry, doubled before each later one. Default 300. */
-  retryDelayMs?: number;
+  retryDelayMs: number;
   /** The fetch to call; tests pass a fake. Default: the global fetch. */
-  fetch?: typeof fetch;
+  fetch: typeof fetch;
 }
 
-/** Per-request settings. */
-export interface RequestOptions {
+/**
+ * What createApiClient takes: `baseUrl` is required, every other setting is
+ * optional. Built from ApiClientConfig with utility types instead of a
+ * second hand-written interface, so the two can never disagree:
+ * Pick keeps only the named fields, Omit drops them, Partial makes every
+ * field optional.
+ */
+export type ApiClientOptions = Pick<ApiClientConfig, "baseUrl"> &
+  Partial<Omit<ApiClientConfig, "baseUrl">>;
+
+/**
+ * The defaults. `Readonly` is checked by the compiler only: assigning to
+ * `DEFAULTS.timeoutMs` is a type error, but nothing stops it at run time.
+ * Nothing outside this file can reach the object anyway; it is not exported.
+ */
+const DEFAULTS: Readonly<Omit<ApiClientConfig, "baseUrl" | "fetch">> = {
+  timeoutMs: 10_000,
+  retries: 0,
+  retryDelayMs: 300,
+};
+
+/**
+ * Per-request settings. `timeoutMs` and `retries` override the client's for
+ * one request; `retries` is ignored unless the method is GET or HEAD.
+ */
+export interface RequestOptions
+  extends Partial<Pick<ApiClientConfig, "timeoutMs" | "retries">> {
   /** HTTP method. Default "GET". */
   method?: HttpMethod;
   query?: QueryParams;
@@ -30,10 +55,6 @@ export interface RequestOptions {
   headers?: HeadersInit;
   /** Abort it to cancel the request, for example when a component unmounts. */
   signal?: AbortSignal;
-  /** Overrides the client's `timeoutMs` for this request. */
-  timeoutMs?: number;
-  /** Overrides the client's `retries` for this request; ignored unless GET or HEAD. */
-  retries?: number;
 }
 
 /** JSON.parse that answers `undefined` instead of throwing; JSON never yields `undefined` itself. */
@@ -92,11 +113,14 @@ const isRetryable = (error: unknown): boolean =>
  *   body.data; // Category[]
  */
 export const createApiClient = (options: ApiClientOptions) => {
+  // Defaults in the destructuring, not `{ ...DEFAULTS, ...options }`: a
+  // spread copies an explicit `timeoutMs: undefined` over the default,
+  // while a destructuring default also replaces `undefined`.
   const {
     baseUrl,
-    timeoutMs: defaultTimeoutMs = 10_000,
-    retries: defaultRetries = 0,
-    retryDelayMs = 300,
+    timeoutMs: defaultTimeoutMs = DEFAULTS.timeoutMs,
+    retries: defaultRetries = DEFAULTS.retries,
+    retryDelayMs = DEFAULTS.retryDelayMs,
     // Called as a plain function below, never as `options.fetch(…)`: the
     // browser's fetch throws "Illegal invocation" when `this` is not window.
     fetch: fetchFn = globalThis.fetch,
