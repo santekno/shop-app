@@ -13,9 +13,13 @@
 \pset pager off
 \set ECHO queries
 SET plan_cache_mode = force_custom_plan; -- as the API's connections
-ANALYZE products;
-ANALYZE product_variants;
-ANALYZE categories;
+-- VACUUM, not only ANALYZE: right after make seed-large the GIN search
+-- index still holds the new rows in its pending list and the visibility
+-- map is empty, and the planner then picks a sequential scan for searches
+-- (10, 13) that the index answers in well under a millisecond.
+VACUUM ANALYZE products;
+VACUUM ANALYZE product_variants;
+VACUUM ANALYZE categories;
 
 PREPARE list_newest(uuid[], text, timestamptz, uuid, int) AS
 WITH page AS (
@@ -35,7 +39,7 @@ SELECT page.id, page.slug, page.name, page.description, page.price_from, page.cr
        v.id AS variant_id, v.sku AS variant_sku, v.name AS variant_name, v.price AS variant_price, v.stock AS variant_stock
 FROM page
 JOIN categories c ON c.id = page.category_id
-LEFT JOIN product_variants v ON v.product_id = page.id AND v.archived_at IS NULL
+JOIN product_variants v ON v.product_id = page.id AND v.archived_at IS NULL
 ORDER BY page.created_at DESC, page.id DESC, v.price, v.position, v.id;
 
 PREPARE list_price_asc(uuid[], text, bigint, uuid, int) AS
@@ -56,7 +60,7 @@ SELECT page.id, page.slug, page.name, page.description, page.price_from, page.cr
        v.id AS variant_id, v.sku AS variant_sku, v.name AS variant_name, v.price AS variant_price, v.stock AS variant_stock
 FROM page
 JOIN categories c ON c.id = page.category_id
-LEFT JOIN product_variants v ON v.product_id = page.id AND v.archived_at IS NULL
+JOIN product_variants v ON v.product_id = page.id AND v.archived_at IS NULL
 ORDER BY page.price_from, page.id, v.price, v.position, v.id;
 
 PREPARE list_price_desc(uuid[], text, bigint, uuid, int) AS
@@ -77,7 +81,7 @@ SELECT page.id, page.slug, page.name, page.description, page.price_from, page.cr
        v.id AS variant_id, v.sku AS variant_sku, v.name AS variant_name, v.price AS variant_price, v.stock AS variant_stock
 FROM page
 JOIN categories c ON c.id = page.category_id
-LEFT JOIN product_variants v ON v.product_id = page.id AND v.archived_at IS NULL
+JOIN product_variants v ON v.product_id = page.id AND v.archived_at IS NULL
 ORDER BY page.price_from DESC, page.id DESC, v.price, v.position, v.id;
 
 PREPARE product_by_slug(text) AS
@@ -86,7 +90,7 @@ SELECT p.id, p.slug, p.name, p.description, p.price_from, p.created_at,
        v.id AS variant_id, v.sku AS variant_sku, v.name AS variant_name, v.price AS variant_price, v.stock AS variant_stock
 FROM products p
 JOIN categories c ON c.id = p.category_id
-LEFT JOIN product_variants v ON v.product_id = p.id AND v.archived_at IS NULL
+JOIN product_variants v ON v.product_id = p.id AND v.archived_at IS NULL
 WHERE p.slug = $1 AND p.status = 'active'
 ORDER BY v.price, v.position, v.id;
 
