@@ -15,6 +15,8 @@ Open **http://localhost:5173**, not `127.0.0.1:5173`: the API's CORS default (`A
 
 `make up` also starts the built storefront (the `web` service) on the same port 5173, so stop it (`docker compose stop web`) before `pnpm dev`, or use the container instead of the dev server.
 
+The Playwright suite in `e2e/` expects the example catalog from `make seed`: `make test-integration` seeds first, so run `make seed` yourself before running the suite against your own `make up` (without it, the page shows "Belum ada kategori.").
+
 | Script      | What it does                                                                          |
 | ----------- | ------------------------------------------------------------------------------------- |
 | `dev`       | Vite dev server with hot reload                                                       |
