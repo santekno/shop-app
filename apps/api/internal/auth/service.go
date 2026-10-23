@@ -16,8 +16,12 @@ import (
 	"github.com/santekno/shop-app/apps/api/internal/user"
 )
 
-// VerifyEmailTTL is how long an email-verification token works.
-const VerifyEmailTTL = 24 * time.Hour
+// How long the tokens sent by email work. A reset token is short-lived: it
+// can take over the account.
+const (
+	VerifyEmailTTL   = 24 * time.Hour
+	ResetPasswordTTL = 30 * time.Minute
+)
 
 // Repository is where accounts and their credentials are stored. The
 // service depends on this interface, so a test can hand it a fake.
@@ -30,6 +34,7 @@ type Repository interface {
 	GetUser(ctx context.Context, id string) (user.User, error)
 	CreateEmailToken(ctx context.Context, t NewEmailToken) error
 	VerifyEmail(ctx context.Context, presented opaqueToken, now time.Time) error
+	ResetPassword(ctx context.Context, presented opaqueToken, now time.Time, newHash string) ([]string, error)
 }
 
 // Deps is what the service needs. Repo, Hasher, Access, RefreshTTL and
@@ -155,6 +160,70 @@ func (s *Service) VerifyEmail(ctx context.Context, token string) error {
 		return fmt.Errorf("verify email: %w", err)
 	}
 	return nil
+}
+
+// ForgotPassword emails a password-reset token to the account with email,
+// if there is one. It returns nil whether or not the account exists, and a
+// failure to send is logged rather than returned, so the response never
+// tells a caller which emails are registered. An account that signs in
+// with Google only can set a password this way: the email proves it is
+// theirs.
+//
+// Known limit: the work differs (an insert and a log line when the account
+// exists), so a careful timing measurement could still tell. Bab 6 moves
+// the sending to the worker queue, which leaves one fast enqueue either way.
+func (s *Service) ForgotPassword(ctx context.Context, email string) error {
+	creds, err := s.repo.GetCredentials(ctx, NormalizeEmail(email))
+	if errors.Is(err, ErrNoUser) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("forgot password: %w", err)
+	}
+	if err := s.sendReset(ctx, creds.User); err != nil {
+		logx.FromContext(ctx).Error("send password reset email", "error", err.Error())
+	}
+	return nil
+}
+
+// ResetPassword uses a reset token to set a new password. Every session of
+// the account is revoked, so a thief who knew the old password, or held a
+// refresh token, is logged out. It returns a *PasswordError for a password
+// that breaks the policy, and ErrEmailTokenInvalid or ErrEmailTokenExpired
+// when the token cannot be used.
+func (s *Service) ResetPassword(ctx context.Context, token, newPassword string) error {
+	if err := CheckPassword(newPassword); err != nil {
+		return err
+	}
+	presented, ok := parseOpaqueToken(token)
+	if !ok {
+		return ErrEmailTokenInvalid
+	}
+	hash, err := s.hasher.Hash(ctx, newPassword)
+	if err != nil {
+		return fmt.Errorf("reset password: %w", err)
+	}
+	if _, err := s.repo.ResetPassword(ctx, presented, s.now(), hash); err != nil {
+		return fmt.Errorf("reset password: %w", err)
+	}
+	return nil
+}
+
+// sendReset stores a new reset token for u and emails it.
+func (s *Service) sendReset(ctx context.Context, u user.User) error {
+	token, err := s.newEmailToken(ctx, u.ID, PurposeResetPassword, ResetPasswordTTL)
+	if err != nil {
+		return err
+	}
+	return s.send(ctx, mail.Message{
+		To:      u.Email,
+		Subject: "Atur ulang kata sandi GoShop kamu",
+		Body: "Halo " + u.Name + ",\n\n" +
+			"Seseorang meminta pengaturan ulang kata sandi akun GoShop dengan email ini. Token (berlaku 30 menit):\n\n" +
+			token + "\n\n" +
+			"Kirim token itu bersama kata sandi baru ke POST /v1/auth/reset-password. Semua sesi login akan diakhiri.\n" +
+			"Kalau bukan kamu yang meminta, abaikan email ini; kata sandimu tidak berubah.",
+	})
 }
 
 // sendVerification stores a new verification token for u and emails it.

@@ -82,6 +82,40 @@ func (r *PostgresRepository) VerifyEmail(ctx context.Context, presented opaqueTo
 	})
 }
 
+// ResetPassword uses a reset_password token and, in one transaction, sets
+// the new password hash, marks the email verified (the reset email reached
+// its owner), revokes every session of the user, and deletes the user's
+// other unused reset tokens. It returns the revoked sessions' ids. See
+// consumeEmailToken for the errors.
+func (r *PostgresRepository) ResetPassword(ctx context.Context, presented opaqueToken, now time.Time, newHash string) ([]string, error) {
+	var sessions []string
+	err := database.WithTx(ctx, r.db, func(q *sqlc.Queries) error {
+		userID, err := consumeEmailToken(ctx, q, presented, PurposeResetPassword, now)
+		if err != nil {
+			return err
+		}
+		if err := q.SetUserPassword(ctx, sqlc.SetUserPasswordParams{ID: userID, PasswordHash: nullString(newHash)}); err != nil {
+			return fmt.Errorf("set password: %w", err)
+		}
+		if err := q.MarkEmailVerified(ctx, userID); err != nil {
+			return fmt.Errorf("mark email verified: %w", err)
+		}
+		sessions, err = q.RevokeUserSessions(ctx, userID)
+		if err != nil {
+			return fmt.Errorf("revoke sessions: %w", err)
+		}
+		err = q.DeleteUnusedUserTokens(ctx, sqlc.DeleteUnusedUserTokensParams{UserID: userID, Purpose: string(PurposeResetPassword)})
+		if err != nil {
+			return fmt.Errorf("delete other reset tokens: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return sessions, nil
+}
+
 // GetUser returns the account with id, or ErrNoUser.
 func (r *PostgresRepository) GetUser(ctx context.Context, id string) (user.User, error) {
 	row, err := r.q.GetUserByID(ctx, id)

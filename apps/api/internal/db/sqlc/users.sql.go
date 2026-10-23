@@ -163,3 +163,18 @@ func (q *Queries) MarkEmailVerified(ctx context.Context, id string) error {
 	_, err := q.db.ExecContext(ctx, markEmailVerified, id)
 	return err
 }
+
+const setUserPassword = `-- name: SetUserPassword :exec
+UPDATE users SET password_hash = $1, updated_at = now()
+WHERE id = $2 AND anonymized_at IS NULL
+`
+
+type SetUserPasswordParams struct {
+	PasswordHash sql.NullString
+	ID           string
+}
+
+func (q *Queries) SetUserPassword(ctx context.Context, arg SetUserPasswordParams) error {
+	_, err := q.db.ExecContext(ctx, setUserPassword, arg.PasswordHash, arg.ID)
+	return err
+}

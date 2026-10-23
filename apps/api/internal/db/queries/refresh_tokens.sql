@@ -56,3 +56,12 @@ WHERE id = @id;
 -- Ends a session. Served by refresh_tokens_family_idx.
 UPDATE refresh_tokens SET revoked_at = now()
 WHERE family_id = @family_id AND revoked_at IS NULL;
+
+-- name: RevokeUserSessions :many
+-- Ends every session of a user (password reset, account deletion) and
+-- returns their ids. Each live session has exactly one token that is
+-- neither used nor revoked, so this touches one row per session, through
+-- refresh_tokens_user_active_idx; the used ones already fail on their own.
+UPDATE refresh_tokens SET revoked_at = now()
+WHERE user_id = @user_id AND used_at IS NULL AND revoked_at IS NULL
+RETURNING family_id;

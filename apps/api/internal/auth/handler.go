@@ -30,6 +30,8 @@ type Accounts interface {
 	Logout(ctx context.Context, refreshToken string) error
 	VerifyEmail(ctx context.Context, token string) error
 	ResendVerification(ctx context.Context, userID string) error
+	ForgotPassword(ctx context.Context, email string) error
+	ResetPassword(ctx context.Context, token, newPassword string) error
 }
 
 // Handler serves the /v1/auth endpoints.
@@ -55,6 +57,8 @@ func (h *Handler) Routes(r chi.Router) {
 	r.Post("/auth/refresh", h.Refresh)
 	r.Post("/auth/logout", h.Logout)
 	r.Post("/auth/verify-email", h.VerifyEmail)
+	r.Post("/auth/forgot-password", h.ForgotPassword)
+	r.Post("/auth/reset-password", h.ResetPassword)
 }
 
 // ProtectedRoutes registers the auth routes that need a logged-in user, on
@@ -191,6 +195,57 @@ func (h *Handler) ResendVerification(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)
+}
+
+// forgotBody is the request body of POST /v1/auth/forgot-password.
+type forgotBody struct {
+	Email string `json:"email" validate:"required,max=254"`
+}
+
+// ForgotPassword serves POST /v1/auth/forgot-password: always 202, so the
+// answer does not say whether the email has an account.
+func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
+	var body forgotBody
+	if err := h.decodeValid(w, r, &body); err != nil {
+		httpapi.Error(w, r, err)
+		return
+	}
+	if err := h.svc.ForgotPassword(r.Context(), body.Email); err != nil {
+		httpapi.Error(w, r, toHTTPError(err))
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
+}
+
+// resetBody is the request body of POST /v1/auth/reset-password.
+type resetBody struct {
+	Token    string `json:"token" validate:"required,max=200"`
+	Password string `json:"password" validate:"required"`
+}
+
+// ResetPassword serves POST /v1/auth/reset-password: 204, the new password
+// works and every session of the account is over.
+func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
+	var body resetBody
+	if err := httpapi.DecodeJSON(w, r, &body); err != nil {
+		httpapi.Error(w, r, err)
+		return
+	}
+	details, err := h.validator.StructFields(body, "")
+	if err != nil {
+		httpapi.Error(w, r, err)
+		return
+	}
+	checkPassword(details, "password", body.Password)
+	if len(details) > 0 {
+		httpapi.Error(w, r, httpapi.ValidationError("invalid request", details))
+		return
+	}
+	if err := h.svc.ResetPassword(r.Context(), body.Token, body.Password); err != nil {
+		httpapi.Error(w, r, toHTTPError(err))
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // decodeValid decodes the JSON body into dst and validates it.

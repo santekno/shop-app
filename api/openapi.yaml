@@ -608,6 +608,57 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /v1/auth/forgot-password:
+    post:
+      tags: [Auth]
+      operationId: forgotPassword
+      summary: Ask for a password-reset email
+      description: |
+        Emails a reset token (valid for 30 minutes; only the newest works)
+        when the email has an account. Always answers 202, whether or not
+        it does, so the endpoint does not reveal which emails are
+        registered. An account that signs in with Google only can set a
+        password this way.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ForgotPasswordRequest"
+      responses:
+        "202":
+          description: If the email has an account, a reset email is on its way.
+        "400":
+          $ref: "#/components/responses/BadAuthRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/auth/reset-password:
+    post:
+      tags: [Auth]
+      operationId: resetPassword
+      summary: Set a new password with a reset token
+      description: |
+        Uses the token from the reset email to set a new password (same
+        policy as registration). In the same transaction the email becomes
+        verified, and **every session of the account is revoked**: refresh
+        tokens stop working at once, access tokens at the latest when they
+        expire (Bab 4 artikel 12 makes that immediate). The user logs in
+        again with the new password.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResetPasswordRequest"
+      responses:
+        "204":
+          description: The password is changed and every session is over.
+        "400":
+          $ref: "#/components/responses/BadEmailToken"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1020,6 +1071,31 @@ components:
           maxLength: 200
           description: The token from the email, exactly as sent.
 
+    ForgotPasswordRequest:
+      type: object
+      required: [email]
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+          maxLength: 254
+
+    ResetPasswordRequest:
+      type: object
+      required: [token, password]
+      additionalProperties: false
+      properties:
+        token:
+          type: string
+          maxLength: 200
+          description: The token from the reset email.
+        password:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 128
+          description: The new password; the same policy as registration.
+
     HealthCheck:
       type: object
       required: [status, duration_ms]
@@ -1260,7 +1336,7 @@ components:
               message: your role is not allowed to do this
 
     BadEmailToken:
-      description: The body is invalid (`VALIDATION_FAILED`), or the token from the email cannot be used. `TOKEN_INVALID` means it is malformed, unknown, already used, replaced by a newer email, or its account was deleted; `TOKEN_EXPIRED` means it is too old. Ask for a new email either way.
+      description: The body is invalid (`VALIDATION_FAILED`; a new password that breaks the policy is reported under `password`), or the token from the email cannot be used. `TOKEN_INVALID` means it is malformed, unknown, already used, replaced by a newer email, or its account was deleted; `TOKEN_EXPIRED` means it is too old. Ask for a new email either way.
       content:
         application/json:
           schema:

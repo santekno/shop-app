@@ -191,3 +191,36 @@ func (q *Queries) RevokeRefreshFamily(ctx context.Context, familyID string) erro
 	_, err := q.db.ExecContext(ctx, revokeRefreshFamily, familyID)
 	return err
 }
+
+const revokeUserSessions = `-- name: RevokeUserSessions :many
+UPDATE refresh_tokens SET revoked_at = now()
+WHERE user_id = $1 AND used_at IS NULL AND revoked_at IS NULL
+RETURNING family_id
+`
+
+// Ends every session of a user (password reset, account deletion) and
+// returns their ids. Each live session has exactly one token that is
+// neither used nor revoked, so this touches one row per session, through
+// refresh_tokens_user_active_idx; the used ones already fail on their own.
+func (q *Queries) RevokeUserSessions(ctx context.Context, userID string) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, revokeUserSessions, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var family_id string
+		if err := rows.Scan(&family_id); err != nil {
+			return nil, err
+		}
+		items = append(items, family_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

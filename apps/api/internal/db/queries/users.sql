@@ -32,3 +32,7 @@ WHERE id = @id AND anonymized_at IS NULL;
 SELECT id FROM users
 WHERE id = @id AND anonymized_at IS NULL
 FOR UPDATE;
+
+-- name: SetUserPassword :exec
+UPDATE users SET password_hash = @password_hash, updated_at = now()
+WHERE id = @id AND anonymized_at IS NULL;

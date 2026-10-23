@@ -21,6 +21,8 @@ The Go REST API behind the GoShop storefront, admin dashboard and mobile app. Th
 | POST | `/v1/auth/logout` | Revoke the session of a refresh token; always 204 |
 | POST | `/v1/auth/verify-email` | Use the one-time token from the verification email (24 h) |
 | POST | `/v1/auth/verify-email/resend` | **Access token.** Send a new verification email (202) |
+| POST | `/v1/auth/forgot-password` | Email a 30-minute reset token if the account exists; always 202 |
+| POST | `/v1/auth/reset-password` | New password with the reset token; revokes every session of the account |
 | GET | `/v1/me` | **Access token.** The caller's own account |
 | POST | `/v1/admin/products` | **Seller or admin.** Create a product with its variants |
 | GET | `/v1/admin/products/{id}` | **Seller or admin.** Any product, whatever its status |
