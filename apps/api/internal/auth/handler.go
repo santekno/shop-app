@@ -20,6 +20,7 @@ const (
 	CodeInvalidCredentials = "INVALID_CREDENTIALS" //nolint:gosec // an error code, not a credential
 	CodeTokenInvalid       = "TOKEN_INVALID"
 	CodeTokenExpired       = "TOKEN_EXPIRED"
+	CodeEmailUnverified    = "EMAIL_UNVERIFIED"
 )
 
 // Accounts is what the handlers need from the service.
@@ -32,6 +33,7 @@ type Accounts interface {
 	ResendVerification(ctx context.Context, userID string) error
 	ForgotPassword(ctx context.Context, email string) error
 	ResetPassword(ctx context.Context, token, newPassword string) error
+	GoogleLogin(ctx context.Context, idToken string) (Tokens, error)
 }
 
 // Handler serves the /v1/auth endpoints.
@@ -59,6 +61,7 @@ func (h *Handler) Routes(r chi.Router) {
 	r.Post("/auth/verify-email", h.VerifyEmail)
 	r.Post("/auth/forgot-password", h.ForgotPassword)
 	r.Post("/auth/reset-password", h.ResetPassword)
+	r.Post("/auth/google", h.GoogleLogin)
 }
 
 // ProtectedRoutes registers the auth routes that need a logged-in user, on
@@ -248,6 +251,28 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// googleBody is the request body of POST /v1/auth/google. Google ID tokens
+// are a few kilobytes at most.
+type googleBody struct {
+	IDToken string `json:"id_token" validate:"required,max=8192"`
+}
+
+// GoogleLogin serves POST /v1/auth/google: 200 with the tokens of a new
+// session, creating the account on the first sign-in.
+func (h *Handler) GoogleLogin(w http.ResponseWriter, r *http.Request) {
+	var body googleBody
+	if err := h.decodeValid(w, r, &body); err != nil {
+		httpapi.Error(w, r, err)
+		return
+	}
+	tokens, err := h.svc.GoogleLogin(r.Context(), body.IDToken)
+	if err != nil {
+		httpapi.Error(w, r, toHTTPError(err))
+		return
+	}
+	httpapi.JSON(w, r, http.StatusOK, dataResponse{Data: toTokensJSON(tokens, h.now())})
+}
+
 // decodeValid decodes the JSON body into dst and validates it.
 func (h *Handler) decodeValid(w http.ResponseWriter, r *http.Request, dst any) error {
 	if err := httpapi.DecodeJSON(w, r, dst); err != nil {
@@ -287,6 +312,14 @@ func toHTTPError(err error) error {
 	switch {
 	case errors.As(err, &pwErr):
 		return httpapi.ValidationError("invalid request", map[string]any{"password": pwErr.Reason})
+	case errors.Is(err, ErrGoogleTokenInvalid):
+		return errx.New(CodeTokenInvalid, "the Google sign-in could not be verified; try again").
+			WithHTTPStatus(http.StatusUnauthorized)
+	case errors.Is(err, ErrGoogleEmailUnverified):
+		return errx.New(CodeEmailUnverified, "verify the email of your Google account first").
+			WithHTTPStatus(http.StatusBadRequest)
+	case errors.Is(err, ErrGoogleDisabled):
+		return httpapi.NotFoundError("route not found")
 	case errors.Is(err, ErrEmailTaken):
 		return errx.New(CodeEmailTaken, "an account with this email already exists").
 			WithHTTPStatus(http.StatusConflict).

@@ -12,6 +12,7 @@ Every column is `NOT NULL` unless the diagram says `nullable`.
 | Bab 4 | `000002_create_users` | `users`: the email lower-case CHECK (ASCII only, enforced by the API), the role CHECK (`buyer`, `seller`, `admin`), and a CHECK that an anonymised row keeps no password, phone or name |
 | Bab 4 | `000003_create_refresh_tokens` | `refresh_tokens` ([ADR 0005](adr/0005-auth-tokens.md)): SHA-256 of the secret only, `family_id` = the session, `used_at` for rotation and reuse detection, `revoked_at`; indexes on `family_id` and on `user_id` for the tokens that can still be used |
 | Bab 4 | `000004_create_user_tokens` | `user_tokens`: one-time email tokens (`verify_email`, `reset_password`), SHA-256 of the secret only, `used_at`, `expires_at`; an index on `(user_id, purpose)`, not partial, so it also serves deleting a user's tokens and the CASCADE |
+| Bab 4 | `000005_create_user_identities` | `user_identities`: `UNIQUE (provider, subject)` (the sign-in lookup) and `UNIQUE (user_id, provider)`; provider CHECK (`google`) |
 
 Two choices made while building it:
 
@@ -309,4 +310,4 @@ The `indonesian` configuration stems Indonesian words (`dipakai` is indexed as `
 - **Orders are never deleted.** They are financial records.
 - **Products and variants are archived**, not deleted: `products.status = 'archived'`, `product_variants.archived_at`.
 - **Users are anonymised**, not deleted, because their orders RESTRICT the delete. `anonymized_at` is set; the email becomes the unique lower-case placeholder `deleted+<id>@invalid` (`.invalid` is a reserved domain that never receives mail); name is cleared to `''`; phone and password hash become `NULL`. The orders keep their shipping snapshot. Login and every user lookup skip rows with `anonymized_at IS NOT NULL`. A user with no orders may be deleted outright; their addresses go with them (CASCADE).
-- **Google sign-in** adds a `user_identities (provider, subject)` table in Bab 4. Accounts are linked by the provider's stable subject id, never by matching email addresses.
+- **Google sign-in** uses the `user_identities (provider, subject)` table (Bab 4). Accounts are linked by the provider's stable subject id, never by matching email addresses: a first Google sign-in whose email already has an account is refused (409 `EMAIL_TAKEN`) instead of linked.

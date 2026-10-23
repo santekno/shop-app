@@ -659,6 +659,53 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /v1/auth/google:
+    post:
+      tags: [Auth]
+      operationId: googleLogin
+      summary: Sign in with Google
+      description: |
+        Takes a Google **ID token** that the web or mobile app got from
+        Google Sign-In, and returns the tokens of a new session.
+
+        The API verifies the token with Google's published keys (RS256),
+        the issuer (`https://accounts.google.com`), the audience (our
+        `GOOGLE_CLIENT_ID`; a token issued to another app is refused) and
+        the expiry. The account is found by Google's stable subject id,
+        never by email. The first sign-in of a Google account creates a
+        `buyer` account without a password and with its email verified,
+        provided Google has verified that email (`EMAIL_UNVERIFIED`
+        otherwise). When a GoShop account already has that email, nothing
+        is linked: 409 `EMAIL_TAKEN`, and the user logs in with their
+        password, because linking on the email alone would hand the account
+        to whoever controls a Google account with that address.
+
+        In development without `GOOGLE_CLIENT_ID`, Google sign-in is off
+        and this endpoint answers 404 `NOT_FOUND`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GoogleLoginRequest"
+      responses:
+        "200":
+          description: Signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenPairDetail"
+        "400":
+          $ref: "#/components/responses/BadGoogleLogin"
+        "401":
+          $ref: "#/components/responses/InvalidGoogleToken"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/EmailTaken"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -666,8 +713,8 @@ components:
       scheme: bearer
       bearerFormat: JWT
       description: |
-        The `access_token` from `/v1/auth/login` or `/v1/auth/refresh`, as
-        `Authorization: Bearer <token>`. It lives 15
+        The `access_token` from `/v1/auth/login`, `/v1/auth/google` or
+        `/v1/auth/refresh`, as `Authorization: Bearer <token>`. It lives 15
         minutes by default (ADR 0005); refresh it before or after it
         expires.
 
@@ -1096,6 +1143,16 @@ components:
           maxLength: 128
           description: The new password; the same policy as registration.
 
+    GoogleLoginRequest:
+      type: object
+      required: [id_token]
+      additionalProperties: false
+      properties:
+        id_token:
+          type: string
+          maxLength: 8192
+          description: The ID token (a JWT) from Google Sign-In, issued to `GOOGLE_CLIENT_ID`.
+
     HealthCheck:
       type: object
       required: [status, duration_ms]
@@ -1354,6 +1411,27 @@ components:
                 error:
                   code: TOKEN_EXPIRED
                   message: the token has expired; ask for a new email
+
+    BadGoogleLogin:
+      description: The body is invalid (`VALIDATION_FAILED`), or Google has not verified the account's email (`EMAIL_UNVERIFIED`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: EMAIL_UNVERIFIED
+              message: verify the email of your Google account first
+    InvalidGoogleToken:
+      description: The ID token failed verification (signature, issuer, audience or expiry), or its email cannot be stored (not ASCII).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: TOKEN_INVALID
+              message: the Google sign-in could not be verified; try again
 
     InternalError:
       description: Unexpected server error. The code is always `INTERNAL_ERROR`, the code sdk `middleware/chi` `Recovery` writes after a panic, and handlers use the same code for every other 500. The details are in the server log, never in the response.

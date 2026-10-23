@@ -30,8 +30,9 @@ const testDatabaseURL = "postgres://localhost:5432/goshop?sslmode=disable"
 // requiredEnv is every variable Load requires, with test values (none of
 // them is real).
 var requiredEnv = map[string]string{
-	"DATABASE_URL": testDatabaseURL,
-	"JWT_SECRET":   "unit-test-jwt-secret-not-a-real-key-0123456789",
+	"DATABASE_URL":     testDatabaseURL,
+	"JWT_SECRET":       "unit-test-jwt-secret-not-a-real-key-0123456789",
+	"GOOGLE_CLIENT_ID": "goshop-test.apps.googleusercontent.com",
 }
 
 // setEnv clears every APP_* variable, PORT and DATABASE_URL for the test,

@@ -72,6 +72,14 @@ type User struct {
 	UpdatedAt       time.Time
 }
 
+type UserIdentity struct {
+	ID        string
+	UserID    string
+	Provider  string
+	Subject   string
+	CreatedAt time.Time
+}
+
 type UserToken struct {
 	ID        string
 	UserID    string

@@ -103,6 +103,8 @@ services:
       JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-string}
       APP_ACCESS_TOKEN_TTL: ${APP_ACCESS_TOKEN_TTL:-15m}
       APP_REFRESH_TOKEN_TTL: ${APP_REFRESH_TOKEN_TTL:-720h}
+      # Empty: Google sign-in is off (allowed in development only).
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
     ports:
       - "127.0.0.1:8080:8080"
     healthcheck:

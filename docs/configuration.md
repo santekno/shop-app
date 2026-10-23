@@ -36,8 +36,7 @@ cp .env.example .env   # .env is gitignored; never commit it
 | `S3_SECRET_KEY` | api, worker | **yes** | S3 secret key. | Bab 6 |
 | `MIDTRANS_SERVER_KEY` | api | **yes** | Midtrans server key: creates transactions and verifies webhook signatures. Sandbox key only in this course. | Bab 6 |
 | `MIDTRANS_CLIENT_KEY` | api | no | Midtrans client key, passed to Snap in the browser and the app. Public by design, but still per environment. | Bab 6 |
-| `GOOGLE_CLIENT_ID` | api | no | OAuth client ID for "Sign in with Google". | Bab 4 |
-| `GOOGLE_CLIENT_SECRET` | api | **yes** | OAuth client secret. | Bab 4 |
+| `GOOGLE_CLIENT_ID` | api | no | OAuth client ID for "Sign in with Google" (ends with `.apps.googleusercontent.com`). `POST /v1/auth/google` accepts only Google ID tokens issued to this client. Required in staging and production; empty in development turns Google sign-in off (the endpoint answers 404). Public by design, but per environment. There is no `GOOGLE_CLIENT_SECRET`: the API only verifies ID tokens against Google's public keys, which needs no secret. | Bab 4 |
 | `OPENAI_API_KEY` | api, worker | **yes** | Key for the LLM and embedding provider. | Bab 18 |
 
 A variable that a chapter does not use yet may stay empty. When a chapter starts using one, the service must fail at startup if it is missing, instead of failing on the first request.

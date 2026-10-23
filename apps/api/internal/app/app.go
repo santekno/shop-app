@@ -47,6 +47,11 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, opts ...Option) *App
 		// copy it; elsewhere the body (and the token) is never logged.
 		mailer: mail.NewLogMailer(logger, cfg.IsDevelopment()),
 	}
+	if cfg.Auth.GoogleClientID != "" {
+		o.google = auth.NewGoogleVerifier(cfg.Auth.GoogleClientID, time.Now)
+	} else {
+		logger.Info("google sign-in is off: GOOGLE_CLIENT_ID is not set")
+	}
 	for _, opt := range opts {
 		opt(&o)
 	}
@@ -69,6 +74,7 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, opts ...Option) *App
 		Access:     accessTokens,
 		RefreshTTL: cfg.Auth.RefreshTokenTTL,
 		Mailer:     o.mailer,
+		Google:     o.google,
 	})
 
 	// Handlers: HTTP in and out, given their services.
@@ -112,10 +118,15 @@ type Option func(*options)
 
 type options struct {
 	mailer mail.Mailer
+	google auth.GoogleVerifier
 }
 
 // WithMailer makes the API send email through m instead of the log.
 func WithMailer(m mail.Mailer) Option { return func(o *options) { o.mailer = m } }
+
+// WithGoogleVerifier makes the API accept Google ID tokens that v accepts,
+// for tests that cannot get a real token from Google.
+func WithGoogleVerifier(v auth.GoogleVerifier) Option { return func(o *options) { o.google = v } }
 
 // Handler is the API's router with all middleware, for httptest.
 func (a *App) Handler() http.Handler { return a.handler }
@@ -169,7 +180,9 @@ func Run(ctx context.Context, args []string, stdout io.Writer) error {
 	// after the last in-flight request finished during graceful shutdown.
 	defer closeDB(db, logger)
 
-	a := New(cfg, logger, db)
+	// The Google key set fetches keys in the background for the life of the
+	// process, so it gets its own context rather than this one.
+	a := New(cfg, logger, db) //nolint:contextcheck // see above
 
 	var lc net.ListenConfig
 	ln, err := lc.Listen(ctx, "tcp", cfg.Addr())

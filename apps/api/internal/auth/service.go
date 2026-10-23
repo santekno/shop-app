@@ -12,6 +12,7 @@ import (
 	"github.com/santekno/sdk/logx"
 	"github.com/santekno/sdk/uuidx"
 
+	"github.com/santekno/shop-app/apps/api/internal/httpapi"
 	"github.com/santekno/shop-app/apps/api/internal/mail"
 	"github.com/santekno/shop-app/apps/api/internal/user"
 )
@@ -35,6 +36,8 @@ type Repository interface {
 	CreateEmailToken(ctx context.Context, t NewEmailToken) error
 	VerifyEmail(ctx context.Context, presented opaqueToken, now time.Time) error
 	ResetPassword(ctx context.Context, presented opaqueToken, now time.Time, newHash string) ([]string, error)
+	GetUserByIdentity(ctx context.Context, provider, subject string) (user.User, error)
+	CreateUserWithIdentity(ctx context.Context, u NewUser, identityID, provider, subject string) (user.User, error)
 }
 
 // Deps is what the service needs. Repo, Hasher, Access, RefreshTTL and
@@ -48,6 +51,9 @@ type Deps struct {
 	RefreshTTL time.Duration
 	// Mailer sends the verification and reset emails.
 	Mailer mail.Mailer
+	// Google verifies Google ID tokens; nil turns Google sign-in off
+	// (GoogleLogin then returns ErrGoogleDisabled).
+	Google GoogleVerifier
 	// Clock is the current time; time.Now when nil.
 	Clock func() time.Time
 	// Random is where token secrets come from; crypto/rand.Reader when nil.
@@ -63,6 +69,7 @@ type Service struct {
 	access     *AccessTokens
 	refreshTTL time.Duration
 	mailer     mail.Mailer
+	google     GoogleVerifier
 	now        func() time.Time
 	random     io.Reader
 	newID      func() string
@@ -72,7 +79,7 @@ type Service struct {
 func NewService(deps Deps) *Service {
 	s := &Service{
 		repo: deps.Repo, hasher: deps.Hasher, access: deps.Access, refreshTTL: deps.RefreshTTL,
-		mailer: deps.Mailer, now: deps.Clock, random: deps.Random, newID: deps.NewID,
+		mailer: deps.Mailer, google: deps.Google, now: deps.Clock, random: deps.Random, newID: deps.NewID,
 	}
 	if s.now == nil {
 		s.now = time.Now
@@ -160,6 +167,101 @@ func (s *Service) VerifyEmail(ctx context.Context, token string) error {
 		return fmt.Errorf("verify email: %w", err)
 	}
 	return nil
+}
+
+// Google sign-in errors.
+var (
+	// ErrGoogleDisabled means GOOGLE_CLIENT_ID is not set.
+	ErrGoogleDisabled = errors.New("google sign-in is not configured")
+	// ErrGoogleEmailUnverified means Google has not verified the account's
+	// email, so it cannot be trusted to create a GoShop account.
+	ErrGoogleEmailUnverified = errors.New("google account email is not verified")
+)
+
+// maxNameLength is the longest name an account gets, the same limit as the
+// registration form.
+const maxNameLength = 100
+
+// GoogleLogin signs in with a Google ID token that a client (the web or
+// mobile app) got from Google, and returns tokens for a new session.
+//
+// The account is found by Google's subject id, never by email (docs/erd.md):
+// an email address can be given to someone else, the subject cannot. A
+// subject seen for the first time creates a buyer account without a
+// password and with its email verified, provided Google has verified the
+// email. If a GoShop account already has that email, nothing is linked and
+// ErrEmailTaken is returned: the user logs in with their password instead,
+// because matching on the email alone would hand the account to whoever
+// controls a Google account with that address.
+//
+// It returns ErrGoogleTokenInvalid for a token that fails verification,
+// ErrGoogleEmailUnverified, ErrEmailTaken, and ErrGoogleDisabled when
+// GOOGLE_CLIENT_ID is not set.
+func (s *Service) GoogleLogin(ctx context.Context, idToken string) (Tokens, error) {
+	if s.google == nil {
+		return Tokens{}, ErrGoogleDisabled
+	}
+	id, err := s.google.Verify(ctx, idToken)
+	if err != nil {
+		logx.FromContext(ctx).Info("google id token refused", "error", err.Error())
+		return Tokens{}, ErrGoogleTokenInvalid
+	}
+	u, err := s.repo.GetUserByIdentity(ctx, ProviderGoogle, id.Subject)
+	if errors.Is(err, ErrNoUser) {
+		u, err = s.createGoogleUser(ctx, id)
+	}
+	if err != nil {
+		return Tokens{}, fmt.Errorf("google login: %w", err)
+	}
+	// No password was checked, so there is no hash to re-check: the
+	// repository only refuses an account deleted in the meantime.
+	return s.startSession(ctx, u, "")
+}
+
+// createGoogleUser creates the account for a Google identity seen for the
+// first time.
+func (s *Service) createGoogleUser(ctx context.Context, id GoogleIdentity) (user.User, error) {
+	email := NormalizeEmail(id.Email)
+	if !id.EmailVerified || email == "" {
+		return user.User{}, ErrGoogleEmailUnverified
+	}
+	if !isASCII(email) || len(email) > 254 {
+		// The same rule as registration; Google allows internationalised
+		// addresses that GoShop does not store.
+		return user.User{}, ErrGoogleTokenInvalid
+	}
+	u, err := s.repo.CreateUserWithIdentity(ctx, NewUser{
+		ID: s.newID(), Email: email, Name: googleName(id.Name, email), Role: user.RoleBuyer,
+	}, s.newID(), ProviderGoogle, id.Subject)
+	if errors.Is(err, ErrIdentityTaken) || errors.Is(err, ErrEmailTaken) {
+		// Two first sign-ins of the same Google account raced (a double
+		// tap): the other one created the account, and this insert lost on
+		// the email or on the identity, depending on timing. The insert
+		// waited for the winner to commit, so its identity is visible now.
+		// When no identity has this subject, the email belongs to another
+		// account (a password one), which is never linked: ErrEmailTaken.
+		linked, lookupErr := s.repo.GetUserByIdentity(ctx, ProviderGoogle, id.Subject)
+		if errors.Is(lookupErr, ErrNoUser) {
+			return user.User{}, ErrEmailTaken
+		}
+		return linked, lookupErr
+	}
+	return u, err
+}
+
+// googleName is the account name from Google's "name" claim: trimmed, cut
+// to maxNameLength characters, and the email's local part when the claim is
+// empty or not storable text.
+func googleName(name, email string) string {
+	name = strings.TrimSpace(name)
+	if !httpapi.ValidText(name) || name == "" {
+		local, _, _ := strings.Cut(email, "@")
+		return local
+	}
+	if r := []rune(name); len(r) > maxNameLength {
+		name = strings.TrimSpace(string(r[:maxNameLength]))
+	}
+	return name
 }
 
 // ForgotPassword emails a password-reset token to the account with email,

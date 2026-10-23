@@ -138,6 +138,55 @@ func (q *Queries) InsertUser(ctx context.Context, arg InsertUserParams) (InsertU
 	return i, err
 }
 
+const insertVerifiedUser = `-- name: InsertVerifiedUser :one
+INSERT INTO users (id, email, name, role, email_verified_at)
+VALUES ($1, $2, $3, $4, now())
+RETURNING id, email, password_hash, name, phone, role, email_verified_at, created_at, updated_at
+`
+
+type InsertVerifiedUserParams struct {
+	ID    string
+	Email string
+	Name  string
+	Role  string
+}
+
+type InsertVerifiedUserRow struct {
+	ID              string
+	Email           string
+	PasswordHash    sql.NullString
+	Name            string
+	Phone           sql.NullString
+	Role            string
+	EmailVerifiedAt sql.NullTime
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
+// An account created by a provider that has verified the email already
+// (Google): no password, email_verified_at set.
+func (q *Queries) InsertVerifiedUser(ctx context.Context, arg InsertVerifiedUserParams) (InsertVerifiedUserRow, error) {
+	row := q.db.QueryRowContext(ctx, insertVerifiedUser,
+		arg.ID,
+		arg.Email,
+		arg.Name,
+		arg.Role,
+	)
+	var i InsertVerifiedUserRow
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.PasswordHash,
+		&i.Name,
+		&i.Phone,
+		&i.Role,
+		&i.EmailVerifiedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const lockUser = `-- name: LockUser :one
 SELECT id FROM users
 WHERE id = $1 AND anonymized_at IS NULL

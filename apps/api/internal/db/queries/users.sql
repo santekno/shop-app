@@ -36,3 +36,10 @@ FOR UPDATE;
 -- name: SetUserPassword :exec
 UPDATE users SET password_hash = @password_hash, updated_at = now()
 WHERE id = @id AND anonymized_at IS NULL;
+
+-- name: InsertVerifiedUser :one
+-- An account created by a provider that has verified the email already
+-- (Google): no password, email_verified_at set.
+INSERT INTO users (id, email, name, role, email_verified_at)
+VALUES (@id, @email, @name, @role, now())
+RETURNING id, email, password_hash, name, phone, role, email_verified_at, created_at, updated_at;

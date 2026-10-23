@@ -19,7 +19,8 @@ const testDatabaseURL = "postgres://localhost:5432/goshop?sslmode=disable"
 
 // Valid values for the other variables Load requires; none of them is real.
 const (
-	testJWTSecret = "unit-test-jwt-secret-not-a-real-key-0123456789" //nolint:gosec // a test value, not a credential
+	testJWTSecret      = "unit-test-jwt-secret-not-a-real-key-0123456789" //nolint:gosec // a test value, not a credential
+	testGoogleClientID = "goshop-test.apps.googleusercontent.com"
 )
 
 // setEnv gives the test a clean environment: every APP_* variable, PORT and
@@ -37,8 +38,9 @@ func setEnv(t *testing.T, vars map[string]string) {
 	}
 	unsetEnv(t, "PORT")
 	required := map[string]string{
-		"DATABASE_URL": testDatabaseURL,
-		"JWT_SECRET":   testJWTSecret,
+		"DATABASE_URL":     testDatabaseURL,
+		"JWT_SECRET":       testJWTSecret,
+		"GOOGLE_CLIENT_ID": testGoogleClientID,
 	}
 	for name, value := range required {
 		unsetEnv(t, name)

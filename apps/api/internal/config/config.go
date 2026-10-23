@@ -107,6 +107,10 @@ type Auth struct {
 	// RefreshTokenTTL is APP_REFRESH_TOKEN_TTL (1h-2160h, default 720h):
 	// how long a refresh token lives after it is issued.
 	RefreshTokenTTL time.Duration
+	// GoogleClientID is GOOGLE_CLIENT_ID, the OAuth client whose Google ID
+	// tokens the API accepts. Required outside development; empty in
+	// development turns Google sign-in off.
+	GoogleClientID string
 }
 
 // Database configures the PostgreSQL connection pool.
@@ -205,6 +209,9 @@ func Load() (Config, error) {
 		DefaultAccessTokenTTL, time.Minute, time.Hour)
 	errs = append(errs, err)
 
+	cfg.Auth.GoogleClientID, err = parseGoogleClientID(strings.TrimSpace(os.Getenv("GOOGLE_CLIENT_ID")), cfg.Env)
+	errs = append(errs, err)
+
 	cfg.Auth.RefreshTokenTTL, err = parseDuration("APP_REFRESH_TOKEN_TTL", src.String("refresh.token.ttl"),
 		DefaultRefreshTokenTTL, time.Hour, 90*24*time.Hour)
 	errs = append(errs, err)
@@ -274,6 +281,18 @@ func parseJWTSecret(value, env string) ([]byte, error) {
 		return nil, errors.New("JWT_SECRET: is the placeholder from .env.example, which is allowed in development only; generate one with: openssl rand -base64 48")
 	}
 	return []byte(value), nil
+}
+
+// parseGoogleClientID checks GOOGLE_CLIENT_ID: required outside development,
+// and always shaped like a Google OAuth client ID.
+func parseGoogleClientID(value, env string) (string, error) {
+	switch {
+	case value == "" && env != EnvDevelopment:
+		return "", errors.New("GOOGLE_CLIENT_ID: is required outside development (Google Cloud console → APIs & Services → Credentials)")
+	case value != "" && !strings.HasSuffix(value, ".apps.googleusercontent.com"):
+		return "", fmt.Errorf("GOOGLE_CLIENT_ID: must end with .apps.googleusercontent.com, got %q", value)
+	}
+	return value, nil
 }
 
 // parseOrigins splits a comma-separated list of origins and checks each one.
