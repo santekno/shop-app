@@ -78,6 +78,12 @@ tags:
       logged in. Every line is re-validated against the catalog: its
       variant must still be for sale, in stock, and at the price the buyer
       saw.
+  - name: Orders
+    description: |
+      A buyer's orders (Bab 5, ADR 0006). An order copies what it sells
+      (name, variant, SKU, price) and where it ships, so later catalog or
+      address changes never alter it. Every operation is scoped to the
+      caller: another user's order answers 404 like a missing one.
 
 paths:
   /healthz:
@@ -1138,7 +1144,9 @@ paths:
       summary: Check the cart before checkout
       description: |
         Validates the caller's cart exactly as checkout will and computes the
-        totals, without writing anything. With `address_id`, `courier` and
+        totals, without writing anything. Limited per buyer
+        (`APP_CHECKOUT_LIMIT_PER_MINUTE`, 30 per minute by default, as are
+        shipping quotes and checkout): 429 `RATE_LIMITED`. With `address_id`, `courier` and
         `service` the shipping fee is priced now and added. Checkout validates again on locked rows, so a
         preview that passed is a hint, not a promise.
       security:
@@ -1164,6 +1172,8 @@ paths:
           $ref: "#/components/responses/CheckoutConflict"
         "422":
           $ref: "#/components/responses/ShippingUnavailable"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "500":
           $ref: "#/components/responses/InternalError"
         "503":
@@ -1206,6 +1216,69 @@ paths:
           $ref: "#/components/responses/CheckoutConflict"
         "422":
           $ref: "#/components/responses/ShippingUnavailable"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/UpstreamUnavailable"
+
+  /v1/checkout:
+    post:
+      tags: [Checkout]
+      operationId: checkout
+      summary: Place an order from my cart
+      description: |
+        Creates an order waiting for payment from every line of the
+        caller's cart, in one transaction: the buyer's row is locked first,
+        then the variants in id order; every line is validated again on the
+        locked rows (409 `CHECKOUT_PROBLEMS`); the voucher's use is counted
+        with a guarded update; the order and its line snapshots are stored;
+        the stock is decremented with a guarded update; and the ordered
+        lines leave the cart. The shipping fee is asked for again before
+        the transaction and is never taken from the client. The order must
+        be paid before `payment_expires_at` (`APP_PAYMENT_TTL`, 24 hours by
+        default), or it is cancelled and its stock returned.
+
+        Needs a verified email (403 `EMAIL_UNVERIFIED`). A buyer may have
+        at most 5 unpaid orders (409 `TOO_MANY_PENDING_ORDERS`).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CheckoutRequest"
+            example:
+              address_id: 01a16827-5e2f-7c3e-9f3a-2b6d8e4c1a90
+              courier: jne
+              service: REG
+              voucher_code: HEMAT10
+      responses:
+        "201":
+          description: The order, waiting for payment.
+          headers:
+            Location:
+              description: URL of the new order, `/v1/orders/{id}`.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderDetail"
+        "400":
+          $ref: "#/components/responses/BadCheckoutRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/EmailUnverified"
+        "409":
+          $ref: "#/components/responses/CheckoutConflict"
+        "422":
+          $ref: "#/components/responses/ShippingUnavailable"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "500":
           $ref: "#/components/responses/InternalError"
         "503":
@@ -2167,6 +2240,149 @@ components:
         data:
           $ref: "#/components/schemas/ShippingQuotes"
 
+    CheckoutRequest:
+      type: object
+      required: [address_id, courier, service]
+      additionalProperties: false
+      properties:
+        address_id:
+          type: string
+          format: uuid
+          description: One of the caller's addresses; the order keeps a copy.
+        courier:
+          type: string
+          enum: [jne, jnt, sicepat]
+        service:
+          type: string
+          maxLength: 20
+          description: A `service` from `GET /v1/checkout/shipping-quotes`.
+        voucher_code:
+          type: string
+          minLength: 3
+          maxLength: 32
+          pattern: "^[A-Za-z0-9]+$"
+          description: A voucher code, matched case-insensitively.
+
+    OrderItem:
+      type: object
+      description: One order line, copied at checkout.
+      required: [id, variant_id, product_name, variant_name, sku, unit_price, quantity, line_total]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        variant_id:
+          type: string
+          format: uuid
+        product_name:
+          type: string
+        variant_name:
+          type: string
+        sku:
+          type: string
+        unit_price:
+          $ref: "#/components/schemas/Money"
+        quantity:
+          type: integer
+          minimum: 1
+        line_total:
+          $ref: "#/components/schemas/Money"
+
+    ShippingAddressSnapshot:
+      type: object
+      required: [recipient_name, phone, street, city, province, postal_code]
+      additionalProperties: false
+      properties:
+        recipient_name:
+          type: string
+        phone:
+          type: string
+        street:
+          type: string
+        city:
+          type: string
+        province:
+          type: string
+        postal_code:
+          type: string
+
+    OrderShipping:
+      type: object
+      required: [courier, service, tracking_number, address]
+      additionalProperties: false
+      properties:
+        courier:
+          type: string
+          enum: [jne, jnt, sicepat]
+        service:
+          type: string
+        tracking_number:
+          type: [string, "null"]
+          description: The airway bill, set when the order ships.
+        address:
+          $ref: "#/components/schemas/ShippingAddressSnapshot"
+
+    Order:
+      type: object
+      required: [id, code, status, cancel_reason, items, totals, voucher_code, shipping, payment_expires_at, paid_at, shipped_at, completed_at, cancelled_at, created_at, updated_at]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          pattern: "^GS-[0-9]{8}-[0-9A-Z]{6}$"
+          description: The order number buyers see; the date is in WIB.
+          example: GS-20261101-7KQ2M9
+        status:
+          type: string
+          enum: [pending_payment, paid, processing, shipped, completed, cancelled]
+        cancel_reason:
+          type: [string, "null"]
+          enum: [payment_expired, buyer_cancelled, seller_cancelled, null]
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderItem"
+        totals:
+          $ref: "#/components/schemas/OrderTotals"
+        voucher_code:
+          type: [string, "null"]
+        shipping:
+          $ref: "#/components/schemas/OrderShipping"
+        payment_expires_at:
+          type: string
+          format: date-time
+          description: An unpaid order is cancelled (`payment_expired`) after this.
+        paid_at:
+          type: [string, "null"]
+          format: date-time
+        shipped_at:
+          type: [string, "null"]
+          format: date-time
+        completed_at:
+          type: [string, "null"]
+          format: date-time
+        cancelled_at:
+          type: [string, "null"]
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    OrderDetail:
+      type: object
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          $ref: "#/components/schemas/Order"
+
   responses:
     BadRequest:
       description: A query parameter is invalid (including a `cursor` the API did not make for the same `category`, `q` and `sort`), or `category` names no category.
@@ -2554,7 +2770,7 @@ components:
                   message: this cart token is not valid any more; forget it and start a new cart
     CheckoutConflict:
       description: |
-        The cart is empty (`CART_EMPTY`); some lines cannot be bought as they are (`CHECKOUT_PROBLEMS`, with every such line in `details.lines`, each a `CheckoutProblem`); or the voucher does not apply (`VOUCHER_NOT_APPLICABLE`, with `details.voucher_code` and `details.reason`: `not_found` (no such code, or a promo that has not started yet: the two answer alike, so upcoming codes cannot be guessed), `expired`, `exhausted` (no uses left), `per_user_limit` (this buyer has used it up), or `min_spend` with `details.min_spend`).
+        The cart is empty (`CART_EMPTY`); some lines cannot be bought as they are (`CHECKOUT_PROBLEMS`, with every such line in `details.lines`, each a `CheckoutProblem`); or the voucher does not apply (`VOUCHER_NOT_APPLICABLE`, with `details.voucher_code` and `details.reason`: `not_found` (no such code, or a promo that has not started yet: the two answer alike, so upcoming codes cannot be guessed), `expired`, `exhausted` (no uses left), `per_user_limit` (this buyer has used it up), or `min_spend` with `details.min_spend`). At `POST /v1/checkout` also: the buyer already has 5 unpaid orders (`TOO_MANY_PENDING_ORDERS`, `details.max`), or the cart changed while the checkout ran (`CART_CHANGED`: another checkout of the same cart took its lines, it was edited on another device, or a variant's weight changed after the shipping quote; review the cart and try again).
       content:
         application/json:
           schema:
@@ -2624,6 +2840,16 @@ components:
             error:
               code: UPSTREAM_UNAVAILABLE
               message: the shipping rate service is not answering; try again shortly
+    EmailUnverified:
+      description: The caller has not verified their email address yet. Checkout needs it, so an account registered with someone else's address cannot order (`apps/api/SECURITY.md`); use `POST /v1/auth/verify-email/resend`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: EMAIL_UNVERIFIED
+              message: verify your email address before placing an order
     ShippingUnavailable:
       description: The shipping provider answered, and no courier serves the address's postal code (`SHIPPING_UNAVAILABLE`). Retrying does not help; choose another address. A provider that does not answer is 503 `UPSTREAM_UNAVAILABLE` instead.
       content:

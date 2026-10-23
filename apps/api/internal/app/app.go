@@ -54,7 +54,7 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 		// Development logs every email with its token, so a developer can
 		// copy it; elsewhere the body (and the token) is never logged.
 		mailer:  mail.NewLogMailer(logger, cfg.IsDevelopment()),
-		limiter: auth.NewRedisRateLimiter(redisconn.NewCounter(rdb), rateLimits()),
+		limiter: auth.NewRedisRateLimiter(redisconn.NewCounter(rdb), rateLimits(cfg)),
 		// Revoked sessions live in Redis as long as an access token
 		// (ADR 0005).
 		revocations: auth.NewRedisSessionRevocations(redisconn.NewKV(rdb), cfg.Auth.AccessTokenTTL),
@@ -98,7 +98,7 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 	}
 	orderService := order.NewService(order.Deps{
 		Repo: orderRepo, Clock: o.clock, Carts: cartService, Addresses: addressService, Shipping: o.shipping,
-		OriginPostalCode: cfg.Shipping.OriginPostalCode,
+		OriginPostalCode: cfg.Shipping.OriginPostalCode, PaymentTTL: cfg.PaymentTTL,
 	})
 	accessTokens := auth.NewAccessTokens(cfg.Auth.JWTSecret, cfg.Auth.AccessTokenTTL, o.clock)
 	authService := auth.NewService(auth.Deps{
@@ -123,7 +123,8 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 		Clock:            o.clock,
 		TrustedProxyHops: cfg.TrustedProxyHops,
 	})
-	orderHandler := order.NewHandler(orderService, validator)
+	orderHandler := order.NewHandler(orderService, validator).
+		LimitPerBuyer(o.limiter, order.NewLimits(cfg.CheckoutLimitPerMinute))
 	userHandler := user.NewHandler(userService, validator)
 	addressHandler := address.NewHandler(addressService, validator)
 	cartHandler := cart.NewHandler(cart.HandlerDeps{
@@ -179,8 +180,9 @@ func shippingProvider(cfg config.Shipping) shipping.Provider {
 }
 
 // rateLimits is every limit the API counts in Redis.
-func rateLimits() []auth.Limit {
-	return append(slices.Clone(auth.Limits), cart.LimitGuestCartPerIP)
+func rateLimits(cfg config.Config) []auth.Limit {
+	limits := append(slices.Clone(auth.Limits), cart.LimitGuestCartPerIP)
+	return append(limits, order.NewLimits(cfg.CheckoutLimitPerMinute).All()...)
 }
 
 // Option replaces one of the real dependencies New would build, for tests.

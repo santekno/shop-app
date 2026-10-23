@@ -9,6 +9,7 @@ import (
 	"github.com/santekno/sdk/ctxx"
 	"github.com/santekno/sdk/errx"
 
+	"github.com/santekno/shop-app/apps/api/internal/auth"
 	"github.com/santekno/shop-app/apps/api/internal/cart"
 	"github.com/santekno/shop-app/apps/api/internal/httpapi"
 	"github.com/santekno/shop-app/apps/api/internal/shipping"
@@ -20,12 +21,16 @@ const (
 	CodeCheckoutProblems    = "CHECKOUT_PROBLEMS"
 	CodeShippingUnavailable = "SHIPPING_UNAVAILABLE"
 	CodeVoucher             = "VOUCHER_NOT_APPLICABLE"
+	CodeEmailUnverified     = "EMAIL_UNVERIFIED"
+	CodeTooManyPending      = "TOO_MANY_PENDING_ORDERS"
+	CodeCartChanged         = "CART_CHANGED"
 )
 
 // Checkout is what the checkout handlers need from the service.
 type Checkout interface {
 	Preview(ctx context.Context, userID string, in PreviewInput) (Preview, error)
 	ShippingQuotes(ctx context.Context, userID, addressID string) (Quotes, error)
+	Checkout(ctx context.Context, userID string, in CheckoutInput) (Order, error)
 }
 
 // Handler serves checkout and orders. Its routes are mounted behind the
@@ -33,6 +38,8 @@ type Checkout interface {
 type Handler struct {
 	checkout  Checkout
 	validator *httpapi.Validator
+	limiter   auth.RateLimiter
+	limits    Limits
 }
 
 // NewHandler returns a Handler.
@@ -45,6 +52,42 @@ func NewHandler(checkout Checkout, validator *httpapi.Validator) *Handler {
 func (h *Handler) Routes(r chi.Router) {
 	r.Post("/checkout/preview", h.Preview)
 	r.Get("/checkout/shipping-quotes", h.ShippingQuotes)
+	r.Post("/checkout", h.Checkout)
+}
+
+// checkoutBody is the request body of POST /v1/checkout.
+type checkoutBody struct {
+	AddressID   string `json:"address_id" validate:"required,uuid"`
+	Courier     string `json:"courier" validate:"required,oneof=jne jnt sicepat"`
+	Service     string `json:"service" validate:"required,max=20"`
+	VoucherCode string `json:"voucher_code" validate:"omitempty,alphanum,min=3,max=32"`
+}
+
+// Checkout serves POST /v1/checkout: 201 with the order, waiting for
+// payment, and its URL in Location.
+func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
+	if !h.allow(w, r, h.limits.Checkout) {
+		return
+	}
+	var body checkoutBody
+	if err := httpapi.DecodeJSON(w, r, &body); err != nil {
+		httpapi.Error(w, r, err)
+		return
+	}
+	if err := h.validator.Struct(body); err != nil {
+		httpapi.Error(w, r, err)
+		return
+	}
+	o, err := h.checkout.Checkout(r.Context(), ctxx.UserID(r.Context()), CheckoutInput{
+		AddressID: body.AddressID, Courier: shipping.Courier(body.Courier), Service: body.Service,
+		VoucherCode: NormalizeVoucherCode(body.VoucherCode),
+	})
+	if err != nil {
+		httpapi.Error(w, r, toHTTPError(err))
+		return
+	}
+	w.Header().Set("Location", "/v1/orders/"+o.ID)
+	httpapi.JSON(w, r, http.StatusCreated, dataResponse{Data: toOrderJSON(o)})
 }
 
 // previewBody is the request body of POST /v1/checkout/preview.
@@ -72,6 +115,9 @@ func checkChoice(details map[string]any, addressID, courier, service string) {
 // Preview serves POST /v1/checkout/preview: 200 with what checkout would
 // charge, or 409 with the lines it would refuse.
 func (h *Handler) Preview(w http.ResponseWriter, r *http.Request) {
+	if !h.allow(w, r, h.limits.Preview) {
+		return
+	}
 	var body previewBody
 	if err := httpapi.DecodeJSON(w, r, &body); err != nil {
 		httpapi.Error(w, r, err)
@@ -106,6 +152,9 @@ type quotesQuery struct {
 // ShippingQuotes serves GET /v1/checkout/shipping-quotes?address_id=…:
 // every courier service for the caller's cart to that address.
 func (h *Handler) ShippingQuotes(w http.ResponseWriter, r *http.Request) {
+	if !h.allow(w, r, h.limits.Quotes) {
+		return
+	}
 	var q quotesQuery
 	if err := h.validator.BindQuery(r, &q); err != nil {
 		httpapi.Error(w, r, err)
@@ -141,6 +190,20 @@ func toHTTPError(err error) error {
 		}
 		return errx.New(CodeVoucher, "this voucher cannot be used on this order").
 			WithHTTPStatus(http.StatusConflict).WithDetails(details)
+	case errors.Is(err, ErrNotFound):
+		return httpapi.NotFoundError("order not found")
+	case errors.Is(err, ErrEmailUnverified):
+		return errx.New(CodeEmailUnverified, "verify your email address before placing an order").
+			WithHTTPStatus(http.StatusForbidden)
+	case errors.Is(err, ErrAccountGone):
+		return httpapi.UnauthorizedError("this account no longer exists")
+	case errors.Is(err, ErrTooManyPendingOrders):
+		return errx.New(CodeTooManyPending, "pay or cancel one of your unpaid orders first").
+			WithHTTPStatus(http.StatusConflict).
+			WithDetails(map[string]any{"max": MaxPendingOrders})
+	case errors.Is(err, ErrCartChanged):
+		return errx.New(CodeCartChanged, "the cart changed while checking out; review it and try again").
+			WithHTTPStatus(http.StatusConflict)
 	case errors.Is(err, ErrUnknownAddress):
 		return httpapi.ValidationError("invalid request", map[string]any{"address_id": "names none of your addresses"})
 	case errors.Is(err, ErrUnknownShippingService):

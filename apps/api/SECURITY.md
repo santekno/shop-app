@@ -1,6 +1,6 @@
 # GoShop API and the OWASP API Security Top 10 (2023)
 
-What the API does about each risk of the [OWASP API Security Top 10 2023](https://owasp.org/API-Security/editions/2023/en/0x11-t10/), where in the code it happens, and what is still open. Updated with every chapter that changes the answer; this version is Bab 4 (auth).
+What the API does about each risk of the [OWASP API Security Top 10 2023](https://owasp.org/API-Security/editions/2023/en/0x11-t10/), where in the code it happens, and what is still open. Updated with every chapter that changes the answer; this version is Bab 5 (cart, checkout, orders).
 
 | # | Risk | Status |
 |---|---|---|
@@ -9,7 +9,7 @@ What the API does about each risk of the [OWASP API Security Top 10 2023](https:
 | API3 | Broken object property level authorization | covered |
 | API4 | Unrestricted resource consumption | covered for Bab 4; known limits below |
 | API5 | Broken function level authorization | covered |
-| API6 | Unrestricted access to sensitive business flows | partly (sign-up, login, reset); checkout arrives in Bab 5 |
+| API6 | Unrestricted access to sensitive business flows | covered for sign-up, login, reset, guest carts and checkout; payment arrives in Bab 6 |
 | API7 | Server side request forgery | not exposed |
 | API8 | Security misconfiguration | covered |
 | API9 | Improper inventory management | covered |
@@ -18,7 +18,7 @@ What the API does about each risk of the [OWASP API Security Top 10 2023](https:
 ## API1: Broken object level authorization (BOLA)
 
 - **The owner comes from the token, never from the request.** `/v1/me/...` routes have no user ID in the URL or body; handlers read the caller's ID that `auth.Guard` put in the context (`ctxx.UserID`).
-- **Every query is scoped by owner.** Each address query takes `id` *and* `user_id` (`internal/db/queries/addresses.sql`), so another user's address is simply not found.
+- **Every query is scoped by owner.** Each address query takes `id` *and* `user_id` (`internal/db/queries/addresses.sql`), so another user's address is simply not found. The same holds for orders (`GetOrderForUser`), the cart (found by the caller's `user_id`, or by a guest token whose secret is checked in constant time), and checkout's `address_id`.
 - **404, not 403.** Someone else's address answers exactly like a missing one (and a non-UUID id is 404 before any query), so a caller cannot even learn that the ID exists.
 - Admin product routes are deliberately not owner-scoped: GoShop is one store, and every seller manages the whole catalog (`docs/prd.md`).
 
@@ -40,7 +40,7 @@ Known limits:
 - The per-email login limit lets an attacker lock a victim out of password login for up to 15 minutes; Google sign-in and the reset email still work.
 - Deleting the account and resetting the password need no re-authentication beyond a valid access token (resetting needs the emailed token). A step-up check (password or a fresh Google token) is a later hardening.
 - No second factor yet (the chapter's challenge: login with OTP).
-- **Pre-registration squatting**: anyone can register an address they do not own; the account stays unverified. The real owner's first Google sign-in with that address then answers 409 `EMAIL_TAKEN`, because accounts are never linked by email. The owner gets the account back with forgot-password (the reset proves the address, marks it verified and ends the squatter's sessions) and signs in with the password from then on; linking Google to an existing account is a later feature. Bab 5 gates checkout on `email_verified`, so an unverified account cannot place an order.
+- **Pre-registration squatting**: anyone can register an address they do not own; the account stays unverified. The real owner's first Google sign-in with that address then answers 409 `EMAIL_TAKEN`, because accounts are never linked by email. The owner gets the account back with forgot-password (the reset proves the address, marks it verified and ends the squatter's sessions) and signs in with the password from then on; linking Google to an existing account is a later feature. Checkout is gated on a verified email (403 `EMAIL_UNVERIFIED`, checked under the buyer's row lock in the checkout transaction, Bab 5), so an unverified squatter account cannot place an order.
 - **Shared addresses (CGNAT)**: the per-IP limits count everyone behind one address together. Mobile carriers in Indonesia put many customers behind carrier-grade NAT, so on a busy network the login, register or forgot-password limit can be reached by strangers, and a user then waits for `Retry-After`. The per-email limits and higher per-IP limits keep that rare; an IPv6 client is counted by its /64, which is one customer, not one carrier.
 
 ## API3: Broken object property level authorization
@@ -55,7 +55,10 @@ Known limits:
 - Lists are bounded: catalog pages at most 100, at most 20 addresses per user (409 `ADDRESS_LIMIT_REACHED`), at most 50 variants per product.
 - At most four argon2id hashes run at once per instance (`DefaultMaxConcurrentHashes`, 256 MiB worst case); the others wait or give up with their request.
 - Rate limits (above) bound login, register, the email-sending endpoints and the token endpoints, which each cost a query and, for a reset, a hash.
+- **Shop bounds (Bab 5):** a cart holds at most 50 lines of at most 99 units each; a buyer may hold at most 5 unpaid orders; new guest carts are limited to 30 per client IP per hour; the courier rates API's answer is read through a 1 MiB limit, within `APP_SHIPPING_TIMEOUT`, and never retried.
+- **Per-buyer limits on checkout:** `POST /v1/checkout/preview`, `GET /v1/checkout/shipping-quotes` and `POST /v1/checkout` each allow `APP_CHECKOUT_LIMIT_PER_MINUTE` requests per buyer per minute (30 by default; 429 `RATE_LIMITED` with `Retry-After`). Every preview and quote can call the courier rates API, so without the limit one account could use GoShop to flood it.
 - Known limit: the refresh-token table grows with every refresh; expired rows are cleaned up by a worker job from Bab 6.
+- Known limit: abandoned guest carts are never deleted in Bab 5 (only a merge removes one); the per-IP limit bounds how fast they grow, and a Bab 6 worker job deletes old ones.
 
 ## API5: Broken function level authorization
 
@@ -66,7 +69,12 @@ Known limits:
 ## API6: Unrestricted access to sensitive business flows
 
 - Sign-up, login and password reset are rate limited and send email only to the address's owner.
-- Checkout and payment (Bab 5, Bab 6) will need their own limits (per user, per product) against stock hoarding.
+- **Stock hoarding**: checkout takes stock while an order waits for payment, so a buyer may have at most 5 unpaid orders (409 `TOO_MANY_PENDING_ORDERS`, counted under the buyer's row lock), every line is capped at 99 units and the stock on hand, and an unpaid order gives its stock back at `payment_expires_at` (`APP_PAYMENT_TTL`).
+- **Guest carts** are created at most 30 times per hour per client IP (`cart.LimitGuestCartPerIP`); a cart holds at most 50 lines.
+- **Voucher codes cannot be enumerated**: the preview and checkout answer a code that does not exist and a promo that has not started yet alike (`reason: not_found`), and the per-buyer limit above bounds how many codes one account can try.
+- **Prices and fees come from the server**: checkout reads the lines from the server-side cart, re-reads prices on locked rows, refuses a line whose price changed since the buyer saw it, and asks the shipping provider for the fee itself. A client cannot send a price, a fee or a discount.
+- **Vouchers** count their uses with a guarded `UPDATE`, and the per-buyer limit under the buyer's row lock, so parallel checkouts cannot overuse one.
+- Payment (Bab 6) will add its own limits.
 
 ## API7: Server side request forgery
 

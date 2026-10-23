@@ -52,6 +52,50 @@ type Category struct {
 	UpdatedAt   time.Time
 }
 
+type Order struct {
+	ID                 string
+	Code               string
+	UserID             string
+	Status             string
+	CancelReason       sql.NullString
+	Subtotal           int64
+	Discount           int64
+	ShippingFee        int64
+	Total              int64
+	TotalWeightGrams   int32
+	VoucherID          *string
+	VoucherCode        sql.NullString
+	Courier            string
+	CourierService     string
+	TrackingNumber     sql.NullString
+	ShippingRecipient  string
+	ShippingPhone      string
+	ShippingStreet     string
+	ShippingCity       string
+	ShippingProvince   string
+	ShippingPostalCode string
+	PaymentExpiresAt   time.Time
+	PaidAt             sql.NullTime
+	ShippedAt          sql.NullTime
+	CompletedAt        sql.NullTime
+	CancelledAt        sql.NullTime
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+}
+
+type OrderItem struct {
+	ID          string
+	OrderID     string
+	VariantID   string
+	ProductName string
+	VariantName string
+	Sku         string
+	UnitPrice   int64
+	Quantity    int32
+	LineTotal   int64
+	CreatedAt   time.Time
+}
+
 type Product struct {
 	ID          string
 	CategoryID  string

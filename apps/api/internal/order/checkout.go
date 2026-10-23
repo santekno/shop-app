@@ -25,6 +25,9 @@ type Addresses interface {
 // Repository is where orders and vouchers are stored.
 type Repository interface {
 	VoucherByCode(ctx context.Context, code string) (Voucher, error)
+	VoucherUses(ctx context.Context, voucherID, userID string) (int64, error)
+	Place(ctx context.Context, in PlaceInput) (string, error)
+	Get(ctx context.Context, userID, id string) (Order, error)
 }
 
 // Deps is what the service needs; every field but Clock is required.
@@ -38,26 +41,33 @@ type Deps struct {
 	OriginPostalCode string
 	// Clock is the current time; time.Now when nil.
 	Clock func() time.Time
+	// PaymentTTL is how long a buyer has to pay (APP_PAYMENT_TTL);
+	// DefaultPaymentTTL when zero.
+	PaymentTTL time.Duration
 }
 
 // Service is checkout and orders.
 type Service struct {
-	repo      Repository
-	now       func() time.Time
-	carts     Carts
-	addresses Addresses
-	shipping  shipping.Provider
-	origin    string
+	repo       Repository
+	now        func() time.Time
+	paymentTTL time.Duration
+	carts      Carts
+	addresses  Addresses
+	shipping   shipping.Provider
+	origin     string
 }
 
 // NewService returns a Service built from deps.
 func NewService(deps Deps) *Service {
 	s := &Service{
-		repo: deps.Repo, now: deps.Clock,
+		repo: deps.Repo, now: deps.Clock, paymentTTL: deps.PaymentTTL,
 		carts: deps.Carts, addresses: deps.Addresses, shipping: deps.Shipping, origin: deps.OriginPostalCode,
 	}
 	if s.now == nil {
 		s.now = time.Now
+	}
+	if s.paymentTTL <= 0 {
+		s.paymentTTL = DefaultPaymentTTL
 	}
 	return s
 }
@@ -110,9 +120,11 @@ func (s *Service) Preview(ctx context.Context, userID string, in PreviewInput) (
 		if err != nil {
 			return Preview{}, err
 		}
-		// The per-user limit needs the buyer's orders (artikel 08); the
-		// preview checks the window, the total limit and the minimum spend.
-		if err := v.check(s.now(), goods.Subtotal, 0); err != nil {
+		uses, err := s.repo.VoucherUses(ctx, v.ID, userID)
+		if err != nil {
+			return Preview{}, fmt.Errorf("preview checkout: %w", err)
+		}
+		if err := v.check(s.now(), goods.Subtotal, uses); err != nil {
 			return Preview{}, err
 		}
 		p.Voucher = &v
@@ -134,6 +146,60 @@ func (s *Service) Preview(ctx context.Context, userID string, in PreviewInput) (
 	}
 	p.Totals = CalculateTotals(input)
 	return p, nil
+}
+
+// CheckoutInput is the buyer's choice at checkout: every field but
+// VoucherCode is required.
+type CheckoutInput struct {
+	AddressID   string
+	Courier     shipping.Courier
+	Service     string
+	VoucherCode string
+}
+
+// Checkout turns userID's cart into an order waiting for payment and
+// returns it. The lines come from the server-side cart, and are validated
+// again on locked rows inside the transaction (PostgresRepository.Place).
+// The shipping fee is asked for here, before the transaction, so a slow
+// courier API never holds a row lock. Errors: ErrCartEmpty,
+// *ProblemsError, ErrUnknownAddress, ErrUnknownShippingService,
+// shipping.ErrUnavailable, *VoucherError, ErrEmailUnverified,
+// ErrTooManyPendingOrders, ErrCartChanged, ErrAccountGone.
+func (s *Service) Checkout(ctx context.Context, userID string, in CheckoutInput) (Order, error) {
+	lines, err := s.validCart(ctx, userID)
+	if err != nil {
+		return Order{}, err
+	}
+	a, err := s.address(ctx, userID, in.AddressID)
+	if err != nil {
+		return Order{}, err
+	}
+	goods := CalculateTotals(TotalsInput{Lines: totalsLines(lines)})
+	q, err := s.quote(ctx, a, goods, in.Courier, in.Service)
+	if err != nil {
+		return Order{}, err
+	}
+	id, err := s.repo.Place(ctx, PlaceInput{
+		UserID: userID, Lines: lines, Shipping: q, WeightGrams: goods.WeightGrams,
+		VoucherCode: in.VoucherCode, Now: s.now(), PaymentTTL: s.paymentTTL,
+		Address: ShippingAddress{
+			Recipient: a.RecipientName, Phone: a.Phone, Street: a.Street,
+			City: a.City, Province: a.Province, PostalCode: a.PostalCode,
+		},
+	})
+	if err != nil {
+		return Order{}, fmt.Errorf("checkout: %w", err)
+	}
+	return s.Get(ctx, userID, id)
+}
+
+// Get returns userID's order id, or ErrNotFound.
+func (s *Service) Get(ctx context.Context, userID, id string) (Order, error) {
+	o, err := s.repo.Get(ctx, userID, id)
+	if err != nil {
+		return Order{}, fmt.Errorf("get order %s: %w", id, err)
+	}
+	return o, nil
 }
 
 // Quotes is every courier service that can carry userID's cart to their

@@ -16,6 +16,7 @@ Every column is `NOT NULL` unless the diagram says `nullable`.
 | Bab 4 | `000006_create_addresses` | `addresses`: postal-code CHECK, `addresses (user_id)`, and the partial unique index `addresses (user_id) WHERE is_default` (at most one default; the API keeps exactly one while the user has any) |
 | Bab 5 | `000007_create_carts` | `carts` (one per user, `carts_user_key`; a guest cart has `token_hash` instead, `carts_owner_check`) and `cart_items` (primary key `(cart_id, variant_id)`, quantity 1–99, the price the buyer saw, `cart_items_variant_id_idx` for the RESTRICT) |
 | Bab 5 | `000008_create_vouchers` | `vouchers`: `vouchers_code_key`, kind/value/window/limit CHECKs, and `vouchers_used_count_check` (the counter never passes its limit) |
+| Bab 5 | `000009_create_orders` | `orders` and `order_items` as below, with `discount`, `voucher_id` and `voucher_code` added in Bab 5 (`orders_amounts_check`: `total = subtotal - discount + shipping_fee`); `orders_paid_check` (every status from `paid` on has `paid_at`); indexes `orders_user_created_idx`, `orders_user_pending_idx` (partial, `pending_payment`), `orders_status_created_idx`, `orders_payment_expires_idx` (partial, `pending_payment`), `orders_voucher_user_idx` (partial) and `order_items_variant_id_idx` |
 
 Two choices made while building it:
 
@@ -371,6 +372,7 @@ Unique constraints and primary keys already create their indexes. These are adde
 | `product_variants (product_id)` | loading the variants of a page of products |
 | `order_items (variant_id)` | sales per variant; the RESTRICT check when a variant is deleted |
 | `orders (user_id, created_at DESC, id DESC)` | a buyer's order history |
+| `orders (user_id) WHERE status = 'pending_payment'` | counting a buyer's unpaid orders at checkout (Bab 5) |
 | `orders (status, created_at DESC)` | the admin order queue per status |
 | `orders (payment_expires_at) WHERE status = 'pending_payment'` | the job that cancels expired orders |
 | `addresses (user_id)` | a user's address book |

@@ -35,6 +35,7 @@ The Go REST API behind the GoShop storefront, admin dashboard and mobile app. Th
 | POST | `/v1/cart/merge` | **Access token.** Move the guest cart of `X-Cart-Token` into the user's cart, right after login ([ADR 0006](../../docs/adr/0006-cart-checkout-orders.md)) |
 | POST | `/v1/checkout/preview` | **Access token.** Validate the cart as checkout will (409 `CHECKOUT_PROBLEMS` lists every line that is unavailable, short of stock or repriced) and compute the totals, with the shipping fee once `address_id`, `courier` and `service` are sent and the discount of `voucher_code` (409 `VOUCHER_NOT_APPLICABLE` says why one does not apply); writes nothing. `make seed` adds example vouchers (`HEMAT10`, `POTONG15RB`, `KILAT50`) |
 | GET | `/v1/checkout/shipping-quotes?address_id=` | **Access token.** JNE, J&T and SiCepat services for the cart's weight to one of the caller's addresses, cheapest first (Biteship, or the fixed table without `BITESHIP_API_KEY`); 503 `UPSTREAM_UNAVAILABLE` when the rates API does not answer, 422 `SHIPPING_UNAVAILABLE` when no courier serves the address |
+| POST | `/v1/checkout` | **Access token, verified email.** Turn the cart into an order waiting for payment, in one transaction (buyer row, then variants in id order, re-validated; guarded voucher and stock updates); 201 with `Location: /v1/orders/{id}`. At most 5 unpaid orders per buyer |
 | POST | `/v1/admin/products` | **Seller or admin.** Create a product with its variants |
 | GET | `/v1/admin/products/{id}` | **Seller or admin.** Any product, whatever its status |
 | PUT | `/v1/admin/products/{id}` | **Seller or admin.** Save a product and its variants; variants left out are archived |
@@ -49,6 +50,8 @@ Routes marked **Optional token** serve guests without an `Authorization` header;
 ### Rate limits
 
 Login, registration, forgot-password, Google sign-in, refresh, email verification, password reset and resending the verification email are rate limited with sdk `ratelimitx` (fixed windows in Redis, shared by every instance): per client IP (per account for resending), and for login and forgot-password also per email (hashed, so Redis holds no addresses). Over a limit the API answers 429 `RATE_LIMITED` with `Retry-After`. The limits are the `Limit*` values in `internal/auth/ratelimit.go`. An IPv6 client is counted by its /64 network, since one customer usually gets a whole /64. Behind a proxy, set `APP_TRUSTED_PROXY_HOPS` so the client IP comes from `X-Forwarded-For` (`1` on Railway; required outside development; [configuration](../../docs/configuration.md)). If Redis fails, the request fails (500) rather than skipping the limit.
+
+From Bab 5 the checkout routes are limited per buyer too (artikel 08 adds the limits to all three at once, closing the gap the preview of artikel 04 and the quotes of artikel 06 leave open until then): `POST /v1/checkout/preview`, `GET /v1/checkout/shipping-quotes` and `POST /v1/checkout` each allow `APP_CHECKOUT_LIMIT_PER_MINUTE` requests per minute (30 by default). The k6 load test checks out far faster than a person, so its stack must be started with a high value (for example `APP_CHECKOUT_LIMIT_PER_MINUTE=100000 make up`).
 
 ### Email in development
 

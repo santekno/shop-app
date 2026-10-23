@@ -71,6 +71,12 @@ const (
 	// DefaultShippingTimeout is used when APP_SHIPPING_TIMEOUT is not set:
 	// how long checkout waits for the courier rates API.
 	DefaultShippingTimeout = 5 * time.Second
+	// DefaultPaymentTTL is used when APP_PAYMENT_TTL is not set; it matches
+	// Midtrans' default transaction expiry (Bab 6).
+	DefaultPaymentTTL = 24 * time.Hour
+	// DefaultCheckoutLimitPerMinute is used when
+	// APP_CHECKOUT_LIMIT_PER_MINUTE is not set (order.DefaultLimitPerMinute).
+	DefaultCheckoutLimitPerMinute = 30
 )
 
 // Config is the validated configuration of the API.
@@ -112,6 +118,13 @@ type Config struct {
 	TrustedProxyHops int
 	// Shipping configures the courier rates (ADR 0006).
 	Shipping Shipping
+	// PaymentTTL is APP_PAYMENT_TTL (1m-72h, default 24h): how long a buyer
+	// has to pay an order before it is cancelled and its stock returned.
+	PaymentTTL time.Duration
+	// CheckoutLimitPerMinute is APP_CHECKOUT_LIMIT_PER_MINUTE (1-100000,
+	// default 30): how many previews, shipping quotes and checkouts one
+	// buyer may ask for per minute, each.
+	CheckoutLimitPerMinute int
 }
 
 // Shipping configures where shipping fees come from.
@@ -253,6 +266,14 @@ func Load() (Config, error) {
 	errs = append(errs, err)
 
 	cfg.Shipping, err = parseShipping(src)
+	errs = append(errs, err)
+
+	cfg.PaymentTTL, err = parseDuration("APP_PAYMENT_TTL", src.String("payment.ttl"),
+		DefaultPaymentTTL, time.Minute, 72*time.Hour)
+	errs = append(errs, err)
+
+	cfg.CheckoutLimitPerMinute, err = parseInt("APP_CHECKOUT_LIMIT_PER_MINUTE", src.String("checkout.limit.per.minute"),
+		DefaultCheckoutLimitPerMinute, 1, 100_000)
 	errs = append(errs, err)
 
 	if err := errors.Join(errs...); err != nil {
