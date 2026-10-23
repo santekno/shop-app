@@ -52,6 +52,7 @@ export default defineConfig(({ command, mode }) => {
           "src/vitest.setup.ts",
           // Types only.
           "src/vite-env.d.ts",
+          "src/lib/async-state.ts",
           // The entry point: mounts <App /> into index.html and nothing
           // else, like a Go main that only wires things together.
           "src/main.tsx",
