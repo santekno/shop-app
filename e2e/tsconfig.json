@@ -1,0 +1,27 @@
+{
+  // Type-checks the suite only: Playwright compiles the specs itself, and
+  // Node 24 runs selftest/run.ts directly by stripping the types. The same
+  // module rules as packages/shared, whose .ts files the specs import.
+  "compilerOptions": {
+    "target": "ES2023",
+    // DOM for the callbacks of page.evaluate, which run in the browser.
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node"],
+
+    "module": "nodenext",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
+    "noEmit": true,
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "skipLibCheck": true
+  },
+  "include": ["**/*.ts"],
+  "exclude": ["node_modules", "playwright-report", "test-results"]
+}
