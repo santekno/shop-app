@@ -1,14 +1,12 @@
 import { CategorySection } from "@/features/catalog/components/CategorySection.tsx";
+import { SiteHeader } from "./SiteHeader.tsx";
 
 export function App() {
+  // <>…</> is a fragment: it groups the header and main without adding a
+  // wrapper element to the page.
   return (
     <>
-      <header className="site-header">
-        <h1>GoShop</h1>
-        <p className="muted">
-          Toko online contoh dari kursus Fullstack Santekno.
-        </p>
-      </header>
+      <SiteHeader />
       <main className="site-main">
         <CategorySection />
       </main>
