@@ -11,10 +11,20 @@
   "scripts": {
     "gen": "openapi-typescript ../../api/openapi.yaml --output src/api/schema.gen.ts",
     "gen:check": "openapi-typescript ../../api/openapi.yaml --output src/api/schema.gen.ts --check",
-    "typecheck": "tsc"
+    "typecheck": "tsc",
+    "lint": "eslint --max-warnings=0 . && prettier --check .",
+    "format": "prettier --write . && eslint --fix .",
+    "test:unit": "vitest run --passWithNoTests"
   },
   "devDependencies": {
+    "@eslint/js": "catalog:",
+    "eslint": "catalog:",
+    "eslint-config-prettier": "catalog:",
+    "globals": "catalog:",
     "openapi-typescript": "catalog:",
-    "typescript": "catalog:"
+    "prettier": "catalog:",
+    "typescript": "catalog:",
+    "typescript-eslint": "catalog:",
+    "vitest": "catalog:"
   }
 }

@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { fileURLToPath, URL } from "node:url";
 import react from "@vitejs/plugin-react";
 import { defineConfig, loadEnv } from "vite";
@@ -31,6 +32,11 @@ export default defineConfig(({ command, mode }) => {
     preview: {
       port: 4173,
       strictPort: true,
+    },
+    test: {
+      // Components render into a simulated DOM. Test files, setup and
+      // coverage thresholds belong to the test stage (test-engineer).
+      environment: "jsdom",
     },
   };
 });

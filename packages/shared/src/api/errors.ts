@@ -67,10 +67,7 @@ export type ServerErrorCode =
 
 /** The codes the client sets itself when there is no usable answer. */
 export type ClientErrorCode =
-  | "NETWORK_ERROR"
-  | "CLIENT_TIMEOUT"
-  | "ABORTED"
-  | "INVALID_RESPONSE";
+  "NETWORK_ERROR" | "CLIENT_TIMEOUT" | "ABORTED" | "INVALID_RESPONSE";
 
 /** Every code an ApiError is known to carry: a union of two unions. */
 export type ApiErrorCode = ServerErrorCode | ClientErrorCode;

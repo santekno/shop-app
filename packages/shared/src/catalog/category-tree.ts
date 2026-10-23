@@ -59,8 +59,7 @@ export const buildCategoryTree = (
   // filter keeps the elements for which the function returns true.
   return categories
     .filter(
-      (category) =>
-        category.parent_id === null || !ids.has(category.parent_id),
+      (category) => category.parent_id === null || !ids.has(category.parent_id),
     )
     .map((root) => toNode(root, new Set([root.id])));
 };

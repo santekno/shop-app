@@ -45,8 +45,9 @@ const DEFAULTS: Readonly<Omit<ApiClientConfig, "baseUrl" | "fetch">> = {
  * Per-request settings. `timeoutMs` and `retries` override the client's for
  * one request; `retries` is ignored unless the method is GET or HEAD.
  */
-export interface RequestOptions
-  extends Partial<Pick<ApiClientConfig, "timeoutMs" | "retries">> {
+export interface RequestOptions extends Partial<
+  Pick<ApiClientConfig, "timeoutMs" | "retries">
+> {
   /** HTTP method. Default "GET". */
   method?: HttpMethod;
   query?: QueryParams;
@@ -228,8 +229,7 @@ export const createApiClient = (options: ApiClientOptions) => {
       requestHeaders.set("Content-Type", "application/json");
       init.body = JSON.stringify(body);
     }
-    const attempt = async () =>
-      (await send(url, init, signal, timeoutMs)) as T;
+    const attempt = async () => (await send(url, init, signal, timeoutMs)) as T;
 
     // Only GET and HEAD are safe to repeat: a retried POST could, for
     // example, place the same order twice.

@@ -7,6 +7,12 @@
     "node": ">=22.12"
   },
   "scripts": {
-    "typecheck": "pnpm -r --if-present run typecheck"
+    "dev": "pnpm --filter @goshop/web dev",
+    "gen:types": "pnpm --filter @goshop/shared gen",
+    "typecheck": "pnpm -r --if-present run typecheck",
+    "lint": "pnpm -r --if-present run lint",
+    "format": "pnpm -r --if-present run format",
+    "build": "pnpm -r --if-present run build",
+    "test:unit": "pnpm -r --if-present run test:unit"
   }
 }

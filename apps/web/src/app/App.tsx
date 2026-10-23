@@ -5,7 +5,9 @@ export function App() {
     <>
       <header className="site-header">
         <h1>GoShop</h1>
-        <p className="muted">Toko online contoh dari kursus Fullstack Santekno.</p>
+        <p className="muted">
+          Toko online contoh dari kursus Fullstack Santekno.
+        </p>
       </header>
       <main className="site-main">
         <CategorySection />

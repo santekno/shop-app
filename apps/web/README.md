@@ -15,14 +15,15 @@ Open **http://localhost:5173**, not `127.0.0.1:5173`: the API's CORS default (`A
 
 `make up` also starts the built storefront (the `web` service) on the same port 5173, so stop it (`docker compose stop web`) before `pnpm dev`, or use the container instead of the dev server.
 
-| Script | What it does |
-|---|---|
-| `dev` | Vite dev server with hot reload |
-| `typecheck` | `tsc -b`: the app (browser) and `vite.config.ts` (Node) |
-| `lint` | ESLint and Prettier (artikel 13) |
-| `build` | Production bundle in `dist/`; needs `VITE_API_URL` |
-| `test:unit` | Vitest (artikel 13) |
-| `preview` | Serves `dist/` on port 4173 (not a CORS-allowed origin; for checking the bundle only) |
+| Script      | What it does                                                                          |
+| ----------- | ------------------------------------------------------------------------------------- |
+| `dev`       | Vite dev server with hot reload                                                       |
+| `typecheck` | `tsc -b`: the app (browser) and `vite.config.ts` (Node)                               |
+| `format`    | `prettier --write` and `eslint --fix`                                                 |
+| `lint`      | ESLint (no warnings allowed) and `prettier --check`                                   |
+| `build`     | Production bundle in `dist/`; needs `VITE_API_URL`                                    |
+| `test:unit` | Vitest, in a jsdom environment                                                        |
+| `preview`   | Serves `dist/` on port 4173 (not a CORS-allowed origin; for checking the bundle only) |
 
 ## Configuration: `VITE_API_URL`
 
@@ -33,13 +34,13 @@ Vite replaces `import.meta.env.VITE_API_URL` with its value **at build time**: t
 - it is public, and never a secret: every visitor can read it;
 - changing it means building again. One image serves one API.
 
-| Where | How it is set |
-|---|---|
-| `pnpm dev` | `apps/web/.env.local` (copy `.env.example`); unset means `http://localhost:8080` |
-| `pnpm build`, `make build` | the environment; `make build` uses `http://localhost:8080` unless you set it. `vite build` stops when it is missing |
-| `docker build` | `--build-arg VITE_API_URL=https://api.example.com`; the build stops when it is missing |
-| `make up` / Compose | `VITE_API_URL` in your shell or the root `.env`, default `http://localhost:8080` |
-| Railway | a service variable `VITE_API_URL` on the web service: Railway passes service variables to the Docker build as build arguments |
+| Where                      | How it is set                                                                                                                 |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm dev`                 | `apps/web/.env.local` (copy `.env.example`); unset means `http://localhost:8080`                                              |
+| `pnpm build`, `make build` | the environment; `make build` uses `http://localhost:8080` unless you set it. `vite build` stops when it is missing           |
+| `docker build`             | `--build-arg VITE_API_URL=https://api.example.com`; the build stops when it is missing                                        |
+| `make up` / Compose        | `VITE_API_URL` in your shell or the root `.env`, default `http://localhost:8080`                                              |
+| Railway                    | a service variable `VITE_API_URL` on the web service: Railway passes service variables to the Docker build as build arguments |
 
 We chose a build argument over a run-time `config.js` written at container start: it needs no start script and no second place to read configuration from, and Railway rebuilds on every deploy anyway. Its cost is one image per API URL, which is how GoShop deploys (one Railway service per environment).
 

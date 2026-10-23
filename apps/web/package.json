@@ -7,8 +7,11 @@
   "scripts": {
     "dev": "vite",
     "typecheck": "tsc -b",
+    "lint": "eslint --max-warnings=0 . && prettier --check .",
+    "format": "prettier --write . && eslint --fix .",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:unit": "vitest run --passWithNoTests"
   },
   "dependencies": {
     "@goshop/shared": "workspace:*",
@@ -16,11 +19,21 @@
     "react-dom": "catalog:"
   },
   "devDependencies": {
+    "@eslint/js": "catalog:",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",
+    "eslint": "catalog:",
+    "eslint-config-prettier": "catalog:",
+    "eslint-plugin-react-hooks": "catalog:",
+    "eslint-plugin-react-refresh": "catalog:",
+    "globals": "catalog:",
+    "jsdom": "catalog:",
+    "prettier": "catalog:",
     "typescript": "catalog:",
-    "vite": "catalog:"
+    "typescript-eslint": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:"
   }
 }
