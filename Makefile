@@ -132,14 +132,16 @@ ifneq ($(HAS_PNPM),)
 endif
 	@echo "test-unit: ok"
 
-test-integration: ## Integration and e2e tests against the Compose stack; fails on any skipped test
+test-integration: $(if $(HAS_PNPM),$(PNPM_INSTALLED)) ## Integration and e2e tests against the Compose stack; fails on any skipped test
 	./scripts/no-skips.sh --self-test
 ifneq ($(HAS_API),)
 	$(COMPOSE) up -d --wait --build postgres redis storage api worker
 	cd $(API) && $(IT_ENV) ../../scripts/no-skips.sh go test -tags=integration -count=1 -json ./...
 endif
 ifneq ($(HAS_PNPM),)
-	pnpm -r --if-present run test:e2e
+	$(COMPOSE) up -d --wait --build web
+	$(if $(HAS_API),$(MAKE) --no-print-directory seed)
+	GOSHOP_COMPOSE='$(COMPOSE)' pnpm -r --if-present run test:e2e
 endif
 	@echo "test-integration: ok"
 
