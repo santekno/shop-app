@@ -370,7 +370,7 @@ func (p *testShipping) Quote(ctx context.Context, req shipping.Request) ([]shipp
 			return nil, fmt.Errorf("%w: %w", shipping.ErrUnavailable, ctx.Err())
 		}
 	}
-	return shipping.Static{}.Quote(ctx, req) //nolint:wrapcheck // Static never fails
+	return shipping.Static{}.Quote(ctx, req)
 }
 
 // barrier makes the next n quotes wait until all n have arrived (at most
