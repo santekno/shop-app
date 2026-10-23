@@ -21,6 +21,12 @@ info:
     - Any endpoint except the health probes may answer 503 `TIMEOUT` with the
       same body when a request runs past the server's time limit
       (`APP_REQUEST_TIMEOUT`, 15s by default). Retry later.
+    - Text in a JSON body must be valid UTF-8 without NUL characters; a
+      string that is not answers 400 `VALIDATION_FAILED`. One exception: a
+      raw invalid UTF-8 byte inside a JSON string is accepted, because Go's
+      JSON decoder replaces it with U+FFFD (the replacement character)
+      before the API validates the value, so the stored text holds U+FFFD
+      instead.
     - Every response carries `X-Request-ID`: the caller's value when it is
       1-128 characters of `A-Za-z0-9._:-`, otherwise a generated one. Quote
       it when reporting a problem; the server logs carry the same ID.

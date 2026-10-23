@@ -24,6 +24,8 @@ The Go REST API behind the GoShop storefront, admin dashboard and mobile app. Th
 
 Every write runs in one transaction that also recomputes `price_from` from the sellable variants. Two Bab 3 limitations: there is no optimistic locking yet, so when two admins save the same product at once the last save wins (Bab 5 adds the `version` check); and swapping two variants' SKUs, or reusing a SKU another variant of the product has right now, in one save answers 409 `SKU_TAKEN`, because each SKU is checked as its variant is written (save twice, through a temporary SKU).
 
+Text must be valid UTF-8 without NUL characters (`httpapi.ValidText`), because PostgreSQL refuses anything else. A JSON body with a raw invalid UTF-8 byte inside a string is still accepted: `encoding/json` replaces the byte with U+FFFD before validation runs, so the stored text holds the replacement character. That is harmless, and the contract says so.
+
 Every error, including unknown routes (404 `NOT_FOUND`) and wrong methods (405 `METHOD_NOT_ALLOWED`), uses the body `{"error":{"code","message","details?"}}`.
 
 ## Run it
