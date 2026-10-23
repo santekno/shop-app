@@ -169,6 +169,20 @@ dsn := newDatabase(t)   // the same without migrations, for the migration tests
 - **Why not one shared database.** A shared one makes every test defensive: unique slugs, no counting, cleanup by hand, and a crash that leaves rows behind for the next run. Tests running in parallel would also see each other's rows. With a database per test, each one starts from empty tables, may count rows and assert exact pages, and leaves nothing behind. Creating a database takes a few tens of milliseconds.
 - **Admin routes** need an access token with the `seller` or `admin` role. A test creates the account (or sets its role) in its own database and logs in, or signs a token with the test's `JWT_SECRET`.
 
+## Testing the auth flows
+
+`app.New(cfg, logger, db, rdb, opts...)` takes the PostgreSQL pool and the Redis client, and every dependency of the auth flows that a test cannot control in real life has an option:
+
+| Option | Replaces | Why a test needs it |
+|---|---|---|
+| `app.WithMailer(m)` | `mail.LogMailer` | read the verification and reset tokens from the messages instead of the log |
+| `app.WithGoogleVerifier(v)` | go-oidc against Google | a real Google ID token needs a real Google account; a fake returns a fixed `auth.GoogleIdentity` (or an error) |
+| `app.WithRateLimiter(l)` | Redis `ratelimitx` counters | hit a limit on demand, or switch limits off for a test that logs in many times |
+| `app.WithSessionRevocations(r)` | Redis revocation keys | check what was revoked without Redis |
+| `app.WithClock(now)` | `time.Now` | expire refresh, verification and reset tokens without waiting. sdk jwtx checks an access token's `exp` against the wall clock, so move the clock forward only |
+
+One level down, `auth.NewService(auth.Deps{...})` also takes `Random` (token secrets) and `NewID` (row IDs), and `auth.Hasher` can be a fast fake instead of argon2id. Each repository takes a `*sql.DB`, so the integration tests use a real database per test.
+
 ## Validation for later chapters
 
 `httpapi.Validator.BindQuery` fills a struct from the URL query (`query:"name"` tags; string, int, int64, bool) and validates it with `validx` (`validate:"…"` tags). Failures become one 400 `VALIDATION_FAILED` with a message per field, as in the contract. Its first consumer is `GET /v1/products` in Bab 3: `GET /v1/categories` has no parameters.

@@ -46,18 +46,23 @@ type App struct {
 // closes neither: whoever opened them does, after the server has stopped.
 func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalClient, opts ...Option) *App {
 	o := options{
+		clock: time.Now,
 		// Development logs every email with its token, so a developer can
 		// copy it; elsewhere the body (and the token) is never logged.
 		mailer:  mail.NewLogMailer(logger, cfg.IsDevelopment()),
 		limiter: auth.NewRedisRateLimiter(redisconn.NewCounter(rdb), auth.Limits),
-	}
-	if cfg.Auth.GoogleClientID != "" {
-		o.google = auth.NewGoogleVerifier(cfg.Auth.GoogleClientID, time.Now)
-	} else {
-		logger.Info("google sign-in is off: GOOGLE_CLIENT_ID is not set")
+		// Revoked sessions live in Redis as long as an access token
+		// (ADR 0005).
+		revocations: auth.NewRedisSessionRevocations(redisconn.NewKV(rdb), cfg.Auth.AccessTokenTTL),
 	}
 	for _, opt := range opts {
 		opt(&o)
+	}
+	if o.google == nil && cfg.Auth.GoogleClientID != "" {
+		o.google = auth.NewGoogleVerifier(cfg.Auth.GoogleClientID, o.clock)
+	}
+	if o.google == nil {
+		logger.Info("google sign-in is off: GOOGLE_CLIENT_ID is not set")
 	}
 	readiness := &health.Readiness{}
 
@@ -71,11 +76,9 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 	// Services: the business rules, given their repositories.
 	categoryService := category.NewService(categoryRepo)
 	productService := product.NewService(productRepo, categoryService)
-	// Revoked sessions live in Redis as long as an access token (ADR 0005).
-	revocations := auth.NewRedisSessionRevocations(redisconn.NewKV(rdb), cfg.Auth.AccessTokenTTL)
-	userService := user.NewService(userRepo, revocations)
+	userService := user.NewService(userRepo, o.revocations)
 	addressService := address.NewService(addressRepo)
-	accessTokens := auth.NewAccessTokens(cfg.Auth.JWTSecret, cfg.Auth.AccessTokenTTL, time.Now)
+	accessTokens := auth.NewAccessTokens(cfg.Auth.JWTSecret, cfg.Auth.AccessTokenTTL, o.clock)
 	authService := auth.NewService(auth.Deps{
 		Repo:        authRepo,
 		Hasher:      auth.NewArgon2Hasher(auth.DefaultMaxConcurrentHashes),
@@ -83,7 +86,8 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 		RefreshTTL:  cfg.Auth.RefreshTokenTTL,
 		Mailer:      o.mailer,
 		Google:      o.google,
-		Revocations: revocations,
+		Revocations: o.revocations,
+		Clock:       o.clock,
 	})
 
 	// Handlers: HTTP in and out, given their services.
@@ -94,12 +98,12 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 		Service:          authService,
 		Validator:        validator,
 		Limiter:          o.limiter,
-		Clock:            time.Now,
+		Clock:            o.clock,
 		TrustedProxyHops: cfg.TrustedProxyHops,
 	})
 	userHandler := user.NewHandler(userService, validator)
 	addressHandler := address.NewHandler(addressService, validator)
-	guard := auth.NewGuard(accessTokens, revocations)
+	guard := auth.NewGuard(accessTokens, o.revocations)
 	healthHandler := health.NewHandler(logger, readiness, !cfg.IsDevelopment(),
 		health.PostgresCheck(db), health.RedisCheck(redisconn.NewPinger(rdb)))
 
@@ -132,12 +136,29 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 }
 
 // Option replaces one of the real dependencies New would build, for tests.
+// Every seam of the auth flows is here, so an end-to-end test can run
+// register → verify → login → refresh → reset without real email, Google
+// or waiting for a token to expire.
 type Option func(*options)
 
 type options struct {
-	mailer  mail.Mailer
-	google  auth.GoogleVerifier
-	limiter auth.RateLimiter
+	clock       func() time.Time
+	mailer      mail.Mailer
+	google      auth.GoogleVerifier
+	limiter     auth.RateLimiter
+	revocations auth.SessionRevocations
+}
+
+// WithClock makes the auth flows read the time from now: token expiry,
+// refresh and email-token lifetimes, "expires_in", Google's expiry check.
+// sdk jwtx still checks an access token's exp against the wall clock (see
+// docs/sdk-gaps.md), so keep now at or after the real time: a clock moved
+// forward expires tokens; one moved back makes new access tokens fail.
+func WithClock(now func() time.Time) Option { return func(o *options) { o.clock = now } }
+
+// WithSessionRevocations replaces the Redis store of revoked sessions.
+func WithSessionRevocations(r auth.SessionRevocations) Option {
+	return func(o *options) { o.revocations = r }
 }
 
 // WithRateLimiter replaces the Redis rate limiter, for tests that need to
