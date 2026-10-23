@@ -15,6 +15,7 @@ export { buildCategoryTree } from "./catalog/category-tree.ts";
 export type { CategoryNode } from "./catalog/category-tree.ts";
 
 export { retry, sleep } from "./lib/async.ts";
+export { formatRupiah } from "./lib/money.ts";
 export type { RetryOptions } from "./lib/async.ts";
 
 export {
@@ -46,6 +47,9 @@ export type {
   Category,
   CategoryList,
   ErrorBody,
+  Money,
+  Product,
+  ProductVariant,
   components,
   operations,
   paths,

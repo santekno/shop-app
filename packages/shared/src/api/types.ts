@@ -11,5 +11,9 @@ type Schemas = components["schemas"];
 
 export type Category = Schemas["Category"];
 export type CategoryList = Schemas["CategoryList"];
+/** Whole rupiah plus the currency, always IDR. */
+export type Money = Schemas["Money"];
+export type Product = Schemas["Product"];
+export type ProductVariant = Schemas["ProductVariant"];
 /** The body of every API error: {"error":{"code","message","details"}}. */
 export type ErrorBody = Schemas["Error"];
