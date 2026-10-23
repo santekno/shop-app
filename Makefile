@@ -128,7 +128,7 @@ ifneq ($(HAS_API),)
 	./scripts/go-coverage.sh $(API) 80
 endif
 ifneq ($(HAS_PNPM),)
-	pnpm -r --if-present run test:unit
+	pnpm -r --if-present run test:unit --coverage
 endif
 	@echo "test-unit: ok"
 

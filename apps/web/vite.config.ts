@@ -41,6 +41,34 @@ export default defineConfig(({ command, mode }) => {
       // vi.stubEnv and vi.stubGlobal last for one test only.
       unstubEnvs: true,
       unstubGlobals: true,
+      // Off for a plain `vitest run`; `make test-unit` passes --coverage.
+      coverage: {
+        provider: "v8",
+        // Every source file counts, including one no test imports yet.
+        include: ["src/**/*.{ts,tsx}"],
+        exclude: [
+          "src/**/*.test.{ts,tsx}",
+          "src/test/**",
+          "src/vitest.setup.ts",
+          // Types only.
+          "src/vite-env.d.ts",
+          // The entry point: mounts <App /> into index.html and nothing
+          // else, like a Go main that only wires things together.
+          "src/main.tsx",
+        ],
+        // A table in the terminal only: a report written into the app
+        // would be linted and format-checked with the source.
+        reporter: [["text", { skipFull: false }]],
+        // The gate is 70% for TypeScript; each file must meet it on its own,
+        // so a well-tested file cannot hide an untested one.
+        thresholds: {
+          lines: 70,
+          branches: 70,
+          functions: 70,
+          statements: 70,
+          perFile: true,
+        },
+      },
     },
   };
 });
