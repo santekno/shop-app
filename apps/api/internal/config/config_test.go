@@ -26,7 +26,8 @@ const (
 )
 
 // setEnv gives the test a clean environment: every APP_* variable, PORT,
-// DATABASE_URL, JWT_SECRET, REDIS_URL and GOOGLE_CLIENT_ID is removed (and
+// BITESHIP_API_KEY, DATABASE_URL, JWT_SECRET, REDIS_URL and
+// GOOGLE_CLIENT_ID is removed (and
 // restored afterwards), then the required ones are set to valid test values
 // (testDatabaseURL and the constants above), and vars is applied over them. configx reads every APP_* variable of the process, so a
 // stray one on the developer's machine must not leak into a test.
@@ -34,7 +35,7 @@ func setEnv(t *testing.T, vars map[string]string) {
 	t.Helper()
 	for _, kv := range os.Environ() {
 		name, _, _ := strings.Cut(kv, "=")
-		if strings.HasPrefix(name, "APP_") || name == "PORT" {
+		if strings.HasPrefix(name, "APP_") || name == "PORT" || name == "BITESHIP_API_KEY" {
 			unsetEnv(t, name)
 		}
 	}

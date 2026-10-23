@@ -41,7 +41,7 @@ var requiredEnv = map[string]string{ //nolint:gosec // a test value, not a crede
 // the test, sets the required ones to requiredEnv, then sets vars over them.
 func setEnv(t *testing.T, vars map[string]string) {
 	t.Helper()
-	names := []string{"PORT", "DATABASE_URL", "JWT_SECRET", "REDIS_URL", "GOOGLE_CLIENT_ID"}
+	names := []string{"PORT", "DATABASE_URL", "JWT_SECRET", "REDIS_URL", "GOOGLE_CLIENT_ID", "BITESHIP_API_KEY"}
 	for _, kv := range os.Environ() {
 		if name, _, _ := strings.Cut(kv, "="); strings.HasPrefix(name, "APP_") {
 			names = append(names, name)
