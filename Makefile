@@ -69,7 +69,7 @@ IT_ENV := POSTGRES_DSN='postgres://goshop:goshop@localhost:5432/goshop?sslmode=d
 	GOSHOP_API_URL=http://127.0.0.1:8080
 
 .PHONY: help doctor build lint lint-openapi test-unit test-integration test-mobile-e2e docker-build scan verify up down dev-api docs-api \
-	migrate-up migrate-down migrate-new seed seed-large seed-admin sqlc sqlc-check expire-orders
+	migrate-up migrate-down migrate-new seed seed-large seed-admin sqlc sqlc-check expire-orders cleanup-idempotency-keys
 
 help: ## List targets
 	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -197,6 +197,9 @@ $(MIGRATE):
 
 expire-orders: ## Cancel unpaid orders past their payment deadline, once (the api image, as a Railway cron would run it)
 	$(COMPOSE) run --rm --no-deps api expire-orders
+
+cleanup-idempotency-keys: ## Delete checkout idempotency keys past their 24 hours, once
+	$(COMPOSE) run --rm --no-deps api cleanup-idempotency-keys
 
 up: ## Start the full stack locally
 	$(COMPOSE) up -d --build

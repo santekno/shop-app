@@ -274,8 +274,10 @@ func Run(ctx context.Context, args []string, stdout io.Writer) error {
 		return runMigrations(ctx, cfg, logger)
 	case len(args) == 1 && args[0] == "expire-orders":
 		return runJob(ctx, cfg, logger, "expire-orders", expireOrders)
+	case len(args) == 1 && args[0] == "cleanup-idempotency-keys":
+		return runJob(ctx, cfg, logger, "cleanup-idempotency-keys", cleanupIdempotencyKeys)
 	default:
-		return fmt.Errorf("unknown arguments %q (usage: api [healthcheck|migrate|expire-orders])", args)
+		return fmt.Errorf("unknown arguments %q (usage: api [healthcheck|migrate|expire-orders|cleanup-idempotency-keys])", args)
 	}
 
 	db, err := database.Open(ctx, cfg.Database, logger)
@@ -323,7 +325,7 @@ func closeRedis(rdb *redis.Client, logger logx.Logger) {
 }
 
 // runJob runs one of the background jobs once against the database and
-// exits: `api expire-orders`. Bab 5 has no worker yet, so a scheduler runs
+// exits: `api expire-orders`, `api cleanup-idempotency-keys`. Bab 5 has no worker yet, so a scheduler runs
 // the command (make expire-orders locally, a Railway cron service in
 // production); Bab 6's worker calls the same service methods on a ticker
 // (ADR 0006). Each job is safe to run twice at once.
@@ -347,6 +349,15 @@ func expireOrders(ctx context.Context, db *sql.DB, logger logx.Logger) error {
 	svc := order.NewService(order.Deps{Repo: order.NewPostgresRepository(db)})
 	n, err := svc.ExpireDue(ctx)
 	logger.Info("expired unpaid orders", "cancelled", n)
+	return err
+}
+
+// cleanupIdempotencyKeys deletes the checkout idempotency keys past their
+// 24 hours (order.Service.CleanupKeys).
+func cleanupIdempotencyKeys(ctx context.Context, db *sql.DB, logger logx.Logger) error {
+	svc := order.NewService(order.Deps{Repo: order.NewPostgresRepository(db)})
+	n, err := svc.CleanupKeys(ctx)
+	logger.Info("deleted expired idempotency keys", "deleted", n)
 	return err
 }
 

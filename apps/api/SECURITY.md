@@ -75,6 +75,7 @@ Known limits:
 - **Guest carts** are created at most 30 times per hour per client IP (`cart.LimitGuestCartPerIP`); a cart holds at most 50 lines.
 - **Voucher codes cannot be enumerated**: the preview and checkout answer a code that does not exist and a promo that has not started yet alike (`reason: not_found`), and the per-buyer limit above bounds how many codes one account can try.
 - **Prices and fees come from the server**: checkout reads the lines from the server-side cart, re-reads prices on locked rows, refuses a line whose price changed since the buyer saw it, and asks the shipping provider for the fee itself. A client cannot send a price, a fee or a discount.
+- **Retries never double an order**: `POST /v1/checkout` requires an `Idempotency-Key`, stored per user with the hash of the body; the order and the stored answer commit in one transaction (ADR 0006).
 - **Vouchers** count their uses with a guarded `UPDATE`, and the per-buyer limit under the buyer's row lock, so parallel checkouts cannot overuse one.
 - Payment (Bab 6) will add its own limits.
 

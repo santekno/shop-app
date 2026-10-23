@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/http"
 	"slices"
 	"time"
 
@@ -30,6 +31,10 @@ type PlaceInput struct {
 	VoucherCode string
 	Now         time.Time
 	PaymentTTL  time.Duration
+	// IdempotencyKey is the claimed Idempotency-Key, and IdempotencyClaim
+	// the claim; the answer is stored under them in the same transaction.
+	IdempotencyKey   string
+	IdempotencyClaim string
 }
 
 // Place creates the order in one transaction (ADR 0006):
@@ -43,11 +48,12 @@ type PlaceInput struct {
 //     locked rows: sellable, in stock, at the price the buyer saw;
 //  4. check and count the voucher with its guarded UPDATE;
 //  5. insert the order and its line snapshots, decrement the stock with the
-//     guarded UPDATE, and take the lines out of the cart.
+//     guarded UPDATE, and take the lines out of the cart;
+//  6. store the 201 answer under the idempotency key.
 //
-// Any error rolls everything back. It returns the new order's ID.
-func (r *PostgresRepository) Place(ctx context.Context, in PlaceInput) (string, error) {
-	var orderID string
+// Any error rolls everything back. It returns the answer.
+func (r *PostgresRepository) Place(ctx context.Context, in PlaceInput) (Response, error) {
+	var resp Response
 	err := database.WithTx(ctx, r.db, func(q *sqlc.Queries) error {
 		if err := lockBuyer(ctx, q, in.UserID); err != nil {
 			return err
@@ -75,13 +81,39 @@ func (r *PostgresRepository) Place(ctx context.Context, in PlaceInput) (string, 
 			}
 			voucher, input.Discount = &v, v.discount()
 		}
-		orderID, err = insertOrder(ctx, q, in, CalculateTotals(input), voucher)
+		orderID, err := insertOrder(ctx, q, in, CalculateTotals(input), voucher)
 		if err != nil {
 			return err
 		}
-		return insertItems(ctx, q, in.UserID, orderID, lines, in.Now)
+		if err := insertItems(ctx, q, in.UserID, orderID, lines, in.Now); err != nil {
+			return err
+		}
+		resp, err = createdResponse(ctx, q, in.UserID, orderID)
+		if err != nil {
+			return err
+		}
+		return saveResponse(ctx, q, in.UserID, in.IdempotencyKey, in.IdempotencyClaim, resp)
 	})
-	return orderID, err
+	return resp, err
+}
+
+// createdResponse reads the new order back through the transaction and
+// renders the 201 answer: the bytes the client gets now and on every
+// replay.
+func createdResponse(ctx context.Context, q *sqlc.Queries, userID, orderID string) (Response, error) {
+	row, err := q.GetOrderForUser(ctx, sqlc.GetOrderForUserParams{ID: orderID, UserID: userID})
+	if err != nil {
+		return Response{}, fmt.Errorf("read new order: %w", err)
+	}
+	o := fromOrderRow(row)
+	if o.Items, err = loadItems(ctx, q, orderID); err != nil {
+		return Response{}, err
+	}
+	body, err := encodeResponse(dataResponse{Data: toOrderJSON(o)})
+	if err != nil {
+		return Response{}, err
+	}
+	return Response{Status: http.StatusCreated, Body: body, OrderID: orderID}, nil
 }
 
 // lockBuyer takes the users-first lock and applies the buyer's rules.

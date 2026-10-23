@@ -26,7 +26,10 @@ type Addresses interface {
 type Repository interface {
 	VoucherByCode(ctx context.Context, code string) (Voucher, error)
 	VoucherUses(ctx context.Context, voucherID, userID string) (int64, error)
-	Place(ctx context.Context, in PlaceInput) (string, error)
+	Place(ctx context.Context, in PlaceInput) (Response, error)
+	ClaimKey(ctx context.Context, userID string, idem Idempotency, now time.Time) (claimResult, error)
+	ReleaseKey(ctx context.Context, userID, key, claimID string) error
+	DeleteExpiredKeys(ctx context.Context, now time.Time, limit int32) (int64, error)
 	Get(ctx context.Context, userID, id string) (Order, error)
 	Transition(ctx context.Context, c Change) error
 	ExpiredOrderIDs(ctx context.Context, now time.Time, limit int32) ([]string, error)
@@ -36,8 +39,8 @@ type Repository interface {
 }
 
 // Deps is what the service needs. Every field but Clock and PaymentTTL is
-// required to serve requests; the background jobs (ExpireDue) need only
-// Repo.
+// required to serve requests; the background jobs (ExpireDue,
+// CleanupKeys) need only Repo.
 type Deps struct {
 	Repo      Repository
 	Carts     Carts
@@ -164,40 +167,69 @@ type CheckoutInput struct {
 	VoucherCode string
 }
 
-// Checkout turns userID's cart into an order waiting for payment and
-// returns it. The lines come from the server-side cart, and are validated
-// again on locked rows inside the transaction (PostgresRepository.Place).
-// The shipping fee is asked for here, before the transaction, so a slow
-// courier API never holds a row lock. Errors: ErrCartEmpty,
-// *ProblemsError, ErrUnknownAddress, ErrUnknownShippingService,
-// shipping.ErrUnavailable, *VoucherError, ErrEmailUnverified,
-// ErrTooManyPendingOrders, ErrCartChanged, ErrAccountGone.
-func (s *Service) Checkout(ctx context.Context, userID string, in CheckoutInput) (Order, error) {
+// Checkout turns userID's cart into an order waiting for payment, once per
+// idempotency key (ADR 0006): the key is claimed first; a retry of a
+// finished request gets its stored answer, a different body under the
+// same key is ErrIdempotencyKeyReused, and a duplicate of a request still
+// running is ErrIdempotencyInProgress. A failed checkout releases the key.
+//
+// The lines come from the server-side cart and are validated again on
+// locked rows inside the transaction (PostgresRepository.Place). The
+// shipping fee is asked for before the transaction, so a slow courier API
+// never holds a row lock. Errors: ErrCartEmpty, *ProblemsError,
+// ErrUnknownAddress, ErrUnknownShippingService, shipping.ErrUnavailable,
+// *VoucherError, ErrEmailUnverified, ErrTooManyPendingOrders,
+// ErrCartChanged, ErrAccountGone.
+//
+// It returns the answer itself rather than the order, because that answer
+// is what is stored and replayed byte for byte.
+func (s *Service) Checkout(ctx context.Context, userID string, idem Idempotency, in CheckoutInput) (Response, error) {
+	claim, err := s.repo.ClaimKey(ctx, userID, idem, s.now())
+	if err != nil {
+		return Response{}, err
+	}
+	if claim.replay != nil {
+		return *claim.replay, nil
+	}
+	resp, err := s.place(ctx, userID, idem.Key, claim.claimID, in)
+	if err != nil {
+		// Released even when the client has hung up: a key left in
+		// flight would block the retry for IdempotencyStaleAfter.
+		if relErr := s.repo.ReleaseKey(context.WithoutCancel(ctx), userID, idem.Key, claim.claimID); relErr != nil {
+			return Response{}, errors.Join(err, relErr)
+		}
+		return Response{}, err
+	}
+	return resp, nil
+}
+
+// place is one checkout under a claimed key.
+func (s *Service) place(ctx context.Context, userID, key, claimID string, in CheckoutInput) (Response, error) {
 	lines, err := s.validCart(ctx, userID)
 	if err != nil {
-		return Order{}, err
+		return Response{}, err
 	}
 	a, err := s.address(ctx, userID, in.AddressID)
 	if err != nil {
-		return Order{}, err
+		return Response{}, err
 	}
 	goods := CalculateTotals(TotalsInput{Lines: totalsLines(lines)})
 	q, err := s.quote(ctx, a, goods, in.Courier, in.Service)
 	if err != nil {
-		return Order{}, err
+		return Response{}, err
 	}
-	id, err := s.repo.Place(ctx, PlaceInput{
+	resp, err := s.repo.Place(ctx, PlaceInput{
 		UserID: userID, Lines: lines, Shipping: q, WeightGrams: goods.WeightGrams,
-		VoucherCode: in.VoucherCode, Now: s.now(), PaymentTTL: s.paymentTTL,
+		VoucherCode: in.VoucherCode, Now: s.now(), PaymentTTL: s.paymentTTL, IdempotencyKey: key, IdempotencyClaim: claimID,
 		Address: ShippingAddress{
 			Recipient: a.RecipientName, Phone: a.Phone, Street: a.Street,
 			City: a.City, Province: a.Province, PostalCode: a.PostalCode,
 		},
 	})
 	if err != nil {
-		return Order{}, fmt.Errorf("checkout: %w", err)
+		return Response{}, fmt.Errorf("checkout: %w", err)
 	}
-	return s.Get(ctx, userID, id)
+	return resp, nil
 }
 
 // History returns one page of userID's orders, newest first.

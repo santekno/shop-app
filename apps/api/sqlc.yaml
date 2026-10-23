@@ -23,3 +23,11 @@ sql:
             go_type:
               type: string
               pointer: true
+          # idempotency_keys.response_body (nullable json) without sqlc's
+          # default github.com/sqlc-dev/pqtype dependency. The queries read
+          # it as text, so this type only appears in models.go.
+          - column: idempotency_keys.response_body
+            go_type:
+              import: encoding/json
+              type: RawMessage
+              pointer: true

@@ -25,6 +25,15 @@ const (
 	CodeTooManyPending      = "TOO_MANY_PENDING_ORDERS"
 	CodeCartChanged         = "CART_CHANGED"
 	CodeInvalidTransition   = "INVALID_TRANSITION"
+	CodeKeyRequired         = "IDEMPOTENCY_KEY_REQUIRED"
+	CodeKeyReused           = "IDEMPOTENCY_KEY_REUSED"
+	CodeKeyInProgress       = "IDEMPOTENCY_IN_PROGRESS"
+)
+
+// Idempotency headers (ADR 0006).
+const (
+	HeaderIdempotencyKey = "Idempotency-Key"
+	HeaderReplayed       = "Idempotency-Replayed"
 )
 
 // Orders is what the buyer's order handlers need from the service.
@@ -39,7 +48,7 @@ type Orders interface {
 type Checkout interface {
 	Preview(ctx context.Context, userID string, in PreviewInput) (Preview, error)
 	ShippingQuotes(ctx context.Context, userID, addressID string) (Quotes, error)
-	Checkout(ctx context.Context, userID string, in CheckoutInput) (Order, error)
+	Checkout(ctx context.Context, userID string, idem Idempotency, in CheckoutInput) (Response, error)
 }
 
 // Handler serves checkout and orders. Its routes are mounted behind the
@@ -138,9 +147,18 @@ type checkoutBody struct {
 }
 
 // Checkout serves POST /v1/checkout: 201 with the order, waiting for
-// payment, and its URL in Location.
+// payment, and its URL in Location. It needs an Idempotency-Key; a retry
+// with the same key and body gets the same answer with
+// Idempotency-Replayed: true, and never a second order.
 func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 	if !h.allow(w, r, h.limits.Checkout) {
+		return
+	}
+	key := r.Header.Get(HeaderIdempotencyKey)
+	if !validIdempotencyKey(key) {
+		httpapi.Error(w, r, errx.New(CodeKeyRequired,
+			"send an Idempotency-Key header (1 to 255 printable ASCII characters, a UUID is best), and the same one when you retry").
+			WithHTTPStatus(http.StatusBadRequest))
 		return
 	}
 	var body checkoutBody
@@ -152,16 +170,42 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, r, err)
 		return
 	}
-	o, err := h.checkout.Checkout(r.Context(), ctxx.UserID(r.Context()), CheckoutInput{
+	body.VoucherCode = NormalizeVoucherCode(body.VoucherCode)
+	hash, err := RequestHash(body)
+	if err != nil {
+		httpapi.Error(w, r, err)
+		return
+	}
+	resp, err := h.checkout.Checkout(r.Context(), ctxx.UserID(r.Context()), Idempotency{Key: key, RequestHash: hash}, CheckoutInput{
 		AddressID: body.AddressID, Courier: shipping.Courier(body.Courier), Service: body.Service,
-		VoucherCode: NormalizeVoucherCode(body.VoucherCode),
+		VoucherCode: body.VoucherCode,
 	})
 	if err != nil {
 		httpapi.Error(w, r, toHTTPError(err))
 		return
 	}
-	w.Header().Set("Location", "/v1/orders/"+o.ID)
-	httpapi.JSON(w, r, http.StatusCreated, dataResponse{Data: toOrderJSON(o)})
+	if resp.Replayed {
+		w.Header().Set(HeaderReplayed, "true")
+	}
+	if resp.OrderID != "" {
+		w.Header().Set("Location", "/v1/orders/"+resp.OrderID)
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(resp.Status)
+	_, _ = w.Write(resp.Body) // the client may be gone; nothing left to do
+}
+
+// validIdempotencyKey: 1 to 255 printable ASCII characters.
+func validIdempotencyKey(key string) bool {
+	if key == "" || len(key) > 255 {
+		return false
+	}
+	for i := range len(key) {
+		if key[i] < 0x21 || key[i] > 0x7e {
+			return false
+		}
+	}
+	return true
 }
 
 // previewBody is the request body of POST /v1/checkout/preview.
@@ -275,6 +319,12 @@ func toHTTPError(err error) error {
 			WithHTTPStatus(http.StatusConflict).WithDetails(details)
 	case errors.Is(err, ErrNotFound):
 		return httpapi.NotFoundError("order not found")
+	case errors.Is(err, ErrIdempotencyKeyReused):
+		return errx.New(CodeKeyReused, "this Idempotency-Key was used for a different checkout; use a new key for a new checkout").
+			WithHTTPStatus(http.StatusUnprocessableEntity)
+	case errors.Is(err, ErrIdempotencyInProgress):
+		return errx.New(CodeKeyInProgress, "a checkout with this Idempotency-Key is still running; retry in a moment").
+			WithHTTPStatus(http.StatusConflict)
 	case errors.Is(err, ErrEmailUnverified):
 		return errx.New(CodeEmailUnverified, "verify your email address before placing an order").
 			WithHTTPStatus(http.StatusForbidden)

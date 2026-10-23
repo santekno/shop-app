@@ -10,8 +10,8 @@ import (
 )
 
 // A browser script on an allowed origin may read the request ID, the
-// Retry-After of a 429, the Location of a 201 and the X-Cart-Token of a
-// new guest cart, and nothing else.
+// Retry-After of a 429, the Location of a 201, the X-Cart-Token of a new
+// guest cart and the Idempotency-Replayed of a checkout, and nothing else.
 func TestRouter_CORSExposedHeaders(t *testing.T) {
 	const allowed = "https://shop.example.com"
 	h, _ := newRouter(t, []string{allowed}, time.Second)
@@ -21,14 +21,15 @@ func TestRouter_CORSExposedHeaders(t *testing.T) {
 	for _, name := range strings.Split(rec.Header().Get("Access-Control-Expose-Headers"), ",") {
 		exposed[http.CanonicalHeaderKey(strings.TrimSpace(name))] = true
 	}
-	for _, name := range []string{"X-Request-Id", "Retry-After", "Location", "X-Cart-Token"} {
+	for _, name := range []string{"X-Request-Id", "Retry-After", "Location", "X-Cart-Token", "Idempotency-Replayed"} {
 		testx.AssertTrue(t, exposed[name], "%s is exposed: %q", name, rec.Header().Get("Access-Control-Expose-Headers"))
 	}
-	testx.AssertEqual(t, len(exposed), 4, "exactly these: %v", exposed)
+	testx.AssertEqual(t, len(exposed), 5, "exactly these: %v", exposed)
 }
 
 // A browser on an allowed origin may send the guest cart's X-Cart-Token
-// (ADR 0006); a header that is not on the list is still refused.
+// and a checkout's Idempotency-Key (ADR 0006); a header that is not on the
+// list is still refused.
 func TestRouter_CORSAllowedRequestHeaders(t *testing.T) {
 	const allowed = "https://shop.example.com"
 	h, _ := newRouter(t, []string{allowed}, time.Second)
@@ -39,6 +40,7 @@ func TestRouter_CORSAllowedRequestHeaders(t *testing.T) {
 	}{
 		{name: "the guest cart token", request: "X-Cart-Token", want: "X-Cart-Token"},
 		{name: "with the usual headers", request: "Authorization, Content-Type, X-Cart-Token", want: "Authorization, Content-Type, X-Cart-Token"},
+		{name: "the checkout's retry key", request: "Idempotency-Key", want: "Idempotency-Key"},
 		{name: "a header not on the list", request: "X-Not-Allowed", want: ""},
 	}
 	for _, tt := range tests {

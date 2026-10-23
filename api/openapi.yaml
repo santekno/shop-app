@@ -1248,8 +1248,34 @@ paths:
 
         Needs a verified email (403 `EMAIL_UNVERIFIED`). A buyer may have
         at most 5 unpaid orders (409 `TOO_MANY_PENDING_ORDERS`).
+
+        **Idempotency (ADR 0006).** Every checkout needs an
+        `Idempotency-Key`, and every retry of it (a timeout, a lost
+        connection) must send the same key and body. The key is stored per
+        user with the SHA-256 of the body for 24 hours:
+
+        - a retry of a finished checkout gets the original 201, byte for
+          byte, with `Idempotency-Replayed: true`, and no second order;
+        - the same key with a different body is 422
+          `IDEMPOTENCY_KEY_REUSED`;
+        - a retry while the first request still runs is 409
+          `IDEMPOTENCY_IN_PROGRESS` (retry in a moment);
+        - a checkout that fails (any 4xx or 5xx) changes nothing and frees
+          its key, so the same key can be retried after fixing the cart; that
+          includes 422 `SHIPPING_UNAVAILABLE` (no courier serves the address),
+          which the buyer fixes by choosing another address.
       security:
         - bearerAuth: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: 1–255 printable ASCII characters; a new UUID per checkout attempt is best. Missing or malformed answers 400 `IDEMPOTENCY_KEY_REQUIRED`.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 255
+            example: 3f0c9a3e-2d6b-4b8e-9a51-6f1d0b7c2e44
       requestBody:
         required: true
         content:
@@ -1263,18 +1289,23 @@ paths:
               voucher_code: HEMAT10
       responses:
         "201":
-          description: The order, waiting for payment.
+          description: The order, waiting for payment; or, for a retry of a finished checkout, the stored original answer.
           headers:
             Location:
               description: URL of the new order, `/v1/orders/{id}`.
               schema:
                 type: string
+            Idempotency-Replayed:
+              description: "`true` when this is the stored answer of an earlier request with the same key; absent otherwise."
+              schema:
+                type: string
+                enum: ["true"]
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/OrderDetail"
         "400":
-          $ref: "#/components/responses/BadCheckoutRequest"
+          $ref: "#/components/responses/BadIdempotentCheckout"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -1282,7 +1313,7 @@ paths:
         "409":
           $ref: "#/components/responses/CheckoutConflict"
         "422":
-          $ref: "#/components/responses/ShippingUnavailable"
+          $ref: "#/components/responses/CheckoutUnprocessable"
         "429":
           $ref: "#/components/responses/RateLimited"
         "500":
@@ -3170,7 +3201,7 @@ components:
                   message: this cart token is not valid any more; forget it and start a new cart
     CheckoutConflict:
       description: |
-        The cart is empty (`CART_EMPTY`); some lines cannot be bought as they are (`CHECKOUT_PROBLEMS`, with every such line in `details.lines`, each a `CheckoutProblem`); or the voucher does not apply (`VOUCHER_NOT_APPLICABLE`, with `details.voucher_code` and `details.reason`: `not_found` (no such code, or a promo that has not started yet: the two answer alike, so upcoming codes cannot be guessed), `expired`, `exhausted` (no uses left), `per_user_limit` (this buyer has used it up), or `min_spend` with `details.min_spend`). At `POST /v1/checkout` also: the buyer already has 5 unpaid orders (`TOO_MANY_PENDING_ORDERS`, `details.max`), or the cart changed while the checkout ran (`CART_CHANGED`: another checkout of the same cart took its lines, it was edited on another device, or a variant's weight changed after the shipping quote; review the cart and try again).
+        The cart is empty (`CART_EMPTY`); some lines cannot be bought as they are (`CHECKOUT_PROBLEMS`, with every such line in `details.lines`, each a `CheckoutProblem`); or the voucher does not apply (`VOUCHER_NOT_APPLICABLE`, with `details.voucher_code` and `details.reason`: `not_found` (no such code, or a promo that has not started yet: the two answer alike, so upcoming codes cannot be guessed), `expired`, `exhausted` (no uses left), `per_user_limit` (this buyer has used it up), or `min_spend` with `details.min_spend`). At `POST /v1/checkout` also: the buyer already has 5 unpaid orders (`TOO_MANY_PENDING_ORDERS`, `details.max`), or the cart changed while the checkout ran (`CART_CHANGED`: another checkout of the same cart took its lines, it was edited on another device, or a variant's weight changed after the shipping quote; review the cart and try again), or a request with the same `Idempotency-Key` is still running (`IDEMPOTENCY_IN_PROGRESS`; retry in a moment).
       content:
         application/json:
           schema:
@@ -3274,6 +3305,50 @@ components:
               details:
                 status: shipped
                 to: cancelled
+    BadIdempotentCheckout:
+      description: The `Idempotency-Key` header is missing or not 1–255 printable ASCII characters (`IDEMPOTENCY_KEY_REQUIRED`), or the body breaks the schema (`VALIDATION_FAILED`, as in `BadCheckoutRequest`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            keyRequired:
+              summary: No Idempotency-Key
+              value:
+                error:
+                  code: IDEMPOTENCY_KEY_REQUIRED
+                  message: send an Idempotency-Key header (1 to 255 printable ASCII characters, a UUID is best), and the same one when you retry
+            address:
+              summary: Not one of my addresses
+              value:
+                error:
+                  code: VALIDATION_FAILED
+                  message: invalid request
+                  details:
+                    address_id: names none of your addresses
+    CheckoutUnprocessable:
+      description: |
+        The checkout cannot go ahead as sent, for one of two reasons:
+
+        - `IDEMPOTENCY_KEY_REUSED`: this `Idempotency-Key` was already used for a checkout with a different body. Use a new key for a new checkout.
+        - `SHIPPING_UNAVAILABLE`: the shipping provider answered, and no courier serves the address's postal code. Choose another address; keep the same key or use a new one, because a failed checkout frees its key. Retrying the same request does not help.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            keyReused:
+              summary: The key was used for another checkout
+              value:
+                error:
+                  code: IDEMPOTENCY_KEY_REUSED
+                  message: this Idempotency-Key was used for a different checkout; use a new key for a new checkout
+            shippingUnavailable:
+              summary: No courier serves the address
+              value:
+                error:
+                  code: SHIPPING_UNAVAILABLE
+                  message: no courier serves this address; choose another address
     ShippingUnavailable:
       description: The shipping provider answered, and no courier serves the address's postal code (`SHIPPING_UNAVAILABLE`). Retrying does not help; choose another address. A provider that does not answer is 503 `UPSTREAM_UNAVAILABLE` instead.
       content:

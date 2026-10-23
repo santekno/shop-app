@@ -6,6 +6,7 @@
 //	api healthcheck  exit 0 when the API on this machine answers /healthz
 //	api migrate      apply the database migrations and exit
 //	api expire-orders  cancel unpaid orders past their deadline once and exit
+//	api cleanup-idempotency-keys  delete expired checkout idempotency keys and exit
 package main
 
 import (

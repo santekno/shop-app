@@ -12,10 +12,10 @@ import (
 // the buyer's shop data, inside the deletion's transaction, which has
 // locked the users row already (ADR 0006): every unpaid order is cancelled
 // (buyer_cancelled) with its stock and voucher use given back, and the
-// cart is deleted. Paid orders stay: they are financial records, and the
-// seller handles them (a refund is Bab 6's). internal/app hands it to
-// user.NewPostgresRepository, so the user package does not import this
-// one.
+// cart and the checkout idempotency keys are deleted. Paid orders stay:
+// they are financial records, and the seller handles them (a refund is
+// Bab 6's). internal/app hands it to user.NewPostgresRepository, so the
+// user package does not import this one.
 func AccountCloser(now func() time.Time) func(ctx context.Context, q *sqlc.Queries, userID string) error {
 	return func(ctx context.Context, q *sqlc.Queries, userID string) error {
 		ids, err := q.LockPendingOrdersOfUser(ctx, userID)
@@ -29,6 +29,9 @@ func AccountCloser(now func() time.Time) func(ctx context.Context, q *sqlc.Queri
 		}
 		if err := q.DeleteUserCart(ctx, &userID); err != nil {
 			return fmt.Errorf("delete cart: %w", err)
+		}
+		if err := q.DeleteUserIdempotencyKeys(ctx, userID); err != nil {
+			return fmt.Errorf("delete idempotency keys: %w", err)
 		}
 		return nil
 	}

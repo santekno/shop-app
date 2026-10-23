@@ -17,6 +17,7 @@ Every column is `NOT NULL` unless the diagram says `nullable`.
 | Bab 5 | `000007_create_carts` | `carts` (one per user, `carts_user_key`; a guest cart has `token_hash` instead, `carts_owner_check`) and `cart_items` (primary key `(cart_id, variant_id)`, quantity 1–99, the price the buyer saw, `cart_items_variant_id_idx` for the RESTRICT) |
 | Bab 5 | `000008_create_vouchers` | `vouchers`: `vouchers_code_key`, kind/value/window/limit CHECKs, and `vouchers_used_count_check` (the counter never passes its limit) |
 | Bab 5 | `000009_create_orders` | `orders` and `order_items` as below, with `discount`, `voucher_id` and `voucher_code` added in Bab 5 (`orders_amounts_check`: `total = subtotal - discount + shipping_fee`); `orders_paid_check` (every status from `paid` on has `paid_at`); indexes `orders_user_created_idx`, `orders_user_pending_idx` (partial, `pending_payment`), `orders_status_created_idx`, `orders_payment_expires_idx` (partial, `pending_payment`), `orders_voucher_user_idx` (partial) and `order_items_variant_id_idx` |
+| Bab 5 | `000010_create_idempotency_keys` | `idempotency_keys`: primary key `(user_id, key)`, the SHA-256 of the body, a `claim_id` that saving and releasing must match, the stored answer (`json`, so a replay is byte for byte) and `order_id` (no foreign key: short-lived request state); `idempotency_keys_expires_at_idx` for the cleanup |
 
 Two choices made while building it:
 

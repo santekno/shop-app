@@ -6,6 +6,7 @@ package sqlc
 
 import (
 	"database/sql"
+	"encoding/json"
 	"time"
 )
 
@@ -50,6 +51,18 @@ type Category struct {
 	Slug        string
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+}
+
+type IdempotencyKey struct {
+	UserID         string
+	Key            string
+	RequestHash    []byte
+	ClaimID        string
+	ResponseStatus sql.NullInt16
+	ResponseBody   *json.RawMessage
+	OrderID        *string
+	CreatedAt      time.Time
+	ExpiresAt      time.Time
 }
 
 type Order struct {
