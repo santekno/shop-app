@@ -29,6 +29,7 @@ import (
 	"github.com/santekno/shop-app/apps/api/internal/httpserver"
 	"github.com/santekno/shop-app/apps/api/internal/logging"
 	"github.com/santekno/shop-app/apps/api/internal/mail"
+	"github.com/santekno/shop-app/apps/api/internal/order"
 	"github.com/santekno/shop-app/apps/api/internal/product"
 	"github.com/santekno/shop-app/apps/api/internal/redisconn"
 	"github.com/santekno/shop-app/apps/api/internal/user"
@@ -82,6 +83,7 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 	userService := user.NewService(userRepo, o.revocations)
 	addressService := address.NewService(addressRepo)
 	cartService := cart.NewService(cartRepo)
+	orderService := order.NewService(cartService)
 	accessTokens := auth.NewAccessTokens(cfg.Auth.JWTSecret, cfg.Auth.AccessTokenTTL, o.clock)
 	authService := auth.NewService(auth.Deps{
 		Repo:        authRepo,
@@ -105,6 +107,7 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 		Clock:            o.clock,
 		TrustedProxyHops: cfg.TrustedProxyHops,
 	})
+	orderHandler := order.NewHandler(orderService, validator)
 	userHandler := user.NewHandler(userService, validator)
 	addressHandler := address.NewHandler(addressService, validator)
 	cartHandler := cart.NewHandler(cart.HandlerDeps{
@@ -137,6 +140,7 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 				userHandler.Routes(r)
 				addressHandler.Routes(r)
 				cartHandler.ProtectedRoutes(r)
+				orderHandler.Routes(r)
 				authHandler.ProtectedRoutes(r)
 				// Store staff only: sellers manage the catalog, and admins
 				// can do everything a seller can (docs/prd.md).

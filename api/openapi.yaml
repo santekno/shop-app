@@ -72,6 +72,12 @@ tags:
       once. After logging in, the client calls `POST /v1/cart/merge` with
       the token and forgets it. Every operation answers with the whole
       cart. The cart never reserves stock; checkout re-validates every line.
+  - name: Checkout
+    description: |
+      Turning the cart into an order (Bab 5, ADR 0006). The buyer must be
+      logged in. Every line is re-validated against the catalog: its
+      variant must still be for sale, in stock, and at the price the buyer
+      saw.
 
 paths:
   /healthz:
@@ -1125,6 +1131,39 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /v1/checkout/preview:
+    post:
+      tags: [Checkout]
+      operationId: previewCheckout
+      summary: Check the cart before checkout
+      description: |
+        Validates the caller's cart exactly as checkout will, without
+        writing anything. Checkout validates again on locked rows, so a
+        preview that passed is a hint, not a promise.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CheckoutPreviewRequest"
+      responses:
+        "200":
+          description: Every line can be bought as it is.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckoutPreviewDetail"
+        "400":
+          $ref: "#/components/responses/BadCartRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/CheckoutConflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1880,6 +1919,84 @@ components:
           minimum: 1
           maximum: 99
 
+    CheckoutPreviewRequest:
+      type: object
+      additionalProperties: false
+      properties: {}
+
+    CheckoutPreview:
+      type: object
+      required: [lines]
+      additionalProperties: false
+      properties:
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/CartLine"
+
+    CheckoutPreviewDetail:
+      type: object
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          $ref: "#/components/schemas/CheckoutPreview"
+
+    CheckoutProblemsError:
+      type: object
+      description: The `Error` body of a checkout 409, with `details.lines` typed for `CHECKOUT_PROBLEMS`.
+      required: [error]
+      additionalProperties: false
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          additionalProperties: false
+          properties:
+            code:
+              type: string
+              pattern: "^[A-Z][A-Z0-9_]*$"
+            message:
+              type: string
+            details:
+              type: object
+              additionalProperties: true
+              properties:
+                lines:
+                  type: array
+                  description: Every line checkout refuses, in cart order (`CHECKOUT_PROBLEMS` only).
+                  items:
+                    $ref: "#/components/schemas/CheckoutProblem"
+
+    CheckoutProblem:
+      type: object
+      description: One cart line checkout refuses.
+      required: [variant_id, sku, problem, quantity, available, unit_price, price_when_added]
+      additionalProperties: false
+      properties:
+        variant_id:
+          type: string
+          format: uuid
+        sku:
+          type: string
+        problem:
+          type: string
+          enum: [unavailable, insufficient_stock, price_changed]
+          description: "`unavailable`: archived, or its product is no longer active; remove the line. `insufficient_stock`: lower the quantity to `available` or remove the line. `price_changed`: save the line again (PATCH with the same quantity) to accept `unit_price`."
+        quantity:
+          type: integer
+          description: What the line asks for.
+        available:
+          type: integer
+          minimum: 0
+          description: Stock on hand; 0 for an unavailable variant.
+        unit_price:
+          description: The price now.
+          $ref: "#/components/schemas/Money"
+        price_when_added:
+          description: The price the buyer saw.
+          $ref: "#/components/schemas/Money"
+
   responses:
     BadRequest:
       description: A query parameter is invalid (including a `cursor` the API did not make for the same `category`, `q` and `sort`), or `category` names no category.
@@ -2265,3 +2382,31 @@ components:
                 error:
                   code: CART_NOT_FOUND
                   message: this cart token is not valid any more; forget it and start a new cart
+    CheckoutConflict:
+      description: The cart is empty (`CART_EMPTY`), or some lines cannot be bought as they are (`CHECKOUT_PROBLEMS`, with every such line in `details.lines`, each a `CheckoutProblem`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/CheckoutProblemsError"
+          examples:
+            empty:
+              summary: Nothing to check out
+              value:
+                error:
+                  code: CART_EMPTY
+                  message: the cart is empty
+            problems:
+              summary: Lines to fix
+              value:
+                error:
+                  code: CHECKOUT_PROBLEMS
+                  message: some cart lines cannot be bought as they are; fix them and try again
+                  details:
+                    lines:
+                      - variant_id: 01a16823-6427-7fa0-adf7-c05af7159479
+                        sku: KPH-S
+                        problem: insufficient_stock
+                        quantity: 5
+                        available: 2
+                        unit_price: { amount: 89000, currency: IDR }
+                        price_when_added: { amount: 89000, currency: IDR }

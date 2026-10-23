@@ -33,6 +33,7 @@ The Go REST API behind the GoShop storefront, admin dashboard and mobile app. Th
 | POST | `/v1/cart/items` | **Optional token.** Add a variant (the sum stays within 99 and the stock; at most 50 lines). A guest's first add creates a guest cart and returns its token once (`cart_token`, `X-Cart-Token`); 30 new guest carts per IP per hour |
 | PATCH, DELETE | `/v1/cart/items/{variant_id}` | **Optional token.** Change a line's quantity (and accept a new price), or remove it |
 | POST | `/v1/cart/merge` | **Access token.** Move the guest cart of `X-Cart-Token` into the user's cart, right after login ([ADR 0006](../../docs/adr/0006-cart-checkout-orders.md)) |
+| POST | `/v1/checkout/preview` | **Access token.** Validate the cart as checkout will (409 `CHECKOUT_PROBLEMS` lists every line that is unavailable, short of stock or repriced), without writing |
 | POST | `/v1/admin/products` | **Seller or admin.** Create a product with its variants |
 | GET | `/v1/admin/products/{id}` | **Seller or admin.** Any product, whatever its status |
 | PUT | `/v1/admin/products/{id}` | **Seller or admin.** Save a product and its variants; variants left out are archived |
