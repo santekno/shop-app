@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -51,7 +52,7 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 		// Development logs every email with its token, so a developer can
 		// copy it; elsewhere the body (and the token) is never logged.
 		mailer:  mail.NewLogMailer(logger, cfg.IsDevelopment()),
-		limiter: auth.NewRedisRateLimiter(redisconn.NewCounter(rdb), auth.Limits),
+		limiter: auth.NewRedisRateLimiter(redisconn.NewCounter(rdb), rateLimits()),
 		// Revoked sessions live in Redis as long as an access token
 		// (ADR 0005).
 		revocations: auth.NewRedisSessionRevocations(redisconn.NewKV(rdb), cfg.Auth.AccessTokenTTL),
@@ -106,7 +107,9 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 	})
 	userHandler := user.NewHandler(userService, validator)
 	addressHandler := address.NewHandler(addressService, validator)
-	cartHandler := cart.NewHandler(cartService, validator)
+	cartHandler := cart.NewHandler(cart.HandlerDeps{
+		Service: cartService, Validator: validator, Limiter: o.limiter, TrustedProxyHops: cfg.TrustedProxyHops,
+	})
 	guard := auth.NewGuard(accessTokens, o.revocations)
 	healthHandler := health.NewHandler(logger, readiness, !cfg.IsDevelopment(),
 		health.PostgresCheck(db), health.RedisCheck(redisconn.NewPinger(rdb)))
@@ -122,12 +125,18 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 			categoryHandler.Routes(r)
 			productHandler.Routes(r)
 			authHandler.Routes(r)
+			// Guests and logged-in users alike: a token, when sent, must
+			// be valid.
+			r.Group(func(r chi.Router) {
+				r.Use(guard.Optional)
+				cartHandler.Routes(r)
+			})
 			// Everything below needs a logged-in user.
 			r.Group(func(r chi.Router) {
 				r.Use(guard.Authenticate)
 				userHandler.Routes(r)
 				addressHandler.Routes(r)
-				cartHandler.Routes(r)
+				cartHandler.ProtectedRoutes(r)
 				authHandler.ProtectedRoutes(r)
 				// Store staff only: sellers manage the catalog, and admins
 				// can do everything a seller can (docs/prd.md).
@@ -138,6 +147,11 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 	})
 
 	return &App{cfg: cfg, logger: logger, readiness: readiness, handler: router}
+}
+
+// rateLimits is every limit the API counts in Redis.
+func rateLimits() []auth.Limit {
+	return append(slices.Clone(auth.Limits), cart.LimitGuestCartPerIP)
 }
 
 // Option replaces one of the real dependencies New would build, for tests.

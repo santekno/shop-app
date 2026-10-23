@@ -120,10 +120,12 @@ func corsMiddleware(origins []string) func(http.Handler) http.Handler {
 		AllowedOrigins: origins,
 		// HEAD too: GetHead serves it, and browsers send it without a preflight.
 		AllowedMethods: []string{http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete},
-		AllowedHeaders: []string{"Accept", "Authorization", "Content-Type", sdkmw.HeaderRequestID},
+		// X-Cart-Token carries a guest cart (ADR 0006).
+		AllowedHeaders: []string{"Accept", "Authorization", "Content-Type", sdkmw.HeaderRequestID, "X-Cart-Token"},
 		// Headers a browser script may read on a cross-origin response:
-		// the request ID, Retry-After of a 429 and Location of a 201.
-		ExposedHeaders: []string{sdkmw.HeaderRequestID, "Retry-After", "Location"},
+		// the request ID, Retry-After of a 429, Location of a 201 and the
+		// token of a new guest cart.
+		ExposedHeaders: []string{sdkmw.HeaderRequestID, "Retry-After", "Location", "X-Cart-Token"},
 		MaxAge:         300, // seconds a browser may cache a preflight answer
 	}
 	// go-chi/cors treats an empty AllowedOrigins as "allow every origin".

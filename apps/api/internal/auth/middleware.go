@@ -68,6 +68,22 @@ func (g *Guard) Authenticate(next http.Handler) http.Handler {
 	}))
 }
 
+// Optional is the middleware for routes that serve guests and logged-in
+// users alike (the cart). A request without an Authorization header goes
+// on as a guest; one with a header must carry a valid access token, exactly
+// as under Authenticate, so a broken token is a 401 rather than a silent
+// switch to the guest's cart.
+func (g *Guard) Optional(next http.Handler) http.Handler {
+	authenticated := g.Authenticate(next)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		authenticated.ServeHTTP(w, r)
+	})
+}
+
 // withClaims stores claims in ctx, with the user ID where sdk ctxx and the
 // logger look for it.
 func withClaims(ctx context.Context, claims AccessClaims) context.Context {

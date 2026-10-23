@@ -336,17 +336,29 @@ type limitCheck struct {
 // limit that cannot be checked is not skipped.
 func (h *Handler) allow(w http.ResponseWriter, r *http.Request, checks ...limitCheck) bool {
 	for _, c := range checks {
-		ok, retryAfter, err := h.limiter.Allow(r.Context(), c.limit, c.key)
-		if err != nil {
-			httpapi.Error(w, r, err)
+		if !Allow(w, r, h.limiter, c.limit, c.key) {
 			return false
 		}
-		if !ok {
-			seconds := max(1, int((retryAfter+time.Second-1)/time.Second))
-			w.Header().Set("Retry-After", strconv.Itoa(seconds))
-			httpapi.Error(w, r, httpapi.RateLimitedError(seconds))
-			return false
-		}
+	}
+	return true
+}
+
+// Allow counts one request of r under limit for key and reports whether it
+// may go on. Otherwise it has answered 429 RATE_LIMITED with Retry-After
+// (whole seconds, rounded up), or 500 when Redis failed: a limit that
+// cannot be checked is not skipped. Other features (the guest cart,
+// checkout) use it for their own limits.
+func Allow(w http.ResponseWriter, r *http.Request, limiter RateLimiter, limit Limit, key string) bool {
+	ok, retryAfter, err := limiter.Allow(r.Context(), limit, key)
+	if err != nil {
+		httpapi.Error(w, r, err)
+		return false
+	}
+	if !ok {
+		seconds := max(1, int((retryAfter+time.Second-1)/time.Second))
+		w.Header().Set("Retry-After", strconv.Itoa(seconds))
+		httpapi.Error(w, r, httpapi.RateLimitedError(seconds))
+		return false
 	}
 	return true
 }

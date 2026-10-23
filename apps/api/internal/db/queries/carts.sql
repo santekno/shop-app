@@ -60,3 +60,24 @@ DO UPDATE SET quantity = EXCLUDED.quantity, unit_price = EXCLUDED.unit_price, up
 
 -- name: DeleteCartItem :execrows
 DELETE FROM cart_items WHERE cart_id = @cart_id AND variant_id = @variant_id;
+
+-- Guest carts (ADR 0006). The token "<cart id>.<secret>" carries the row
+-- id, so the cart is found by its primary key; the repository then
+-- compares token_hash with the hash of the presented secret in constant
+-- time. user_id IS NULL keeps a merged cart's id from ever working as a
+-- guest token again (a merge deletes the guest cart anyway).
+
+-- name: InsertGuestCart :exec
+INSERT INTO carts (id, token_hash) VALUES (@id, @token_hash);
+
+-- name: GetGuestCart :one
+SELECT token_hash FROM carts WHERE id = @id AND user_id IS NULL;
+
+-- name: LockGuestCart :one
+-- Lock order: a merge locks the user's cart first and the guest cart
+-- second; nothing locks them the other way round.
+SELECT token_hash FROM carts WHERE id = @id AND user_id IS NULL FOR UPDATE;
+
+-- name: DeleteCart :exec
+-- After a merge. Its lines go with it (ON DELETE CASCADE).
+DELETE FROM carts WHERE id = @id;

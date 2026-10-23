@@ -16,11 +16,19 @@ const (
 	MaxLines    = 50
 )
 
-// Owner names whose cart a request works on. UserID comes from the access
-// token, never from the request body.
+// Owner names whose cart a request works on: a logged-in user (UserID, from
+// the access token, never from the body) or a guest holding a cart token.
+// A logged-in user's own cart always wins; their Token is ignored except by
+// Merge.
 type Owner struct {
 	UserID string
+	// Token is the guest cart token from the X-Cart-Token header; empty for
+	// a guest who has no cart yet.
+	Token string
 }
+
+// IsGuest reports whether the request has no logged-in user.
+func (o Owner) IsGuest() bool { return o.UserID == "" }
 
 // Problem says why a line cannot be bought as it is.
 type Problem string
@@ -103,6 +111,9 @@ var (
 	// ErrAccountGone: the logged-in user's account was deleted (possibly
 	// while this request ran).
 	ErrAccountGone = errors.New("account deleted")
+	// ErrCartNotFound: the guest cart token is malformed, unknown, or its
+	// cart was merged; the client forgets the token.
+	ErrCartNotFound = errors.New("cart not found")
 	// ErrLineNotFound: the cart has no line for that variant.
 	ErrLineNotFound = errors.New("cart line not found")
 	// ErrVariantUnavailable: the variant does not exist, is archived, or
@@ -121,3 +132,46 @@ type InsufficientStockError struct {
 }
 
 func (e *InsufficientStockError) Error() string { return "insufficient stock" }
+
+// LineWrite is a line Merge writes into the user's cart.
+type LineWrite struct {
+	VariantID string
+	Quantity  int32
+	// UnitPrice is the price the buyer has seen for this line.
+	UnitPrice int64
+}
+
+// Merge returns what moving a guest cart into a user's cart writes
+// (ADR 0006). For a variant in both carts the guest's quantity is added up
+// to MaxQuantity and the stock on hand, and the line never ends below what
+// the user's cart already had: a merge only adds. A guest line whose
+// variant is not sellable or sold out is not carried over, nor are lines
+// past MaxLines (oldest guest lines first). The user's lines keep the price
+// their owner saw; new lines keep the guest's.
+func Merge(user, guest []Line) []LineWrite {
+	have := make(map[string]Line, len(user))
+	for _, l := range user {
+		have[l.VariantID] = l
+	}
+	lines := len(user)
+	var writes []LineWrite
+	for _, g := range guest {
+		if !g.Sellable {
+			continue
+		}
+		if u, ok := have[g.VariantID]; ok {
+			q := max(u.Quantity, min(u.Quantity+g.Quantity, MaxQuantity, g.Stock))
+			if q != u.Quantity {
+				writes = append(writes, LineWrite{VariantID: g.VariantID, Quantity: q, UnitPrice: u.AddedPrice})
+			}
+			continue
+		}
+		q := min(g.Quantity, MaxQuantity, g.Stock)
+		if q < 1 || lines >= MaxLines {
+			continue
+		}
+		lines++
+		writes = append(writes, LineWrite{VariantID: g.VariantID, Quantity: q, UnitPrice: g.AddedPrice})
+	}
+	return writes
+}

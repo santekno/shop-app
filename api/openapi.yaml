@@ -65,9 +65,13 @@ tags:
       401 `UNAUTHORIZED`, a `buyer` is 403 `FORBIDDEN`.
   - name: Cart
     description: |
-      The shopping cart (Bab 5, ADR 0006): one per user. Every operation
-      answers with the whole cart. The cart never reserves stock; checkout
-      re-validates every line.
+      The shopping cart (Bab 5, ADR 0006). With an access token every
+      operation works on the user's cart (one per user); without one, on
+      the guest cart named by the `X-Cart-Token` header. A guest's first
+      `POST /v1/cart/items` creates the guest cart and returns its token
+      once. After logging in, the client calls `POST /v1/cart/merge` with
+      the token and forgets it. Every operation answers with the whole
+      cart. The cart never reserves stock; checkout re-validates every line.
 
 paths:
   /healthz:
@@ -944,9 +948,12 @@ paths:
     get:
       tags: [Cart]
       operationId: getCart
-      summary: Get my cart
-      description: The caller's cart, oldest line first. A caller who never added anything gets an empty cart.
+      summary: Get the cart
+      description: The cart, oldest line first. A user who never added anything, and a guest without `X-Cart-Token`, get an empty cart.
+      parameters:
+        - $ref: "#/components/parameters/CartToken"
       security:
+        - {}
         - bearerAuth: []
       responses:
         "200":
@@ -957,6 +964,8 @@ paths:
                 $ref: "#/components/schemas/CartDetail"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/CartNotFound"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -964,13 +973,21 @@ paths:
     post:
       tags: [Cart]
       operationId: addCartItem
-      summary: Add a variant to my cart
+      summary: Add a variant to the cart
+      parameters:
+        - $ref: "#/components/parameters/CartToken"
       description: |
+        A guest without `X-Cart-Token` gets a new guest cart: the answer
+        carries its token in `cart_token` and in the `X-Cart-Token` header,
+        the only time it is sent. New guest carts are rate limited per
+        client IP (30 per hour).
+
         Adds `quantity` units of the variant. A variant already in the cart
         gets the sum. The line's quantity must stay within 99 and within the
         stock on hand, and a cart holds at most 50 lines. The line keeps the
         current price as the price the buyer has seen (`price_when_added`).
       security:
+        - {}
         - bearerAuth: []
       requestBody:
         required: true
@@ -981,16 +998,25 @@ paths:
       responses:
         "200":
           description: The cart after the change.
+          headers:
+            X-Cart-Token:
+              description: Only when this request created a guest cart, its token.
+              schema:
+                type: string
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/CartDetail"
+                $ref: "#/components/schemas/CartAddResult"
         "400":
           $ref: "#/components/responses/BadCartRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/CartNotFound"
         "409":
           $ref: "#/components/responses/CartConflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -1003,6 +1029,7 @@ paths:
         schema:
           type: string
           format: uuid
+      - $ref: "#/components/parameters/CartToken"
     patch:
       tags: [Cart]
       operationId: updateCartItem
@@ -1013,6 +1040,7 @@ paths:
         same quantity again is how a buyer accepts a changed price
         (`problem: price_changed`).
       security:
+        - {}
         - bearerAuth: []
       requestBody:
         required: true
@@ -1032,7 +1060,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
-          $ref: "#/components/responses/NotFound"
+          $ref: "#/components/responses/CartLineNotFound"
         "409":
           $ref: "#/components/responses/CartConflict"
         "500":
@@ -1042,6 +1070,7 @@ paths:
       operationId: removeCartItem
       summary: Remove a line
       security:
+        - {}
         - bearerAuth: []
       responses:
         "200":
@@ -1053,7 +1082,46 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
-          $ref: "#/components/responses/NotFound"
+          $ref: "#/components/responses/CartLineNotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/cart/merge:
+    post:
+      tags: [Cart]
+      operationId: mergeCart
+      summary: Move a guest cart into my cart
+      description: |
+        Called by the client right after any login (password, Google,
+        registration) with the guest cart's token. For a variant in both
+        carts the guest's quantity is added, up to 99 and the stock on hand,
+        but the line never ends below what the user's cart already held. A
+        guest line whose variant is sold out or no longer for sale is not
+        carried over, nor are lines past the 50-line limit. The guest cart
+        is deleted: forget its token after a 200, and after a 404 too.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: X-Cart-Token
+          in: header
+          required: true
+          description: The guest cart to merge.
+          schema:
+            type: string
+            maxLength: 100
+      responses:
+        "200":
+          description: The user's cart after the merge.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CartDetail"
+        "400":
+          $ref: "#/components/responses/BadCartRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/CartNotFound"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -1068,6 +1136,20 @@ components:
         `/v1/auth/refresh`, as `Authorization: Bearer <token>`. It lives 15
         minutes by default (ADR 0005); refresh it before or after it
         expires.
+
+  parameters:
+    CartToken:
+      name: X-Cart-Token
+      in: header
+      required: false
+      description: |
+        A guest cart's token, as returned when the guest cart was created.
+        Ignored when the request carries an access token (the user's own
+        cart is used). One that is malformed, unknown or already merged
+        answers 404 `CART_NOT_FOUND`.
+      schema:
+        type: string
+        maxLength: 100
 
   schemas:
     Money:
@@ -1763,6 +1845,17 @@ components:
         data:
           $ref: "#/components/schemas/Cart"
 
+    CartAddResult:
+      type: object
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          $ref: "#/components/schemas/Cart"
+        cart_token:
+          type: string
+          description: Only when this request created a guest cart. Keep it and send it as `X-Cart-Token`.
+
     CartItemAdd:
       type: object
       required: [variant_id, quantity]
@@ -2143,3 +2236,32 @@ components:
                   message: the cart already has the maximum number of lines; remove one first
                   details:
                     max: 50
+    CartNotFound:
+      description: The `X-Cart-Token` is malformed, unknown, or its cart was merged already. Forget the token; the next add starts a new guest cart.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: CART_NOT_FOUND
+              message: this cart token is not valid any more; forget it and start a new cart
+    CartLineNotFound:
+      description: The cart has no line for this variant (`NOT_FOUND`), or the `X-Cart-Token` names no cart (`CART_NOT_FOUND`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            line:
+              summary: Not in the cart
+              value:
+                error:
+                  code: NOT_FOUND
+                  message: this variant is not in the cart
+            cart:
+              summary: Unknown guest cart
+              value:
+                error:
+                  code: CART_NOT_FOUND
+                  message: this cart token is not valid any more; forget it and start a new cart

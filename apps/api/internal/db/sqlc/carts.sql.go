@@ -21,6 +21,16 @@ func (q *Queries) CountCartItems(ctx context.Context, cartID string) (int64, err
 	return count, err
 }
 
+const deleteCart = `-- name: DeleteCart :exec
+DELETE FROM carts WHERE id = $1
+`
+
+// After a merge. Its lines go with it (ON DELETE CASCADE).
+func (q *Queries) DeleteCart(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, deleteCart, id)
+	return err
+}
+
 const deleteCartItem = `-- name: DeleteCartItem :execrows
 DELETE FROM cart_items WHERE cart_id = $1 AND variant_id = $2
 `
@@ -54,6 +64,17 @@ func (q *Queries) GetCartItemQuantity(ctx context.Context, arg GetCartItemQuanti
 	return quantity, err
 }
 
+const getGuestCart = `-- name: GetGuestCart :one
+SELECT token_hash FROM carts WHERE id = $1 AND user_id IS NULL
+`
+
+func (q *Queries) GetGuestCart(ctx context.Context, id string) ([]byte, error) {
+	row := q.db.QueryRowContext(ctx, getGuestCart, id)
+	var token_hash []byte
+	err := row.Scan(&token_hash)
+	return token_hash, err
+}
+
 const getSellableVariant = `-- name: GetSellableVariant :one
 SELECT v.id, v.price, v.stock
 FROM product_variants v
@@ -84,6 +105,26 @@ func (q *Queries) GetUserCartID(ctx context.Context, userID *string) (string, er
 	var id string
 	err := row.Scan(&id)
 	return id, err
+}
+
+const insertGuestCart = `-- name: InsertGuestCart :exec
+
+INSERT INTO carts (id, token_hash) VALUES ($1, $2)
+`
+
+type InsertGuestCartParams struct {
+	ID        string
+	TokenHash []byte
+}
+
+// Guest carts (ADR 0006). The token "<cart id>.<secret>" carries the row
+// id, so the cart is found by its primary key; the repository then
+// compares token_hash with the hash of the presented secret in constant
+// time. user_id IS NULL keeps a merged cart's id from ever working as a
+// guest token again (a merge deletes the guest cart anyway).
+func (q *Queries) InsertGuestCart(ctx context.Context, arg InsertGuestCartParams) error {
+	_, err := q.db.ExecContext(ctx, insertGuestCart, arg.ID, arg.TokenHash)
+	return err
 }
 
 const listCartLines = `-- name: ListCartLines :many
@@ -152,6 +193,19 @@ func (q *Queries) ListCartLines(ctx context.Context, cartID string) ([]ListCartL
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockGuestCart = `-- name: LockGuestCart :one
+SELECT token_hash FROM carts WHERE id = $1 AND user_id IS NULL FOR UPDATE
+`
+
+// Lock order: a merge locks the user's cart first and the guest cart
+// second; nothing locks them the other way round.
+func (q *Queries) LockGuestCart(ctx context.Context, id string) ([]byte, error) {
+	row := q.db.QueryRowContext(ctx, lockGuestCart, id)
+	var token_hash []byte
+	err := row.Scan(&token_hash)
+	return token_hash, err
 }
 
 const upsertCartItem = `-- name: UpsertCartItem :exec

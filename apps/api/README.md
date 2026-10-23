@@ -29,15 +29,16 @@ The Go REST API behind the GoShop storefront, admin dashboard and mobile app. Th
 | DELETE | `/v1/me` | **Access token.** Delete the account: anonymise it, delete its addresses, Google link and email tokens, end every session |
 | GET, POST | `/v1/me/addresses` | **Access token.** The caller's address book (at most 20; exactly one default) |
 | GET, PATCH, DELETE | `/v1/me/addresses/{id}` | **Access token.** One of the caller's addresses; anyone else's is 404 |
-| GET | `/v1/cart` | **Access token.** The caller's cart: lines with the current price, the price when added, stock and a `problem` per line |
-| POST | `/v1/cart/items` | **Access token.** Add a variant (the sum stays within 99 and the stock; at most 50 lines) |
-| PATCH, DELETE | `/v1/cart/items/{variant_id}` | **Access token.** Change a line's quantity (and accept a new price), or remove it |
+| GET | `/v1/cart` | **Optional token.** The cart: the user's with an access token, otherwise the guest cart of `X-Cart-Token`; lines with the current price, the price when added, stock and a `problem` per line |
+| POST | `/v1/cart/items` | **Optional token.** Add a variant (the sum stays within 99 and the stock; at most 50 lines). A guest's first add creates a guest cart and returns its token once (`cart_token`, `X-Cart-Token`); 30 new guest carts per IP per hour |
+| PATCH, DELETE | `/v1/cart/items/{variant_id}` | **Optional token.** Change a line's quantity (and accept a new price), or remove it |
+| POST | `/v1/cart/merge` | **Access token.** Move the guest cart of `X-Cart-Token` into the user's cart, right after login ([ADR 0006](../../docs/adr/0006-cart-checkout-orders.md)) |
 | POST | `/v1/admin/products` | **Seller or admin.** Create a product with its variants |
 | GET | `/v1/admin/products/{id}` | **Seller or admin.** Any product, whatever its status |
 | PUT | `/v1/admin/products/{id}` | **Seller or admin.** Save a product and its variants; variants left out are archived |
 | DELETE | `/v1/admin/products/{id}` | **Seller or admin.** Archive a product (soft delete) |
 
-Routes marked **Access token** need `Authorization: Bearer <access_token>` (401 `UNAUTHORIZED` without one); routes marked **Seller or admin** also need that role (403 `FORBIDDEN` for a buyer). The token design is [ADR 0005](../../docs/adr/0005-auth-tokens.md): refresh tokens live hashed in PostgreSQL; a revoked session (logout, a reused refresh token, a password reset, a deleted account) is also marked in Redis as `goshop:session-revoked:<sid>` for one access-token lifetime, and the auth middleware checks that key on every request, so the session's access tokens stop working at once. Without Redis, authenticated requests fail with 500 rather than skip the check.
+Routes marked **Optional token** serve guests without an `Authorization` header; with one, the token must be valid (a bad token is 401, never a silent switch to the guest cart). Routes marked **Access token** need `Authorization: Bearer <access_token>` (401 `UNAUTHORIZED` without one); routes marked **Seller or admin** also need that role (403 `FORBIDDEN` for a buyer). The token design is [ADR 0005](../../docs/adr/0005-auth-tokens.md): refresh tokens live hashed in PostgreSQL; a revoked session (logout, a reused refresh token, a password reset, a deleted account) is also marked in Redis as `goshop:session-revoked:<sid>` for one access-token lifetime, and the auth middleware checks that key on every request, so the session's access tokens stop working at once. Without Redis, authenticated requests fail with 500 rather than skip the check.
 
 ### Security
 
