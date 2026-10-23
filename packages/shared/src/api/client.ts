@@ -3,6 +3,9 @@ import { ApiError, isErrorBody } from "./errors.ts";
 import { createUrlBuilder } from "./url.ts";
 import type { QueryParams } from "./url.ts";
 
+/** The HTTP methods the GoShop API uses. */
+export type HttpMethod = "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE";
+
 /** How the client is set up; only `baseUrl` is required. */
 export interface ApiClientOptions {
   /** Where the API lives, for example "http://localhost:8080". */
@@ -20,7 +23,7 @@ export interface ApiClientOptions {
 /** Per-request settings. */
 export interface RequestOptions {
   /** HTTP method. Default "GET". */
-  method?: string;
+  method?: HttpMethod;
   query?: QueryParams;
   /** Sent as JSON. Leave it out for a request without a body. */
   body?: unknown;

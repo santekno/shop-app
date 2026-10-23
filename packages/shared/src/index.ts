@@ -17,12 +17,18 @@ export type { Category, CategoryNode } from "./catalog/category-tree.ts";
 export { retry, sleep } from "./lib/async.ts";
 export type { RetryOptions } from "./lib/async.ts";
 
-export { ApiError, isErrorBody } from "./api/errors.ts";
-export type { ApiErrorInit } from "./api/errors.ts";
+export { ApiError, isApiError, isErrorBody } from "./api/errors.ts";
+export type {
+  ApiErrorCode,
+  ApiErrorInit,
+  ClientErrorCode,
+  ServerErrorCode,
+} from "./api/errors.ts";
 
 export { createApiClient } from "./api/client.ts";
 export type {
   ApiClient,
   ApiClientOptions,
+  HttpMethod,
   RequestOptions,
 } from "./api/client.ts";

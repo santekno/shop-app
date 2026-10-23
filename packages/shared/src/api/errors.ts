@@ -33,6 +33,60 @@ export const isErrorBody = (value: unknown): value is ErrorBody => {
   );
 };
 
+/**
+ * The error codes api/openapi.yaml documents. A union of string literals:
+ * a value of this type can only be one of these strings, so a typo such as
+ * "NOT_FOUN" is a compile error. Go would use a named string type with
+ * constants; TypeScript checks the literal values themselves.
+ */
+export type ServerErrorCode =
+  | "VALIDATION_FAILED"
+  | "UNKNOWN_CATEGORY"
+  | "NOT_FOUND"
+  | "METHOD_NOT_ALLOWED"
+  | "TIMEOUT"
+  | "SLUG_TAKEN"
+  | "SKU_TAKEN"
+  | "EMAIL_TAKEN"
+  | "EMAIL_UNVERIFIED"
+  | "INVALID_CREDENTIALS"
+  | "TOKEN_INVALID"
+  | "TOKEN_EXPIRED"
+  | "UNAUTHORIZED"
+  | "FORBIDDEN"
+  | "RATE_LIMITED"
+  | "ADDRESS_LIMIT_REACHED"
+  | "DEFAULT_ADDRESS_REQUIRED"
+  | "INTERNAL_ERROR"
+  // Cart, checkout and orders (Bab 5).
+  | "CART_NOT_FOUND"
+  | "CART_EMPTY"
+  | "CART_FULL"
+  | "CART_CHANGED"
+  | "VARIANT_UNAVAILABLE"
+  | "INSUFFICIENT_STOCK"
+  | "QUANTITY_LIMIT"
+  | "CHECKOUT_PROBLEMS"
+  | "VOUCHER_NOT_APPLICABLE"
+  | "SHIPPING_UNAVAILABLE"
+  | "TOO_MANY_PENDING_ORDERS"
+  | "IDEMPOTENCY_KEY_REQUIRED"
+  | "IDEMPOTENCY_KEY_REUSED"
+  | "IDEMPOTENCY_IN_PROGRESS"
+  | "INVALID_TRANSITION"
+  | "VERSION_CONFLICT"
+  | "UPSTREAM_UNAVAILABLE";
+
+/** The codes the client sets itself when there is no usable answer. */
+export type ClientErrorCode =
+  | "NETWORK_ERROR"
+  | "CLIENT_TIMEOUT"
+  | "ABORTED"
+  | "INVALID_RESPONSE";
+
+/** Every code an ApiError is known to carry: a union of two unions. */
+export type ApiErrorCode = ServerErrorCode | ClientErrorCode;
+
 /** What `new ApiError(…)` needs. */
 export interface ApiErrorInit {
   status: number;
@@ -60,7 +114,11 @@ export interface ApiErrorInit {
 export class ApiError extends Error {
   /** HTTP status, or 0 when no response arrived. */
   readonly status: number;
-  /** Machine-readable, SCREAMING_SNAKE_CASE. */
+  /**
+   * Machine-readable, SCREAMING_SNAKE_CASE; usually an ApiErrorCode. Typed
+   * as string because a newer API may send a code this client does not know
+   * yet. Compare it through isApiError, which only accepts known codes.
+   */
   readonly code: string;
   /** Structured context, for example which fields failed validation; `{}` when none. */
   readonly details: Readonly<Record<string, unknown>>;
@@ -83,3 +141,23 @@ export class ApiError extends Error {
     this.requestId = requestId;
   }
 }
+
+/**
+ * Narrows an unknown caught value to an ApiError, optionally one of the
+ * given codes. After `if (isApiError(error, "NOT_FOUND"))` TypeScript
+ * knows `error` is an ApiError, like errors.As in Go.
+ *
+ * @example
+ *   try {
+ *     await getProduct(api, slug);
+ *   } catch (error) {
+ *     if (isApiError(error, "NOT_FOUND")) return showNotFound();
+ *     throw error;
+ *   }
+ */
+export const isApiError = (
+  error: unknown,
+  ...codes: readonly ApiErrorCode[]
+): error is ApiError =>
+  error instanceof ApiError &&
+  (codes.length === 0 || codes.some((code) => code === error.code));
