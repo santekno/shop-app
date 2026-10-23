@@ -72,7 +72,7 @@ IT_ENV := POSTGRES_DSN='postgres://goshop:goshop@localhost:5432/goshop?sslmode=d
 	GOSHOP_API_URL=http://127.0.0.1:8080
 
 .PHONY: help doctor build lint lint-openapi test-unit test-integration test-mobile-e2e docker-build scan verify up down dev-api docs-api \
-	migrate-up migrate-down migrate-new seed seed-large seed-admin seed-loadtest sqlc sqlc-check expire-orders cleanup-idempotency-keys publish-events
+	migrate-up migrate-down migrate-new seed seed-large seed-admin seed-loadtest loadtest sqlc sqlc-check expire-orders cleanup-idempotency-keys publish-events
 
 help: ## List targets
 	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -189,6 +189,9 @@ seed-loadtest: ## Load-test buyers and stock for the k6 checkout test: SEED_LOAD
 	@[[ "$(users)" =~ ^[0-9]+$$ ]] || { echo "usage: SEED_LOADTEST_PASSWORD=… make seed-loadtest users=50" >&2; exit 1; }
 	@[ -n "$$SEED_LOADTEST_PASSWORD" ] || { echo "seed-loadtest: set SEED_LOADTEST_PASSWORD (read from the environment, never a flag)" >&2; exit 1; }
 	@cd $(API) && DATABASE_URL='$(DATABASE_URL)' go run ./cmd/seed -loadtest '$(users)'
+
+loadtest: ## k6 load test of checkout against make up, then an oversell check in SQL (see e2e/k6/README.md)
+	COMPOSE='$(COMPOSE)' ./e2e/k6/run.sh
 
 sqlc: $(SQLC) ## Generate internal/db/sqlc from migrations/ and internal/db/queries/
 	cd $(API) && $(SQLC) generate
