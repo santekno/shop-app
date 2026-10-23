@@ -41,3 +41,4 @@ An ADR records one significant decision: the context, the decision and its conse
 | [0003](adr/0003-seaweedfs-local-s3.md) | SeaweedFS as local S3 storage | Accepted |
 | [0004](adr/0004-api-layering.md) | Layer the API per feature: handler, service, repository | Accepted |
 | [0005](adr/0005-auth-tokens.md) | Authenticate with a short-lived JWT and a rotating refresh token | Accepted |
+| [0006](adr/0006-cart-checkout-orders.md) | Keep carts in PostgreSQL and create an order in one guarded transaction | Accepted |

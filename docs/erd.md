@@ -1,6 +1,6 @@
 # Initial data model (ERD)
 
-This is the logical model for the first GoShop features: users, the catalog and orders. It is a design, not a schema: the physical tables, indexes and migrations are written in **Bab 3**, and later chapters add tables (carts, payments, reviews, embeddings) next to these.
+This is the logical model for the first GoShop features: users, the catalog, carts and orders. It is a design, not a schema: the physical tables, indexes and migrations are written in **Bab 3** onwards, and later chapters add tables (payments, reviews, embeddings) next to these. Bab 5's design decisions (carts, checkout, vouchers, idempotency, the outbox) are [ADR 0006](adr/0006-cart-checkout-orders.md).
 
 Every column is `NOT NULL` unless the diagram says `nullable`.
 
@@ -20,7 +20,7 @@ Two choices made while building it:
 - **Timestamps are set by the queries, not by triggers.** `created_at` comes from the column default; every `UPDATE` in `apps/api/internal/db/queries` writes `updated_at = now()`. A trigger would also catch hand-written SQL, but it hides the rule from someone reading the query, and the API is the only writer. `now()` is the transaction's start time, so everything one transaction writes carries the same timestamp.
 - **Soft delete only.** `DELETE /v1/admin/products/{id}` sets `status = 'archived'`; a variant left out of `PUT /v1/admin/products/{id}` gets `archived_at`. The API has no SQL `DELETE` for the catalog. Because a save always carries at least one variant, the "last sellable variant" case in the catalog rules below cannot happen through the API yet.
 
-`orders` and `order_items` arrive with their own migration in Bab 5. Constraints that the API maps to an error have explicit names (`products_slug_key`, `product_variants_sku_key`, …), so the code matches on a stable name rather than on Postgres's generated one.
+Bab 5 adds the cart and order tables (below); each migration is listed here when it lands. Constraints that the API maps to an error have explicit names (`products_slug_key`, `product_variants_sku_key`, …), so the code matches on a stable name rather than on Postgres's generated one.
 
 ```mermaid
 erDiagram
@@ -31,6 +31,12 @@ erDiagram
     products ||--|{ product_variants : "sold as"
     orders ||--|{ order_items : "contains"
     product_variants ||--o{ order_items : "ordered as"
+    users |o--o| carts : "owns (or a guest token)"
+    carts ||--o{ cart_items : "holds"
+    product_variants ||--o{ cart_items : "added as"
+    vouchers |o--o{ orders : "applied to"
+    users ||--o{ idempotency_keys : "sends"
+    orders ||--o{ outbox_events : "announces"
 
     users {
         uuid id PK "UUIDv7"
@@ -106,8 +112,11 @@ erDiagram
         text status "see life cycle below"
         text cancel_reason "nullable, set when cancelled"
         bigint subtotal "rupiah"
+        bigint discount "rupiah, 0 without a voucher"
         bigint shipping_fee "rupiah"
-        bigint total "subtotal + shipping_fee"
+        bigint total "subtotal - discount + shipping_fee"
+        uuid voucher_id FK "nullable"
+        text voucher_code "nullable, snapshot"
         integer total_weight_grams "above 0"
         text courier "jne, jnt, sicepat"
         text courier_service "e.g. REG, YES"
@@ -139,6 +148,61 @@ erDiagram
         bigint line_total "unit_price x quantity"
         timestamptz created_at
     }
+
+    carts {
+        uuid id PK
+        uuid user_id FK,UK "nullable, set for a user's cart"
+        bytea token_hash "nullable, SHA-256 of a guest cart token"
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    cart_items {
+        uuid cart_id PK,FK
+        uuid variant_id PK,FK
+        integer quantity "1 to 99"
+        bigint unit_price "rupiah, the price the buyer saw"
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    vouchers {
+        uuid id PK
+        text code UK "upper-case, e.g. HEMAT10"
+        text kind "percent, fixed"
+        bigint value "percent 1-100, or rupiah"
+        bigint min_spend "rupiah, 0 = none"
+        bigint max_discount "nullable, rupiah cap"
+        timestamptz starts_at
+        timestamptz ends_at
+        integer usage_limit "nullable = unlimited"
+        integer used_count "guarded increment"
+        integer per_user_limit "default 1"
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    idempotency_keys {
+        uuid user_id PK,FK
+        text key PK "Idempotency-Key header"
+        bytea request_hash "SHA-256 of the body"
+        uuid claim_id "new on every claim; save and release match it"
+        smallint response_status "nullable while in flight"
+        json response_body "nullable while in flight; json, not jsonb, so a replay is byte for byte"
+        uuid order_id "nullable, the order it created; no FK"
+        timestamptz created_at
+        timestamptz expires_at
+    }
+
+    outbox_events {
+        uuid id PK
+        text aggregate_type "order"
+        uuid aggregate_id
+        text event_type "order.created, order.paid, ..."
+        jsonb payload
+        timestamptz created_at
+        timestamptz published_at "nullable = not yet"
+    }
 ```
 
 ## Keys and constraints
@@ -153,6 +217,10 @@ erDiagram
 | `sku UNIQUE CHECK (sku = upper(btrim(sku)) AND sku <> '')` | `product_variants` | one SKU identifies one sellable item across the store, including archived variants; ` kph-m` and `KPH-M` cannot both exist, and an empty SKU is refused |
 | `code UNIQUE CHECK (code ~ '^GS-[0-9]{8}-[0-9A-Z]{6}$')` | `orders` | the order number buyers see, e.g. `GS-20261101-7KQ2M9` (date + 6 random base32 characters). The API generates it and retries on a unique violation. |
 | `UNIQUE (order_id, variant_id)` | `order_items` | one line per variant per order; more of the same variant raises `quantity` |
+| `PRIMARY KEY (cart_id, variant_id)` | `cart_items` | one line per variant per cart; adding the same variant again raises `quantity` |
+| `UNIQUE (user_id)` | `carts` | one cart per user; a guest cart has no user and is found by the id inside its token |
+| `code UNIQUE CHECK (code ~ '^[A-Z0-9]{3,32}$')` | `vouchers` | the code a buyer types, upper-cased by the API |
+| `PRIMARY KEY (user_id, key)` | `idempotency_keys` | a key means something only for the user who sent it |
 | At most one default address per user | `addresses` | partial unique index on `(user_id) WHERE is_default` |
 | `UNIQUE (id, level)` | `categories` | the target of the composite parent foreign key below |
 
@@ -167,6 +235,11 @@ The Midtrans `order_id` is not `orders.code`: a buyer may retry payment after an
 | `products.category_id` → `categories` | no | RESTRICT | every product is in a category; move products before deleting one |
 | `product_variants.product_id` → `products` | no | RESTRICT | variants are archived, never deleted (order items point to them) |
 | `orders.user_id` → `users` | no | RESTRICT | an order must keep its buyer; users are anonymised, not deleted |
+| `orders.voucher_id` → `vouchers` | yes | RESTRICT | a used voucher stays; it expires instead of being deleted |
+| `carts.user_id` → `users` | yes | CASCADE | a cart is the user's working state, not a record |
+| `cart_items.cart_id` → `carts` | no | CASCADE | lines are part of the cart |
+| `cart_items.variant_id` → `product_variants` | no | RESTRICT | variants are archived, never deleted |
+| `idempotency_keys.user_id` → `users` | no | CASCADE | keys are short-lived request state |
 | `order_items.order_id` → `orders` | no | CASCADE | items are part of the order; orders themselves are never deleted |
 | `order_items.variant_id` → `product_variants` | no | RESTRICT | the sales history of a variant must survive |
 
@@ -181,7 +254,11 @@ The Midtrans `order_id` is not `orders.code`: a buyer may retry payment after an
 | `stock integer NOT NULL CHECK (stock >= 0)` | `product_variants` | the last line of defence against overselling (see "Stock and concurrency") |
 | `position smallint NOT NULL CHECK (position >= 0)` | `product_variants` | the order of a product's variants with the same price (S, M, L): the admin's list order. Variants are listed by `price, position, id`; the id alone is not enough, because UUIDv7 ids made in the same millisecond are random among themselves |
 | `line_total = unit_price * quantity` | `order_items` | stored for reporting, but can never disagree with its inputs |
-| `subtotal >= 0 AND shipping_fee >= 0 AND total = subtotal + shipping_fee` | `orders` | the amount charged always adds up |
+| `subtotal >= 0 AND shipping_fee >= 0 AND discount BETWEEN 0 AND subtotal AND total = subtotal - discount + shipping_fee` | `orders` | the amount charged always adds up, and a discount never makes the goods cost less than nothing |
+| `(voucher_id IS NULL) = (voucher_code IS NULL)` and `voucher_id IS NOT NULL OR discount = 0` | `orders` | a discount always names its voucher |
+| `quantity BETWEEN 1 AND 99`, `unit_price > 0` | `cart_items` | the per-line cap of ADR 0006 |
+| `(user_id IS NULL) <> (token_hash IS NULL)` | `carts` | a cart belongs to a user or to a guest token, never both or neither |
+| `kind IN ('percent', 'fixed')`, `value > 0`, `kind <> 'percent' OR value <= 100`, `ends_at > starts_at`, `used_count BETWEEN 0 AND usage_limit` | `vouchers` | a voucher cannot be configured into nonsense, and its counter never passes its limit even under a race |
 | `status <> 'active' OR price_from IS NOT NULL` | `products` | an active product always has a price, so it always has a sellable variant |
 | Categories are at most 2 levels deep (e.g. Pakaian → Kaos) | `categories` | `level smallint NOT NULL CHECK (level IN (1, 2))`, `parent_level smallint CHECK (parent_level = 1)`, `CHECK ((parent_id IS NULL) = (level = 1) AND (parent_id IS NULL) = (parent_level IS NULL))`, and the composite foreign key `(parent_id, parent_level)` → `(id, level)`. A child can only point at a level-1 row, so a third level, and a category that is its own parent, are impossible. A parent with children cannot change its level either, because the foreign key refuses it. |
 | `role`, `status`, `courier` are `text NOT NULL CHECK (… IN (…))`; `cancel_reason` is nullable `text CHECK (cancel_reason IN (…))` | users, products, orders | a closed set of values like an enum, but adding a value later is a one-line constraint change instead of `ALTER TYPE` |
@@ -204,7 +281,9 @@ Nullable by design: `users.password_hash` (Google-only accounts), `users.phone`,
 | `completed` | the buyer confirms receipt, or automatically some days after shipping | `completed_at` |
 | `cancelled` | payment expired, or the order was cancelled before shipping | `cancelled_at` + `cancel_reason` |
 
-`cancel_reason` is one of `payment_expired`, `buyer_cancelled`, `seller_cancelled`. An unpaid order whose `payment_expires_at` has passed becomes `cancelled` with `payment_expired`; there is no separate `expired` status. An order can be cancelled while it is `pending_payment`, `paid` or `processing`, never after it has shipped. The allowed transitions are enforced in the service layer (Bab 5), and the CHECKs above refuse rows that skip a required field.
+From Bab 5 each change also writes an `outbox_events` row in the same transaction ([ADR 0006](adr/0006-cart-checkout-orders.md)).
+
+`cancel_reason` is one of `payment_expired`, `buyer_cancelled`, `seller_cancelled`. An unpaid order whose `payment_expires_at` has passed becomes `cancelled` with `payment_expired`; there is no separate `expired` status. An order can be cancelled while it is `pending_payment`, `paid` or `processing`, never after it has shipped. The allowed transitions are one table in Go (`order.CanTransition`) and one conditional `UPDATE … WHERE status = ANY(…)` per transition (Bab 5), and the CHECKs above refuse rows that skip a required field. A buyer may cancel only while `pending_payment`; a seller or admin until shipping.
 
 The Midtrans transaction is created with an expiry that ends a safety margin **before** `payment_expires_at`, so Midtrans stops accepting payment before GoShop cancels the order. If a settlement still arrives for an order that is already cancelled, Bab 6 refunds it instead of reviving the order.
 
@@ -236,8 +315,11 @@ Bab 5 teaches both techniques; the columns above make them possible.
   ```
 
   Two checkouts that share variants then lock them in the same order and cannot deadlock. Fewer rows than requested means a variant is no longer sellable.
+  Bab 5 locks them `FOR NO KEY UPDATE OF v`, which does not block the `FOR KEY SHARE` that another buyer's new cart line takes on the same variant. **Every** path that locks several variants takes them in id order: checkout, cancel, expiry, account deletion, and the admin product save, which locks the product and then all its variants in id order before it writes them in the form's order ([ADR 0006](adr/0006-cart-checkout-orders.md), "Lock order").
   `FOR UPDATE OF v` locks the variant rows only, not the product row, so the product can still change status while the checkout runs; Bab 5 decides how checkout handles that.
-- **Optimistic locking.** The admin dashboard updates stock with `UPDATE product_variants SET stock = $new, version = version + 1 WHERE id = $id AND version = $v`; zero rows means someone else changed it first, and the seller reloads.
+- **Optimistic locking.** The admin dashboard updates stock with `UPDATE product_variants SET stock = $new, version = version + 1 WHERE id = $id AND version = $v`; zero rows means someone else changed it first, and the seller reloads (409 `VERSION_CONFLICT`).
+- **Which path uses which** ([ADR 0006](adr/0006-cart-checkout-orders.md)): checkout and cancel take row locks (a short queue, then the true stock); an admin form, open for minutes, uses the version check.
+- **`FOR NO KEY UPDATE OF v` and the product's status.** Checkout does not lock the product row (an admin save locks the product first and the variants second; locking both from checkout could deadlock with it). The guarded decrement re-reads `p.status = 'active'` when it runs, so an archive committed before it makes the line unavailable; an archive that commits after it does not undo an order that was already valid.
 - **Idempotent stock restore.** Cancelling first runs a guarded transition and restores stock only when it returns a row:
 
   ```sql
