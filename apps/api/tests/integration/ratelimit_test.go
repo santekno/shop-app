@@ -242,7 +242,7 @@ func TestRateLimit_CrossOriginRetryAfter(t *testing.T) {
 	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != web {
 		t.Errorf("Access-Control-Allow-Origin on the 429 = %q, want %q", got, web)
 	}
-	assertExposes(t, resp, "X-Request-ID", "Retry-After", "Location")
+	assertExposes(t, resp, exposedHeaders...)
 }
 
 // TestConfig_TrustedProxyHopsRequired: outside development the API refuses

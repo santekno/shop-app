@@ -279,5 +279,5 @@ func TestAddresses_CrossOriginLocation(t *testing.T) {
 	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != web {
 		t.Errorf("Access-Control-Allow-Origin on the 201 = %q, want %q", got, web)
 	}
-	assertExposes(t, resp, "X-Request-ID", "Retry-After", "Location")
+	assertExposes(t, resp, exposedHeaders...)
 }

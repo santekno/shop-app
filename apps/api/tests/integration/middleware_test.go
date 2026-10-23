@@ -194,9 +194,8 @@ func TestCORS(t *testing.T) {
 			t.Errorf("Access-Control-Allow-Origin = %q, want %q", got, web)
 		}
 		// The browser only lets the client read the headers it is told
-		// it may: the request ID, Retry-After on a 429 and Location on a
-		// 201.
-		assertExposes(t, resp, "X-Request-ID", "Retry-After", "Location")
+		// it may (exposedHeaders).
+		assertExposes(t, resp, exposedHeaders...)
 	})
 
 	t.Run("error response to an allowed origin carries CORS headers", func(t *testing.T) {
@@ -331,6 +330,12 @@ func assertNoCORS(t *testing.T, resp response) {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+// exposedHeaders is every header a browser script may read on a
+// cross-origin response: the request ID, Retry-After of a 429, Location of
+// a 201, and since Bab 5 the token of a new guest cart and whether a
+// checkout was replayed (ADR 0006).
+var exposedHeaders = []string{"X-Request-ID", "Retry-After", "Location", "X-Cart-Token", "Idempotency-Replayed"}
 
 // assertExposes fails unless Access-Control-Expose-Headers on resp lists
 // exactly names, in any order and case.
