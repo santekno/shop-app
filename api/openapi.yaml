@@ -63,6 +63,11 @@ tags:
       Product management for the admin dashboard. Every operation needs an
       access token whose role is `seller` or `admin` (Bab 4): no token is
       401 `UNAUTHORIZED`, a `buyer` is 403 `FORBIDDEN`.
+  - name: Cart
+    description: |
+      The shopping cart (Bab 5, ADR 0006): one per user. Every operation
+      answers with the whole cart. The cart never reserves stock; checkout
+      re-validates every line.
 
 paths:
   /healthz:
@@ -935,6 +940,123 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /v1/cart:
+    get:
+      tags: [Cart]
+      operationId: getCart
+      summary: Get my cart
+      description: The caller's cart, oldest line first. A caller who never added anything gets an empty cart.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The cart.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CartDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/cart/items:
+    post:
+      tags: [Cart]
+      operationId: addCartItem
+      summary: Add a variant to my cart
+      description: |
+        Adds `quantity` units of the variant. A variant already in the cart
+        gets the sum. The line's quantity must stay within 99 and within the
+        stock on hand, and a cart holds at most 50 lines. The line keeps the
+        current price as the price the buyer has seen (`price_when_added`).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CartItemAdd"
+      responses:
+        "200":
+          description: The cart after the change.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CartDetail"
+        "400":
+          $ref: "#/components/responses/BadCartRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/CartConflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/cart/items/{variant_id}:
+    parameters:
+      - name: variant_id
+        in: path
+        required: true
+        description: The variant of the line. One that is not in the cart, or not a UUID, answers 404 `NOT_FOUND`.
+        schema:
+          type: string
+          format: uuid
+    patch:
+      tags: [Cart]
+      operationId: updateCartItem
+      summary: Change a line's quantity
+      description: |
+        Replaces the line's quantity (1–99, at most the stock on hand) and
+        takes the current price as the one the buyer has seen. Saving the
+        same quantity again is how a buyer accepts a changed price
+        (`problem: price_changed`).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CartItemPatch"
+      responses:
+        "200":
+          description: The cart after the change.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CartDetail"
+        "400":
+          $ref: "#/components/responses/BadCartRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/CartConflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      tags: [Cart]
+      operationId: removeCartItem
+      summary: Remove a line
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The cart that is left.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CartDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1571,6 +1693,100 @@ components:
               description: Optional structured context, for example which fields failed validation.
               additionalProperties: true
 
+    CartLine:
+      type: object
+      required: [variant_id, product_id, product_slug, product_name, variant_name, sku, quantity, unit_price, price_when_added, line_total, stock, weight_grams, problem]
+      additionalProperties: false
+      properties:
+        variant_id:
+          type: string
+          format: uuid
+        product_id:
+          type: string
+          format: uuid
+        product_slug:
+          type: string
+        product_name:
+          type: string
+        variant_name:
+          type: string
+        sku:
+          type: string
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 99
+        unit_price:
+          description: The price now.
+          $ref: "#/components/schemas/Money"
+        price_when_added:
+          description: The price when the buyer last added or changed the line. Checkout refuses the line while it differs from `unit_price`.
+          $ref: "#/components/schemas/Money"
+        line_total:
+          description: "`unit_price` × `quantity`."
+          $ref: "#/components/schemas/Money"
+        stock:
+          type: integer
+          minimum: 0
+          description: Units available right now.
+        weight_grams:
+          type: integer
+          minimum: 1
+        problem:
+          type: [string, "null"]
+          enum: [unavailable, insufficient_stock, price_changed, null]
+          description: Why checkout would refuse this line now, or `null`. `unavailable` means the variant was archived or its product is no longer active; remove the line. `price_changed`; save the line again to accept the new price.
+
+    Cart:
+      type: object
+      required: [lines, item_count, subtotal]
+      additionalProperties: false
+      properties:
+        lines:
+          type: array
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/CartLine"
+        item_count:
+          type: integer
+          minimum: 0
+          description: Units in the cart, for a badge.
+        subtotal:
+          description: Every line at today's price. A hint for the cart page; checkout computes what is charged.
+          $ref: "#/components/schemas/Money"
+
+    CartDetail:
+      type: object
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          $ref: "#/components/schemas/Cart"
+
+    CartItemAdd:
+      type: object
+      required: [variant_id, quantity]
+      additionalProperties: false
+      properties:
+        variant_id:
+          type: string
+          format: uuid
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 99
+          description: Units to add to what the line already holds.
+
+    CartItemPatch:
+      type: object
+      required: [quantity]
+      additionalProperties: false
+      properties:
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 99
+
   responses:
     BadRequest:
       description: A query parameter is invalid (including a `cursor` the API did not make for the same `category`, `q` and `sort`), or `category` names no category.
@@ -1878,3 +2094,52 @@ components:
             checks:
               postgres: { status: unavailable, duration_ms: 3 }
               redis: { status: ok, duration_ms: 1 }
+    BadCartRequest:
+      description: The body is not valid JSON or breaks the schema (`VALIDATION_FAILED`, one entry per field).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: VALIDATION_FAILED
+              message: invalid request
+              details:
+                quantity: must be between 1 and 99
+    CartConflict:
+      description: The variant is archived, unknown or its product is not active (`VARIANT_UNAVAILABLE`), the line would hold more than the stock (`INSUFFICIENT_STOCK`, with `details.available`) or more than 99 units (`QUANTITY_LIMIT`), or the cart already has 50 lines (`CART_FULL`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            unavailable:
+              summary: Not for sale
+              value:
+                error:
+                  code: VARIANT_UNAVAILABLE
+                  message: this variant is not for sale
+            insufficientStock:
+              summary: Too few in stock
+              value:
+                error:
+                  code: INSUFFICIENT_STOCK
+                  message: not enough stock for this quantity
+                  details:
+                    available: 3
+            quantityLimit:
+              summary: More than 99 units
+              value:
+                error:
+                  code: QUANTITY_LIMIT
+                  message: a cart line holds at most 99 units
+                  details:
+                    max: 99
+            cartFull:
+              summary: Too many lines
+              value:
+                error:
+                  code: CART_FULL
+                  message: the cart already has the maximum number of lines; remove one first
+                  details:
+                    max: 50

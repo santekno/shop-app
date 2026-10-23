@@ -19,6 +19,7 @@ import (
 
 	"github.com/santekno/shop-app/apps/api/internal/address"
 	"github.com/santekno/shop-app/apps/api/internal/auth"
+	"github.com/santekno/shop-app/apps/api/internal/cart"
 	"github.com/santekno/shop-app/apps/api/internal/category"
 	"github.com/santekno/shop-app/apps/api/internal/config"
 	"github.com/santekno/shop-app/apps/api/internal/database"
@@ -72,12 +73,14 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 	authRepo := auth.NewPostgresRepository(db)
 	userRepo := user.NewPostgresRepository(db)
 	addressRepo := address.NewPostgresRepository(db)
+	cartRepo := cart.NewPostgresRepository(db)
 
 	// Services: the business rules, given their repositories.
 	categoryService := category.NewService(categoryRepo)
 	productService := product.NewService(productRepo, categoryService)
 	userService := user.NewService(userRepo, o.revocations)
 	addressService := address.NewService(addressRepo)
+	cartService := cart.NewService(cartRepo)
 	accessTokens := auth.NewAccessTokens(cfg.Auth.JWTSecret, cfg.Auth.AccessTokenTTL, o.clock)
 	authService := auth.NewService(auth.Deps{
 		Repo:        authRepo,
@@ -103,6 +106,7 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 	})
 	userHandler := user.NewHandler(userService, validator)
 	addressHandler := address.NewHandler(addressService, validator)
+	cartHandler := cart.NewHandler(cartService, validator)
 	guard := auth.NewGuard(accessTokens, o.revocations)
 	healthHandler := health.NewHandler(logger, readiness, !cfg.IsDevelopment(),
 		health.PostgresCheck(db), health.RedisCheck(redisconn.NewPinger(rdb)))
@@ -123,6 +127,7 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 				r.Use(guard.Authenticate)
 				userHandler.Routes(r)
 				addressHandler.Routes(r)
+				cartHandler.Routes(r)
 				authHandler.ProtectedRoutes(r)
 				// Store staff only: sellers manage the catalog, and admins
 				// can do everything a seller can (docs/prd.md).

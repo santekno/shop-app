@@ -14,6 +14,7 @@ Every column is `NOT NULL` unless the diagram says `nullable`.
 | Bab 4 | `000004_create_user_tokens` | `user_tokens`: one-time email tokens (`verify_email`, `reset_password`), SHA-256 of the secret only, `used_at`, `expires_at`; an index on `(user_id, purpose)`, not partial, so it also serves deleting a user's tokens and the CASCADE |
 | Bab 4 | `000005_create_user_identities` | `user_identities`: `UNIQUE (provider, subject)` (the sign-in lookup) and `UNIQUE (user_id, provider)`; provider CHECK (`google`) |
 | Bab 4 | `000006_create_addresses` | `addresses`: postal-code CHECK, `addresses (user_id)`, and the partial unique index `addresses (user_id) WHERE is_default` (at most one default; the API keeps exactly one while the user has any) |
+| Bab 5 | `000007_create_carts` | `carts` (one per user, `carts_user_key`; a guest cart has `token_hash` instead, `carts_owner_check`) and `cart_items` (primary key `(cart_id, variant_id)`, quantity 1–99, the price the buyer saw, `cart_items_variant_id_idx` for the RESTRICT) |
 
 Two choices made while building it:
 

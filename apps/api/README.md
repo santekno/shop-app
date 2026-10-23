@@ -29,6 +29,9 @@ The Go REST API behind the GoShop storefront, admin dashboard and mobile app. Th
 | DELETE | `/v1/me` | **Access token.** Delete the account: anonymise it, delete its addresses, Google link and email tokens, end every session |
 | GET, POST | `/v1/me/addresses` | **Access token.** The caller's address book (at most 20; exactly one default) |
 | GET, PATCH, DELETE | `/v1/me/addresses/{id}` | **Access token.** One of the caller's addresses; anyone else's is 404 |
+| GET | `/v1/cart` | **Access token.** The caller's cart: lines with the current price, the price when added, stock and a `problem` per line |
+| POST | `/v1/cart/items` | **Access token.** Add a variant (the sum stays within 99 and the stock; at most 50 lines) |
+| PATCH, DELETE | `/v1/cart/items/{variant_id}` | **Access token.** Change a line's quantity (and accept a new price), or remove it |
 | POST | `/v1/admin/products` | **Seller or admin.** Create a product with its variants |
 | GET | `/v1/admin/products/{id}` | **Seller or admin.** Any product, whatever its status |
 | PUT | `/v1/admin/products/{id}` | **Seller or admin.** Save a product and its variants; variants left out are archived |

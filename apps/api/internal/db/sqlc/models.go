@@ -24,6 +24,23 @@ type Address struct {
 	UpdatedAt     time.Time
 }
 
+type Cart struct {
+	ID        string
+	UserID    *string
+	TokenHash []byte
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+type CartItem struct {
+	CartID    string
+	VariantID string
+	Quantity  int32
+	UnitPrice int64
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
 type Category struct {
 	ID          string
 	ParentID    *string
