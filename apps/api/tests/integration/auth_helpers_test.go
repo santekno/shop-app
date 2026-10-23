@@ -19,6 +19,7 @@ import (
 
 	"github.com/santekno/shop-app/apps/api/internal/app"
 	"github.com/santekno/shop-app/apps/api/internal/auth"
+	"github.com/santekno/shop-app/apps/api/internal/mail"
 	"github.com/santekno/shop-app/apps/api/internal/user"
 )
 
@@ -367,3 +368,64 @@ func together(fns ...func()) {
 
 // withClock is app.WithClock(c.now).
 func withClock(c *testClock) app.Option { return app.WithClock(c.now) }
+
+// recordingMailer is a mail.Mailer that keeps every message, so a test can
+// read the token an email carries.
+type recordingMailer struct {
+	mu   sync.Mutex
+	sent []mail.Message
+}
+
+var _ mail.Mailer = (*recordingMailer)(nil)
+
+// Send implements mail.Mailer.
+func (m *recordingMailer) Send(_ context.Context, msg mail.Message) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sent = append(m.sent, msg)
+	return nil
+}
+
+// messages returns the messages sent to to, oldest first.
+func (m *recordingMailer) messages(to string) []mail.Message {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []mail.Message
+	for _, msg := range m.sent {
+		if msg.To == to {
+			out = append(out, msg)
+		}
+	}
+	return out
+}
+
+// Subjects of the two emails Bab 4 sends (auth/service.go).
+const (
+	subjectVerify = "Verifikasi email"
+	subjectReset  = "Atur ulang kata sandi"
+)
+
+// tokens returns every token emailed to to under a subject starting with
+// subject, oldest first.
+func (m *recordingMailer) tokens(to, subject string) []string {
+	var out []string
+	for _, msg := range m.messages(to) {
+		if strings.HasPrefix(msg.Subject, subject) {
+			if tok := emailTokenPattern.FindString(msg.Body); tok != "" {
+				out = append(out, tok)
+			}
+		}
+	}
+	return out
+}
+
+// lastToken is the newest token emailed to to under subject; it fails the
+// test when there is none.
+func (m *recordingMailer) lastToken(t *testing.T, to, subject string) string {
+	t.Helper()
+	toks := m.tokens(to, subject)
+	if len(toks) == 0 {
+		t.Fatalf("no %q email with a token was sent to %s", subject, to)
+	}
+	return toks[len(toks)-1]
+}
