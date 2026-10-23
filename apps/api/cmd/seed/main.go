@@ -93,13 +93,20 @@ func requireLocal(databaseURL string, allowRemote bool) error {
 	}
 	// pgx lets a host= or hostaddr= parameter (a comma-separated list)
 	// override the host in the URL, so every one of them must be local too.
-	hosts := []string{u.Hostname()}
+	var hosts []string
 	for _, key := range []string{"host", "hostaddr"} {
 		for h := range strings.SplitSeq(u.Query().Get(key), ",") {
 			if h != "" {
 				hosts = append(hosts, h)
 			}
 		}
+	}
+	// A socket-only URL such as postgres:///goshop?host=/var/run/postgresql
+	// has no host of its own: the parameters above say where it connects.
+	// Without them an empty host is still refused, because pgx then falls
+	// back to PGHOST, which may name any machine.
+	if u.Hostname() != "" || len(hosts) == 0 {
+		hosts = append(hosts, u.Hostname())
 	}
 	for _, h := range hosts {
 		if !isLocalHost(h) {
