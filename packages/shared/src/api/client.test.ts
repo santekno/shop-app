@@ -194,6 +194,15 @@ describe("request: the outgoing call", () => {
     expect(headers.get("Accept")).toBe("application/problem+json");
     expect(headers.get("X-Trace")).toBe("t-1");
   });
+  it("accepts only the HTTP methods the API uses", async () => {
+    const { api, fetchMock } = setup();
+    fetchMock.mockResolvedValue(json(200, {}));
+
+    // @ts-expect-error OPTIONS is not an HttpMethod
+    await api.request("/v1/x", { method: "OPTIONS" });
+
+    expect(callOf(fetchMock).init.method).toBe("OPTIONS");
+  });
 });
 
 describe("request: reading the response", () => {

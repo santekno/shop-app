@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { ApiError, isErrorBody } from "./errors.ts";
+import { describe, expect, expectTypeOf, it } from "vitest";
+import { ApiError, isApiError, isErrorBody } from "./errors.ts";
 
 describe("isErrorBody", () => {
   it.each([
@@ -69,5 +69,57 @@ describe("ApiError", () => {
     expect(error.details).toEqual({});
     expect(error.requestId).toBeUndefined();
     expect(Object.hasOwn(error, "cause")).toBe(false);
+  });
+});
+
+describe("isApiError", () => {
+  const notFound = new ApiError({
+    status: 404,
+    code: "NOT_FOUND",
+    message: "missing",
+  });
+
+  it("matches any ApiError when no codes are given", () => {
+    expect(isApiError(notFound)).toBe(true);
+    expect(
+      isApiError(
+        new ApiError({ status: 0, code: "SOMETHING_NEW", message: "" }),
+      ),
+    ).toBe(true);
+  });
+
+  it("matches only the given codes", () => {
+    expect(isApiError(notFound, "NOT_FOUND")).toBe(true);
+    expect(isApiError(notFound, "TIMEOUT", "NOT_FOUND")).toBe(true);
+    expect(isApiError(notFound, "TIMEOUT")).toBe(false);
+    expect(isApiError(notFound, "TIMEOUT", "RATE_LIMITED")).toBe(false);
+  });
+
+  it.each([
+    ["a plain Error", new Error("NOT_FOUND")],
+    [
+      "a look-alike object",
+      { name: "ApiError", status: 404, code: "NOT_FOUND" },
+    ],
+    ["a string", "NOT_FOUND"],
+    ["null", null],
+    ["undefined", undefined],
+  ])("returns false for %s", (_, value) => {
+    expect(isApiError(value)).toBe(false);
+    expect(isApiError(value, "NOT_FOUND")).toBe(false);
+  });
+
+  it("narrows an unknown value to ApiError", () => {
+    const caught: unknown = notFound;
+    if (!isApiError(caught, "NOT_FOUND")) {
+      throw new Error("expected an ApiError");
+    }
+    expectTypeOf(caught).toEqualTypeOf<ApiError>();
+    expect(caught.status).toBe(404);
+  });
+
+  it("accepts only codes the API documents", () => {
+    // @ts-expect-error "NOT_FOUN" is a typo, not an ApiErrorCode
+    expect(isApiError(notFound, "NOT_FOUN")).toBe(false);
   });
 });
