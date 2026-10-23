@@ -1,13 +1,10 @@
-import { useEffect, useState } from "react";
-import { getProduct, isApiError } from "@goshop/shared";
-import type { Product } from "@goshop/shared";
+import { isApiError } from "@goshop/shared";
 import {
   EmptyState,
   ErrorState,
   LoadingState,
 } from "@/components/ui/StatusMessage.tsx";
-import { api } from "@/lib/api.ts";
-import type { AsyncState } from "@/lib/async-state.ts";
+import { useProduct } from "../hooks/useProduct.ts";
 import { ProductDetail } from "./ProductDetail.tsx";
 
 interface ProductDetailPageProps {
@@ -17,30 +14,7 @@ interface ProductDetailPageProps {
 
 /** One product, loaded by its slug, with a way back to the catalog. */
 export function ProductDetailPage({ slug, onBack }: ProductDetailPageProps) {
-  const [state, setState] = useState<AsyncState<Product>>({
-    status: "loading",
-  });
-  const [attempt, setAttempt] = useState(0);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    const load = async () => {
-      try {
-        const product = await getProduct(api, slug, {
-          signal: controller.signal,
-        });
-        if (controller.signal.aborted) return;
-        setState({ status: "success", data: product });
-      } catch (error) {
-        if (controller.signal.aborted || isApiError(error, "ABORTED")) return;
-        setState({ status: "error", error });
-      }
-    };
-    void load();
-    return () => {
-      controller.abort();
-    };
-  }, [slug, attempt]);
+  const { state, retry } = useProduct(slug);
 
   return (
     <div className="product-page">
@@ -57,13 +31,7 @@ export function ProductDetailPage({ slug, onBack }: ProductDetailPageProps) {
         (isApiError(state.error, "NOT_FOUND") ? (
           <EmptyState>Produk tidak ditemukan.</EmptyState>
         ) : (
-          <ErrorState
-            error={state.error}
-            onRetry={() => {
-              setState({ status: "loading" });
-              setAttempt((n) => n + 1);
-            }}
-          />
+          <ErrorState error={state.error} onRetry={retry} />
         ))}
       {state.status === "success" && <ProductDetail product={state.data} />}
     </div>

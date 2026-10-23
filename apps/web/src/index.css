@@ -292,3 +292,13 @@ button:disabled {
 .price--large {
   font-size: 1.5rem;
 }
+
+.catalog__footer {
+  display: flex;
+  justify-content: center;
+  margin-top: 1rem;
+}
+
+.catalog__footer:empty {
+  display: none;
+}

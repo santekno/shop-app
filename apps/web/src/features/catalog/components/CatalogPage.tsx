@@ -1,6 +1,4 @@
-import { useEffect, useState } from "react";
-import { isApiError, listProducts } from "@goshop/shared";
-import type { Product } from "@goshop/shared";
+import { useState } from "react";
 import { Section } from "@/components/ui/Section.tsx";
 import {
   EmptyState,
@@ -8,9 +6,8 @@ import {
   LoadingState,
 } from "@/components/ui/StatusMessage.tsx";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle.ts";
-import { api } from "@/lib/api.ts";
-import type { AsyncState } from "@/lib/async-state.ts";
 import { ProductDetailPage } from "@/features/product/components/ProductDetailPage.tsx";
+import { useProducts } from "../hooks/useProducts.ts";
 import { CategorySection } from "./CategorySection.tsx";
 import { ProductGrid } from "./ProductGrid.tsx";
 
@@ -20,35 +17,10 @@ const PAGE_SIZE = 12;
 /** The storefront's home: categories beside the newest products. */
 export function CatalogPage() {
   useDocumentTitle("Katalog — GoShop");
-  const [state, setState] = useState<AsyncState<Product[]>>({
-    status: "loading",
+  const { products, phase, error, hasMore, loadMore, retry } = useProducts({
+    limit: PAGE_SIZE,
   });
-  const [attempt, setAttempt] = useState(0);
   const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
-
-  // Load the first page, and again after "Coba lagi". The cleanup aborts
-  // the request when the page goes away or before the next attempt.
-  useEffect(() => {
-    const controller = new AbortController();
-    const load = async () => {
-      try {
-        const page = await listProducts(
-          api,
-          { limit: PAGE_SIZE },
-          { signal: controller.signal },
-        );
-        if (controller.signal.aborted) return;
-        setState({ status: "success", data: page.data });
-      } catch (error) {
-        if (controller.signal.aborted || isApiError(error, "ABORTED")) return;
-        setState({ status: "error", error });
-      }
-    };
-    void load();
-    return () => {
-      controller.abort();
-    };
-  }, [attempt]);
 
   if (selectedSlug !== null) {
     return (
@@ -67,27 +39,32 @@ export function CatalogPage() {
         <CategorySection />
       </aside>
       <Section title="Produk" className="catalog__products">
-        {state.status === "loading" && (
-          <LoadingState>Memuat produk…</LoadingState>
+        {products.length > 0 && (
+          <ProductGrid products={products} onSelectProduct={setSelectedSlug} />
         )}
-        {state.status === "error" && (
-          <ErrorState
-            error={state.error}
-            onRetry={() => {
-              setState({ status: "loading" });
-              setAttempt((n) => n + 1);
-            }}
-          />
-        )}
-        {state.status === "success" &&
-          (state.data.length === 0 ? (
-            <EmptyState>Belum ada produk.</EmptyState>
-          ) : (
-            <ProductGrid
-              products={state.data}
-              onSelectProduct={setSelectedSlug}
-            />
-          ))}
+
+        <div className="catalog__footer">
+          {phase === "loading" && (
+            <LoadingState>
+              {products.length === 0
+                ? "Memuat produk…"
+                : "Memuat produk berikutnya…"}
+            </LoadingState>
+          )}
+          {phase === "error" && <ErrorState error={error} onRetry={retry} />}
+          {phase === "ready" && hasMore && (
+            <button type="button" onClick={loadMore}>
+              Muat lebih banyak
+            </button>
+          )}
+          {phase === "ready" && !hasMore && (
+            <EmptyState>
+              {products.length === 0
+                ? "Belum ada produk."
+                : "Semua produk sudah ditampilkan."}
+            </EmptyState>
+          )}
+        </div>
       </Section>
     </div>
   );
