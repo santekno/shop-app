@@ -121,3 +121,19 @@ type UserToken struct {
 	UsedAt    sql.NullTime
 	CreatedAt time.Time
 }
+
+type Voucher struct {
+	ID           string
+	Code         string
+	Kind         string
+	Value        int64
+	MinSpend     int64
+	MaxDiscount  sql.NullInt64
+	StartsAt     time.Time
+	EndsAt       time.Time
+	UsageLimit   sql.NullInt32
+	UsedCount    int32
+	PerUserLimit int32
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}

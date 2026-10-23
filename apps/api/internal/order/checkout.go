@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/santekno/shop-app/apps/api/internal/address"
 	"github.com/santekno/shop-app/apps/api/internal/cart"
@@ -21,18 +22,28 @@ type Addresses interface {
 	Get(ctx context.Context, userID, id string) (address.Address, error)
 }
 
-// Deps is what the service needs; every field is required.
+// Repository is where orders and vouchers are stored.
+type Repository interface {
+	VoucherByCode(ctx context.Context, code string) (Voucher, error)
+}
+
+// Deps is what the service needs; every field but Clock is required.
 type Deps struct {
+	Repo      Repository
 	Carts     Carts
 	Addresses Addresses
 	Shipping  shipping.Provider
 	// OriginPostalCode is where parcels leave from
 	// (APP_SHIPPING_ORIGIN_POSTAL_CODE); the static table ignores it.
 	OriginPostalCode string
+	// Clock is the current time; time.Now when nil.
+	Clock func() time.Time
 }
 
 // Service is checkout and orders.
 type Service struct {
+	repo      Repository
+	now       func() time.Time
 	carts     Carts
 	addresses Addresses
 	shipping  shipping.Provider
@@ -41,9 +52,14 @@ type Service struct {
 
 // NewService returns a Service built from deps.
 func NewService(deps Deps) *Service {
-	return &Service{
+	s := &Service{
+		repo: deps.Repo, now: deps.Clock,
 		carts: deps.Carts, addresses: deps.Addresses, shipping: deps.Shipping, origin: deps.OriginPostalCode,
 	}
+	if s.now == nil {
+		s.now = time.Now
+	}
+	return s
 }
 
 // Errors about the checkout input.
@@ -62,6 +78,8 @@ type PreviewInput struct {
 	AddressID string
 	Courier   shipping.Courier
 	Service   string
+	// VoucherCode is normalized with NormalizeVoucherCode.
+	VoucherCode string
 }
 
 // Preview is what checkout would charge now, without writing anything.
@@ -70,6 +88,8 @@ type Preview struct {
 	Totals Totals
 	// Shipping is the chosen service's quote; nil until one is chosen.
 	Shipping *shipping.Quote
+	// Voucher is the applied voucher; nil without one.
+	Voucher *Voucher
 }
 
 // Preview validates userID's cart the way checkout will (ErrCartEmpty, or a
@@ -83,22 +103,36 @@ func (s *Service) Preview(ctx context.Context, userID string, in PreviewInput) (
 		return Preview{}, err
 	}
 	p := Preview{Lines: lines}
-	totals := CalculateTotals(TotalsInput{Lines: totalsLines(lines)})
+	input := TotalsInput{Lines: totalsLines(lines)}
+	goods := CalculateTotals(input)
+	if in.VoucherCode != "" {
+		v, err := s.repo.VoucherByCode(ctx, in.VoucherCode)
+		if err != nil {
+			return Preview{}, err
+		}
+		// The per-user limit needs the buyer's orders (artikel 08); the
+		// preview checks the window, the total limit and the minimum spend.
+		if err := v.check(s.now(), goods.Subtotal, 0); err != nil {
+			return Preview{}, err
+		}
+		p.Voucher = &v
+		input.Discount = v.discount()
+	}
 	if in.AddressID != "" {
 		a, err := s.address(ctx, userID, in.AddressID)
 		if err != nil {
 			return Preview{}, err
 		}
 		if in.Courier != "" {
-			q, err := s.quote(ctx, a, totals, in.Courier, in.Service)
+			q, err := s.quote(ctx, a, goods, in.Courier, in.Service)
 			if err != nil {
 				return Preview{}, err
 			}
 			p.Shipping = &q
-			totals = CalculateTotals(TotalsInput{Lines: totalsLines(lines), ShippingFee: q.Price})
+			input.ShippingFee = q.Price
 		}
 	}
-	p.Totals = totals
+	p.Totals = CalculateTotals(input)
 	return p, nil
 }
 

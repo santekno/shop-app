@@ -1982,6 +1982,12 @@ components:
           type: string
           maxLength: 20
           description: A `service` from `GET /v1/checkout/shipping-quotes`.
+        voucher_code:
+          type: string
+          minLength: 3
+          maxLength: 32
+          pattern: "^[A-Za-z0-9]+$"
+          description: A voucher code, matched case-insensitively.
 
     CheckoutPreview:
       type: object
@@ -1998,6 +2004,32 @@ components:
           description: The chosen courier service, priced now; `null` until `courier` and `service` are sent.
           oneOf:
             - $ref: "#/components/schemas/ShippingQuote"
+            - type: "null"
+        voucher:
+          description: The applied voucher; `null` without `voucher_code`. Its discount is `totals.discount`.
+          oneOf:
+            - $ref: "#/components/schemas/AppliedVoucher"
+            - type: "null"
+
+    AppliedVoucher:
+      type: object
+      required: [code, kind, value, max_discount]
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+          example: HEMAT10
+        kind:
+          type: string
+          enum: [percent, fixed]
+        value:
+          type: integer
+          minimum: 1
+          description: The percent (1–100) for `percent`, whole rupiah for `fixed`.
+        max_discount:
+          description: The most the voucher takes off, or `null` for no cap.
+          oneOf:
+            - $ref: "#/components/schemas/Money"
             - type: "null"
 
     OrderTotals:
@@ -2521,7 +2553,8 @@ components:
                   code: CART_NOT_FOUND
                   message: this cart token is not valid any more; forget it and start a new cart
     CheckoutConflict:
-      description: The cart is empty (`CART_EMPTY`), or some lines cannot be bought as they are (`CHECKOUT_PROBLEMS`, with every such line in `details.lines`, each a `CheckoutProblem`).
+      description: |
+        The cart is empty (`CART_EMPTY`); some lines cannot be bought as they are (`CHECKOUT_PROBLEMS`, with every such line in `details.lines`, each a `CheckoutProblem`); or the voucher does not apply (`VOUCHER_NOT_APPLICABLE`, with `details.voucher_code` and `details.reason`: `not_found` (no such code, or a promo that has not started yet: the two answer alike, so upcoming codes cannot be guessed), `expired`, `exhausted` (no uses left), `per_user_limit` (this buyer has used it up), or `min_spend` with `details.min_spend`).
       content:
         application/json:
           schema:
@@ -2548,6 +2581,16 @@ components:
                         available: 2
                         unit_price: { amount: 89000, currency: IDR }
                         price_when_added: { amount: 89000, currency: IDR }
+            voucher:
+              summary: The voucher does not apply
+              value:
+                error:
+                  code: VOUCHER_NOT_APPLICABLE
+                  message: this voucher cannot be used on this order
+                  details:
+                    voucher_code: HEMAT10
+                    reason: min_spend
+                    min_spend: { amount: 100000, currency: IDR }
     BadCheckoutRequest:
       description: The body or query breaks the schema (`VALIDATION_FAILED`, one entry per field), including an `address_id` that names none of the caller's addresses, and a `courier` + `service` the courier does not offer for this parcel now.
       content:

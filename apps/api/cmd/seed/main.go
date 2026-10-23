@@ -86,6 +86,12 @@ func run(ctx context.Context, databaseURL string, generated int) error {
 	}
 	fmt.Printf("products: %d added, %d already there\n", added, len(catalog)-added)
 
+	addedVouchers, err := seedVouchers(ctx, db)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("vouchers: %d added, %d already there\n", addedVouchers, len(vouchers)-addedVouchers)
+
 	if generated > 0 {
 		return seedGenerated(ctx, db, categoryIDs, generated)
 	}

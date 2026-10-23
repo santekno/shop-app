@@ -77,6 +77,7 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 	userRepo := user.NewPostgresRepository(db)
 	addressRepo := address.NewPostgresRepository(db)
 	cartRepo := cart.NewPostgresRepository(db)
+	orderRepo := order.NewPostgresRepository(db)
 
 	// Services: the business rules, given their repositories.
 	categoryService := category.NewService(categoryRepo)
@@ -96,7 +97,7 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 		logger.Warn("BITESHIP_API_KEY is empty: shipping fees come from the fixed rate table, not from the couriers")
 	}
 	orderService := order.NewService(order.Deps{
-		Carts: cartService, Addresses: addressService, Shipping: o.shipping,
+		Repo: orderRepo, Clock: o.clock, Carts: cartService, Addresses: addressService, Shipping: o.shipping,
 		OriginPostalCode: cfg.Shipping.OriginPostalCode,
 	})
 	accessTokens := auth.NewAccessTokens(cfg.Auth.JWTSecret, cfg.Auth.AccessTokenTTL, o.clock)

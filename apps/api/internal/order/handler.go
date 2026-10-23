@@ -19,6 +19,7 @@ const (
 	CodeCartEmpty           = "CART_EMPTY"
 	CodeCheckoutProblems    = "CHECKOUT_PROBLEMS"
 	CodeShippingUnavailable = "SHIPPING_UNAVAILABLE"
+	CodeVoucher             = "VOUCHER_NOT_APPLICABLE"
 )
 
 // Checkout is what the checkout handlers need from the service.
@@ -51,6 +52,8 @@ type previewBody struct {
 	AddressID string `json:"address_id" validate:"omitempty,uuid"`
 	Courier   string `json:"courier" validate:"omitempty,oneof=jne jnt sicepat"`
 	Service   string `json:"service" validate:"omitempty,max=20"`
+	// VoucherCode is matched case-insensitively.
+	VoucherCode string `json:"voucher_code" validate:"omitempty,alphanum,min=3,max=32"`
 }
 
 // checkChoice adds a message when the courier choice is incomplete: a
@@ -86,6 +89,7 @@ func (h *Handler) Preview(w http.ResponseWriter, r *http.Request) {
 	}
 	p, err := h.checkout.Preview(r.Context(), ctxx.UserID(r.Context()), PreviewInput{
 		AddressID: body.AddressID, Courier: shipping.Courier(body.Courier), Service: body.Service,
+		VoucherCode: NormalizeVoucherCode(body.VoucherCode),
 	})
 	if err != nil {
 		httpapi.Error(w, r, toHTTPError(err))
@@ -122,7 +126,21 @@ func (h *Handler) ShippingQuotes(w http.ResponseWriter, r *http.Request) {
 // toHTTPError maps the service's errors to the API's error responses.
 func toHTTPError(err error) error {
 	var problems *ProblemsError
+	var voucherErr *VoucherError
 	switch {
+	case errors.As(err, &voucherErr):
+		reason := voucherErr.Reason
+		if reason == VoucherNotStarted {
+			// A promo that has not started answers like an unknown code,
+			// so its code cannot be found out by trying (OWASP API6).
+			reason = VoucherNotFound
+		}
+		details := map[string]any{"voucher_code": voucherErr.Code, "reason": reason}
+		if voucherErr.Reason == VoucherMinSpend {
+			details["min_spend"] = cart.Rupiah(voucherErr.MinSpend)
+		}
+		return errx.New(CodeVoucher, "this voucher cannot be used on this order").
+			WithHTTPStatus(http.StatusConflict).WithDetails(details)
 	case errors.Is(err, ErrUnknownAddress):
 		return httpapi.ValidationError("invalid request", map[string]any{"address_id": "names none of your addresses"})
 	case errors.Is(err, ErrUnknownShippingService):
@@ -176,6 +194,24 @@ type previewJSON struct {
 	Lines    []cart.LineJSON `json:"lines"`
 	Totals   totalsJSON      `json:"totals"`
 	Shipping *quoteJSON      `json:"shipping"` // null until a service is chosen
+	Voucher  *voucherJSON    `json:"voucher"`  // null without a voucher
+}
+
+// voucherJSON is AppliedVoucher in api/openapi.yaml.
+type voucherJSON struct {
+	Code        string          `json:"code"`
+	Kind        string          `json:"kind"`
+	Value       int64           `json:"value"`
+	MaxDiscount *cart.MoneyJSON `json:"max_discount"`
+}
+
+func toVoucherJSON(v Voucher) *voucherJSON {
+	out := &voucherJSON{Code: v.Code, Kind: v.Kind, Value: v.Value}
+	if v.MaxDiscount > 0 {
+		m := cart.Rupiah(v.MaxDiscount)
+		out.MaxDiscount = &m
+	}
+	return out
 }
 
 // quoteJSON is ShippingQuote in api/openapi.yaml.
@@ -222,6 +258,9 @@ func toPreviewJSON(p Preview) previewJSON {
 	if p.Shipping != nil {
 		q := toQuoteJSON(*p.Shipping)
 		out.Shipping = &q
+	}
+	if p.Voucher != nil {
+		out.Voucher = toVoucherJSON(*p.Voucher)
 	}
 	return out
 }
