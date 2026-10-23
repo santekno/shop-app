@@ -27,6 +27,11 @@ info:
       JSON decoder replaces it with U+FFFD (the replacement character)
       before the API validates the value, so the stored text holds U+FFFD
       instead.
+    - Every response carries `X-Content-Type-Options: nosniff`,
+      `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`,
+      `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer` and
+      `Cache-Control: no-store`, plus `Strict-Transport-Security` outside
+      development.
     - Every response carries `X-Request-ID`: the caller's value when it is
       1-128 characters of `A-Za-z0-9._:-`, otherwise a generated one. Quote
       it when reporting a problem; the server logs carry the same ID.
@@ -501,6 +506,8 @@ paths:
       operationId: refreshTokens
       summary: Rotate the refresh token
       description: |
+        Rate limited: 60 per 15 minutes per client IP (429 `RATE_LIMITED`).
+
         Exchanges a refresh token for a new access token and a new refresh
         token of the same session. The presented refresh token never works
         again. Presenting one that was already rotated means someone else
@@ -528,6 +535,8 @@ paths:
           $ref: "#/components/responses/BadAuthRequest"
         "401":
           $ref: "#/components/responses/InvalidRefreshToken"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -773,6 +782,8 @@ paths:
       operationId: verifyEmail
       summary: Confirm the email address
       description: |
+        Rate limited: 30 per 15 minutes per client IP (429 `RATE_LIMITED`).
+
         Uses the token from the verification email: the account's
         `email_verified` becomes true and the token stops working.
         Registration sends the first email; a token works for 24 hours, and
@@ -792,6 +803,8 @@ paths:
           description: The email is verified.
         "400":
           $ref: "#/components/responses/BadEmailToken"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -848,6 +861,8 @@ paths:
       operationId: resetPassword
       summary: Set a new password with a reset token
       description: |
+        Rate limited: 10 per hour per client IP (429 `RATE_LIMITED`).
+
         Uses the token from the reset email to set a new password (same
         policy as registration). In the same transaction the email becomes
         verified, and **every session of the account is revoked**: its
@@ -864,6 +879,8 @@ paths:
           description: The password is changed and every session is over.
         "400":
           $ref: "#/components/responses/BadEmailToken"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "500":
           $ref: "#/components/responses/InternalError"
 

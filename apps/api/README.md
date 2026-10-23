@@ -36,9 +36,13 @@ The Go REST API behind the GoShop storefront, admin dashboard and mobile app. Th
 
 Routes marked **Access token** need `Authorization: Bearer <access_token>` (401 `UNAUTHORIZED` without one); routes marked **Seller or admin** also need that role (403 `FORBIDDEN` for a buyer). The token design is [ADR 0005](../../docs/adr/0005-auth-tokens.md): refresh tokens live hashed in PostgreSQL; a revoked session (logout, a reused refresh token, a password reset, a deleted account) is also marked in Redis as `goshop:session-revoked:<sid>` for one access-token lifetime, and the auth middleware checks that key on every request, so the session's access tokens stop working at once. Without Redis, authenticated requests fail with 500 rather than skip the check.
 
+### Security
+
+[`SECURITY.md`](SECURITY.md) maps the OWASP API Security Top 10 (2023) to what the API does, with the known limits and a checklist for new endpoints. Every response carries `nosniff`, a `default-src 'none'` CSP, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer` and `Cache-Control: no-store`, plus HSTS outside development (`httpapi.SecurityHeaders`).
+
 ### Rate limits
 
-Login, registration, forgot-password, Google sign-in and resending the verification email are rate limited with sdk `ratelimitx` (fixed windows in Redis, shared by every instance): per client IP, and for login and forgot-password also per email (hashed, so Redis holds no addresses). Over a limit the API answers 429 `RATE_LIMITED` with `Retry-After`. The limits are the `Limit*` values in `internal/auth/ratelimit.go`. An IPv6 client is counted by its /64 network, since one customer usually gets a whole /64. Behind a proxy, set `APP_TRUSTED_PROXY_HOPS` so the client IP comes from `X-Forwarded-For` (`1` on Railway; required outside development; [configuration](../../docs/configuration.md)). If Redis fails, the request fails (500) rather than skipping the limit.
+Login, registration, forgot-password, Google sign-in, refresh, email verification, password reset and resending the verification email are rate limited with sdk `ratelimitx` (fixed windows in Redis, shared by every instance): per client IP (per account for resending), and for login and forgot-password also per email (hashed, so Redis holds no addresses). Over a limit the API answers 429 `RATE_LIMITED` with `Retry-After`. The limits are the `Limit*` values in `internal/auth/ratelimit.go`. An IPv6 client is counted by its /64 network, since one customer usually gets a whole /64. Behind a proxy, set `APP_TRUSTED_PROXY_HOPS` so the client IP comes from `X-Forwarded-For` (`1` on Railway; required outside development; [configuration](../../docs/configuration.md)). If Redis fails, the request fails (500) rather than skipping the limit.
 
 ### Email in development
 

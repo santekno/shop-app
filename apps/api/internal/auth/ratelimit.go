@@ -32,12 +32,19 @@ var (
 	LimitForgotPerEmail = Limit{Name: "forgot-email", Max: 3, Window: time.Hour}
 	LimitGooglePerIP    = Limit{Name: "google-ip", Max: 20, Window: 15 * time.Minute}
 	LimitResendPerUser  = Limit{Name: "resend-user", Max: 3, Window: time.Hour}
+	// The token endpoints cannot be brute-forced (256-bit secrets), but each
+	// attempt costs a query, and a reset an argon2id hash: these limits
+	// bound that work (OWASP API4).
+	LimitRefreshPerIP     = Limit{Name: "refresh-ip", Max: 60, Window: 15 * time.Minute}
+	LimitVerifyEmailPerIP = Limit{Name: "verify-email-ip", Max: 30, Window: 15 * time.Minute}
+	LimitResetPerIP       = Limit{Name: "reset-ip", Max: 10, Window: time.Hour}
 )
 
 // Limits is every limit the auth endpoints use, for NewRedisRateLimiter.
 var Limits = []Limit{
 	LimitLoginPerIP, LimitLoginPerEmail, LimitRegisterPerIP, LimitForgotPerIP,
 	LimitForgotPerEmail, LimitGooglePerIP, LimitResendPerUser,
+	LimitRefreshPerIP, LimitVerifyEmailPerIP, LimitResetPerIP,
 }
 
 // RateLimiter counts attempts. The API uses RedisRateLimiter; a test passes

@@ -10,6 +10,7 @@ Start with the [repository README](../README.md) to run the project, then read t
 | [architecture.md](architecture.md) | How the clients, the API, the worker and the data stores fit together |
 | [erd.md](erd.md) | The initial data model: users, catalog, orders |
 | [`../api/openapi.yaml`](../api/openapi.yaml) | The API contract (OpenAPI 3.1), linted by `make lint-openapi` |
+| [`../apps/api/SECURITY.md`](../apps/api/SECURITY.md) | What the API does about each risk of the OWASP API Security Top 10 (2023), its known limits, and a checklist for new endpoints |
 
 ## Working on the code
 

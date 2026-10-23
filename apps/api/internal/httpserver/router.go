@@ -23,6 +23,9 @@ type Options struct {
 	AllowedOrigins []string
 	// RequestTimeout is the deadline of each request.
 	RequestTimeout time.Duration
+	// HSTS adds Strict-Transport-Security to every response; set it
+	// everywhere but development (see httpapi.SecurityHeaders).
+	HSTS bool
 	// Probes, when set, registers the health probes. They get every
 	// middleware except the request timeout: a probe must stay cheap
 	// and answer on its own terms, never with 503 TIMEOUT.
@@ -42,6 +45,9 @@ func NewRouter(opts Options, mount func(r chi.Router)) http.Handler {
 		//    panic or a timeout) has the request ID, and the client gets it
 		//    back in X-Request-ID.
 		sdkmw.RequestID(),
+		// 1b. Security headers on every response, errors and probes
+		//     included, before anything below can write one.
+		httpapi.SecurityHeaders(opts.HSTS),
 		// 2. Puts a logger carrying the request ID into the context, for
 		//    handlers and the error writer.
 		logging.Middleware(opts.Logger),

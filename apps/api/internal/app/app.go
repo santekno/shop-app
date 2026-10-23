@@ -107,6 +107,7 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 		Logger:         logger,
 		AllowedOrigins: cfg.CORSAllowedOrigins,
 		RequestTimeout: cfg.RequestTimeout,
+		HSTS:           !cfg.IsDevelopment(),
 		Probes:         func(r chi.Router) { health.Routes(r, healthHandler) },
 	}, func(r chi.Router) {
 		r.Route("/v1", func(r chi.Router) {

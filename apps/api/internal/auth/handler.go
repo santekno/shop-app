@@ -169,6 +169,9 @@ type refreshBody struct {
 // Refresh serves POST /v1/auth/refresh: 200 with new tokens; the presented
 // refresh token stops working.
 func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
+	if !h.allow(w, r, limitCheck{LimitRefreshPerIP, h.clientIP(r)}) {
+		return
+	}
 	var body refreshBody
 	if err := h.decodeValid(w, r, &body); err != nil {
 		httpapi.Error(w, r, err)
@@ -206,6 +209,9 @@ type tokenBody struct {
 // VerifyEmail serves POST /v1/auth/verify-email: 204, and the account's
 // email is verified.
 func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
+	if !h.allow(w, r, limitCheck{LimitVerifyEmailPerIP, h.clientIP(r)}) {
+		return
+	}
 	var body tokenBody
 	if err := h.decodeValid(w, r, &body); err != nil {
 		httpapi.Error(w, r, err)
@@ -268,6 +274,9 @@ type resetBody struct {
 // ResetPassword serves POST /v1/auth/reset-password: 204, the new password
 // works and every session of the account is over.
 func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
+	if !h.allow(w, r, limitCheck{LimitResetPerIP, h.clientIP(r)}) {
+		return
+	}
 	var body resetBody
 	if err := httpapi.DecodeJSON(w, r, &body); err != nil {
 		httpapi.Error(w, r, err)

@@ -32,6 +32,10 @@ make verify    # build, lint, docker images, unit + integration tests, secret sc
 
 On the `bab-1` branch these files arrive article by article: `.env.example` in artikel-13 and the `Makefile` (`make up`, `make verify`) in artikel-12.
 
+## Security
+
+[`apps/api/SECURITY.md`](apps/api/SECURITY.md) maps the OWASP API Security Top 10 (2023) to what the API does, with its known limits; [ADR 0005](docs/adr/0005-auth-tokens.md) is the token design.
+
 ## Deploy
 
 Every service has its own Dockerfile (built with the repository root as context) and a Railway config in `deploy/railway/`, so the monorepo deploys as separate services. The mobile app is built with EAS for Android and iOS.
