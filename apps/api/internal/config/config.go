@@ -95,6 +95,16 @@ type Config struct {
 	Database Database
 	// Auth configures tokens.
 	Auth Auth
+	// RedisURL is REDIS_URL, e.g. redis://localhost:6379/0 (rediss:// for
+	// TLS). It may hold a password, so it is never logged.
+	RedisURL string
+	// TrustedProxyHops is APP_TRUSTED_PROXY_HOPS (0-5): how many proxies in
+	// front of the API append to X-Forwarded-For. 0 trusts no header and
+	// rate-limits by the TCP peer (httpapi.ClientIP). It defaults to 0 in
+	// development only; staging and production must set it, because a wrong
+	// value either lets clients forge their address or puts every client
+	// behind the proxy's.
+	TrustedProxyHops int
 }
 
 // Auth configures the tokens of ADR 0005.
@@ -216,6 +226,12 @@ func Load() (Config, error) {
 		DefaultRefreshTokenTTL, time.Hour, 90*24*time.Hour)
 	errs = append(errs, err)
 
+	cfg.RedisURL, err = parseRedisURL(os.Getenv("REDIS_URL"))
+	errs = append(errs, err)
+
+	cfg.TrustedProxyHops, err = parseTrustedProxyHops(src.String("trusted.proxy.hops"), cfg.Env)
+	errs = append(errs, err)
+
 	if err := errors.Join(errs...); err != nil {
 		return Config{}, fmt.Errorf("config: %w", err)
 	}
@@ -281,6 +297,29 @@ func parseJWTSecret(value, env string) ([]byte, error) {
 		return nil, errors.New("JWT_SECRET: is the placeholder from .env.example, which is allowed in development only; generate one with: openssl rand -base64 48")
 	}
 	return []byte(value), nil
+}
+
+// parseTrustedProxyHops reads APP_TRUSTED_PROXY_HOPS (0-5). Outside
+// development it must be set, like GOOGLE_CLIENT_ID: there is no safe
+// default for a deployment (Railway: 1, see docs/configuration.md).
+func parseTrustedProxyHops(value, env string) (int, error) {
+	if value == "" && env != EnvDevelopment {
+		return 0, errors.New("APP_TRUSTED_PROXY_HOPS: is required outside development: the number of proxies that append to X-Forwarded-For (1 on Railway, 0 with none)")
+	}
+	return parseInt("APP_TRUSTED_PROXY_HOPS", value, 0, 0, 5)
+}
+
+// parseRedisURL checks that value is a redis:// or rediss:// URL. The value
+// can hold a password, so no error repeats it.
+func parseRedisURL(value string) (string, error) {
+	if value == "" {
+		return "", errors.New("REDIS_URL: is required, e.g. redis://localhost:6379/0")
+	}
+	u, err := url.Parse(value)
+	if err != nil || (u.Scheme != "redis" && u.Scheme != "rediss") || u.Host == "" {
+		return "", errors.New("REDIS_URL: must be a URL like redis://host:6379/0 (rediss:// for TLS)")
+	}
+	return value, nil
 }
 
 // parseGoogleClientID checks GOOGLE_CLIENT_ID: required outside development,

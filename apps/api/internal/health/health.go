@@ -66,3 +66,13 @@ func Logged(logger logx.Logger, name string, check healthx.Check) healthx.NamedC
 		},
 	}
 }
+
+// RedisCheckName fails while Redis cannot be reached (Bab 4).
+const RedisCheckName = "redis"
+
+// RedisCheck is the readiness check for Redis: a PING, bounded by healthx's
+// per-check timeout. Authenticated requests and rate limits need Redis, so
+// an instance that cannot reach it should not get traffic.
+func RedisCheck(redis healthx.Pinger) healthx.NamedCheck {
+	return healthx.NamedCheck{Name: RedisCheckName, Check: healthx.PingPinger(redis)}
+}

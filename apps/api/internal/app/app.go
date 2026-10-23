@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/redis/go-redis/v9"
 	"github.com/santekno/sdk/logx"
 
 	"github.com/santekno/shop-app/apps/api/internal/auth"
@@ -26,6 +27,7 @@ import (
 	"github.com/santekno/shop-app/apps/api/internal/logging"
 	"github.com/santekno/shop-app/apps/api/internal/mail"
 	"github.com/santekno/shop-app/apps/api/internal/product"
+	"github.com/santekno/shop-app/apps/api/internal/redisconn"
 	"github.com/santekno/shop-app/apps/api/internal/user"
 )
 
@@ -37,15 +39,16 @@ type App struct {
 	handler   http.Handler
 }
 
-// New builds the API from cfg on db, the PostgreSQL pool that Run opened.
-// Every dependency is created here and passed to the code that needs it;
-// nothing reaches for a global. New does not close db: whoever opened it
-// does, after the server has stopped.
-func New(cfg config.Config, logger logx.Logger, db *sql.DB, opts ...Option) *App {
+// New builds the API from cfg on db, the PostgreSQL pool, and rdb, the
+// Redis client, that Run opened. Every dependency is created here and
+// passed to the code that needs it; nothing reaches for a global. New
+// closes neither: whoever opened them does, after the server has stopped.
+func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalClient, opts ...Option) *App {
 	o := options{
 		// Development logs every email with its token, so a developer can
 		// copy it; elsewhere the body (and the token) is never logged.
-		mailer: mail.NewLogMailer(logger, cfg.IsDevelopment()),
+		mailer:  mail.NewLogMailer(logger, cfg.IsDevelopment()),
+		limiter: auth.NewRedisRateLimiter(redisconn.NewCounter(rdb), auth.Limits),
 	}
 	if cfg.Auth.GoogleClientID != "" {
 		o.google = auth.NewGoogleVerifier(cfg.Auth.GoogleClientID, time.Now)
@@ -81,11 +84,17 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, opts ...Option) *App
 	validator := httpapi.NewValidator()
 	categoryHandler := category.NewHandler(categoryService)
 	productHandler := product.NewHandler(productService, productService, validator)
-	authHandler := auth.NewHandler(authService, validator, time.Now)
+	authHandler := auth.NewHandler(auth.HandlerDeps{
+		Service:          authService,
+		Validator:        validator,
+		Limiter:          o.limiter,
+		Clock:            time.Now,
+		TrustedProxyHops: cfg.TrustedProxyHops,
+	})
 	userHandler := user.NewHandler(userService)
 	guard := auth.NewGuard(accessTokens)
 	healthHandler := health.NewHandler(logger, readiness, !cfg.IsDevelopment(),
-		health.PostgresCheck(db))
+		health.PostgresCheck(db), health.RedisCheck(redisconn.NewPinger(rdb)))
 
 	router := httpserver.NewRouter(httpserver.Options{
 		Logger:         logger,
@@ -117,9 +126,14 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, opts ...Option) *App
 type Option func(*options)
 
 type options struct {
-	mailer mail.Mailer
-	google auth.GoogleVerifier
+	mailer  mail.Mailer
+	google  auth.GoogleVerifier
+	limiter auth.RateLimiter
 }
+
+// WithRateLimiter replaces the Redis rate limiter, for tests that need to
+// control when a limit is hit.
+func WithRateLimiter(l auth.RateLimiter) Option { return func(o *options) { o.limiter = l } }
 
 // WithMailer makes the API send email through m instead of the log.
 func WithMailer(m mail.Mailer) Option { return func(o *options) { o.mailer = m } }
@@ -180,9 +194,15 @@ func Run(ctx context.Context, args []string, stdout io.Writer) error {
 	// after the last in-flight request finished during graceful shutdown.
 	defer closeDB(db, logger)
 
+	rdb, err := redisconn.Open(ctx, cfg.RedisURL)
+	if err != nil {
+		return err
+	}
+	defer closeRedis(rdb, logger)
+
 	// The Google key set fetches keys in the background for the life of the
 	// process, so it gets its own context rather than this one.
-	a := New(cfg, logger, db) //nolint:contextcheck // see above
+	a := New(cfg, logger, db, rdb) //nolint:contextcheck // see above
 
 	var lc net.ListenConfig
 	ln, err := lc.Listen(ctx, "tcp", cfg.Addr())
@@ -199,6 +219,15 @@ func closeDB(db *sql.DB, logger logx.Logger) {
 		return
 	}
 	logger.Info("database closed")
+}
+
+// closeRedis closes the Redis client after the server has stopped.
+func closeRedis(rdb *redis.Client, logger logx.Logger) {
+	if err := rdb.Close(); err != nil {
+		logger.Error("close redis", "error", err.Error())
+		return
+	}
+	logger.Info("redis closed")
 }
 
 // runMigrations is `api migrate`: the one way a deployed database gets its

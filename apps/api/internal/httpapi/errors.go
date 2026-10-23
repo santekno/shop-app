@@ -22,6 +22,7 @@ const (
 	CodeTimeout          = "TIMEOUT"
 	CodeUnauthorized     = "UNAUTHORIZED" // the code sdk middleware/chi JWTAuth uses
 	CodeForbidden        = "FORBIDDEN"
+	CodeRateLimited      = "RATE_LIMITED"
 )
 
 // The constructors below return a new *errx.AppError on every call, rather
@@ -43,6 +44,14 @@ func UnauthorizedError(message string) *errx.AppError {
 // not do this.
 func ForbiddenError() *errx.AppError {
 	return errx.New(CodeForbidden, "your role is not allowed to do this").WithHTTPStatus(http.StatusForbidden)
+}
+
+// RateLimitedError is 429 RATE_LIMITED: too many attempts. The caller also
+// sets Retry-After, and the same number of seconds is in details.
+func RateLimitedError(retryAfterSeconds int) *errx.AppError {
+	return errx.New(CodeRateLimited, "too many attempts; try again later").
+		WithHTTPStatus(http.StatusTooManyRequests).
+		WithDetails(map[string]any{"retry_after_seconds": retryAfterSeconds})
 }
 
 // MethodNotAllowedError is 405 METHOD_NOT_ALLOWED.

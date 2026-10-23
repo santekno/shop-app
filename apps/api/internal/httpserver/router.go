@@ -115,7 +115,9 @@ func corsMiddleware(origins []string) func(http.Handler) http.Handler {
 		// HEAD too: GetHead serves it, and browsers send it without a preflight.
 		AllowedMethods: []string{http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete},
 		AllowedHeaders: []string{"Accept", "Authorization", "Content-Type", sdkmw.HeaderRequestID},
-		ExposedHeaders: []string{sdkmw.HeaderRequestID},
+		// Headers a browser script may read on a cross-origin response:
+		// the request ID, Retry-After of a 429 and Location of a 201.
+		ExposedHeaders: []string{sdkmw.HeaderRequestID, "Retry-After", "Location"},
 		MaxAge:         300, // seconds a browser may cache a preflight answer
 	}
 	// go-chi/cors treats an empty AllowedOrigins as "allow every origin".

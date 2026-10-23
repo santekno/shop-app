@@ -90,7 +90,8 @@ paths:
         Checks: `server` fails from the moment the API receives SIGTERM
         until it exits, so traffic drains before shutdown; `postgres` (Bab 3)
         fails while a ping through the connection pool fails or takes longer
-        than 2s. Bab 4 adds `redis`. The probes run outside the request
+        than 2s; `redis` (Bab 4) fails while a PING to Redis fails, because
+        authenticated requests and rate limits need it. The probes run outside the request
         timeout, so they never answer 503 `TIMEOUT`.
       responses:
         "200":
@@ -104,6 +105,7 @@ paths:
                 checks:
                   server: { status: ok, duration_ms: 0 }
                   postgres: { status: ok, duration_ms: 1 }
+                  redis: { status: ok, duration_ms: 0 }
         "503":
           $ref: "#/components/responses/Unavailable"
 
@@ -413,6 +415,8 @@ paths:
       operationId: register
       summary: Create an account
       description: |
+        Rate limited: 10 per hour per client IP (429 `RATE_LIMITED`).
+
         Creates a `buyer` account. The email is trimmed and lower-cased, and
         must be plain ASCII. The password must be 8 to 128 characters and
         not one of the most common leaked passwords; there are no rules
@@ -445,6 +449,8 @@ paths:
           $ref: "#/components/responses/BadAuthRequest"
         "409":
           $ref: "#/components/responses/EmailTaken"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -454,6 +460,8 @@ paths:
       operationId: login
       summary: Log in with email and password
       description: |
+        Rate limited: 20 per 15 minutes per client IP and 5 per 15 minutes per email (429 `RATE_LIMITED`).
+
         Returns a short-lived access token (a JWT, `APP_ACCESS_TOKEN_TTL`,
         15 minutes by default) to send as `Authorization: Bearer <token>`.
 
@@ -482,6 +490,8 @@ paths:
           $ref: "#/components/responses/BadAuthRequest"
         "401":
           $ref: "#/components/responses/InvalidCredentials"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -597,7 +607,7 @@ paths:
       tags: [Auth]
       operationId: resendVerification
       summary: Send a new verification email
-      description: Sends a new verification token to the caller's email; older tokens stop working. Does nothing when the email is verified already. Answers 202 either way.
+      description: Sends a new verification token to the caller's email; older tokens stop working. Does nothing when the email is verified already. Answers 202 either way, and 429 `RATE_LIMITED` after 3 requests per hour per account.
       security:
         - bearerAuth: []
       responses:
@@ -605,6 +615,8 @@ paths:
           description: A new email is on its way, or none was needed.
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -614,6 +626,8 @@ paths:
       operationId: forgotPassword
       summary: Ask for a password-reset email
       description: |
+        Rate limited: 5 per hour per client IP and 3 per hour per email (429 `RATE_LIMITED`).
+
         Emails a reset token (valid for 30 minutes; only the newest works)
         when the email has an account. Always answers 202, whether or not
         it does, so the endpoint does not reveal which emails are
@@ -630,6 +644,8 @@ paths:
           description: If the email has an account, a reset email is on its way.
         "400":
           $ref: "#/components/responses/BadAuthRequest"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -665,6 +681,8 @@ paths:
       operationId: googleLogin
       summary: Sign in with Google
       description: |
+        Rate limited: 20 per 15 minutes per client IP (429 `RATE_LIMITED`).
+
         Takes a Google **ID token** that the web or mobile app got from
         Google Sign-In, and returns the tokens of a new session.
 
@@ -703,6 +721,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/EmailTaken"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -1432,6 +1452,30 @@ components:
             error:
               code: TOKEN_INVALID
               message: the Google sign-in could not be verified; try again
+
+    RateLimited:
+      description: |
+        Too many attempts. Wait `Retry-After` seconds (also in
+        `details.retry_after_seconds`) and try again. Limits are fixed
+        windows counted in Redis per client IP, per email or per account,
+        shared by every API instance; every attempt counts, successful or
+        not.
+      headers:
+        Retry-After:
+          description: Seconds until the window resets.
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: RATE_LIMITED
+              message: too many attempts; try again later
+              details:
+                retry_after_seconds: 540
 
     InternalError:
       description: Unexpected server error. The code is always `INTERNAL_ERROR`, the code sdk `middleware/chi` `Recovery` writes after a panic, and handlers use the same code for every other 500. The details are in the server log, never in the response.

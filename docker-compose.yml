@@ -64,7 +64,8 @@ services:
       DATABASE_URL: postgres://goshop:goshop@postgres:5432/goshop?sslmode=disable
       # `api migrate` validates the whole configuration like the server
       # does (Railway's pre-deploy command runs with the api's variables),
-      # so it gets the same required values; it uses neither.
+      # so it gets the same required values, though it uses none of them.
+      REDIS_URL: redis://redis:6379/0
       JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-string}
     depends_on:
       postgres:
@@ -72,8 +73,8 @@ services:
     restart: "no"
 
   # GoShop API (Bab 2). Built from its Dockerfile with the repo root as context,
-  # like Railway. It starts once postgres is healthy and the migrate service
-  # has finished. Values below are local defaults; a .env file next to this
+  # like Railway. It starts once postgres and redis are healthy and the
+  # migrate service has finished. Values below are local defaults; a .env file next to this
   # one overrides them.
   api:
     build:
@@ -81,6 +82,8 @@ services:
       dockerfile: apps/api/Dockerfile
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
@@ -98,6 +101,9 @@ services:
       APP_DB_MAX_OPEN_CONNS: ${APP_DB_MAX_OPEN_CONNS:-10}
       APP_DB_MAX_IDLE_CONNS: ${APP_DB_MAX_IDLE_CONNS:-5}
       APP_DB_CONN_MAX_LIFETIME: ${APP_DB_CONN_MAX_LIFETIME:-30m}
+      # Inside the Compose network Redis is "redis", like postgres above.
+      REDIS_URL: redis://redis:6379/0
+      APP_TRUSTED_PROXY_HOPS: ${APP_TRUSTED_PROXY_HOPS:-0}
       # The .env.example placeholder, which the API accepts only when
       # APP_ENV=development; set a real JWT_SECRET in .env for anything else.
       JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-string}

@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"github.com/santekno/sdk/logx"
 	"github.com/santekno/sdk/testx"
 
@@ -30,9 +31,11 @@ const testDatabaseURL = "postgres://localhost:5432/goshop?sslmode=disable"
 // requiredEnv is every variable Load requires, with test values (none of
 // them is real).
 var requiredEnv = map[string]string{
-	"DATABASE_URL":     testDatabaseURL,
-	"JWT_SECRET":       "unit-test-jwt-secret-not-a-real-key-0123456789",
-	"GOOGLE_CLIENT_ID": "goshop-test.apps.googleusercontent.com",
+	"DATABASE_URL":           testDatabaseURL,
+	"JWT_SECRET":             "unit-test-jwt-secret-not-a-real-key-0123456789",
+	"GOOGLE_CLIENT_ID":       "goshop-test.apps.googleusercontent.com",
+	"REDIS_URL":              "redis://localhost:6379/0",
+	"APP_TRUSTED_PROXY_HOPS": "0",
 }
 
 // setEnv clears every APP_* variable, PORT and DATABASE_URL for the test,
@@ -73,8 +76,17 @@ func testConfig(env string) config.Config {
 	}
 }
 
+// testRedis is a go-redis client on an in-process fake Redis.
+func testRedis(t *testing.T) redis.UniversalClient {
+	t.Helper()
+	f := newFakeRedis(t)
+	c := redis.NewClient(&redis.Options{Addr: f.addr(), MaxRetries: -1})
+	t.Cleanup(func() { _ = c.Close() })
+	return c
+}
+
 func TestApp_Handler(t *testing.T) {
-	a := app.New(testConfig(config.EnvDevelopment), logx.Noop(), (&fakeDB{}).open(t))
+	a := app.New(testConfig(config.EnvDevelopment), logx.Noop(), (&fakeDB{}).open(t), testRedis(t))
 	h := a.Handler()
 
 	tests := []struct {
@@ -110,7 +122,7 @@ func TestApp_Handler(t *testing.T) {
 // The handlers and /readyz use the pool New was given, not one of their own.
 func TestApp_UsesTheGivenPool(t *testing.T) {
 	db := (&fakeDB{pingErr: errors.New("connection refused"), queryErr: errors.New("connection refused")}).open(t)
-	h := app.New(testConfig(config.EnvDevelopment), logx.Noop(), db).Handler()
+	h := app.New(testConfig(config.EnvDevelopment), logx.Noop(), db, testRedis(t)).Handler()
 
 	for _, path := range []string{"/v1/categories", "/v1/products"} {
 		rec := httptest.NewRecorder()
@@ -146,7 +158,7 @@ func TestApp_AdminRoutesNeedAToken(t *testing.T) {
 	}
 	for _, env := range []string{config.EnvDevelopment, config.EnvStaging, config.EnvProduction} {
 		t.Run(env, func(t *testing.T) {
-			h := app.New(testConfig(env), logx.Noop(), (&fakeDB{}).open(t)).Handler()
+			h := app.New(testConfig(env), logx.Noop(), (&fakeDB{}).open(t), testRedis(t)).Handler()
 			for _, req := range requests {
 				rec := httptest.NewRecorder()
 				h.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), req.method, req.path, strings.NewReader("{}")))
@@ -166,7 +178,7 @@ func TestApp_AdminRoutesNeedAToken(t *testing.T) {
 // HEAD works on the API and on the probes, with an empty body. It goes
 // through a real server: httptest.ResponseRecorder would keep the GET body.
 func TestApp_Head(t *testing.T) {
-	srv := httptest.NewServer(app.New(testConfig(config.EnvDevelopment), logx.Noop(), (&fakeDB{}).open(t)).Handler())
+	srv := httptest.NewServer(app.New(testConfig(config.EnvDevelopment), logx.Noop(), (&fakeDB{}).open(t), testRedis(t)).Handler())
 	defer srv.Close()
 
 	for _, path := range []string{"/v1/categories", "/healthz", "/readyz"} {
@@ -200,7 +212,7 @@ func TestApp_ServeDrainsReadiness(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.env, func(t *testing.T) {
 			var logs bytes.Buffer
-			a := app.New(testConfig(tt.env), logx.New(logx.WithOutput(&logs), logx.WithFormat("json")), (&fakeDB{}).open(t))
+			a := app.New(testConfig(tt.env), logx.New(logx.WithOutput(&logs), logx.WithFormat("json")), (&fakeDB{}).open(t), testRedis(t))
 			var lc net.ListenConfig
 			ln, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
 			if err != nil {

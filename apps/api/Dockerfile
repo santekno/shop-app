@@ -18,7 +18,10 @@ RUN go mod download
 COPY apps/api/ ./
 # CGO off: a static binary that runs on an image with no C library.
 # -trimpath drops local paths from the binary; -s -w strips debug symbols.
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/api ./cmd/api
+# One package at a time (-p=1) and a tighter compiler GC (GOGC=50): with
+# parallel compiles, go-redis (Bab 4) alone ran a 2 GiB Docker VM out of
+# memory. The build gets a little slower; the image is the same.
+RUN GOFLAGS=-p=1 GOGC=50 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/api ./cmd/api
 
 # --- runtime: just the binary --------------------------------------------
 # distroless/static has no shell or package manager, only CA certificates,

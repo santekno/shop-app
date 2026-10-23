@@ -102,7 +102,7 @@ func startServerWithPool(t *testing.T, env map[string]string, pool *sql.DB) *ser
 	// Registered before the server's own cleanup, so it runs after it: the
 	// pool closes once the server has stopped, as in Run.
 	t.Cleanup(func() { _ = pool.Close() })
-	a := app.New(cfg, logger, pool)
+	a := app.New(cfg, logger, pool, nil)
 
 	var lc net.ListenConfig
 	ln, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")

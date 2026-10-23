@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -38,18 +39,35 @@ type Accounts interface {
 
 // Handler serves the /v1/auth endpoints.
 type Handler struct {
-	svc       Accounts
-	validator *httpapi.Validator
-	now       func() time.Time
+	svc         Accounts
+	validator   *httpapi.Validator
+	limiter     RateLimiter
+	now         func() time.Time
+	trustedHops int
 }
 
-// NewHandler returns a Handler. now is the clock for "expires_in"; nil
-// means time.Now.
-func NewHandler(svc Accounts, validator *httpapi.Validator, now func() time.Time) *Handler {
-	if now == nil {
-		now = time.Now
+// HandlerDeps is what the handler needs. Service, Validator and Limiter
+// are required.
+type HandlerDeps struct {
+	Service   Accounts
+	Validator *httpapi.Validator
+	Limiter   RateLimiter
+	// Clock is the clock for "expires_in"; time.Now when nil.
+	Clock func() time.Time
+	// TrustedProxyHops is APP_TRUSTED_PROXY_HOPS, for httpapi.ClientIP.
+	TrustedProxyHops int
+}
+
+// NewHandler returns a Handler built from deps.
+func NewHandler(deps HandlerDeps) *Handler {
+	h := &Handler{
+		svc: deps.Service, validator: deps.Validator, limiter: deps.Limiter,
+		now: deps.Clock, trustedHops: deps.TrustedProxyHops,
 	}
-	return &Handler{svc: svc, validator: validator, now: now}
+	if h.now == nil {
+		h.now = time.Now
+	}
+	return h
 }
 
 // Routes registers the auth routes on r (mounted under /v1).
@@ -80,6 +98,9 @@ type registerBody struct {
 
 // Register serves POST /v1/auth/register: 201 with the new account.
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
+	if !h.allow(w, r, limitCheck{LimitRegisterPerIP, h.clientIP(r)}) {
+		return
+	}
 	var body registerBody
 	if err := httpapi.DecodeJSON(w, r, &body); err != nil {
 		httpapi.Error(w, r, err)
@@ -118,7 +139,15 @@ type loginBody struct {
 // INVALID_CREDENTIALS whatever was wrong.
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	var body loginBody
-	if err := h.decodeValid(w, r, &body); err != nil {
+	if err := httpapi.DecodeJSON(w, r, &body); err != nil {
+		httpapi.Error(w, r, err)
+		return
+	}
+	// Counted before validation, so a malformed attempt costs one too.
+	if !h.allow(w, r, limitCheck{LimitLoginPerIP, h.clientIP(r)}, limitCheck{LimitLoginPerEmail, EmailKey(body.Email)}) {
+		return
+	}
+	if err := h.validator.Struct(body); err != nil {
 		httpapi.Error(w, r, err)
 		return
 	}
@@ -193,6 +222,9 @@ func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 // new token is on its way unless the email is verified already.
 func (h *Handler) ResendVerification(w http.ResponseWriter, r *http.Request) {
 	claims, _ := ClaimsFrom(r.Context()) // the route is behind Guard.Authenticate
+	if !h.allow(w, r, limitCheck{LimitResendPerUser, claims.UserID}) {
+		return
+	}
 	if err := h.svc.ResendVerification(r.Context(), claims.UserID); err != nil {
 		httpapi.Error(w, r, toHTTPError(err))
 		return
@@ -209,7 +241,14 @@ type forgotBody struct {
 // answer does not say whether the email has an account.
 func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 	var body forgotBody
-	if err := h.decodeValid(w, r, &body); err != nil {
+	if err := httpapi.DecodeJSON(w, r, &body); err != nil {
+		httpapi.Error(w, r, err)
+		return
+	}
+	if !h.allow(w, r, limitCheck{LimitForgotPerIP, h.clientIP(r)}, limitCheck{LimitForgotPerEmail, EmailKey(body.Email)}) {
+		return
+	}
+	if err := h.validator.Struct(body); err != nil {
 		httpapi.Error(w, r, err)
 		return
 	}
@@ -260,6 +299,9 @@ type googleBody struct {
 // GoogleLogin serves POST /v1/auth/google: 200 with the tokens of a new
 // session, creating the account on the first sign-in.
 func (h *Handler) GoogleLogin(w http.ResponseWriter, r *http.Request) {
+	if !h.allow(w, r, limitCheck{LimitGooglePerIP, h.clientIP(r)}) {
+		return
+	}
 	var body googleBody
 	if err := h.decodeValid(w, r, &body); err != nil {
 		httpapi.Error(w, r, err)
@@ -271,6 +313,39 @@ func (h *Handler) GoogleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpapi.JSON(w, r, http.StatusOK, dataResponse{Data: toTokensJSON(tokens, h.now())})
+}
+
+// limitCheck is one rate limit to apply, with the key to count under.
+type limitCheck struct {
+	limit Limit
+	key   string
+}
+
+// allow counts the request under every check, in order, and reports
+// whether it may go on. Otherwise it has answered 429 RATE_LIMITED with
+// Retry-After (whole seconds, rounded up), or 500 when Redis failed: a
+// limit that cannot be checked is not skipped.
+func (h *Handler) allow(w http.ResponseWriter, r *http.Request, checks ...limitCheck) bool {
+	for _, c := range checks {
+		ok, retryAfter, err := h.limiter.Allow(r.Context(), c.limit, c.key)
+		if err != nil {
+			httpapi.Error(w, r, err)
+			return false
+		}
+		if !ok {
+			seconds := max(1, int((retryAfter+time.Second-1)/time.Second))
+			w.Header().Set("Retry-After", strconv.Itoa(seconds))
+			httpapi.Error(w, r, httpapi.RateLimitedError(seconds))
+			return false
+		}
+	}
+	return true
+}
+
+// clientIP is the caller's key for the per-IP limits: its address, or its
+// /64 for IPv6 (httpapi.RateLimitKey).
+func (h *Handler) clientIP(r *http.Request) string {
+	return httpapi.RateLimitKey(httpapi.ClientIP(r, h.trustedHops))
 }
 
 // decodeValid decodes the JSON body into dst and validates it.

@@ -11,7 +11,7 @@ The Go REST API behind the GoShop storefront, admin dashboard and mobile app. Th
 | Method | Path | What |
 |---|---|---|
 | GET | `/healthz` | Liveness: 200 while the process runs |
-| GET | `/readyz` | Readiness: 503 while the server drains during shutdown, or while PostgreSQL does not answer a ping (`postgres` check) |
+| GET | `/readyz` | Readiness: 503 while the server drains during shutdown, or while PostgreSQL (`postgres` check) or Redis (`redis` check) does not answer a ping |
 | GET | `/v1/categories` | Every category, top-level first, sorted by name, from PostgreSQL (`make seed` fills it) |
 | GET | `/v1/products` | One page of active products with their sellable variants, `price_from` and a computed `in_stock` |
 | GET | `/v1/products/{slug}` | One active product; a malformed or unknown slug is 404 |
@@ -31,6 +31,10 @@ The Go REST API behind the GoShop storefront, admin dashboard and mobile app. Th
 | DELETE | `/v1/admin/products/{id}` | **Seller or admin.** Archive a product (soft delete) |
 
 Routes marked **Access token** need `Authorization: Bearer <access_token>` (401 `UNAUTHORIZED` without one); routes marked **Seller or admin** also need that role (403 `FORBIDDEN` for a buyer). The token design is [ADR 0005](../../docs/adr/0005-auth-tokens.md).
+
+### Rate limits
+
+Login, registration, forgot-password, Google sign-in and resending the verification email are rate limited with sdk `ratelimitx` (fixed windows in Redis, shared by every instance): per client IP, and for login and forgot-password also per email (hashed, so Redis holds no addresses). Over a limit the API answers 429 `RATE_LIMITED` with `Retry-After`. The limits are the `Limit*` values in `internal/auth/ratelimit.go`. An IPv6 client is counted by its /64 network, since one customer usually gets a whole /64. Behind a proxy, set `APP_TRUSTED_PROXY_HOPS` so the client IP comes from `X-Forwarded-For` (`1` on Railway; required outside development; [configuration](../../docs/configuration.md)). If Redis fails, the request fails (500) rather than skipping the limit.
 
 ### Email in development
 
@@ -54,7 +58,7 @@ Every error, including unknown routes (404 `NOT_FOUND`) and wrong methods (405 `
 
 ## Run it
 
-All settings come from environment variables ([docs/configuration.md](../../docs/configuration.md)). `APP_ENV`, `DATABASE_URL` and `JWT_SECRET` are required; everything else has a default. The API pings PostgreSQL once at start and exits if it cannot, then shares one connection pool (`APP_DB_*` sizes it) for its whole life and closes it after graceful shutdown.
+All settings come from environment variables ([docs/configuration.md](../../docs/configuration.md)). `APP_ENV`, `DATABASE_URL`, `REDIS_URL` and `JWT_SECRET` are required (and `GOOGLE_CLIENT_ID` outside development); everything else has a default. The API pings PostgreSQL once at start and exits if it cannot, then shares one connection pool (`APP_DB_*` sizes it) for its whole life and closes it after graceful shutdown.
 
 Every connection asks Postgres for `plan_cache_mode=force_custom_plan` ([why](../../docs/explain/catalog.md#12-and-13-why-the-api-forces-custom-plans)); the API logs a warning at start when the session did not get it, and [docs/configuration.md](../../docs/configuration.md) says what to do behind a pooler.
 
@@ -65,7 +69,8 @@ curl -i localhost:8080/v1/categories
 
 # or directly with Go, against the Compose postgres (make migrate-up && make seed first)
 cd apps/api
-APP_ENV=development DATABASE_URL='postgres://goshop:goshop@localhost:5432/goshop?sslmode=disable' go run ./cmd/api
+APP_ENV=development DATABASE_URL='postgres://goshop:goshop@localhost:5432/goshop?sslmode=disable' \
+  REDIS_URL=redis://localhost:6379/0 JWT_SECRET=change-me-to-a-long-random-string go run ./cmd/api
 ```
 
 ### Hot reload

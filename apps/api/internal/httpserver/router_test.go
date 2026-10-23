@@ -232,7 +232,7 @@ func TestRouter_CORS(t *testing.T) {
 			header:      map[string]string{"Origin": allowed},
 			wantStatus:  http.StatusOK,
 			wantOrigin:  allowed,
-			wantExposed: "X-Request-Id",
+			wantExposed: "X-Request-Id, Retry-After, Location",
 		},
 		{
 			name:        "allowed origin also on an error response",
@@ -242,7 +242,7 @@ func TestRouter_CORS(t *testing.T) {
 			header:      map[string]string{"Origin": allowed},
 			wantStatus:  http.StatusNotFound,
 			wantOrigin:  allowed,
-			wantExposed: "X-Request-Id",
+			wantExposed: "X-Request-Id, Retry-After, Location",
 		},
 		{
 			name:        "allowed preflight",
