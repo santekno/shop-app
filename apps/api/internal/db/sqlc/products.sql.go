@@ -164,6 +164,26 @@ func (q *Queries) GetProduct(ctx context.Context, id string) (GetProductRow, err
 	return i, err
 }
 
+const getVariantVersion = `-- name: GetVariantVersion :one
+SELECT version FROM product_variants
+WHERE id = $1 AND product_id = $2 AND archived_at IS NULL
+`
+
+type GetVariantVersionParams struct {
+	ID        string
+	ProductID string
+}
+
+// After UpdateVariant changed nothing: a row here means the version was
+// stale (409 VERSION_CONFLICT); no row, that the id is not a sellable
+// variant of the product.
+func (q *Queries) GetVariantVersion(ctx context.Context, arg GetVariantVersionParams) (int32, error) {
+	row := q.db.QueryRowContext(ctx, getVariantVersion, arg.ID, arg.ProductID)
+	var version int32
+	err := row.Scan(&version)
+	return version, err
+}
+
 const insertProduct = `-- name: InsertProduct :exec
 INSERT INTO products (id, category_id, slug, name, description, status, price_from)
 VALUES ($1, $2, $3, $4, $5, 'draft', NULL)
@@ -530,7 +550,7 @@ func (q *Queries) ListProductsPriceDesc(ctx context.Context, arg ListProductsPri
 }
 
 const listSellableVariants = `-- name: ListSellableVariants :many
-SELECT id, sku, name, price, stock, weight_grams
+SELECT id, sku, name, price, stock, weight_grams, version
 FROM product_variants
 WHERE product_id = $1 AND archived_at IS NULL
 ORDER BY price, position, id
@@ -543,8 +563,11 @@ type ListSellableVariantsRow struct {
 	Price       int64
 	Stock       int32
 	WeightGrams int32
+	Version     int32
 }
 
+// version goes to the admin form and comes back with the save (the
+// optimistic check in UpdateVariant).
 func (q *Queries) ListSellableVariants(ctx context.Context, productID string) ([]ListSellableVariantsRow, error) {
 	rows, err := q.db.QueryContext(ctx, listSellableVariants, productID)
 	if err != nil {
@@ -561,6 +584,7 @@ func (q *Queries) ListSellableVariants(ctx context.Context, productID string) ([
 			&i.Price,
 			&i.Stock,
 			&i.WeightGrams,
+			&i.Version,
 		); err != nil {
 			return nil, err
 		}
@@ -589,6 +613,28 @@ func (q *Queries) LockProduct(ctx context.Context, id string) (string, error) {
 	var id_2 string
 	err := row.Scan(&id_2)
 	return id_2, err
+}
+
+const lockProductVariants = `-- name: LockProductVariants :exec
+SELECT id FROM product_variants
+WHERE product_id = $1
+ORDER BY id
+FOR UPDATE
+`
+
+// An admin save's second lock, right after LockProduct: every variant of
+// the product, archived ones too, in id order, the order checkout, cancel
+// and expiry lock variants in (ADR 0006, "Lock order"). The save then
+// writes them in the form's order without taking a lock out of turn: two
+// transactions locking the same variants in opposite orders deadlock.
+// FOR UPDATE, not FOR NO KEY UPDATE: a save may change a SKU, a unique key,
+// and that update needs the strongest lock; taking it now, in id order,
+// means it is never upgraded later, out of turn, while a cart merge holds
+// FOR KEY SHARE on the same variants. Served by
+// product_variants_product_id_idx.
+func (q *Queries) LockProductVariants(ctx context.Context, productID string) error {
+	_, err := q.db.ExecContext(ctx, lockProductVariants, productID)
+	return err
 }
 
 const updateProduct = `-- name: UpdateProduct :execrows
@@ -642,6 +688,7 @@ SET sku          = $1,
     version      = version + 1,
     updated_at   = now()
 WHERE id = $7 AND product_id = $8 AND archived_at IS NULL
+  AND version = $9
 `
 
 type UpdateVariantParams struct {
@@ -653,11 +700,14 @@ type UpdateVariantParams struct {
 	Position    int16
 	ID          string
 	ProductID   string
+	Version     int32
 }
 
-// Every change to a variant bumps version, so the optimistic stock check in
-// Bab 5 notices it. Zero rows: the variant is not a sellable variant of this
-// product.
+// Optimistic locking (ADR 0006): the admin's form sends back the version it
+// was loaded with, and the row changes only if nobody (a checkout taking
+// stock, another admin) changed it since. Every change bumps version. Zero
+// rows: a version conflict, or not a sellable variant of this product
+// (GetVariantVersion tells which).
 func (q *Queries) UpdateVariant(ctx context.Context, arg UpdateVariantParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, updateVariant,
 		arg.Sku,
@@ -668,6 +718,7 @@ func (q *Queries) UpdateVariant(ctx context.Context, arg UpdateVariantParams) (i
 		arg.Position,
 		arg.ID,
 		arg.ProductID,
+		arg.Version,
 	)
 	if err != nil {
 		return 0, err

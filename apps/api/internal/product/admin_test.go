@@ -167,6 +167,7 @@ func TestAdmin_UpdateProduct(t *testing.T) {
 	rec := serve(svc, http.MethodPut, "/v1/admin/products/"+productID, body(t, func(m map[string]any) {
 		v := variant("kph-s")
 		v["id"] = variantID
+		v["version"] = 3 // the version the form loaded
 		m["variants"] = variants(v, variant("kph-xl"))
 	}))
 
@@ -176,7 +177,9 @@ func TestAdmin_UpdateProduct(t *testing.T) {
 	in := svc.updated[0]
 	testx.AssertEqual(t, in.Variants[0].ID, variantID, "an existing variant keeps its id")
 	testx.AssertEqual(t, in.Variants[0].SKU, "KPH-S")
+	testx.AssertEqual(t, in.Variants[0].Version, int32(3), "the loaded version goes to the repository's check")
 	testx.AssertEqual(t, in.Variants[1].ID, "", "a new variant has none")
+	testx.AssertEqual(t, in.Variants[1].Version, int32(0), "nor a version")
 	testx.AssertEqual(t, in.Variants[1].SKU, "KPH-XL")
 }
 
@@ -285,6 +288,7 @@ func TestAdmin_Validation(t *testing.T) {
 			}),
 			want: map[string]any{
 				"variants[1].id":           "is invalid",
+				"variants[1].version":      "is required with id: send the version the variant was loaded with",
 				"variants[1].sku":          "is required",
 				"variants[1].name":         "is required",
 				"variants[1].price":        "must be between 1 and 1000000000",
@@ -307,9 +311,30 @@ func TestAdmin_Validation(t *testing.T) {
 			body: body(t, func(m map[string]any) {
 				a, b := variant("A"), variant("B")
 				a["id"], b["id"] = variantID, variantID
+				a["version"], b["version"] = 1, 1
 				m["variants"] = variants(a, b)
 			}),
 			want: map[string]any{"variants[1].id": "is listed twice in this request"},
+		},
+		{
+			// ADR 0006: an existing variant is saved only at the version
+			// the form loaded, so the version cannot be left out.
+			name: "an existing variant without its version",
+			body: body(t, func(m map[string]any) {
+				v := variant("KPH-S")
+				v["id"] = variantID
+				m["variants"] = variants(v, variant("KPH-M"))
+			}),
+			want: map[string]any{"variants[0].version": "is required with id: send the version the variant was loaded with"},
+		},
+		{
+			name: "a negative version",
+			body: body(t, func(m map[string]any) {
+				v := variant("KPH-S")
+				v["id"], v["version"] = variantID, -1
+				m["variants"] = variants(v)
+			}),
+			want: map[string]any{"variants[0].version": "must be at least 0"},
 		},
 		{
 			name: "blank SKUs are reported as required, not as duplicates",

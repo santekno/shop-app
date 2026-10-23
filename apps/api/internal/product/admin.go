@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/santekno/sdk/ptrx"
 	"github.com/santekno/sdk/uuidx"
 
 	"github.com/santekno/shop-app/apps/api/internal/httpapi"
@@ -36,7 +37,9 @@ type productBody struct {
 }
 
 type variantBody struct {
-	ID          string `json:"id" validate:"omitempty,uuid"`
+	ID string `json:"id" validate:"omitempty,uuid"`
+	// Version is required with ID: the version the admin's form loaded.
+	Version     *int32 `json:"version" validate:"omitnil,min=0"`
 	SKU         string `json:"sku" validate:"required,max=64"`
 	Name        string `json:"name" validate:"required,max=100"`
 	Price       int64  `json:"price" validate:"min=1,max=1000000000"`
@@ -132,7 +135,10 @@ func (h *Handler) decodeInput(w http.ResponseWriter, r *http.Request) (Input, er
 		Description: body.Description, Status: body.Status,
 	}
 	for _, v := range body.Variants {
-		in.Variants = append(in.Variants, VariantInput(v))
+		in.Variants = append(in.Variants, VariantInput{
+			ID: v.ID, SKU: v.SKU, Name: v.Name, Price: v.Price, Stock: v.Stock, WeightGrams: v.WeightGrams,
+			Version: ptrx.Deref(v.Version, 0), // a new variant has no version yet
+		})
 	}
 	return in, nil
 }
@@ -171,6 +177,9 @@ func (h *Handler) validate(body productBody) error {
 		if v.ID != "" && ids[v.ID] {
 			details[prefix+"id"] = "is listed twice in this request"
 		}
+		if v.ID != "" && v.Version == nil {
+			details[prefix+"version"] = "is required with id: send the version the variant was loaded with"
+		}
 		skus[v.SKU], ids[v.ID] = true, true
 	}
 	if len(details) > 0 {
@@ -188,6 +197,7 @@ type adminVariantJSON struct {
 	Price       moneyJSON `json:"price"`
 	Stock       int32     `json:"stock"`
 	WeightGrams int32     `json:"weight_grams"`
+	Version     int32     `json:"version"`
 }
 
 type adminProductJSON struct {
@@ -217,6 +227,7 @@ func toAdminJSON(p AdminProduct) adminProductJSON {
 	for _, v := range p.Variants {
 		out.Variants = append(out.Variants, adminVariantJSON{
 			ID: v.ID, SKU: v.SKU, Name: v.Name, Price: rupiah(v.Price), Stock: v.Stock, WeightGrams: v.WeightGrams,
+			Version: v.Version,
 		})
 	}
 	return out

@@ -118,8 +118,26 @@ FROM products
 WHERE id = @id
 FOR UPDATE;
 
+-- name: LockProductVariants :exec
+-- An admin save's second lock, right after LockProduct: every variant of
+-- the product, archived ones too, in id order, the order checkout, cancel
+-- and expiry lock variants in (ADR 0006, "Lock order"). The save then
+-- writes them in the form's order without taking a lock out of turn: two
+-- transactions locking the same variants in opposite orders deadlock.
+-- FOR UPDATE, not FOR NO KEY UPDATE: a save may change a SKU, a unique key,
+-- and that update needs the strongest lock; taking it now, in id order,
+-- means it is never upgraded later, out of turn, while a cart merge holds
+-- FOR KEY SHARE on the same variants. Served by
+-- product_variants_product_id_idx.
+SELECT id FROM product_variants
+WHERE product_id = @product_id
+ORDER BY id
+FOR UPDATE;
+
 -- name: ListSellableVariants :many
-SELECT id, sku, name, price, stock, weight_grams
+-- version goes to the admin form and comes back with the save (the
+-- optimistic check in UpdateVariant).
+SELECT id, sku, name, price, stock, weight_grams, version
 FROM product_variants
 WHERE product_id = @product_id AND archived_at IS NULL
 ORDER BY price, position, id;
@@ -151,9 +169,11 @@ INSERT INTO product_variants (id, product_id, sku, name, price, stock, weight_gr
 VALUES (@id, @product_id, @sku, @name, @price, @stock, @weight_grams, @position);
 
 -- name: UpdateVariant :execrows
--- Every change to a variant bumps version, so the optimistic stock check in
--- Bab 5 notices it. Zero rows: the variant is not a sellable variant of this
--- product.
+-- Optimistic locking (ADR 0006): the admin's form sends back the version it
+-- was loaded with, and the row changes only if nobody (a checkout taking
+-- stock, another admin) changed it since. Every change bumps version. Zero
+-- rows: a version conflict, or not a sellable variant of this product
+-- (GetVariantVersion tells which).
 UPDATE product_variants
 SET sku          = @sku,
     name         = @name,
@@ -163,6 +183,14 @@ SET sku          = @sku,
     position     = @position,
     version      = version + 1,
     updated_at   = now()
+WHERE id = @id AND product_id = @product_id AND archived_at IS NULL
+  AND version = @version;
+
+-- name: GetVariantVersion :one
+-- After UpdateVariant changed nothing: a row here means the version was
+-- stale (409 VERSION_CONFLICT); no row, that the id is not a sellable
+-- variant of the product.
+SELECT version FROM product_variants
 WHERE id = @id AND product_id = @product_id AND archived_at IS NULL;
 
 -- Soft delete: products and variants are archived, never deleted, because

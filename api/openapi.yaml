@@ -383,9 +383,15 @@ paths:
         this product) is updated, one without an `id` is added, and a
         sellable variant left out of the list is archived (kept for order
         history, never deleted; its SKU stays taken). Everything runs in one
-        transaction that also recomputes `price_from`, and every variant
-        update increments its internal `version`. Bab 5 adds an optimistic
-        `version` check for stock edits; until then the last save wins.
+        transaction that also recomputes `price_from`.
+
+        **Optimistic locking (Bab 5, ADR 0006):** every existing variant
+        must carry the `version` it was loaded with (`GET
+        /v1/admin/products/{id}`). If anything changed the variant since (a
+        checkout took stock, another admin saved), nothing is saved and the
+        answer is 409 `VERSION_CONFLICT` naming the variant: reload and save
+        again. Without the check, a form that stayed open would overwrite
+        the stock buyers had just taken.
       requestBody:
         required: true
         content:
@@ -1451,6 +1457,10 @@ components:
           type: string
           format: uuid
           description: An existing sellable variant of this product, to update it. Leave it out for a new variant, and always on create.
+        version:
+          type: integer
+          minimum: 0
+          description: Required with `id`; ignored without it. The variant's `version` as the form loaded it; a stale one answers 409 `VERSION_CONFLICT`.
         sku:
           type: string
           minLength: 1
@@ -1480,7 +1490,7 @@ components:
 
     AdminVariant:
       type: object
-      required: [id, sku, name, price, stock, weight_grams]
+      required: [id, sku, name, price, stock, weight_grams, version]
       additionalProperties: false
       properties:
         id:
@@ -1498,6 +1508,10 @@ components:
         weight_grams:
           type: integer
           minimum: 1
+        version:
+          type: integer
+          minimum: 0
+          description: Changes with every write to the variant, a checkout's stock decrement included. Send it back with `PUT`.
 
     AdminProduct:
       type: object
@@ -2441,7 +2455,7 @@ components:
                     category_id: names no category
     Conflict:
       description: |
-        Another product already has the slug (`SLUG_TAKEN`), or a variant anywhere in the store, archived ones included, already has one of the SKUs (`SKU_TAKEN`).
+        Another product already has the slug (`SLUG_TAKEN`), a variant anywhere in the store, archived ones included, already has one of the SKUs (`SKU_TAKEN`), or (on `PUT`) a variant changed since its `version` was read (`VERSION_CONFLICT`, `details.variant_id`; reload and save again).
 
         Known Bab 3 limitation: within one save, each variant's SKU is checked when that variant is written, so swapping the SKUs of two variants, or giving one variant the SKU another variant of the same product has right now, answers 409 `SKU_TAKEN`. Save twice instead, through a temporary SKU.
       content:
@@ -2465,6 +2479,14 @@ components:
                   message: a variant with one of these SKUs already exists
                   details:
                     variants: a variant with one of these SKUs already exists
+            versionConflict:
+              summary: A variant changed since it was loaded
+              value:
+                error:
+                  code: VERSION_CONFLICT
+                  message: a variant changed since you loaded it (a sale or another save); reload the product and save again
+                  details:
+                    variant_id: 01a16823-6427-7fa0-adf7-c05af7159479
     NotFound:
       description: The resource does not exist, is not active, or its slug is malformed.
       content:

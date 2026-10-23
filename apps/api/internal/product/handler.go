@@ -18,6 +18,7 @@ const (
 	CodeUnknownCategory = "UNKNOWN_CATEGORY"
 	CodeSlugTaken       = "SLUG_TAKEN"
 	CodeSKUTaken        = "SKU_TAKEN"
+	CodeVersionConflict = "VERSION_CONFLICT"
 )
 
 // slugPattern is the contract's slug pattern for products and categories.
@@ -118,6 +119,7 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 // toHTTPError maps the service's errors to the API's error responses.
 // Anything it does not know stays as it is and becomes a 500.
 func toHTTPError(err error) error {
+	var versionErr *VersionConflictError
 	switch {
 	case errors.Is(err, ErrNotFound):
 		return httpapi.NotFoundError("product not found")
@@ -129,6 +131,10 @@ func toHTTPError(err error) error {
 		return conflict(CodeSlugTaken, "another product already uses this slug", "slug")
 	case errors.Is(err, ErrSKUTaken):
 		return conflict(CodeSKUTaken, "a variant with one of these SKUs already exists", "variants")
+	case errors.As(err, &versionErr):
+		return errx.New(CodeVersionConflict, "a variant changed since you loaded it (a sale or another save); reload the product and save again").
+			WithHTTPStatus(http.StatusConflict).
+			WithDetails(map[string]any{"variant_id": versionErr.VariantID})
 	case errors.Is(err, ErrUnknownCategory):
 		return errx.New(CodeUnknownCategory, "category not found").
 			WithHTTPStatus(http.StatusBadRequest).

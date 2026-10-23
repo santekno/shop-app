@@ -85,6 +85,9 @@ type AdminVariant struct {
 	Price       int64 // whole rupiah
 	Stock       int32
 	WeightGrams int32
+	// Version changes with every write to the variant, a checkout's
+	// stock decrement included; a save must send back the one it read.
+	Version int32
 }
 
 // Input is what the admin writes: the product's fields and its complete
@@ -99,9 +102,10 @@ type Input struct {
 }
 
 // VariantInput is one variant of an Input. ID is empty for a new variant
-// and set for one that already exists.
+// and set for one that already exists, with the Version it was read at.
 type VariantInput struct {
 	ID          string
+	Version     int32
 	SKU         string
 	Name        string
 	Price       int64 // whole rupiah, above 0
@@ -123,7 +127,21 @@ var (
 	// ErrUnknownVariant: a variant ID is not a sellable variant of the
 	// product being saved.
 	ErrUnknownVariant = errors.New("unknown variant")
+	// ErrVersionConflict: a variant changed since the admin loaded it (a
+	// sale, or another admin's save); reload and save again. See
+	// VersionConflictError for which one.
+	ErrVersionConflict = errors.New("version conflict")
 	// ErrInvalidText: PostgreSQL refused a string (invalid UTF-8 or NUL)
 	// that the handler's checks let through.
 	ErrInvalidText = errors.New("invalid text")
 )
+
+// VersionConflictError is ErrVersionConflict for one variant.
+type VersionConflictError struct {
+	VariantID string
+}
+
+func (e *VersionConflictError) Error() string { return "variant " + e.VariantID + ": version conflict" }
+
+// Unwrap makes errors.Is(err, ErrVersionConflict) true.
+func (e *VersionConflictError) Unwrap() error { return ErrVersionConflict }

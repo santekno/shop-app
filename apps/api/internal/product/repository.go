@@ -177,6 +177,7 @@ func (r *PostgresRepository) GetAdmin(ctx context.Context, id string) (AdminProd
 	for _, v := range variants {
 		p.Variants = append(p.Variants, AdminVariant{
 			ID: v.ID, SKU: v.Sku, Name: v.Name, Price: v.Price, Stock: v.Stock, WeightGrams: v.WeightGrams,
+			Version: v.Version,
 		})
 	}
 	return p, nil
@@ -207,16 +208,22 @@ func (r *PostgresRepository) Create(ctx context.Context, in Input) (string, erro
 }
 
 // Update saves the product with id and its variants in one transaction: a
-// variant with an ID is updated, one without is added, and a sellable
-// variant missing from in.Variants is archived. It returns ErrNotFound for
-// an unknown product and ErrUnknownVariant for a variant ID that is not a
-// sellable variant of it.
+// variant with an ID is updated if its Version is still current, one
+// without is added, and a sellable variant missing from in.Variants is
+// archived. It returns ErrNotFound for an unknown product,
+// ErrUnknownVariant for a variant ID that is not a sellable variant of it,
+// and a *VersionConflictError when a variant changed since it was read.
 func (r *PostgresRepository) Update(ctx context.Context, id string, in Input) error {
 	return database.WithTx(ctx, r.db, func(q *sqlc.Queries) error {
 		if _, err := q.LockProduct(ctx, id); errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound
 		} else if err != nil {
 			return fmt.Errorf("lock product: %w", err)
+		}
+		// Then all its variants, in id order, before writing any of them
+		// in the form's order (ADR 0006, "Lock order").
+		if err := q.LockProductVariants(ctx, id); err != nil {
+			return fmt.Errorf("lock variants: %w", err)
 		}
 		if err := archiveMissingVariants(ctx, q, id, in.Variants); err != nil {
 			return err
@@ -282,14 +289,22 @@ func updateVariant(ctx context.Context, q *sqlc.Queries, productID string, posit
 	n, err := q.UpdateVariant(ctx, sqlc.UpdateVariantParams{
 		ID: v.ID, ProductID: productID, Position: int16(position), // #nosec G115 -- at most 50 variants
 		Sku: v.SKU, Name: v.Name, Price: v.Price, Stock: v.Stock, WeightGrams: v.WeightGrams,
+		Version: v.Version,
 	})
 	if err != nil {
 		return writeError("update variant "+v.SKU, err)
 	}
-	if n == 0 {
+	if n == 1 {
+		return nil
+	}
+	_, err = q.GetVariantVersion(ctx, sqlc.GetVariantVersionParams{ID: v.ID, ProductID: productID})
+	if errors.Is(err, sql.ErrNoRows) {
 		return ErrUnknownVariant
 	}
-	return nil
+	if err != nil {
+		return fmt.Errorf("query variant version: %w", err)
+	}
+	return &VersionConflictError{VariantID: v.ID}
 }
 
 // updateProduct writes the product's fields and recomputes price_from. It is
