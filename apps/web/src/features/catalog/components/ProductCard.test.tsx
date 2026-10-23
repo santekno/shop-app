@@ -1,8 +1,18 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import * as shared from "@goshop/shared";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { product, rupiah, variant } from "@/test/fake-api.ts";
 import { ProductCard } from "./ProductCard.tsx";
+
+// Every export keeps its real behaviour; formatRupiah's calls are counted
+// to tell whether a card rendered again.
+vi.mock("@goshop/shared", { spy: true });
+const formatRupiah = vi.mocked(shared.formatRupiah);
+
+beforeEach(() => {
+  formatRupiah.mockClear();
+});
 
 describe("ProductCard", () => {
   it("shows the name, category, price and a photo placeholder in an article", () => {
@@ -102,5 +112,22 @@ describe("ProductCard", () => {
     await user.keyboard("{Enter}");
 
     expect(onSelect).toHaveBeenCalledExactlyOnceWith("kaos");
+  });
+
+  it("skips rendering again when its props are the same objects", () => {
+    const item = product("kaos");
+    const onSelect = vi.fn();
+    const { rerender } = render(
+      <ProductCard product={item} onSelect={onSelect} />,
+    );
+    expect(formatRupiah).toHaveBeenCalledTimes(1);
+
+    rerender(<ProductCard product={item} onSelect={onSelect} />);
+    expect(formatRupiah).toHaveBeenCalledTimes(1);
+
+    rerender(<ProductCard product={item} onSelect={vi.fn()} />);
+    expect(formatRupiah).toHaveBeenCalledTimes(2);
+    rerender(<ProductCard product={{ ...item }} onSelect={onSelect} />);
+    expect(formatRupiah).toHaveBeenCalledTimes(3);
   });
 });

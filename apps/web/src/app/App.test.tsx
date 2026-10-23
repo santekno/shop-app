@@ -1,3 +1,4 @@
+import * as shared from "@goshop/shared";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -15,6 +16,9 @@ import {
 import { App } from "./App.tsx";
 
 vi.mock("@/lib/api.ts", () => import("@/test/fake-api.ts"));
+// Real behaviour; formatRupiah's calls tell whether product cards rendered.
+vi.mock("@goshop/shared", { spy: true });
+const formatRupiah = vi.mocked(shared.formatRupiah);
 
 const kaos = product("kaos-polos", { name: "Kaos Polos" });
 const kemeja = product("kemeja", { name: "Kemeja Flanel" });
@@ -189,5 +193,27 @@ describe("App", () => {
     expect(
       screen.queryByRole("button", { name: "← Kembali ke katalog" }),
     ).toBeNull();
+  });
+
+  it("keeps the product cards from rendering again when a product opens", async () => {
+    const user = userEvent.setup();
+    // The product never arrives, so nothing on the product page formats a
+    // price: every formatRupiah call comes from a card.
+    serve((url) => {
+      if (url.pathname === "/v1/categories") return categoriesResponse([]);
+      if (url.pathname === "/v1/products") {
+        return productsResponse([kaos, kemeja], null);
+      }
+      return new Promise<Response>(() => undefined);
+    });
+    render(<App />);
+    const card = await screen.findByRole("button", { name: "Kaos Polos" });
+    const renders = formatRupiah.mock.calls.length;
+    expect(renders).toBeGreaterThanOrEqual(2);
+
+    await user.click(card);
+
+    expect(await screen.findByText("Memuat produk…")).toBeTruthy();
+    expect(formatRupiah.mock.calls.length).toBe(renders);
   });
 });
