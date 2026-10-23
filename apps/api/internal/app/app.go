@@ -32,6 +32,7 @@ import (
 	"github.com/santekno/shop-app/apps/api/internal/order"
 	"github.com/santekno/shop-app/apps/api/internal/product"
 	"github.com/santekno/shop-app/apps/api/internal/redisconn"
+	"github.com/santekno/shop-app/apps/api/internal/shipping"
 	"github.com/santekno/shop-app/apps/api/internal/user"
 )
 
@@ -83,7 +84,21 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 	userService := user.NewService(userRepo, o.revocations)
 	addressService := address.NewService(addressRepo)
 	cartService := cart.NewService(cartRepo)
-	orderService := order.NewService(cartService)
+	if o.shipping == nil {
+		o.shipping = shippingProvider(cfg.Shipping)
+		if b, ok := o.shipping.(*shipping.Biteship); ok {
+			b.WithLogger(logger)
+		}
+	}
+	logger.Info("shipping fees", "provider", o.shipping.Name())
+	if cfg.Shipping.BiteshipAPIKey == "" && !cfg.IsDevelopment() {
+		// Allowed, as a flat rate table, but easy to deploy by mistake.
+		logger.Warn("BITESHIP_API_KEY is empty: shipping fees come from the fixed rate table, not from the couriers")
+	}
+	orderService := order.NewService(order.Deps{
+		Carts: cartService, Addresses: addressService, Shipping: o.shipping,
+		OriginPostalCode: cfg.Shipping.OriginPostalCode,
+	})
 	accessTokens := auth.NewAccessTokens(cfg.Auth.JWTSecret, cfg.Auth.AccessTokenTTL, o.clock)
 	authService := auth.NewService(auth.Deps{
 		Repo:        authRepo,
@@ -153,6 +168,15 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 	return &App{cfg: cfg, logger: logger, readiness: readiness, handler: router}
 }
 
+// shippingProvider is Biteship when BITESHIP_API_KEY is set, and the fixed
+// rate table otherwise (ADR 0006).
+func shippingProvider(cfg config.Shipping) shipping.Provider {
+	if cfg.BiteshipAPIKey == "" {
+		return shipping.Static{}
+	}
+	return shipping.NewBiteship(cfg.BiteshipAPIKey, shipping.BiteshipURL, cfg.Timeout)
+}
+
 // rateLimits is every limit the API counts in Redis.
 func rateLimits() []auth.Limit {
 	return append(slices.Clone(auth.Limits), cart.LimitGuestCartPerIP)
@@ -170,6 +194,7 @@ type options struct {
 	google      auth.GoogleVerifier
 	limiter     auth.RateLimiter
 	revocations auth.SessionRevocations
+	shipping    shipping.Provider
 }
 
 // WithClock makes the auth flows read the time from now: token expiry,
@@ -194,6 +219,10 @@ func WithMailer(m mail.Mailer) Option { return func(o *options) { o.mailer = m }
 // WithGoogleVerifier makes the API accept Google ID tokens that v accepts,
 // for tests that cannot get a real token from Google.
 func WithGoogleVerifier(v auth.GoogleVerifier) Option { return func(o *options) { o.google = v } }
+
+// WithShippingProvider prices parcels with p instead of the provider the
+// configuration picks, for tests that need a failing or fixed provider.
+func WithShippingProvider(p shipping.Provider) Option { return func(o *options) { o.shipping = p } }
 
 // Handler is the API's router with all middleware, for httptest.
 func (a *App) Handler() http.Handler { return a.handler }

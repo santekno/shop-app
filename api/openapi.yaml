@@ -1137,8 +1137,9 @@ paths:
       operationId: previewCheckout
       summary: Check the cart before checkout
       description: |
-        Validates the caller's cart exactly as checkout will, without
-        writing anything. Checkout validates again on locked rows, so a
+        Validates the caller's cart exactly as checkout will and computes the
+        totals, without writing anything. With `address_id`, `courier` and
+        `service` the shipping fee is priced now and added. Checkout validates again on locked rows, so a
         preview that passed is a hint, not a promise.
       security:
         - bearerAuth: []
@@ -1156,13 +1157,59 @@ paths:
               schema:
                 $ref: "#/components/schemas/CheckoutPreviewDetail"
         "400":
-          $ref: "#/components/responses/BadCartRequest"
+          $ref: "#/components/responses/BadCheckoutRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "409":
           $ref: "#/components/responses/CheckoutConflict"
+        "422":
+          $ref: "#/components/responses/ShippingUnavailable"
         "500":
           $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/UpstreamUnavailable"
+
+  /v1/checkout/shipping-quotes:
+    get:
+      tags: [Checkout]
+      operationId: getShippingQuotes
+      summary: Price shipping for my cart
+      description: |
+        Every service of JNE, J&T and SiCepat that can carry the caller's
+        cart (its total weight) to one of the caller's addresses, cheapest
+        first. Lines with problems still count; checkout asks again for the
+        chosen service, so a quote is not a reservation. Without
+        `BITESHIP_API_KEY` the API prices from a fixed table per started
+        kilogram; with it, from Biteship.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: address_id
+          in: query
+          required: true
+          description: One of the caller's addresses.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The quotes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShippingQuotesDetail"
+        "400":
+          $ref: "#/components/responses/BadCheckoutRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/CheckoutConflict"
+        "422":
+          $ref: "#/components/responses/ShippingUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/UpstreamUnavailable"
 
 components:
   securitySchemes:
@@ -1921,8 +1968,20 @@ components:
 
     CheckoutPreviewRequest:
       type: object
+      description: What the buyer has chosen so far; every field is optional. `courier` and `service` go together and need `address_id`.
       additionalProperties: false
-      properties: {}
+      properties:
+        address_id:
+          type: string
+          format: uuid
+          description: One of the caller's addresses.
+        courier:
+          type: string
+          enum: [jne, jnt, sicepat]
+        service:
+          type: string
+          maxLength: 20
+          description: A `service` from `GET /v1/checkout/shipping-quotes`.
 
     CheckoutPreview:
       type: object
@@ -1935,6 +1994,11 @@ components:
             $ref: "#/components/schemas/CartLine"
         totals:
           $ref: "#/components/schemas/OrderTotals"
+        shipping:
+          description: The chosen courier service, priced now; `null` until `courier` and `service` are sent.
+          oneOf:
+            - $ref: "#/components/schemas/ShippingQuote"
+            - type: "null"
 
     OrderTotals:
       type: object
@@ -2023,6 +2087,53 @@ components:
         price_when_added:
           description: The price the buyer saw.
           $ref: "#/components/schemas/Money"
+
+    ShippingQuote:
+      type: object
+      required: [courier, courier_name, service, service_name, price, etd]
+      additionalProperties: false
+      properties:
+        courier:
+          type: string
+          enum: [jne, jnt, sicepat]
+        courier_name:
+          type: string
+          example: JNE
+        service:
+          type: string
+          description: The courier's service code, upper-case. Send it back as `service`.
+          example: REG
+        service_name:
+          type: string
+          example: Reguler
+        price:
+          $ref: "#/components/schemas/Money"
+        etd:
+          type: string
+          description: Estimated delivery time as the courier says it.
+          example: 2-3 days
+
+    ShippingQuotes:
+      type: object
+      required: [weight_grams, quotes]
+      additionalProperties: false
+      properties:
+        weight_grams:
+          type: integer
+          minimum: 0
+        quotes:
+          type: array
+          description: Cheapest first.
+          items:
+            $ref: "#/components/schemas/ShippingQuote"
+
+    ShippingQuotesDetail:
+      type: object
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          $ref: "#/components/schemas/ShippingQuotes"
 
   responses:
     BadRequest:
@@ -2437,3 +2548,46 @@ components:
                         available: 2
                         unit_price: { amount: 89000, currency: IDR }
                         price_when_added: { amount: 89000, currency: IDR }
+    BadCheckoutRequest:
+      description: The body or query breaks the schema (`VALIDATION_FAILED`, one entry per field), including an `address_id` that names none of the caller's addresses, and a `courier` + `service` the courier does not offer for this parcel now.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            address:
+              summary: Not one of my addresses
+              value:
+                error:
+                  code: VALIDATION_FAILED
+                  message: invalid request
+                  details:
+                    address_id: names none of your addresses
+            service:
+              summary: A service that is not offered
+              value:
+                error:
+                  code: VALIDATION_FAILED
+                  message: invalid request
+                  details:
+                    service: is not offered for this parcel now; choose one from GET /v1/checkout/shipping-quotes
+    UpstreamUnavailable:
+      description: The courier rates API did not answer in time (`APP_SHIPPING_TIMEOUT`), answered with a server error, or has failed so often that the API stopped asking it for a while (a circuit breaker, 30 seconds). Retry shortly.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: UPSTREAM_UNAVAILABLE
+              message: the shipping rate service is not answering; try again shortly
+    ShippingUnavailable:
+      description: The shipping provider answered, and no courier serves the address's postal code (`SHIPPING_UNAVAILABLE`). Retrying does not help; choose another address. A provider that does not answer is 503 `UPSTREAM_UNAVAILABLE` instead.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: SHIPPING_UNAVAILABLE
+              message: no courier serves this address; choose another address

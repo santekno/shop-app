@@ -23,6 +23,11 @@ const (
 	CodeUnauthorized     = "UNAUTHORIZED" // the code sdk middleware/chi JWTAuth uses
 	CodeForbidden        = "FORBIDDEN"
 	CodeRateLimited      = "RATE_LIMITED"
+	// CodeUpstreamUnavailable is a 503 for a service the API depends on
+	// that did not answer (the courier rates API). Unlike other 5xx errors
+	// it is sent as it is: the client may retry, and the message names no
+	// internals.
+	CodeUpstreamUnavailable = "UPSTREAM_UNAVAILABLE"
 )
 
 // The constructors below return a new *errx.AppError on every call, rather
@@ -70,12 +75,19 @@ func TimeoutError() *errx.AppError {
 	return errx.New(CodeTimeout, "request timed out").WithHTTPStatus(http.StatusServiceUnavailable)
 }
 
+// UpstreamUnavailableError is 503 UPSTREAM_UNAVAILABLE with message, which
+// must name no internals: an outside service did not answer; retry later.
+func UpstreamUnavailableError(message string) *errx.AppError {
+	return errx.New(CodeUpstreamUnavailable, message).WithHTTPStatus(http.StatusServiceUnavailable)
+}
+
 // ToAppError decides what the client may see of err:
 //
 //   - an *errx.AppError with a 4xx status anywhere in the chain is sent as it
 //     is: client errors are written for the client, with a safe message;
 //   - a timeout (context.DeadlineExceeded, or TimeoutError itself) becomes
 //     503 TIMEOUT;
+//   - an UpstreamUnavailableError is sent as it is (503);
 //   - anything else, including an AppError without a status or with a 5xx
 //     one, becomes 500 INTERNAL_ERROR, so a driver message or an internal
 //     address never reaches the response.
@@ -87,6 +99,9 @@ func ToAppError(err error) *errx.AppError {
 		}
 		if appErr.Code == CodeTimeout {
 			return TimeoutError()
+		}
+		if appErr.Code == CodeUpstreamUnavailable && appErr.HTTPStatus == http.StatusServiceUnavailable {
+			return appErr
 		}
 	}
 	if errors.Is(err, context.DeadlineExceeded) {

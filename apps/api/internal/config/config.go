@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -66,6 +67,10 @@ const (
 	// JWTSecretPlaceholder is the value in .env.example. It is accepted in
 	// development only, so a copied example file never signs real tokens.
 	JWTSecretPlaceholder = "change-me-to-a-long-random-string"
+
+	// DefaultShippingTimeout is used when APP_SHIPPING_TIMEOUT is not set:
+	// how long checkout waits for the courier rates API.
+	DefaultShippingTimeout = 5 * time.Second
 )
 
 // Config is the validated configuration of the API.
@@ -105,6 +110,21 @@ type Config struct {
 	// value either lets clients forge their address or puts every client
 	// behind the proxy's.
 	TrustedProxyHops int
+	// Shipping configures the courier rates (ADR 0006).
+	Shipping Shipping
+}
+
+// Shipping configures where shipping fees come from.
+type Shipping struct {
+	// BiteshipAPIKey is BITESHIP_API_KEY. Empty turns Biteship off: the
+	// fixed rate table (shipping.Static) prices every parcel instead. A
+	// secret, never logged.
+	BiteshipAPIKey string
+	// OriginPostalCode is APP_SHIPPING_ORIGIN_POSTAL_CODE, the warehouse
+	// parcels leave from: required when Biteship is on.
+	OriginPostalCode string
+	// Timeout is APP_SHIPPING_TIMEOUT (1s-15s, default 5s).
+	Timeout time.Duration
 }
 
 // Auth configures the tokens of ADR 0005.
@@ -232,6 +252,9 @@ func Load() (Config, error) {
 	cfg.TrustedProxyHops, err = parseTrustedProxyHops(src.String("trusted.proxy.hops"), cfg.Env)
 	errs = append(errs, err)
 
+	cfg.Shipping, err = parseShipping(src)
+	errs = append(errs, err)
+
 	if err := errors.Join(errs...); err != nil {
 		return Config{}, fmt.Errorf("config: %w", err)
 	}
@@ -308,6 +331,32 @@ func parseTrustedProxyHops(value, env string) (int, error) {
 	}
 	return parseInt("APP_TRUSTED_PROXY_HOPS", value, 0, 0, 5)
 }
+
+// parseShipping reads BITESHIP_API_KEY (no APP_ prefix: a secret under its
+// provider's name, like JWT_SECRET), APP_SHIPPING_ORIGIN_POSTAL_CODE and
+// APP_SHIPPING_TIMEOUT.
+func parseShipping(src *configx.Config) (Shipping, error) {
+	sh := Shipping{
+		BiteshipAPIKey:   strings.TrimSpace(os.Getenv("BITESHIP_API_KEY")),
+		OriginPostalCode: strings.TrimSpace(src.String("shipping.origin.postal.code")),
+	}
+	var errs []error
+	if sh.OriginPostalCode != "" && !postalCode.MatchString(sh.OriginPostalCode) {
+		errs = append(errs, fmt.Errorf("APP_SHIPPING_ORIGIN_POSTAL_CODE: must be a 5-digit Indonesian postal code such as 40111, got %q", sh.OriginPostalCode))
+	}
+	if sh.BiteshipAPIKey != "" && sh.OriginPostalCode == "" {
+		errs = append(errs, errors.New("APP_SHIPPING_ORIGIN_POSTAL_CODE: is required when BITESHIP_API_KEY is set: the postal code parcels are sent from"))
+	}
+	var err error
+	sh.Timeout, err = parseDuration("APP_SHIPPING_TIMEOUT", src.String("shipping.timeout"),
+		DefaultShippingTimeout, time.Second, 15*time.Second)
+	errs = append(errs, err)
+	return sh, errors.Join(errs...)
+}
+
+// postalCode is an Indonesian postal code: five digits, never starting
+// with 0 (the addresses_postal_code_check constraint).
+var postalCode = regexp.MustCompile(`^[1-9][0-9]{4}$`)
 
 // parseRedisURL checks that value is a redis:// or rediss:// URL. The value
 // can hold a password, so no error repeats it.

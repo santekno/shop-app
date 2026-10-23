@@ -70,7 +70,7 @@ Known limits:
 
 ## API7: Server side request forgery
 
-- The API fetches no URL a client gives it. Its only outbound call is to Google's fixed JWKS URL (`https://www.googleapis.com/oauth2/v3/certs`), with a 10-second timeout.
+- The API fetches no URL a client gives it. Its outbound calls go to fixed URLs: Google's JWKS (`https://www.googleapis.com/oauth2/v3/certs`, 10-second timeout) and, when `BITESHIP_API_KEY` is set, Biteship's rates API (`https://api.biteship.com/v1/rates/couriers`, `APP_SHIPPING_TIMEOUT`). A client only chooses which of its own addresses' postal codes is sent.
 
 ## API8: Security misconfiguration
 
@@ -92,6 +92,7 @@ Known limits:
 - Values from Google (the name) go through the same text checks as user input before they are stored.
 - **No nonce.** The client gets the ID token from Google itself (Google Sign-In on the web or the phone) and the API never starts that flow, so there is no nonce to check. A stolen ID token can be replayed to sign in until it expires (Google sets about one hour); that is bounded by the expiry the verifier checks, and by TLS, which keeps the token off the wire.
 - Midtrans webhooks (Bab 6) will be verified by signature before they change an order.
+- Biteship's answer is read through a 1 MiB limit with a timeout and a circuit breaker (sdk `httpx`); only services of the three known couriers with a positive price are kept, and the fee charged at checkout is always the one Biteship (or the fixed table) gives, never one from the client. A failure answers 503 `UPSTREAM_UNAVAILABLE` without the upstream's message.
 
 ## Checklist for a new endpoint
 
