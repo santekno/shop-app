@@ -122,3 +122,55 @@ func TestSeedAdmin_Refusals(t *testing.T) {
 		t.Errorf("%d users after refused seed-admin runs", n)
 	}
 }
+
+// TestSeedAdmin_PromotionEndsSessions: promoting an account replaces its
+// password, so make seed-admin revokes the account's refresh tokens in the
+// same transaction, as a password reset does, and says so. Creating a new
+// admin touches no other account's tokens. The seed has no Redis, so an
+// access token already issued keeps working until it expires
+// (APP_ACCESS_TOKEN_TTL); that documented limit is checked too.
+func TestSeedAdmin_PromotionEndsSessions(t *testing.T) {
+	s := startServer(t, nil)
+	bystander, bystanderPair := s.newAccount(t, "penonton")
+	target, phone := s.newAccount(t, "dipromosikan")
+	laptop := s.login(t, target.Email, testPassword)
+	revoked := func() int { return s.count(t, `SELECT count(*) FROM refresh_tokens WHERE revoked_at IS NOT NULL`) }
+
+	out, err := seedAdmin(t, s.dbURL, uniqueEmail("admin-baru"), testPassword)
+	if err != nil || !strings.Contains(out, "created") {
+		t.Fatalf("make seed-admin (new) = %v:\n%s", err, out)
+	}
+	if n := revoked(); n != 0 {
+		t.Errorf("creating a new admin revoked %d refresh tokens of other accounts", n)
+	}
+	if s.liveSessions(t, target.ID) != 2 || s.liveSessions(t, bystander.ID) != 1 {
+		t.Fatalf("live sessions after creating an admin: target %d, bystander %d; want 2 and 1",
+			s.liveSessions(t, target.ID), s.liveSessions(t, bystander.ID))
+	}
+
+	out, err = seedAdmin(t, s.dbURL, target.Email, otherPassword)
+	if err != nil || !strings.Contains(out, "its sessions are revoked") {
+		t.Fatalf("make seed-admin (promote) = %v, want the output to say the sessions are revoked:\n%s", err, out)
+	}
+	if n := s.count(t, `SELECT count(*) FROM refresh_tokens WHERE user_id = $1 AND revoked_at IS NULL`, target.ID); n != 0 {
+		t.Errorf("%d refresh tokens of the promoted account are not revoked", n)
+	}
+	for _, p := range []tokenPairOut{phone, laptop} {
+		assertError(t, s.call(t, http.MethodPost, "/v1/auth/refresh", map[string]string{"refresh_token": p.RefreshToken}, ""),
+			http.StatusUnauthorized, "TOKEN_INVALID")
+	}
+	// Documented limit: no Redis in the seed, so the access token lives on
+	// until it expires, still with the old role.
+	if r := s.call(t, http.MethodGet, "/v1/me", nil, phone.AccessToken); r.Status != http.StatusOK {
+		t.Errorf("the promoted account's access token = %d; the documented behaviour is that it works until it expires", r.Status)
+	}
+	assertError(t, s.call(t, http.MethodGet, adminProbe(), nil, phone.AccessToken), http.StatusForbidden, "FORBIDDEN")
+
+	if n := s.count(t, `SELECT count(*) FROM refresh_tokens WHERE user_id = $1 AND revoked_at IS NOT NULL`, bystander.ID); n != 0 {
+		t.Errorf("promoting another account revoked %d of the bystander's tokens", n)
+	}
+	s.refresh(t, bystanderPair.RefreshToken)
+	if admin := s.login(t, target.Email, otherPassword); admin.User.Role != "admin" {
+		t.Errorf("the promoted account logs in as %q, want admin", admin.User.Role)
+	}
+}
