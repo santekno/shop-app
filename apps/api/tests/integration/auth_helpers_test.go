@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/santekno/shop-app/apps/api/internal/app"
+	"github.com/santekno/shop-app/apps/api/internal/auth"
 	"github.com/santekno/shop-app/apps/api/internal/user"
 )
 
@@ -23,16 +25,19 @@ import (
 // read the tokens the API emails from a recording mailer
 // (app.WithMailer) or, for the development log mailer, from the log.
 
-// testPassword is a password the policy accepts.
-const testPassword = "nasi-goreng-kampung-1" //nolint:gosec // a test account's password, not a secret
+// testPassword and otherPassword are passwords the policy accepts.
+const (
+	testPassword  = "nasi-goreng-kampung-1" //nolint:gosec // a test account's password, not a secret
+	otherPassword = "soto-betawi-santan-2"  //nolint:gosec // a test account's password, not a secret
+)
 
 // emailTokenPattern matches an opaque token (ADR 0005):
 // <uuid>.<base64url of 32 bytes>.
 var emailTokenPattern = regexp.MustCompile(`[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[A-Za-z0-9_-]{43}`)
 
-// uniqueEmail returns an address no other test uses.
+// uniqueEmail returns a lower-case address no other test uses.
 func uniqueEmail(prefix string) string {
-	return prefix + "-" + strings.ToLower(rand.Text()[:12]) + "@example.com"
+	return strings.ToLower(prefix + "-" + rand.Text()[:12] + "@example.com")
 }
 
 // call sends method path with body encoded as JSON (a string is sent as it
@@ -227,3 +232,23 @@ func assertError(t *testing.T, resp response, status int, code string) map[strin
 	}
 	return e.Details
 }
+
+// count runs a query on the server's database that returns one integer.
+func (s *server) count(t *testing.T, query string, args ...any) int {
+	t.Helper()
+	return queryInt(t, s.db, query, args...)
+}
+
+// unlimited is an auth.RateLimiter that allows everything, for tests that
+// send more requests from 127.0.0.1 than the real limits allow and test
+// something else (validation tables, races). The rate-limit tests use the
+// real Redis limiter.
+type unlimited struct{}
+
+// Allow implements auth.RateLimiter.
+func (unlimited) Allow(context.Context, auth.Limit, string) (bool, time.Duration, error) {
+	return true, 0, nil
+}
+
+// withUnlimitedRate is app.WithRateLimiter(unlimited{}).
+func withUnlimitedRate() app.Option { return app.WithRateLimiter(unlimited{}) }
