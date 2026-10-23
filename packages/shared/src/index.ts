@@ -40,15 +40,18 @@ export type {
   RequestOptions,
 } from "./api/client.ts";
 
-export { listCategories } from "./api/catalog.ts";
+export { getProduct, listCategories, listProducts } from "./api/catalog.ts";
 export type { EndpointOptions } from "./api/catalog.ts";
 
 export type {
   Category,
   CategoryList,
   ErrorBody,
+  ListProductsQuery,
   Money,
   Product,
+  ProductDetail,
+  ProductList,
   ProductVariant,
   components,
   operations,

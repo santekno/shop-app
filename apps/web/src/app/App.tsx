@@ -1,4 +1,4 @@
-import { CategorySection } from "@/features/catalog/components/CategorySection.tsx";
+import { CatalogPage } from "@/features/catalog/components/CatalogPage.tsx";
 import { SiteHeader } from "./SiteHeader.tsx";
 
 export function App() {
@@ -8,7 +8,7 @@ export function App() {
     <>
       <SiteHeader />
       <main className="site-main">
-        <CategorySection />
+        <CatalogPage />
       </main>
     </>
   );

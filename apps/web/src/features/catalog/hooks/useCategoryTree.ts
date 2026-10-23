@@ -2,16 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import { buildCategoryTree, isApiError, listCategories } from "@goshop/shared";
 import type { CategoryNode } from "@goshop/shared";
 import { api } from "@/lib/api.ts";
+import type { AsyncState } from "@/lib/async-state.ts";
 
-/**
- * The state of data that is loading: a discriminated union. `status` tells
- * which variant it is, and only the "success" variant has `data`, so the
- * compiler stops code from reading data that is not there yet.
- */
-export type AsyncState<T> =
-  | { status: "loading" }
-  | { status: "success"; data: T }
-  | { status: "error"; error: unknown };
+export type { AsyncState } from "@/lib/async-state.ts";
 
 /**
  * Loads GET /v1/categories once and returns it as a tree, plus `reload` to
