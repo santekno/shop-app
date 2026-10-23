@@ -461,6 +461,66 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /v1/auth/refresh:
+    post:
+      tags: [Auth]
+      operationId: refreshTokens
+      summary: Rotate the refresh token
+      description: |
+        Exchanges a refresh token for a new access token and a new refresh
+        token of the same session. The presented refresh token never works
+        again. Presenting one that was already rotated means someone else
+        has a copy: the API revokes the whole session (every token issued
+        since that login) and answers 401 `TOKEN_INVALID`, and the user logs
+        in again. Clients must not refresh in parallel; keep one refresh in
+        flight and let other requests wait for it.
+
+        The access token carries the user's role as it is now, so a role
+        change takes effect at the next refresh.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequest"
+      responses:
+        "200":
+          description: New tokens.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenPairDetail"
+        "400":
+          $ref: "#/components/responses/BadAuthRequest"
+        "401":
+          $ref: "#/components/responses/InvalidRefreshToken"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logout
+      summary: End the session
+      description: |
+        Revokes the session of the refresh token: the refresh token and
+        every access token of the session stop working. No access token is
+        needed, so a client whose access token has expired can still log
+        out. Answers 204 whether or not the token was still valid.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequest"
+      responses:
+        "204":
+          description: The session is over.
+        "400":
+          $ref: "#/components/responses/BadAuthRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 components:
   schemas:
     Money:
@@ -810,7 +870,7 @@ components:
     TokenPair:
       type: object
       description: The tokens of a session (ADR 0005) and the account they belong to.
-      required: [access_token, token_type, expires_in, user]
+      required: [access_token, token_type, expires_in, refresh_token, refresh_expires_in, user]
       additionalProperties: false
       properties:
         access_token:
@@ -823,8 +883,16 @@ components:
           type: integer
           minimum: 0
           description: Seconds until the access token expires.
+        refresh_token:
+          type: string
+          description: Opaque; send it to `/v1/auth/refresh` and `/v1/auth/logout`. Keep it in the platform's secure store (mobile); never in `localStorage`. Shown once, stored by the API only as a hash.
+        refresh_expires_in:
+          type: integer
+          minimum: 0
+          description: Seconds until the refresh token expires (`APP_REFRESH_TOKEN_TTL`, 30 days by default). Every refresh starts a new period.
         user:
           $ref: "#/components/schemas/User"
+
 
     TokenPairDetail:
       type: object
@@ -833,6 +901,16 @@ components:
       properties:
         data:
           $ref: "#/components/schemas/TokenPair"
+
+    RefreshRequest:
+      type: object
+      required: [refresh_token]
+      additionalProperties: false
+      properties:
+        refresh_token:
+          type: string
+          maxLength: 200
+          description: The `refresh_token` of the last login or refresh.
 
     HealthCheck:
       type: object
@@ -1017,6 +1095,26 @@ components:
             error:
               code: INVALID_CREDENTIALS
               message: email or password is incorrect
+
+    InvalidRefreshToken:
+      description: The refresh token is malformed, unknown, revoked, already used (`TOKEN_INVALID`; a reused token also revokes its session), or expired (`TOKEN_EXPIRED`). Either way the user logs in again.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            invalid:
+              summary: Unknown, revoked or reused
+              value:
+                error:
+                  code: TOKEN_INVALID
+                  message: the token is invalid or has been revoked; log in again
+            expired:
+              summary: Expired
+              value:
+                error:
+                  code: TOKEN_EXPIRED
+                  message: the token has expired; log in again
 
     InternalError:
       description: Unexpected server error. The code is always `INTERNAL_ERROR`, the code sdk `middleware/chi` `Recovery` writes after a panic, and handlers use the same code for every other 500. The details are in the server log, never in the response.

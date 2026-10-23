@@ -57,6 +57,9 @@ const (
 	// (ADR 0005): short, because an access token cannot be recalled once
 	// issued except through the session revocation check.
 	DefaultAccessTokenTTL = 15 * time.Minute
+	// DefaultRefreshTokenTTL is used when APP_REFRESH_TOKEN_TTL is not set:
+	// a user who comes back within 30 days stays logged in.
+	DefaultRefreshTokenTTL = 30 * 24 * time.Hour
 	// MinJWTSecretBytes is the shortest JWT_SECRET accepted: HS256 needs a
 	// key at least as long as its 32-byte output.
 	MinJWTSecretBytes = 32
@@ -101,6 +104,9 @@ type Auth struct {
 	JWTSecret []byte
 	// AccessTokenTTL is APP_ACCESS_TOKEN_TTL (1m-1h, default 15m).
 	AccessTokenTTL time.Duration
+	// RefreshTokenTTL is APP_REFRESH_TOKEN_TTL (1h-2160h, default 720h):
+	// how long a refresh token lives after it is issued.
+	RefreshTokenTTL time.Duration
 }
 
 // Database configures the PostgreSQL connection pool.
@@ -197,6 +203,10 @@ func Load() (Config, error) {
 
 	cfg.Auth.AccessTokenTTL, err = parseDuration("APP_ACCESS_TOKEN_TTL", src.String("access.token.ttl"),
 		DefaultAccessTokenTTL, time.Minute, time.Hour)
+	errs = append(errs, err)
+
+	cfg.Auth.RefreshTokenTTL, err = parseDuration("APP_REFRESH_TOKEN_TTL", src.String("refresh.token.ttl"),
+		DefaultRefreshTokenTTL, time.Hour, 90*24*time.Hour)
 	errs = append(errs, err)
 
 	if err := errors.Join(errs...); err != nil {

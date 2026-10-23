@@ -28,6 +28,7 @@ cp .env.example .env   # .env is gitignored; never commit it
 | `APP_DB_CONN_MAX_LIFETIME` | api | no | Age after which a connection is closed and replaced (Go duration, `1m`–`24h`, default `30m`), so a database failover or proxy can move connections. | Bab 3 |
 | `REDIS_ADDR` | api, worker | no | Redis `host:port`. | Bab 4 |
 | `JWT_SECRET` | api | **yes** | HS256 key that signs access tokens ([ADR 0005](adr/0005-auth-tokens.md)). Required; at least 32 bytes; different per environment. The `.env.example` placeholder (or anything containing `change-me`) is accepted in development only: staging and production refuse to start with it. Rotating it ends every access token at once; clients refresh. | Bab 4 |
+| `APP_REFRESH_TOKEN_TTL` | api | no | How long a refresh token lives after it is issued (Go duration, `1h`–`2160h`, default `720h` = 30 days). Every refresh issues a new one, so an active user stays logged in and an idle one is logged out. | Bab 4 |
 | `APP_ACCESS_TOKEN_TTL` | api | no | How long an access token lives (Go duration, `1m`–`1h`, default `15m`). Also how long a revoked session's marker stays in Redis. | Bab 4 |
 | `S3_ENDPOINT` | api, worker | no | S3 API endpoint. SeaweedFS locally (`http://localhost:8333`), the provider's endpoint in production. | Bab 6 |
 | `S3_BUCKET` | api, worker | no | Bucket for product and review images. | Bab 6 |

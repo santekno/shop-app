@@ -48,6 +48,17 @@ type ProductVariant struct {
 	UpdatedAt   time.Time
 }
 
+type RefreshToken struct {
+	ID        string
+	UserID    string
+	FamilyID  string
+	TokenHash []byte
+	ExpiresAt time.Time
+	UsedAt    sql.NullTime
+	RevokedAt sql.NullTime
+	CreatedAt time.Time
+}
+
 type User struct {
 	ID              string
 	Email           string

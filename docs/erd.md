@@ -1,6 +1,6 @@
 # Initial data model (ERD)
 
-This is the logical model for the first GoShop features: users, the catalog and orders. It is a design, not a schema: the physical tables, indexes and migrations are written in **Bab 3**, and later chapters add tables (carts, payments, refresh tokens, user identities, reviews, embeddings) next to these.
+This is the logical model for the first GoShop features: users, the catalog and orders. It is a design, not a schema: the physical tables, indexes and migrations are written in **Bab 3**, and later chapters add tables (carts, payments, reviews, embeddings) next to these.
 
 Every column is `NOT NULL` unless the diagram says `nullable`.
 
@@ -10,6 +10,7 @@ Every column is `NOT NULL` unless the diagram says `nullable`.
 |---|---|---|
 | Bab 3 | `apps/api/migrations/000001_create_catalog` | `categories`, `products`, `product_variants`, with every constraint and index below that belongs to them |
 | Bab 4 | `000002_create_users` | `users`: the email lower-case CHECK (ASCII only, enforced by the API), the role CHECK (`buyer`, `seller`, `admin`), and a CHECK that an anonymised row keeps no password, phone or name |
+| Bab 4 | `000003_create_refresh_tokens` | `refresh_tokens` ([ADR 0005](adr/0005-auth-tokens.md)): SHA-256 of the secret only, `family_id` = the session, `used_at` for rotation and reuse detection, `revoked_at`; indexes on `family_id` and on `user_id` for the tokens that can still be used |
 
 Two choices made while building it:
 

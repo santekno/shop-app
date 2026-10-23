@@ -18,12 +18,16 @@ import (
 const (
 	CodeEmailTaken         = "EMAIL_TAKEN"
 	CodeInvalidCredentials = "INVALID_CREDENTIALS" //nolint:gosec // an error code, not a credential
+	CodeTokenInvalid       = "TOKEN_INVALID"
+	CodeTokenExpired       = "TOKEN_EXPIRED"
 )
 
 // Authenticator is what the handlers need from the service.
 type Authenticator interface {
 	Register(ctx context.Context, in RegisterInput) (user.User, error)
 	Login(ctx context.Context, email, password string) (Tokens, error)
+	Refresh(ctx context.Context, refreshToken string) (Tokens, error)
+	Logout(ctx context.Context, refreshToken string) error
 }
 
 // Handler serves the /v1/auth endpoints.
@@ -46,6 +50,8 @@ func NewHandler(svc Authenticator, validator *httpapi.Validator, now func() time
 func (h *Handler) Routes(r chi.Router) {
 	r.Post("/auth/register", h.Register)
 	r.Post("/auth/login", h.Login)
+	r.Post("/auth/refresh", h.Refresh)
+	r.Post("/auth/logout", h.Logout)
 }
 
 // registerBody is the request body of POST /v1/auth/register. The
@@ -96,11 +102,7 @@ type loginBody struct {
 // INVALID_CREDENTIALS whatever was wrong.
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	var body loginBody
-	if err := httpapi.DecodeJSON(w, r, &body); err != nil {
-		httpapi.Error(w, r, err)
-		return
-	}
-	if err := h.validator.Struct(body); err != nil {
+	if err := h.decodeValid(w, r, &body); err != nil {
 		httpapi.Error(w, r, err)
 		return
 	}
@@ -110,6 +112,52 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpapi.JSON(w, r, http.StatusOK, dataResponse{Data: toTokensJSON(tokens, h.now())})
+}
+
+// refreshBody is the request body of POST /v1/auth/refresh and
+// /v1/auth/logout. ADR 0005: the refresh token travels in the body until
+// the web client adds an httpOnly cookie.
+type refreshBody struct {
+	RefreshToken string `json:"refresh_token" validate:"required,max=200"`
+}
+
+// Refresh serves POST /v1/auth/refresh: 200 with new tokens; the presented
+// refresh token stops working.
+func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
+	var body refreshBody
+	if err := h.decodeValid(w, r, &body); err != nil {
+		httpapi.Error(w, r, err)
+		return
+	}
+	tokens, err := h.svc.Refresh(r.Context(), body.RefreshToken)
+	if err != nil {
+		httpapi.Error(w, r, toHTTPError(err))
+		return
+	}
+	httpapi.JSON(w, r, http.StatusOK, dataResponse{Data: toTokensJSON(tokens, h.now())})
+}
+
+// Logout serves POST /v1/auth/logout: 204, whether or not the token was
+// still valid.
+func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
+	var body refreshBody
+	if err := h.decodeValid(w, r, &body); err != nil {
+		httpapi.Error(w, r, err)
+		return
+	}
+	if err := h.svc.Logout(r.Context(), body.RefreshToken); err != nil {
+		httpapi.Error(w, r, toHTTPError(err))
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// decodeValid decodes the JSON body into dst and validates it.
+func (h *Handler) decodeValid(w http.ResponseWriter, r *http.Request, dst any) error {
+	if err := httpapi.DecodeJSON(w, r, dst); err != nil {
+		return err
+	}
+	return h.validator.Struct(dst)
 }
 
 // checkEmail adds a message to details when email, already checked for
@@ -150,6 +198,12 @@ func toHTTPError(err error) error {
 	case errors.Is(err, ErrInvalidCredentials):
 		return errx.New(CodeInvalidCredentials, "email or password is incorrect").
 			WithHTTPStatus(http.StatusUnauthorized)
+	case errors.Is(err, ErrRefreshTokenInvalid):
+		return errx.New(CodeTokenInvalid, "the token is invalid or has been revoked; log in again").
+			WithHTTPStatus(http.StatusUnauthorized)
+	case errors.Is(err, ErrRefreshTokenExpired):
+		return errx.New(CodeTokenExpired, "the token has expired; log in again").
+			WithHTTPStatus(http.StatusUnauthorized)
 	case errors.Is(err, ErrInvalidText):
 		return httpapi.ValidationError("invalid request", map[string]any{"body": httpapi.InvalidTextMessage})
 	default:
@@ -163,18 +217,22 @@ type dataResponse struct {
 
 // tokensJSON is TokenPair in api/openapi.yaml.
 type tokensJSON struct {
-	AccessToken string    `json:"access_token"`
-	TokenType   string    `json:"token_type"`
-	ExpiresIn   int64     `json:"expires_in"`
-	User        user.JSON `json:"user"`
+	AccessToken      string    `json:"access_token"`
+	TokenType        string    `json:"token_type"`
+	ExpiresIn        int64     `json:"expires_in"`
+	RefreshToken     string    `json:"refresh_token"`
+	RefreshExpiresIn int64     `json:"refresh_expires_in"`
+	User             user.JSON `json:"user"`
 }
 
 func toTokensJSON(t Tokens, now time.Time) tokensJSON {
 	return tokensJSON{
-		AccessToken: t.AccessToken,
-		TokenType:   "Bearer",
-		ExpiresIn:   secondsUntil(t.AccessExpiresAt, now),
-		User:        user.ToJSON(t.User),
+		AccessToken:      t.AccessToken,
+		TokenType:        "Bearer",
+		ExpiresIn:        secondsUntil(t.AccessExpiresAt, now),
+		RefreshToken:     t.RefreshToken,
+		RefreshExpiresIn: secondsUntil(t.RefreshExpiresAt, now),
+		User:             user.ToJSON(t.User),
 	}
 }
 

@@ -30,6 +30,9 @@ type AccessClaims struct {
 	UserID string
 	// Role is the "role" claim, the user's role when the token was issued.
 	Role user.Role
+	// SessionID is the "sid" claim: the refresh-token family this token was
+	// issued for. Revoking the session revokes the token (ADR 0005).
+	SessionID string
 	// TokenID is the "jti" claim, a UUIDv7 unique to this token.
 	TokenID   string
 	IssuedAt  time.Time
@@ -59,14 +62,15 @@ func NewAccessTokens(secret []byte, ttl time.Duration, now func() time.Time) *Ac
 // Key is the verification key, for sdk middleware/chi JWTAuth.
 func (t *AccessTokens) Key() jwtx.Key { return t.key }
 
-// Issue signs a new access token for u.
-func (t *AccessTokens) Issue(u user.User) (string, AccessClaims, error) {
+// Issue signs a new access token for u in the session sessionID.
+func (t *AccessTokens) Issue(u user.User, sessionID string) (string, AccessClaims, error) {
 	// JWT times are whole seconds; truncating here makes the returned
 	// claims equal to what Verify reads back.
 	now := t.now().Truncate(time.Second)
 	c := AccessClaims{
 		UserID:    u.ID,
 		Role:      u.Role,
+		SessionID: sessionID,
 		TokenID:   t.newID(),
 		IssuedAt:  now,
 		ExpiresAt: now.Add(t.ttl),
@@ -78,7 +82,7 @@ func (t *AccessTokens) Issue(u user.User) (string, AccessClaims, error) {
 		IssuedAt:  c.IssuedAt,
 		ExpiresAt: c.ExpiresAt,
 		ID:        c.TokenID,
-		Extra:     map[string]any{"role": string(c.Role)},
+		Extra:     map[string]any{"role": string(c.Role), "sid": c.SessionID},
 	}, t.key)
 	if err != nil {
 		return "", AccessClaims{}, fmt.Errorf("sign access token: %w", err)
@@ -90,7 +94,8 @@ func (t *AccessTokens) Issue(u user.User) (string, AccessClaims, error) {
 // verified (sdk JWTAuth does that) and returns them typed. jwtx checks the
 // algorithm, the signature and "exp" when it is present; Check adds what
 // jwtx leaves to the application: issuer, audience, an "exp" that must
-// exist, a subject, a known role, and expiry against this issuer's clock.
+// exist, a subject, a session, a known role, and expiry against this
+// issuer's clock.
 func (t *AccessTokens) Check(c *jwtx.Claims) (AccessClaims, error) {
 	if c == nil || c.Issuer != Issuer || !slices.Contains(c.Audience, Audience) ||
 		c.Subject == "" || c.ID == "" || c.ExpiresAt.IsZero() || c.IssuedAt.IsZero() {
@@ -100,12 +105,14 @@ func (t *AccessTokens) Check(c *jwtx.Claims) (AccessClaims, error) {
 		return AccessClaims{}, ErrInvalidToken
 	}
 	role, _ := c.Extra["role"].(string)
-	if !user.Role(role).Valid() {
+	sid, _ := c.Extra["sid"].(string)
+	if !user.Role(role).Valid() || sid == "" {
 		return AccessClaims{}, ErrInvalidToken
 	}
 	return AccessClaims{
 		UserID:    c.Subject,
 		Role:      user.Role(role),
+		SessionID: sid,
 		TokenID:   c.ID,
 		IssuedAt:  c.IssuedAt,
 		ExpiresAt: c.ExpiresAt,

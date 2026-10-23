@@ -102,6 +102,7 @@ services:
       # APP_ENV=development; set a real JWT_SECRET in .env for anything else.
       JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-string}
       APP_ACCESS_TOKEN_TTL: ${APP_ACCESS_TOKEN_TTL:-15m}
+      APP_REFRESH_TOKEN_TTL: ${APP_REFRESH_TOKEN_TTL:-720h}
     ports:
       - "127.0.0.1:8080:8080"
     healthcheck:

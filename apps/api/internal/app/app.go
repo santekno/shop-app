@@ -52,9 +52,10 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB) *App {
 	productService := product.NewService(productRepo, categoryService)
 	accessTokens := auth.NewAccessTokens(cfg.Auth.JWTSecret, cfg.Auth.AccessTokenTTL, time.Now)
 	authService := auth.NewService(auth.Deps{
-		Repo:   authRepo,
-		Hasher: auth.NewArgon2Hasher(auth.DefaultMaxConcurrentHashes),
-		Access: accessTokens,
+		Repo:       authRepo,
+		Hasher:     auth.NewArgon2Hasher(auth.DefaultMaxConcurrentHashes),
+		Access:     accessTokens,
+		RefreshTTL: cfg.Auth.RefreshTokenTTL,
 	})
 
 	// Handlers: HTTP in and out, given their services.
