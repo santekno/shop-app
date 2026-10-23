@@ -4,6 +4,10 @@
   "private": true,
   "description": "Code shared by the GoShop web, admin and mobile apps: API types and the API client",
   "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "sideEffects": false,
   "scripts": {
     "typecheck": "tsc"
   },
