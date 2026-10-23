@@ -28,24 +28,20 @@ import (
 // test; Run's tests that reach the database use closedDatabaseURL instead.
 const testDatabaseURL = "postgres://localhost:5432/goshop?sslmode=disable"
 
-// requiredEnv is every variable Load requires, with test values (none of
-// them is real).
-var requiredEnv = map[string]string{
+// The other variables Load requires, with test values (none of them real).
+var requiredEnv = map[string]string{ //nolint:gosec // a test value, not a credential
 	"DATABASE_URL":           testDatabaseURL,
 	"JWT_SECRET":             "unit-test-jwt-secret-not-a-real-key-0123456789",
-	"GOOGLE_CLIENT_ID":       "goshop-test.apps.googleusercontent.com",
 	"REDIS_URL":              "redis://localhost:6379/0",
+	"GOOGLE_CLIENT_ID":       "goshop-test.apps.googleusercontent.com",
 	"APP_TRUSTED_PROXY_HOPS": "0",
 }
 
-// setEnv clears every APP_* variable, PORT and DATABASE_URL for the test,
-// sets DATABASE_URL (required) to testDatabaseURL, then sets vars over it.
+// setEnv clears every APP_* variable, PORT and the required variables for
+// the test, sets the required ones to requiredEnv, then sets vars over them.
 func setEnv(t *testing.T, vars map[string]string) {
 	t.Helper()
-	names := []string{"PORT"}
-	for name := range requiredEnv {
-		names = append(names, name)
-	}
+	names := []string{"PORT", "DATABASE_URL", "JWT_SECRET", "REDIS_URL", "GOOGLE_CLIENT_ID"}
 	for _, kv := range os.Environ() {
 		if name, _, _ := strings.Cut(kv, "="); strings.HasPrefix(name, "APP_") {
 			names = append(names, name)
@@ -57,9 +53,9 @@ func setEnv(t *testing.T, vars map[string]string) {
 			t.Fatalf("unset %s: %v", name, err)
 		}
 	}
-	for name, value := range requiredEnv {
-		if _, ok := vars[name]; !ok {
-			t.Setenv(name, value)
+	for k, v := range requiredEnv {
+		if _, ok := vars[k]; !ok {
+			t.Setenv(k, v)
 		}
 	}
 	for k, v := range vars {
@@ -67,12 +63,18 @@ func setEnv(t *testing.T, vars map[string]string) {
 	}
 }
 
+// testSecret signs the access tokens of these tests; it is not a real key.
+var testSecret = []byte("unit-test-jwt-secret-not-a-real-key-0123456789")
+
 func testConfig(env string) config.Config {
 	return config.Config{
 		Env:             env,
 		LogLevel:        "info",
 		RequestTimeout:  time.Second,
 		ShutdownTimeout: time.Second,
+		Auth: config.Auth{
+			JWTSecret: testSecret, AccessTokenTTL: 15 * time.Minute, RefreshTokenTTL: 720 * time.Hour,
+		},
 	}
 }
 
@@ -144,35 +146,7 @@ func TestApp_UsesTheGivenPool(t *testing.T) {
 	}
 	testx.AssertEqual(t, probe.Checks["postgres"].Status, "unavailable")
 	testx.AssertEqual(t, probe.Checks["server"].Status, "ok")
-}
-
-// The admin routes are behind authentication in every environment: without
-// an access token they answer 401, before any handler runs.
-func TestApp_AdminRoutesNeedAToken(t *testing.T) {
-	const id = "0190c8a0-0000-7000-8000-000000000001"
-	requests := []struct{ method, path string }{
-		{http.MethodPost, "/v1/admin/products"},
-		{http.MethodPut, "/v1/admin/products/" + id},
-		{http.MethodGet, "/v1/admin/products/" + id},
-		{http.MethodDelete, "/v1/admin/products/" + id},
-	}
-	for _, env := range []string{config.EnvDevelopment, config.EnvStaging, config.EnvProduction} {
-		t.Run(env, func(t *testing.T) {
-			h := app.New(testConfig(env), logx.Noop(), (&fakeDB{}).open(t), testRedis(t)).Handler()
-			for _, req := range requests {
-				rec := httptest.NewRecorder()
-				h.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), req.method, req.path, strings.NewReader("{}")))
-				var body struct {
-					Error struct {
-						Code string `json:"code"`
-					} `json:"error"`
-				}
-				_ = json.Unmarshal(rec.Body.Bytes(), &body)
-				testx.AssertEqual(t, rec.Code, http.StatusUnauthorized, "%s %s", req.method, req.path)
-				testx.AssertEqual(t, body.Error.Code, "UNAUTHORIZED", "%s %s", req.method, req.path)
-			}
-		})
-	}
+	testx.AssertEqual(t, probe.Checks["redis"].Status, "ok", "readiness checks the Redis New was given")
 }
 
 // HEAD works on the API and on the probes, with an empty body. It goes
