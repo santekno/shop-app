@@ -67,7 +67,7 @@ IT_ENV := POSTGRES_DSN='postgres://goshop:goshop@localhost:5432/goshop?sslmode=d
 	GOSHOP_API_URL=http://127.0.0.1:8080
 
 .PHONY: help doctor build lint lint-openapi test-unit test-integration test-mobile-e2e docker-build scan verify up down dev-api docs-api \
-	migrate-up migrate-down migrate-new seed seed-large sqlc sqlc-check
+	migrate-up migrate-down migrate-new seed seed-large seed-admin sqlc sqlc-check
 
 help: ## List targets
 	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -172,6 +172,12 @@ seed: ## Insert the example catalog (idempotent; local databases only)
 seed-large: ## The example catalog plus 10000 generated products, for EXPLAIN ANALYZE
 	$(require_local_db)
 	@cd $(API) && DATABASE_URL='$(DATABASE_URL)' go run ./cmd/seed -generated 10000
+
+seed-admin: ## Create or promote a local admin: SEED_ADMIN_PASSWORD=… make seed-admin email=admin@goshop.local
+	$(require_local_db)
+	@[[ "$(email)" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+$$ ]] || { echo "usage: SEED_ADMIN_PASSWORD=… make seed-admin email=admin@goshop.local" >&2; exit 1; }
+	@[ -n "$$SEED_ADMIN_PASSWORD" ] || { echo "seed-admin: set SEED_ADMIN_PASSWORD (read from the environment, never a flag)" >&2; exit 1; }
+	@cd $(API) && DATABASE_URL='$(DATABASE_URL)' go run ./cmd/seed -admin '$(email)'
 
 sqlc: $(SQLC) ## Generate internal/db/sqlc from migrations/ and internal/db/queries/
 	cd $(API) && $(SQLC) generate

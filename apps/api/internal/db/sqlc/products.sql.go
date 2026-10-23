@@ -145,7 +145,7 @@ type GetProductRow struct {
 	UpdatedAt   time.Time
 }
 
-// Admin reads and writes (development only until Bab 4 adds auth).
+// Admin reads and writes (sellers and admins only, from Bab 4).
 // Any product, whatever its status.
 func (q *Queries) GetProduct(ctx context.Context, id string) (GetProductRow, error) {
 	row := q.db.QueryRowContext(ctx, getProduct, id)

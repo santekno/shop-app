@@ -12,6 +12,11 @@
 //
 // -generated adds that many machine-made products on top, enough for EXPLAIN
 // ANALYZE to show the indexes at work (docs/explain/catalog.md).
+//
+// -admin creates or promotes one admin account instead of seeding the
+// catalog, with the password in SEED_ADMIN_PASSWORD (make seed-admin):
+//
+//	SEED_ADMIN_PASSWORD=… DATABASE_URL=postgres://… go run ./cmd/seed -admin admin@goshop.local
 package main
 
 import (
@@ -28,6 +33,7 @@ import (
 
 	"github.com/santekno/sdk/logx"
 
+	"github.com/santekno/shop-app/apps/api/internal/auth"
 	"github.com/santekno/shop-app/apps/api/internal/config"
 	"github.com/santekno/shop-app/apps/api/internal/database"
 )
@@ -35,13 +41,18 @@ import (
 func main() {
 	generated := flag.Int("generated", 0, "also insert this many generated products (for EXPLAIN on a larger catalog)")
 	allowRemote := flag.Bool("allow-remote", false, "seed a database that is not on this machine")
+	admin := flag.String("admin", "", "create or promote this admin account (password in "+adminPasswordEnv+"; promoting revokes its sessions) instead of seeding the catalog")
 	flag.Parse()
 
 	databaseURL := os.Getenv("DATABASE_URL")
 	err := requireLocal(databaseURL, *allowRemote)
 	if err == nil {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-		err = run(ctx, databaseURL, *generated)
+		if *admin != "" {
+			err = runAdmin(ctx, databaseURL, *admin, os.Getenv(adminPasswordEnv))
+		} else {
+			err = run(ctx, databaseURL, *generated)
+		}
 		stop()
 	}
 	if err != nil {
@@ -77,6 +88,28 @@ func run(ctx context.Context, databaseURL string, generated int) error {
 
 	if generated > 0 {
 		return seedGenerated(ctx, db, categoryIDs, generated)
+	}
+	return nil
+}
+
+func runAdmin(ctx context.Context, databaseURL, email, password string) error {
+	if databaseURL == "" {
+		return errors.New("DATABASE_URL is not set (make seed-admin sets it to the Compose postgres)")
+	}
+	db, err := database.Open(ctx, config.Database{URL: databaseURL}, logx.Noop())
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	created, err := seedAdmin(ctx, db, email, password)
+	if err != nil {
+		return err
+	}
+	if created {
+		fmt.Printf("admin %s created\n", auth.NormalizeEmail(email))
+	} else {
+		fmt.Printf("admin %s: existing account promoted, password replaced; its sessions are revoked "+
+			"(access tokens already issued work until they expire, 15 minutes by default)\n", auth.NormalizeEmail(email))
 	}
 	return nil
 }

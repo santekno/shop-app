@@ -102,7 +102,7 @@ JOIN product_variants v ON v.product_id = p.id AND v.archived_at IS NULL
 WHERE p.slug = @slug AND p.status = 'active'
 ORDER BY v.price, v.position, v.id;
 
--- Admin reads and writes (development only until Bab 4 adds auth).
+-- Admin reads and writes (sellers and admins only, from Bab 4).
 
 -- name: GetProduct :one
 -- Any product, whatever its status.

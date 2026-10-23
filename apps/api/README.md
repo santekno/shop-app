@@ -20,12 +20,22 @@ The Go REST API behind the GoShop storefront, admin dashboard and mobile app. Th
 | POST | `/v1/auth/refresh` | Rotate the refresh token; a reused one revokes its whole session (ADR 0005) |
 | POST | `/v1/auth/logout` | Revoke the session of a refresh token; always 204 |
 | GET | `/v1/me` | **Access token.** The caller's own account |
-| POST | `/v1/admin/products` | **Development only.** Create a product with its variants |
-| GET | `/v1/admin/products/{id}` | **Development only.** Any product, whatever its status |
-| PUT | `/v1/admin/products/{id}` | **Development only.** Save a product and its variants; variants left out are archived |
-| DELETE | `/v1/admin/products/{id}` | **Development only.** Archive a product (soft delete) |
+| POST | `/v1/admin/products` | **Seller or admin.** Create a product with its variants |
+| GET | `/v1/admin/products/{id}` | **Seller or admin.** Any product, whatever its status |
+| PUT | `/v1/admin/products/{id}` | **Seller or admin.** Save a product and its variants; variants left out are archived |
+| DELETE | `/v1/admin/products/{id}` | **Seller or admin.** Archive a product (soft delete) |
 
-> **The admin routes have no authentication until Bab 4.** The API mounts them only when `APP_ENV=development`, logs a warning when it does, and answers 404 for them everywhere else. Bab 4 puts them behind the `admin` role. Never expose a development API to the internet.
+Routes marked **Access token** need `Authorization: Bearer <access_token>` (401 `UNAUTHORIZED` without one); routes marked **Seller or admin** also need that role (403 `FORBIDDEN` for a buyer). The token design is [ADR 0005](../../docs/adr/0005-auth-tokens.md).
+
+### A local admin
+
+The API never makes an admin: every account starts as a buyer. On your machine, create one (or promote an existing account) with
+
+```bash
+SEED_ADMIN_PASSWORD='a-long-local-password' make seed-admin email=admin@goshop.local
+```
+
+The password comes from the environment, never a flag, so it stays out of the shell history and the process list. Promoting an existing account replaces its password and, like a password reset, revokes its refresh tokens in the same transaction. Unlike a reset it cannot reach Redis, so access tokens already issued keep working until they expire (`APP_ACCESS_TOKEN_TTL`, 15 minutes by default). Like `make seed`, it refuses a database that is not on this machine. A production admin is made by someone who already has database access, by hand, never by this tool.
 
 Every write runs in one transaction that also recomputes `price_from` from the sellable variants. Two Bab 3 limitations: there is no optimistic locking yet, so when two admins save the same product at once the last save wins (Bab 5 adds the `version` check); and swapping two variants' SKUs, or reusing a SKU another variant of the product has right now, in one save answers 409 `SKU_TAKEN`, because each SKU is checked as its variant is written (save twice, through a temporary SKU).
 
@@ -135,7 +145,7 @@ dsn := newDatabase(t)   // the same without migrations, for the migration tests
 - **One database per test.** `newDatabase` connects to the server in `POSTGRES_DSN`, runs `CREATE DATABASE it_<random>`, and registers a cleanup that runs `DROP DATABASE … WITH (FORCE)` after the test's own pools and servers have closed, ending any connection still open. `newTestDB` applies the migrations with `database.Migrate` and opens a small pool through `database.Open`, as the API does. A test that starts the API in-process sets `DATABASE_URL` to its own database.
 - **The `goshop` database is never touched.** It holds your seed and is what `make up` serves; only the Compose stack test reads it, through the API, and it checks shapes, not counts.
 - **Why not one shared database.** A shared one makes every test defensive: unique slugs, no counting, cleanup by hand, and a crash that leaves rows behind for the next run. Tests running in parallel would also see each other's rows. With a database per test, each one starts from empty tables, may count rows and assert exact pages, and leaves nothing behind. Creating a database takes a few tens of milliseconds.
-- **Admin routes** exist only with `APP_ENV=development`, so an in-process API for admin tests needs that environment.
+- **Admin routes** need an access token with the `seller` or `admin` role. A test creates the account (or sets its role) in its own database and logs in, or signs a token with the test's `JWT_SECRET`.
 
 ## Validation for later chapters
 

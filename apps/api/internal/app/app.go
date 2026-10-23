@@ -85,15 +85,11 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB) *App {
 			r.Group(func(r chi.Router) {
 				r.Use(guard.Authenticate)
 				userHandler.Routes(r)
+				// Store staff only: sellers manage the catalog, and admins
+				// can do everything a seller can (docs/prd.md).
+				r.With(auth.RequireRole(user.RoleSeller, user.RoleAdmin)).
+					Route("/admin", productHandler.AdminRoutes)
 			})
-			// The admin routes have no authentication until Bab 4, so they
-			// exist only on a developer's machine. Bab 4 mounts them
-			// everywhere, behind the admin role.
-			if cfg.IsDevelopment() {
-				logger.Warn("admin routes are mounted WITHOUT authentication (APP_ENV=development only, until Bab 4)",
-					"prefix", "/v1/admin")
-				r.Route("/admin", productHandler.AdminRoutes)
-			}
 		})
 	})
 

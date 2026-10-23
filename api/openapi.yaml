@@ -55,13 +55,9 @@ tags:
 
 
     description: |
-      Product management for the admin dashboard.
-
-      **Development only until Bab 4.** These endpoints have no
-      authentication yet, so the API mounts them only when
-      `APP_ENV=development`; in staging and production they answer 404. Bab 4
-      puts them behind the `admin` role and mounts them everywhere. Never
-      expose a development API to the internet.
+      Product management for the admin dashboard. Every operation needs an
+      access token whose role is `seller` or `admin` (Bab 4): no token is
+      401 `UNAUTHORIZED`, a `buyer` is 403 `FORBIDDEN`.
 
 paths:
   /healthz:
@@ -279,9 +275,11 @@ paths:
     post:
       tags: [Admin]
       operationId: createProduct
+      security:
+        - bearerAuth: []
       summary: Create a product with its variants
       description: |
-        Development only until Bab 4 (see the Admin tag). The product and its
+        The product and its
         variants are stored in one transaction, and `price_from` is computed
         from the variants in the same transaction. SKUs are trimmed and
         upper-cased before they are stored. Variants must not carry an `id`.
@@ -307,6 +305,10 @@ paths:
           $ref: "#/components/responses/BadWrite"
         "409":
           $ref: "#/components/responses/Conflict"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -322,8 +324,10 @@ paths:
     get:
       tags: [Admin]
       operationId: getAdminProduct
+      security:
+        - bearerAuth: []
       summary: Get any product
-      description: Development only until Bab 4. Returns the product whatever its status, with its sellable (non-archived) variants.
+      description: Returns the product whatever its status, with its sellable (non-archived) variants.
       responses:
         "200":
           description: The product.
@@ -333,14 +337,20 @@ paths:
                 $ref: "#/components/schemas/AdminProductDetail"
         "404":
           $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/InternalError"
     put:
       tags: [Admin]
       operationId: updateProduct
+      security:
+        - bearerAuth: []
       summary: Save a product and its variants
       description: |
-        Development only until Bab 4. The body is the whole product, as an
+        The body is the whole product, as an
         admin form sends it. A variant with an `id` (a sellable variant of
         this product) is updated, one without an `id` is added, and a
         sellable variant left out of the list is archived (kept for order
@@ -367,14 +377,20 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/InternalError"
     delete:
       tags: [Admin]
       operationId: archiveProduct
+      security:
+        - bearerAuth: []
       summary: Archive a product
       description: |
-        Development only until Bab 4. Sets the status to `archived`, which
+        Sets the status to `archived`, which
         takes the product off the storefront. Nothing is deleted: orders
         keep pointing at the product and its variants, and saving it again
         with another status restores it. Archiving an archived product
@@ -384,6 +400,10 @@ paths:
           description: The product is archived.
         "404":
           $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -1172,6 +1192,17 @@ components:
             error:
               code: UNAUTHORIZED
               message: invalid or expired token
+
+    Forbidden:
+      description: The caller is logged in, but their role may not do this. Admin endpoints need `seller` or `admin`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: FORBIDDEN
+              message: your role is not allowed to do this
 
     InternalError:
       description: Unexpected server error. The code is always `INTERNAL_ERROR`, the code sdk `middleware/chi` `Recovery` writes after a panic, and handlers use the same code for every other 500. The details are in the server log, never in the response.

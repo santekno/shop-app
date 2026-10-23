@@ -14,11 +14,8 @@ import (
 )
 
 // AdminRoutes registers the admin product routes on r (mounted under
-// /v1/admin).
-//
-// There is no authentication until Bab 4, so internal/app mounts these
-// routes only when APP_ENV=development. Bab 4 puts them behind the admin
-// role; until then, never expose a development API to the internet.
+// /v1/admin). internal/app mounts them behind the auth middleware and the
+// seller or admin role, so this package does not check who is calling.
 func (h *Handler) AdminRoutes(r chi.Router) {
 	r.Post("/products", h.CreateProduct)
 	r.Get("/products/{id}", h.GetProduct)
