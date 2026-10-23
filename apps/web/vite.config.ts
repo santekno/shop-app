@@ -37,6 +37,10 @@ export default defineConfig(({ command, mode }) => {
       // Components render into a simulated DOM. Test files, setup and
       // coverage thresholds belong to the test stage (test-engineer).
       environment: "jsdom",
+      setupFiles: ["./src/vitest.setup.ts"],
+      // vi.stubEnv and vi.stubGlobal last for one test only.
+      unstubEnvs: true,
+      unstubGlobals: true,
     },
   };
 });
