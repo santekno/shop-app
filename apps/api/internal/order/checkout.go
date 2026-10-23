@@ -24,7 +24,8 @@ func NewService(carts Carts) *Service {
 
 // Preview is what checkout would charge now, without writing anything.
 type Preview struct {
-	Lines []cart.Line
+	Lines  []cart.Line
+	Totals Totals
 }
 
 // Preview validates userID's cart the way checkout will: ErrCartEmpty, or a
@@ -42,5 +43,6 @@ func (s *Service) Preview(ctx context.Context, userID string) (Preview, error) {
 	if err := validateLines(c.Lines); err != nil {
 		return Preview{}, err
 	}
-	return Preview{Lines: c.Lines}, nil
+	totals := CalculateTotals(TotalsInput{Lines: totalsLines(c.Lines)})
+	return Preview{Lines: c.Lines, Totals: totals}, nil
 }

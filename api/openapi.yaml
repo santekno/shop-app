@@ -1926,13 +1926,40 @@ components:
 
     CheckoutPreview:
       type: object
-      required: [lines]
+      required: [lines, totals]
       additionalProperties: false
       properties:
         lines:
           type: array
           items:
             $ref: "#/components/schemas/CartLine"
+        totals:
+          $ref: "#/components/schemas/OrderTotals"
+
+    OrderTotals:
+      type: object
+      description: |
+        What an order charges, in whole rupiah (ADR 0006). `total` =
+        `subtotal` - `discount` + `shipping_fee`. A percent discount is
+        computed exactly and rounded once to the nearest rupiah (halves
+        away from zero), then capped at the voucher's maximum and at the
+        subtotal; the shipping fee is never discounted.
+      required: [subtotal, discount, shipping_fee, total, weight_grams]
+      additionalProperties: false
+      properties:
+        subtotal:
+          description: Every line at its unit price × quantity.
+          $ref: "#/components/schemas/Money"
+        discount:
+          $ref: "#/components/schemas/Money"
+        shipping_fee:
+          $ref: "#/components/schemas/Money"
+        total:
+          $ref: "#/components/schemas/Money"
+        weight_grams:
+          type: integer
+          minimum: 0
+          description: The weight of every unit, which the shipping fee is quoted for.
 
     CheckoutPreviewDetail:
       type: object

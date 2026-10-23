@@ -104,9 +104,26 @@ func toProblemsJSON(lines []LineProblem) []problemJSON {
 
 // previewJSON is CheckoutPreview in api/openapi.yaml.
 type previewJSON struct {
-	Lines []cart.LineJSON `json:"lines"`
+	Lines  []cart.LineJSON `json:"lines"`
+	Totals totalsJSON      `json:"totals"`
+}
+
+// totalsJSON is OrderTotals in api/openapi.yaml.
+type totalsJSON struct {
+	Subtotal    cart.MoneyJSON `json:"subtotal"`
+	Discount    cart.MoneyJSON `json:"discount"`
+	ShippingFee cart.MoneyJSON `json:"shipping_fee"`
+	Total       cart.MoneyJSON `json:"total"`
+	WeightGrams int64          `json:"weight_grams"`
+}
+
+func toTotalsJSON(t Totals) totalsJSON {
+	return totalsJSON{
+		Subtotal: cart.Rupiah(t.Subtotal), Discount: cart.Rupiah(t.Discount),
+		ShippingFee: cart.Rupiah(t.ShippingFee), Total: cart.Rupiah(t.Total), WeightGrams: t.WeightGrams,
+	}
 }
 
 func toPreviewJSON(p Preview) previewJSON {
-	return previewJSON{Lines: cart.ToJSON(cart.Cart{Lines: p.Lines}).Lines}
+	return previewJSON{Lines: cart.ToJSON(cart.Cart{Lines: p.Lines}).Lines, Totals: toTotalsJSON(p.Totals)}
 }
