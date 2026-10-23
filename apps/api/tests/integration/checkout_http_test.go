@@ -43,8 +43,9 @@ func TestCheckout_PlacesOrder(t *testing.T) {
 	if o.Status != "pending_payment" || o.CancelReason != nil || o.PaidAt != nil || o.VoucherCode != nil {
 		t.Errorf("new order = %+v, want pending_payment without payment or voucher", o)
 	}
-	if d := o.PaymentExpiresAt.Sub(o.CreatedAt); d < 2*time.Hour-time.Second || d > 2*time.Hour+time.Second {
-		t.Errorf("payment_expires_at is %s after created_at, want APP_PAYMENT_TTL 2h", d)
+	// One clock (the API's) writes both: exactly APP_PAYMENT_TTL apart.
+	if d := o.PaymentExpiresAt.Sub(o.CreatedAt); d != 2*time.Hour || !o.UpdatedAt.Equal(o.CreatedAt) {
+		t.Errorf("payment_expires_at is %s after created_at (updated_at %s), want exactly APP_PAYMENT_TTL 2h", d, o.UpdatedAt)
 	}
 	if wib := before.In(time.FixedZone("WIB", 7*3600)).Format("20060102"); o.Code[3:11] != wib {
 		t.Errorf("code %s, want the date %s in WIB", o.Code, wib)
