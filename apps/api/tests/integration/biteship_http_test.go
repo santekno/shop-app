@@ -37,7 +37,7 @@ type fakeBiteship struct {
 	auth string
 }
 
-const fakeBiteshipKey = "biteship_test.fake-key" //nolint:gosec // a fake server's key, not a secret
+const fakeBiteshipKey = "biteship_test.fake-key"
 
 func newFakeBiteship(t *testing.T) *fakeBiteship {
 	t.Helper()
