@@ -267,6 +267,12 @@ func fieldMessage(fe validator.FieldError, validateTag string) string {
 		return fmt.Sprintf("must be exactly %s%s", fe.Param(), unit)
 	case "oneof":
 		return "must be one of: " + strings.Join(strings.Fields(fe.Param()), ", ")
+	case "email":
+		return "must be an email address such as budi@example.com"
+	case "id_phone":
+		return "must be an Indonesian phone number such as 081234567890 or +6281234567890"
+	case "id_postal":
+		return "must be a 5-digit Indonesian postal code"
 	default:
 		return "is invalid"
 	}

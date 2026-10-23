@@ -9,6 +9,7 @@ Every column is `NOT NULL` unless the diagram says `nullable`.
 | Chapter | Migration | Tables |
 |---|---|---|
 | Bab 3 | `apps/api/migrations/000001_create_catalog` | `categories`, `products`, `product_variants`, with every constraint and index below that belongs to them |
+| Bab 4 | `000002_create_users` | `users`: the email lower-case CHECK (ASCII only, enforced by the API), the role CHECK (`buyer`, `seller`, `admin`), and a CHECK that an anonymised row keeps no password, phone or name |
 
 Two choices made while building it:
 

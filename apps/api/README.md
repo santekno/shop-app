@@ -15,6 +15,7 @@ The Go REST API behind the GoShop storefront, admin dashboard and mobile app. Th
 | GET | `/v1/categories` | Every category, top-level first, sorted by name, from PostgreSQL (`make seed` fills it) |
 | GET | `/v1/products` | One page of active products with their sellable variants, `price_from` and a computed `in_stock` |
 | GET | `/v1/products/{slug}` | One active product; a malformed or unknown slug is 404 |
+| POST | `/v1/auth/register` | Create a buyer account (argon2id password hash); 409 `EMAIL_TAKEN` for a registered email |
 | POST | `/v1/admin/products` | **Development only.** Create a product with its variants |
 | GET | `/v1/admin/products/{id}` | **Development only.** Any product, whatever its status |
 | PUT | `/v1/admin/products/{id}` | **Development only.** Save a product and its variants; variants left out are archived |

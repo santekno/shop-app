@@ -45,7 +45,12 @@ tags:
     description: Liveness and readiness probes for Docker and Railway.
   - name: Catalog
     description: Public, read-only catalog for buyers. No authentication needed.
+  - name: Auth
+    description: |
+      Accounts and tokens (Bab 4, design in ADR 0005). Passwords are hashed
+      with argon2id and never logged or returned.
   - name: Admin
+
     description: |
       Product management for the admin dashboard.
 
@@ -379,6 +384,46 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /v1/auth/register:
+    post:
+      tags: [Auth]
+      operationId: register
+      summary: Create an account
+      description: |
+        Creates a `buyer` account. The email is trimmed and lower-cased, and
+        must be plain ASCII. The password must be 8 to 128 characters and
+        not one of the most common leaked passwords; there are no rules
+        about digits or symbols (NIST SP 800-63B). Every invalid field is
+        reported at once. The account can log in straight away; its email
+        is unverified until the user confirms it.
+
+        An email that already has an account answers 409 `EMAIL_TAKEN`.
+        This tells a caller that the address is registered, a deliberate
+        trade-off for a clear sign-up form; the endpoint is rate limited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+            example:
+              email: budi@example.com
+              password: kopi-susu-gula-aren
+              name: Budi Santoso
+      responses:
+        "201":
+          description: The account was created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserDetail"
+        "400":
+          $ref: "#/components/responses/BadAuthRequest"
+        "409":
+          $ref: "#/components/responses/EmailTaken"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 components:
   schemas:
     Money:
@@ -654,6 +699,63 @@ components:
         data:
           $ref: "#/components/schemas/Product"
 
+    RegisterRequest:
+      type: object
+      required: [email, password, name]
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+          description: Trimmed and lower-cased by the API. ASCII only.
+        password:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 128
+          description: Counted in characters. Never logged, never returned.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Trimmed by the API.
+
+    User:
+      type: object
+      description: An account as its owner and the auth endpoints see it.
+      required: [id, email, name, phone, role, email_verified, created_at]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        phone:
+          type: [string, "null"]
+          description: An Indonesian phone number, or `null` when none is set.
+        role:
+          type: string
+          enum: [buyer, seller, admin]
+          description: What the user may do. New accounts are always `buyer`.
+        email_verified:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    UserDetail:
+      type: object
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          $ref: "#/components/schemas/User"
+
     HealthCheck:
       type: object
       required: [status, duration_ms]
@@ -801,6 +903,32 @@ components:
             error:
               code: NOT_FOUND
               message: product not found
+    BadAuthRequest:
+      description: The body is not valid JSON or breaks the schema (`VALIDATION_FAILED`, one entry per field). A password that breaks the policy is reported under `password`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: VALIDATION_FAILED
+              message: invalid request
+              details:
+                email: must be an email address such as budi@example.com
+                password: must be between 8 and 128 characters
+    EmailTaken:
+      description: Another account already uses this email.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: EMAIL_TAKEN
+              message: an account with this email already exists
+              details:
+                email: is already registered; log in or reset the password
+
     InternalError:
       description: Unexpected server error. The code is always `INTERNAL_ERROR`, the code sdk `middleware/chi` `Recovery` writes after a panic, and handlers use the same code for every other 500. The details are in the server log, never in the response.
       content:

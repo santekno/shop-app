@@ -175,7 +175,7 @@ func TestValidator_Struct(t *testing.T) {
 		{name: "min only", change: func(p *createProduct) { p.Price = 999 }, want: map[string]any{"price": "must be at least 1000"}},
 		{name: "max only", change: func(p *createProduct) { p.Stock = 1000 }, want: map[string]any{"stock": "must be at most 999"}},
 		{name: "max on a string counts characters", change: func(p *createProduct) { p.Note = "panjang" }, want: map[string]any{"note": "must be at most 5 characters"}},
-		{name: "other rules", change: func(p *createProduct) { p.Email = "nope" }, want: map[string]any{"email": "is invalid"}},
+		{name: "email", change: func(p *createProduct) { p.Email = "nope" }, want: map[string]any{"email": "must be an email address such as budi@example.com"}},
 		{name: "json:\"-\" uses the Go name", change: func(p *createProduct) { p.Sort = "random" }, want: map[string]any{"Sort": "must be one of: newest, oldest"}},
 	}
 	for _, tt := range tests {

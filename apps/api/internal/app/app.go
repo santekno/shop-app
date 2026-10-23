@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/santekno/sdk/logx"
 
+	"github.com/santekno/shop-app/apps/api/internal/auth"
 	"github.com/santekno/shop-app/apps/api/internal/category"
 	"github.com/santekno/shop-app/apps/api/internal/config"
 	"github.com/santekno/shop-app/apps/api/internal/database"
@@ -43,15 +44,21 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB) *App {
 	// Repositories: SQL on the shared pool.
 	categoryRepo := category.NewPostgresRepository(db)
 	productRepo := product.NewPostgresRepository(db)
+	authRepo := auth.NewPostgresRepository(db)
 
 	// Services: the business rules, given their repositories.
 	categoryService := category.NewService(categoryRepo)
 	productService := product.NewService(productRepo, categoryService)
+	authService := auth.NewService(auth.Deps{
+		Repo:   authRepo,
+		Hasher: auth.NewArgon2Hasher(auth.DefaultMaxConcurrentHashes),
+	})
 
 	// Handlers: HTTP in and out, given their services.
 	validator := httpapi.NewValidator()
 	categoryHandler := category.NewHandler(categoryService)
 	productHandler := product.NewHandler(productService, productService, validator)
+	authHandler := auth.NewHandler(authService, validator)
 	healthHandler := health.NewHandler(logger, readiness, !cfg.IsDevelopment(),
 		health.PostgresCheck(db))
 
@@ -64,6 +71,7 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB) *App {
 		r.Route("/v1", func(r chi.Router) {
 			categoryHandler.Routes(r)
 			productHandler.Routes(r)
+			authHandler.Routes(r)
 			// The admin routes have no authentication until Bab 4, so they
 			// exist only on a developer's machine. Bab 4 mounts them
 			// everywhere, behind the admin role.

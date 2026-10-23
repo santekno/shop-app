@@ -47,3 +47,16 @@ type ProductVariant struct {
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }
+
+type User struct {
+	ID              string
+	Email           string
+	PasswordHash    sql.NullString
+	Name            string
+	Phone           sql.NullString
+	Role            string
+	EmailVerifiedAt sql.NullTime
+	AnonymizedAt    sql.NullTime
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
