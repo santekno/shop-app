@@ -67,6 +67,10 @@ services:
       # so it gets the same required values, though it uses none of them.
       REDIS_URL: redis://redis:6379/0
       JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-string}
+      # Required outside development, like for the api below: without them
+      # a compose run with APP_ENV=staging would stop here, at migrate.
+      APP_TRUSTED_PROXY_HOPS: ${APP_TRUSTED_PROXY_HOPS:-0}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
     depends_on:
       postgres:
         condition: service_healthy
