@@ -43,7 +43,7 @@ flowchart LR
 | Admin dashboard | `apps/admin` | Products, stock and orders for sellers and admins | Bab 12 |
 | Mobile app | `apps/mobile` | The storefront on Android and iOS | Bab 13 |
 | PostgreSQL + pgvector | `docker-compose.yml` (`postgres`) | System of record; pgvector stores embeddings for semantic search (Bab 18) | Bab 1 (compose), Bab 3 (schema) |
-| Redis | `docker-compose.yml` (`redis`) | Rate limits, sessions/refresh tokens, cache, job queue | Bab 1 (compose), Bab 4 (used) |
+| Redis | `docker-compose.yml` (`redis`) | Rate limits and revoked-session markers (Bab 4; refresh tokens stay in PostgreSQL, [ADR 0005](adr/0005-auth-tokens.md)), later cache and job queue | Bab 1 (compose), Bab 4 (used) |
 | S3 storage | `docker-compose.yml` (`storage`) | Product and review images; SeaweedFS S3 gateway locally, any S3-compatible bucket in production | Bab 1 (compose), Bab 6 (used) |
 
 The API and the worker are two binaries built from the same Go module, so they share the domain code and are deployed as two services.
