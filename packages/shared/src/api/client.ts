@@ -83,12 +83,13 @@ const isRetryable = (error: unknown): boolean =>
     error.status === 504);
 
 /**
- * Creates the GoShop API client: `request` sends one call and returns the
- * parsed JSON, or throws an ApiError.
+ * Creates the GoShop API client: `request<T>` sends one call and returns the
+ * parsed JSON as a `T`, or throws an ApiError.
  *
  * @example
  *   const api = createApiClient({ baseUrl: "http://localhost:8080" });
- *   const body = await api.request("/v1/categories", { signal });
+ *   const body = await api.request<CategoryList>("/v1/categories", { signal });
+ *   body.data; // Category[]
  */
 export const createApiClient = (options: ApiClientOptions) => {
   const {
@@ -168,7 +169,20 @@ export const createApiClient = (options: ApiClientOptions) => {
     }
   };
 
-  const request = async (
+  /**
+   * `<T>` is a type parameter, like `[T any]` in Go: the caller names the
+   * type of the JSON it expects. Unlike retry's T, which flows in from the
+   * function it is given, this T only appears in the result, so it is a
+   * promise the caller makes rather than something the compiler can check;
+   * JSON.parse has no type information to check it against. That is why
+   * only the endpoint functions call request, with types generated from
+   * api/openapi.yaml.
+   *
+   * Go (as of 1.26, the course's version) cannot write this as a method:
+   * methods have no type parameters, so a Go client needs a package-level
+   * `func Get[T any](c *Client, …) (T, error)`.
+   */
+  const request = async <T>(
     path: string,
     {
       method = "GET",
@@ -179,7 +193,7 @@ export const createApiClient = (options: ApiClientOptions) => {
       timeoutMs = defaultTimeoutMs,
       retries = defaultRetries,
     }: RequestOptions = {},
-  ): Promise<unknown> => {
+  ): Promise<T> => {
     const url = urlFor(path, query);
     const requestHeaders = new Headers(headers);
     if (!requestHeaders.has("Accept")) {
@@ -190,7 +204,8 @@ export const createApiClient = (options: ApiClientOptions) => {
       requestHeaders.set("Content-Type", "application/json");
       init.body = JSON.stringify(body);
     }
-    const attempt = () => send(url, init, signal, timeoutMs);
+    const attempt = async () =>
+      (await send(url, init, signal, timeoutMs)) as T;
 
     // Only GET and HEAD are safe to repeat: a retried POST could, for
     // example, place the same order twice.
