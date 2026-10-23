@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -263,3 +265,105 @@ func (s *server) liveSessions(t *testing.T, userID string) int {
 	return s.count(t, `SELECT count(*) FROM refresh_tokens
 		WHERE user_id = $1 AND used_at IS NULL AND revoked_at IS NULL`, userID)
 }
+
+// revokedKey is the Redis key of a revoked session (ADR 0005).
+func revokedKey(sessionID string) string { return "goshop:session-revoked:" + sessionID }
+
+// sessionOf is the session (refresh-token family) an access token belongs
+// to: its sid claim.
+func sessionOf(t *testing.T, accessToken string) string {
+	t.Helper()
+	sid, _ := jwtClaims(t, accessToken)["sid"].(string)
+	if sid == "" {
+		t.Fatalf("access token has no sid claim")
+	}
+	return sid
+}
+
+// assertRevokedInRedis fails unless session's revocation key is in the
+// server's Redis with a TTL of at most one access-token lifetime, after
+// which every access token of the session has expired on its own.
+func (s *server) assertRevokedInRedis(t *testing.T, session string, accessTTL time.Duration) {
+	t.Helper()
+	ttl, err := s.rdb.TTL(t.Context(), revokedKey(session)).Result()
+	if err != nil {
+		t.Fatalf("TTL %s: %v", revokedKey(session), err)
+	}
+	if ttl <= 0 || ttl > accessTTL {
+		t.Errorf("%s: TTL %s, want a key that lives at most %s (-2s means no key)", revokedKey(session), ttl, accessTTL)
+	}
+}
+
+// assertNotRevokedInRedis fails when session has a revocation key.
+func (s *server) assertNotRevokedInRedis(t *testing.T, session string) {
+	t.Helper()
+	if n, err := s.rdb.Exists(t.Context(), revokedKey(session)).Result(); err != nil || n != 0 {
+		t.Errorf("%s exists (%d, err %v), want the session not revoked", revokedKey(session), n, err)
+	}
+}
+
+// assertSessionEnded fails unless the session of p is over everywhere: its
+// refresh token is refused, its access token is refused, no token of its
+// family is live in PostgreSQL, and Redis holds its revocation.
+func (s *server) assertSessionEnded(t *testing.T, p tokenPairOut, accessTTL time.Duration) {
+	t.Helper()
+	sid := sessionOf(t, p.AccessToken)
+	if n := s.count(t, `SELECT count(*) FROM refresh_tokens WHERE family_id = $1 AND used_at IS NULL AND revoked_at IS NULL`, sid); n != 0 {
+		t.Errorf("session %s has %d live refresh tokens, want 0", sid, n)
+	}
+	assertError(t, s.call(t, http.MethodPost, "/v1/auth/refresh", map[string]string{"refresh_token": p.RefreshToken}, ""),
+		http.StatusUnauthorized, "TOKEN_INVALID")
+	me := s.call(t, http.MethodGet, "/v1/me", nil, p.AccessToken)
+	assertError(t, me, http.StatusUnauthorized, "UNAUTHORIZED")
+	s.assertRevokedInRedis(t, sid, accessTTL)
+}
+
+// refresh rotates p's refresh token over HTTP and returns the new pair.
+func (s *server) refresh(t *testing.T, refreshToken string) tokenPairOut {
+	t.Helper()
+	resp := s.call(t, http.MethodPost, "/v1/auth/refresh", map[string]string{"refresh_token": refreshToken}, "")
+	return assertTokenPair(t, resp, "POST /v1/auth/refresh")
+}
+
+// defaultAccessTTL is APP_ACCESS_TOKEN_TTL when a test does not set it.
+const defaultAccessTTL = 15 * time.Minute
+
+// testClock is a clock a test moves forward (app.WithClock), so tokens
+// expire without waiting. It never goes back: sdk jwtx checks an access
+// token's exp against the wall clock (docs/sdk-gaps.md).
+type testClock struct{ offset atomic.Int64 }
+
+// now is the wall clock plus every advance so far.
+func (c *testClock) now() time.Time { return time.Now().Add(time.Duration(c.offset.Load())) }
+
+// advance moves the clock forward by d.
+func (c *testClock) advance(d time.Duration) { c.offset.Add(int64(d)) }
+
+// raceIterations is how many times each race test repeats its race. Each
+// iteration is a fresh account, released at a barrier, and judged on the
+// state PostgreSQL and Redis end in, never on timing.
+const raceIterations = 25
+
+// together runs every fn in a goroutine of its own, releases them all at
+// once from a barrier, and waits for every one to return. fns must not
+// call t.Fatal; they record what they saw for the test to check after.
+func together(fns ...func()) {
+	var ready, done sync.WaitGroup
+	start := make(chan struct{})
+	for _, fn := range fns {
+		ready.Add(1)
+		done.Add(1)
+		go func() {
+			defer done.Done()
+			ready.Done()
+			<-start
+			fn()
+		}()
+	}
+	ready.Wait()
+	close(start)
+	done.Wait()
+}
+
+// withClock is app.WithClock(c.now).
+func withClock(c *testClock) app.Option { return app.WithClock(c.now) }
