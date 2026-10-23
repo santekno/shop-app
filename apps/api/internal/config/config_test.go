@@ -17,17 +17,18 @@ import (
 // (user:pass), the only one make scan allows in a URL.
 const testDatabaseURL = "postgres://localhost:5432/goshop?sslmode=disable"
 
-// Valid values for the other variables Load requires; none of them is real.
+// Valid values for the other required variables without a default. The
+// secret is 32+ bytes and not the placeholder; none of them is real.
 const (
 	testJWTSecret      = "unit-test-jwt-secret-not-a-real-key-0123456789" //nolint:gosec // a test value, not a credential
-	testGoogleClientID = "goshop-test.apps.googleusercontent.com"
 	testRedisURL       = "redis://localhost:6379/0"
+	testGoogleClientID = "goshop-test.apps.googleusercontent.com"
 )
 
-// setEnv gives the test a clean environment: every APP_* variable, PORT and
-// DATABASE_URL is removed (and restored afterwards), then DATABASE_URL is set
-// to testDatabaseURL, the one required variable without a default, and vars
-// is applied over it. configx reads every APP_* variable of the process, so a
+// setEnv gives the test a clean environment: every APP_* variable, PORT,
+// DATABASE_URL, JWT_SECRET, REDIS_URL and GOOGLE_CLIENT_ID is removed (and
+// restored afterwards), then the required ones are set to valid test values
+// (testDatabaseURL and the constants above), and vars is applied over them. configx reads every APP_* variable of the process, so a
 // stray one on the developer's machine must not leak into a test.
 func setEnv(t *testing.T, vars map[string]string) {
 	t.Helper()
@@ -37,15 +38,13 @@ func setEnv(t *testing.T, vars map[string]string) {
 			unsetEnv(t, name)
 		}
 	}
-	unsetEnv(t, "PORT")
-	required := map[string]string{
-		"DATABASE_URL":           testDatabaseURL,
-		"JWT_SECRET":             testJWTSecret,
-		"GOOGLE_CLIENT_ID":       testGoogleClientID,
-		"REDIS_URL":              testRedisURL,
+	defaults := map[string]string{
+		"DATABASE_URL": testDatabaseURL, "JWT_SECRET": testJWTSecret,
+		"REDIS_URL": testRedisURL, "GOOGLE_CLIENT_ID": testGoogleClientID,
 		"APP_TRUSTED_PROXY_HOPS": "0",
 	}
-	for name, value := range required {
+	unsetEnv(t, "PORT")
+	for name, value := range defaults {
 		unsetEnv(t, name)
 		if _, ok := vars[name]; !ok {
 			t.Setenv(name, value)
@@ -84,6 +83,14 @@ func TestLoad_Defaults(t *testing.T) {
 	testx.AssertEqual(t, cfg.Database.MaxOpenConns, config.DefaultDBMaxOpenConns)
 	testx.AssertEqual(t, cfg.Database.MaxIdleConns, config.DefaultDBMaxIdleConns)
 	testx.AssertEqual(t, cfg.Database.ConnMaxLifetime, config.DefaultDBConnMaxLifetime)
+	testx.AssertEqual(t, string(cfg.Auth.JWTSecret), testJWTSecret)
+	testx.AssertEqual(t, cfg.Auth.AccessTokenTTL, config.DefaultAccessTokenTTL)
+	testx.AssertEqual(t, cfg.Auth.RefreshTokenTTL, config.DefaultRefreshTokenTTL)
+	testx.AssertEqual(t, cfg.Auth.GoogleClientID, testGoogleClientID)
+	testx.AssertEqual(t, cfg.RedisURL, testRedisURL)
+	testx.AssertEqual(t, cfg.TrustedProxyHops, 0)
+	testx.AssertEqual(t, config.DefaultAccessTokenTTL, 15*time.Minute)
+	testx.AssertEqual(t, config.DefaultRefreshTokenTTL, 30*24*time.Hour)
 	// The documented defaults, so a changed constant is a visible decision.
 	testx.AssertEqual(t, config.DefaultDBMaxOpenConns, 10)
 	testx.AssertEqual(t, config.DefaultDBMaxIdleConns, 5)
