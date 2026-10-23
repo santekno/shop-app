@@ -35,7 +35,7 @@ func stackAPI(t *testing.T) string {
 // TestStack_API checks the API image as Docker Compose runs it: built from
 // apps/api/Dockerfile, configured only by the environment in
 // docker-compose.yml, migrated by the one-shot migrate service, connected
-// to the Compose postgres, and reachable on the published port.
+// to the Compose postgres and redis, and reachable on the published port.
 //
 // It checks shape, not counts: the Compose database is the developer's
 // own, empty after a cold start or holding the seed (or anything else they
@@ -63,15 +63,26 @@ func TestStack_API(t *testing.T) {
 		}
 	})
 
-	t.Run("readyz with postgres", func(t *testing.T) {
+	t.Run("readyz with postgres and redis", func(t *testing.T) {
 		resp := doRequest(t, client, http.MethodGet, base+"/readyz", nil)
 		if resp.Status != http.StatusOK {
 			t.Fatalf("GET /readyz = %d, want 200: %s", resp.Status, resp.Body)
 		}
 		status, checks := assertHealthBody(t, resp, "/readyz")
 		pg, ok := checks["postgres"]
-		if status != "ok" || !ok || jsonString(t, pg["status"]) != "ok" {
-			t.Errorf("/readyz = %s, want ok with a passing postgres check", resp.Body)
+		rd, okRedis := checks["redis"]
+		if status != "ok" || !ok || !okRedis || jsonString(t, pg["status"]) != "ok" || jsonString(t, rd["status"]) != "ok" {
+			t.Errorf("/readyz = %s, want ok with passing postgres and redis checks", resp.Body)
+		}
+	})
+
+	// The auth guard is wired in the image; a request without a token
+	// writes nothing.
+	t.Run("me needs a token", func(t *testing.T) {
+		resp := doRequest(t, client, http.MethodGet, base+"/v1/me", nil)
+		assertError(t, resp, http.StatusUnauthorized, "UNAUTHORIZED")
+		if got := resp.Header.Get("WWW-Authenticate"); got != `Bearer realm="goshop"` {
+			t.Errorf("WWW-Authenticate = %q", got)
 		}
 	})
 
