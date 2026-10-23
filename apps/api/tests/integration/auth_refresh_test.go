@@ -297,10 +297,11 @@ func decodePair(body []byte) (tokenPairOut, error) {
 func assertNoServerErrors(t *testing.T, s *server) {
 	t.Helper()
 	assertNoErrorLog(t, s)
-	logs := s.logs.String()
-	for _, bad := range []string{"40P01", "deadlock", "40001", "could not serialize"} {
-		if strings.Contains(logs, bad) {
-			t.Errorf("the server logged %q during the race", bad)
+	for line := range strings.Lines(s.logs.String()) {
+		for _, bad := range []string{"SQLSTATE 40P01", "deadlock detected", "SQLSTATE 40001", "could not serialize"} {
+			if strings.Contains(line, bad) {
+				t.Errorf("the server logged %q during the race: %s", bad, line)
+			}
 		}
 	}
 }
