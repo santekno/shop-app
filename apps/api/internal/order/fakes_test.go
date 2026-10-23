@@ -25,13 +25,15 @@ type fakeRepo struct {
 	placeErr error
 	placeOut Response
 
-	claim      claimResult
-	claimErr   error
-	claimNow   time.Time
-	claimIdem  Idempotency
-	released   []string
-	releaseCtx context.Context
-	releaseErr error
+	claim     claimResult
+	claimErr  error
+	claimNow  time.Time
+	claimIdem Idempotency
+	released  []string
+	// releasedClaims is the claim id of each release.
+	releasedClaims []string
+	releaseCtx     context.Context
+	releaseErr     error
 
 	deleted    []int64 // what each DeleteExpiredKeys call returns
 	deleteErr  error
@@ -82,9 +84,10 @@ func (f *fakeRepo) ClaimKey(_ context.Context, userID string, idem Idempotency, 
 	return f.claim, f.claimErr
 }
 
-func (f *fakeRepo) ReleaseKey(ctx context.Context, userID, key, _ string) error {
+func (f *fakeRepo) ReleaseKey(ctx context.Context, userID, key, claimID string) error {
 	f.record("ReleaseKey " + userID)
 	f.released = append(f.released, key)
+	f.releasedClaims = append(f.releasedClaims, claimID)
 	f.releaseCtx = ctx
 	return f.releaseErr
 }
