@@ -74,7 +74,9 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 	categoryRepo := category.NewPostgresRepository(db)
 	productRepo := product.NewPostgresRepository(db)
 	authRepo := auth.NewPostgresRepository(db)
-	userRepo := user.NewPostgresRepository(db)
+	// Deleting an account also cancels its unpaid orders and deletes its
+	// cart, in the same transaction (ADR 0006).
+	userRepo := user.NewPostgresRepository(db, order.AccountCloser(o.clock))
 	addressRepo := address.NewPostgresRepository(db)
 	cartRepo := cart.NewPostgresRepository(db)
 	orderRepo := order.NewPostgresRepository(db)
@@ -123,7 +125,7 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 		Clock:            o.clock,
 		TrustedProxyHops: cfg.TrustedProxyHops,
 	})
-	orderHandler := order.NewHandler(orderService, validator).
+	orderHandler := order.NewHandler(orderService, orderService, orderService, validator).
 		LimitPerBuyer(o.limiter, order.NewLimits(cfg.CheckoutLimitPerMinute))
 	userHandler := user.NewHandler(userService, validator)
 	addressHandler := address.NewHandler(addressService, validator)
@@ -162,7 +164,10 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 				// Store staff only: sellers manage the catalog, and admins
 				// can do everything a seller can (docs/prd.md).
 				r.With(auth.RequireRole(user.RoleSeller, user.RoleAdmin)).
-					Route("/admin", productHandler.AdminRoutes)
+					Route("/admin", func(r chi.Router) {
+						productHandler.AdminRoutes(r)
+						orderHandler.AdminRoutes(r)
+					})
 			})
 		})
 	})
@@ -267,8 +272,10 @@ func Run(ctx context.Context, args []string, stdout io.Writer) error {
 		return Probe(ctx, cfg.Port)
 	case len(args) == 1 && args[0] == "migrate":
 		return runMigrations(ctx, cfg, logger)
+	case len(args) == 1 && args[0] == "expire-orders":
+		return runJob(ctx, cfg, logger, "expire-orders", expireOrders)
 	default:
-		return fmt.Errorf("unknown arguments %q (usage: api [healthcheck|migrate])", args)
+		return fmt.Errorf("unknown arguments %q (usage: api [healthcheck|migrate|expire-orders])", args)
 	}
 
 	db, err := database.Open(ctx, cfg.Database, logger)
@@ -313,6 +320,34 @@ func closeRedis(rdb *redis.Client, logger logx.Logger) {
 		return
 	}
 	logger.Info("redis closed")
+}
+
+// runJob runs one of the background jobs once against the database and
+// exits: `api expire-orders`. Bab 5 has no worker yet, so a scheduler runs
+// the command (make expire-orders locally, a Railway cron service in
+// production); Bab 6's worker calls the same service methods on a ticker
+// (ADR 0006). Each job is safe to run twice at once.
+func runJob(ctx context.Context, cfg config.Config, logger logx.Logger, name string,
+	job func(context.Context, *sql.DB, logx.Logger) error,
+) error {
+	db, err := database.Open(ctx, cfg.Database, logger)
+	if err != nil {
+		return err
+	}
+	defer closeDB(db, logger)
+	if err := job(ctx, db, logger); err != nil {
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	return nil
+}
+
+// expireOrders cancels every unpaid order past its payment deadline and
+// returns its stock (order.Service.ExpireDue).
+func expireOrders(ctx context.Context, db *sql.DB, logger logx.Logger) error {
+	svc := order.NewService(order.Deps{Repo: order.NewPostgresRepository(db)})
+	n, err := svc.ExpireDue(ctx)
+	logger.Info("expired unpaid orders", "cancelled", n)
+	return err
 }
 
 // runMigrations is `api migrate`: the one way a deployed database gets its

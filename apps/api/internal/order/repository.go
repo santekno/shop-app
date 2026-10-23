@@ -121,3 +121,44 @@ func nullTime(t sql.NullTime) *time.Time {
 	}
 	return &t.Time
 }
+
+// GetAny returns any order with its items, for sellers and admins, or
+// ErrNotFound.
+func (r *PostgresRepository) GetAny(ctx context.Context, id string) (Order, error) {
+	row, err := r.q.GetOrder(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Order{}, ErrNotFound
+	}
+	if err != nil {
+		return Order{}, fmt.Errorf("query order: %w", err)
+	}
+	o := fromOrderRow(orderRow(row))
+	if o.Items, err = loadItems(ctx, r.q, id); err != nil {
+		return Order{}, err
+	}
+	return o, nil
+}
+
+// StatusQuery selects one page of the admin queue.
+type StatusQuery struct {
+	Status Status
+	After  position
+	Limit  int
+}
+
+// ListByStatus returns up to q.Limit orders in q.Status after q.After,
+// newest first, without their items.
+func (r *PostgresRepository) ListByStatus(ctx context.Context, q StatusQuery) ([]Order, error) {
+	rows, err := r.q.ListOrdersByStatus(ctx, sqlc.ListOrdersByStatusParams{
+		Status: string(q.Status), CursorCreatedAt: q.After.CreatedAt, CursorID: q.After.ID,
+		PageSize: int32(q.Limit), // #nosec G115 -- at most MaxPageSize + 1
+	})
+	if err != nil {
+		return nil, fmt.Errorf("query orders: %w", err)
+	}
+	out := make([]Order, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, fromOrderRow(orderRow(row)))
+	}
+	return out, nil
+}

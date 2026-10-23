@@ -48,6 +48,16 @@ func (q *Queries) DeleteCartItem(ctx context.Context, arg DeleteCartItemParams) 
 	return result.RowsAffected()
 }
 
+const deleteUserCart = `-- name: DeleteUserCart :exec
+DELETE FROM carts WHERE user_id = $1
+`
+
+// Account deletion: the cart and, through the CASCADE, its lines.
+func (q *Queries) DeleteUserCart(ctx context.Context, userID *string) error {
+	_, err := q.db.ExecContext(ctx, deleteUserCart, userID)
+	return err
+}
+
 const getCartItemQuantity = `-- name: GetCartItemQuantity :one
 SELECT quantity FROM cart_items WHERE cart_id = $1 AND variant_id = $2
 `

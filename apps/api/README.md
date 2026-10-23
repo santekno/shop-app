@@ -26,7 +26,7 @@ The Go REST API behind the GoShop storefront, admin dashboard and mobile app. Th
 | POST | `/v1/auth/google` | Google ID token → session; links by Google's subject id, never by email; 404 when `GOOGLE_CLIENT_ID` is unset (development) |
 | GET | `/v1/me` | **Access token.** The caller's own account |
 | PATCH | `/v1/me` | **Access token.** Change name and phone (`phone: null` removes it) |
-| DELETE | `/v1/me` | **Access token.** Delete the account: anonymise it, delete its addresses, Google link and email tokens, end every session |
+| DELETE | `/v1/me` | **Access token.** Delete the account: anonymise it, delete its addresses, Google link and email tokens, end every session; from Bab 5 also cancel its unpaid orders (stock and voucher uses back) and delete its cart, in the same transaction. Paid orders stay for the seller |
 | GET, POST | `/v1/me/addresses` | **Access token.** The caller's address book (at most 20; exactly one default) |
 | GET, PATCH, DELETE | `/v1/me/addresses/{id}` | **Access token.** One of the caller's addresses; anyone else's is 404 |
 | GET | `/v1/cart` | **Optional token.** The cart: the user's with an access token, otherwise the guest cart of `X-Cart-Token`; lines with the current price, the price when added, stock and a `problem` per line |
@@ -36,6 +36,11 @@ The Go REST API behind the GoShop storefront, admin dashboard and mobile app. Th
 | POST | `/v1/checkout/preview` | **Access token.** Validate the cart as checkout will (409 `CHECKOUT_PROBLEMS` lists every line that is unavailable, short of stock or repriced) and compute the totals, with the shipping fee once `address_id`, `courier` and `service` are sent and the discount of `voucher_code` (409 `VOUCHER_NOT_APPLICABLE` says why one does not apply); writes nothing. `make seed` adds example vouchers (`HEMAT10`, `POTONG15RB`, `KILAT50`) |
 | GET | `/v1/checkout/shipping-quotes?address_id=` | **Access token.** JNE, J&T and SiCepat services for the cart's weight to one of the caller's addresses, cheapest first (Biteship, or the fixed table without `BITESHIP_API_KEY`); 503 `UPSTREAM_UNAVAILABLE` when the rates API does not answer, 422 `SHIPPING_UNAVAILABLE` when no courier serves the address |
 | POST | `/v1/checkout` | **Access token, verified email.** Turn the cart into an order waiting for payment, in one transaction (buyer row, then variants in id order, re-validated; guarded voucher and stock updates); 201 with `Location: /v1/orders/{id}`. At most 5 unpaid orders per buyer |
+| POST | `/v1/orders/{id}/cancel` | **Access token.** Cancel the caller's own unpaid order; its stock and voucher use go back |
+| POST | `/v1/orders/{id}/complete` | **Access token.** Confirm that the caller's shipped order arrived |
+| GET | `/v1/admin/orders?status=paid` | **Seller or admin.** One status's order queue, newest first (cursor pagination) |
+| GET | `/v1/admin/orders/{id}` | **Seller or admin.** Any order |
+| POST | `/v1/admin/orders/{id}/process`, `/ship`, `/complete`, `/cancel` | **Seller or admin.** Move an order: paid → processing → shipped (with `tracking_number`) → completed, or cancel it before it ships (stock and voucher back) |
 | POST | `/v1/admin/products` | **Seller or admin.** Create a product with its variants |
 | GET | `/v1/admin/products/{id}` | **Seller or admin.** Any product, whatever its status |
 | PUT | `/v1/admin/products/{id}` | **Seller or admin.** Save a product and its variants; variants left out are archived; each existing variant needs its `version` (409 `VERSION_CONFLICT` when it changed) |
@@ -72,6 +77,18 @@ Every write runs in one transaction that also recomputes `price_from` from the s
 Text must be valid UTF-8 without NUL characters (`httpapi.ValidText`), because PostgreSQL refuses anything else. A JSON body with a raw invalid UTF-8 byte inside a string is still accepted: `encoding/json` replaces the byte with U+FFFD before validation runs, so the stored text holds the replacement character. That is harmless, and the contract says so.
 
 Every error, including unknown routes (404 `NOT_FOUND`) and wrong methods (405 `METHOD_NOT_ALLOWED`), uses the body `{"error":{"code","message","details?"}}`.
+
+### Orders and their life cycle
+
+An order goes `pending_payment → paid → processing → shipped → completed`, or `cancelled` before it ships ([ADR 0006](../../docs/adr/0006-cart-checkout-orders.md)). The allowed moves are one table in `internal/order/status.go`, and each move is one conditional `UPDATE … WHERE status = ANY(…)`, so two racing requests cannot both move an order (409 `INVALID_TRANSITION`). A cancel gives the stock and the voucher use back in the same transaction. `paid` is set by the Midtrans webhook in Bab 6 (`order.Service.MarkPaid`); until then, mark an order paid in `psql` to try the seller's steps.
+
+An unpaid order is cancelled (`payment_expired`) once `payment_expires_at` has passed (`APP_PAYMENT_TTL`, 24 hours by default). Bab 5 has no worker yet, so this is a one-shot command of the api binary:
+
+```bash
+make expire-orders            # docker compose run --rm --no-deps api expire-orders
+```
+
+In production, run `/api expire-orders` from a Railway cron service on the api image every few minutes; Bab 6's worker takes it over. Two runs at once are safe.
 
 ## Run it
 

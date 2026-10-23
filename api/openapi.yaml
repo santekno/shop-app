@@ -60,7 +60,7 @@ tags:
 
 
     description: |
-      Product management for the admin dashboard. Every operation needs an
+      Product and order management for the admin dashboard. Every operation needs an
       access token whose role is `seller` or `admin` (Bab 4): no token is
       401 `UNAUTHORIZED`, a `buyer` is 403 `FORBIDDEN`.
   - name: Cart
@@ -1290,6 +1290,265 @@ paths:
         "503":
           $ref: "#/components/responses/UpstreamUnavailable"
 
+  /v1/orders/{id}/cancel:
+    parameters:
+      - $ref: "#/components/parameters/OrderID"
+    post:
+      tags: [Orders]
+      operationId: cancelMyOrder
+      summary: Cancel my unpaid order
+      description: |
+        pending_payment → cancelled (`buyer_cancelled`). The stock and the
+        voucher use go back in the same transaction. A paid order cannot be
+        cancelled by the buyer (its refund is the seller's, Bab 6).
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The order after the change.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/OrderNotFound"
+        "409":
+          $ref: "#/components/responses/InvalidTransition"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+
+  /v1/orders/{id}/complete:
+    parameters:
+      - $ref: "#/components/parameters/OrderID"
+    post:
+      tags: [Orders]
+      operationId: completeMyOrder
+      summary: Confirm that my order arrived
+      description: |
+        shipped → completed.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The order after the change.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/OrderNotFound"
+        "409":
+          $ref: "#/components/responses/InvalidTransition"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+
+  /v1/admin/orders:
+    get:
+      tags: [Admin]
+      operationId: listOrdersByStatus
+      summary: The order queue of one status
+      description: Orders in one status, newest first, without their items; `paid` by default (the orders to pack). Cursor pagination as in the catalog.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [pending_payment, paid, processing, shipped, completed, cancelled]
+            default: paid
+        - name: cursor
+          in: query
+          required: false
+          description: "`page.next_cursor` of the previous page, for the same status."
+          schema:
+            type: string
+            maxLength: 512
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      responses:
+        "200":
+          description: One page of orders.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/admin/orders/{id}:
+    parameters:
+      - $ref: "#/components/parameters/OrderID"
+    get:
+      tags: [Admin]
+      operationId: getAnyOrder
+      summary: Get any order
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The order with its items.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/OrderNotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/admin/orders/{id}/process:
+    parameters:
+      - $ref: "#/components/parameters/OrderID"
+    post:
+      tags: [Admin]
+      operationId: startProcessingOrder
+      summary: Start packing a paid order
+      description: |
+        paid → processing.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The order after the change.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/OrderNotFound"
+        "409":
+          $ref: "#/components/responses/InvalidTransition"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+
+  /v1/admin/orders/{id}/ship:
+    parameters:
+      - $ref: "#/components/parameters/OrderID"
+    post:
+      tags: [Admin]
+      operationId: shipOrder
+      summary: Hand an order to the courier
+      description: |
+        processing → shipped, with the courier's airway bill (trimmed and upper-cased).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ShipRequest"
+      responses:
+        "200":
+          description: The order after the change.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderDetail"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/OrderNotFound"
+        "409":
+          $ref: "#/components/responses/InvalidTransition"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+
+  /v1/admin/orders/{id}/complete:
+    parameters:
+      - $ref: "#/components/parameters/OrderID"
+    post:
+      tags: [Admin]
+      operationId: completeOrder
+      summary: Mark a shipped order received
+      description: |
+        shipped → completed, for example when the buyer confirms by phone.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The order after the change.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/OrderNotFound"
+        "409":
+          $ref: "#/components/responses/InvalidTransition"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+
+  /v1/admin/orders/{id}/cancel:
+    parameters:
+      - $ref: "#/components/parameters/OrderID"
+    post:
+      tags: [Admin]
+      operationId: cancelOrder
+      summary: Cancel an order before it ships
+      description: |
+        pending_payment, paid or processing → cancelled (`seller_cancelled`).
+        The stock (its variants locked in id order) and the voucher use go
+        back in the same transaction. Refunding a paid order is Bab 6's.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The order after the change.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/OrderNotFound"
+        "409":
+          $ref: "#/components/responses/InvalidTransition"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1315,6 +1574,14 @@ components:
       schema:
         type: string
         maxLength: 100
+    OrderID:
+      name: id
+      in: path
+      required: true
+      description: Order ID. One that is not a UUID answers 404 `NOT_FOUND`.
+      schema:
+        type: string
+        format: uuid
 
   schemas:
     Money:
@@ -2397,6 +2664,55 @@ components:
         data:
           $ref: "#/components/schemas/Order"
 
+    OrderSummary:
+      type: object
+      description: An order as a list shows it, without items.
+      required: [id, code, status, total, payment_expires_at, created_at, updated_at]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        status:
+          type: string
+          enum: [pending_payment, paid, processing, shipped, completed, cancelled]
+        total:
+          $ref: "#/components/schemas/Money"
+        payment_expires_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    OrderList:
+      type: object
+      required: [data, page]
+      additionalProperties: false
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderSummary"
+        page:
+          $ref: "#/components/schemas/PageInfo"
+
+    ShipRequest:
+      type: object
+      required: [tracking_number]
+      additionalProperties: false
+      properties:
+        tracking_number:
+          type: string
+          pattern: "^[A-Za-z0-9-]{6,40}$"
+          description: The courier's airway bill; stored upper-case.
+          example: JNE0123456789
+
   responses:
     BadRequest:
       description: A query parameter is invalid (including a `cursor` the API did not make for the same `category`, `q` and `sort`), or `category` names no category.
@@ -2872,6 +3188,30 @@ components:
             error:
               code: EMAIL_UNVERIFIED
               message: verify your email address before placing an order
+    OrderNotFound:
+      description: No such order, or (for a buyer) another user's order, or an `id` that is not a UUID.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: NOT_FOUND
+              message: order not found
+    InvalidTransition:
+      description: |
+        The order's status does not allow this change (`INVALID_TRANSITION`, with the current `details.status` and the wanted `details.to`). The life cycle is pending_payment → paid → processing → shipped → completed, and cancelled from pending_payment, paid or processing (a buyer: pending_payment only). Two racing changes cannot both succeed: each is one conditional update.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: INVALID_TRANSITION
+              message: the order cannot make this change in its current status
+              details:
+                status: shipped
+                to: cancelled
     ShippingUnavailable:
       description: The shipping provider answered, and no courier serves the address's postal code (`SHIPPING_UNAVAILABLE`). Retrying does not help; choose another address. A provider that does not answer is 503 `UPSTREAM_UNAVAILABLE` instead.
       content:
@@ -2882,3 +3222,15 @@ components:
             error:
               code: SHIPPING_UNAVAILABLE
               message: no courier serves this address; choose another address
+    ValidationFailed:
+      description: The body is not valid JSON or breaks the schema (`VALIDATION_FAILED`, one entry per field).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: VALIDATION_FAILED
+              message: invalid request
+              details:
+                tracking_number: "must be the courier's airway bill: 6 to 40 letters, digits or hyphens"

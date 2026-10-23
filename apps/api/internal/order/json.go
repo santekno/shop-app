@@ -84,3 +84,38 @@ func utc(t *time.Time) *time.Time {
 	u := t.UTC()
 	return &u
 }
+
+type pageJSON struct {
+	NextCursor *string `json:"next_cursor"` // null on the last page
+}
+
+// orderListJSON is OrderList in api/openapi.yaml: orders without items.
+type orderListJSON struct {
+	Data []orderSummaryJSON `json:"data"`
+	Page pageJSON           `json:"page"`
+}
+
+// orderSummaryJSON is OrderSummary: an order as a list shows it.
+type orderSummaryJSON struct {
+	ID               string         `json:"id"`
+	Code             string         `json:"code"`
+	Status           string         `json:"status"`
+	Total            cart.MoneyJSON `json:"total"`
+	PaymentExpiresAt time.Time      `json:"payment_expires_at"`
+	CreatedAt        time.Time      `json:"created_at"`
+	UpdatedAt        time.Time      `json:"updated_at"`
+}
+
+func toPageJSON(p Page) orderListJSON {
+	out := orderListJSON{Data: make([]orderSummaryJSON, 0, len(p.Orders))}
+	for _, o := range p.Orders {
+		out.Data = append(out.Data, orderSummaryJSON{
+			ID: o.ID, Code: o.Code, Status: string(o.Status), Total: cart.Rupiah(o.Totals.Total),
+			PaymentExpiresAt: o.PaymentExpiresAt.UTC(), CreatedAt: o.CreatedAt.UTC(), UpdatedAt: o.UpdatedAt.UTC(),
+		})
+	}
+	if p.NextCursor != "" {
+		out.Page.NextCursor = &p.NextCursor
+	}
+	return out
+}

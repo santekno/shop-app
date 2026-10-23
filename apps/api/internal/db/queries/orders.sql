@@ -105,3 +105,157 @@ SELECT id, variant_id, product_name, variant_name, sku, unit_price, quantity, li
 FROM order_items
 WHERE order_id = @order_id
 ORDER BY created_at, id;
+
+-- Status changes (ADR 0006). Each is one conditional UPDATE whose @from
+-- comes from the Go table order.From, so a move the table does not allow
+-- changes nothing, and two racing requests cannot both move an order: the
+-- second waits for the first's row lock, re-checks status, and finds it
+-- moved. Zero rows: not found, or not in a status it may move from.
+-- buyer_id, when set, scopes the change to that buyer's order. Every time
+-- they write, updated_at included, is @now from the API's clock, like the
+-- rest of the row (InsertOrder).
+
+-- name: MarkOrderPaid :execrows
+-- The Midtrans webhook (Bab 6).
+UPDATE orders SET status = 'paid', paid_at = @now::timestamptz, updated_at = @now::timestamptz
+WHERE id = @id AND status = ANY(@from_statuses::text[]);
+
+-- name: StartProcessingOrder :execrows
+UPDATE orders SET status = 'processing', updated_at = @now::timestamptz
+WHERE id = @id AND status = ANY(@from_statuses::text[]);
+
+-- name: ShipOrder :execrows
+UPDATE orders SET status = 'shipped', tracking_number = @tracking_number::text, shipped_at = @now::timestamptz, updated_at = @now::timestamptz
+WHERE id = @id AND status = ANY(@from_statuses::text[]);
+
+-- name: CompleteOrder :execrows
+UPDATE orders SET status = 'completed', completed_at = @now::timestamptz, updated_at = @now::timestamptz
+WHERE id = @id AND status = ANY(@from_statuses::text[])
+  AND (sqlc.narg('buyer_id')::uuid IS NULL OR user_id = sqlc.narg('buyer_id')::uuid);
+
+-- name: CancelOrder :execrows
+-- Only when this returns a row does the same transaction give the stock
+-- and the voucher use back, so a retried cancel restores nothing twice.
+UPDATE orders SET status = 'cancelled', cancel_reason = @cancel_reason::text, cancelled_at = @now::timestamptz, updated_at = @now::timestamptz
+WHERE id = @id AND status = ANY(@from_statuses::text[])
+  AND (sqlc.narg('buyer_id')::uuid IS NULL OR user_id = sqlc.narg('buyer_id')::uuid);
+
+-- name: ExpireOrder :execrows
+-- The expiry job. It re-checks the deadline and the status itself, so an
+-- order paid (or cancelled) since the job listed it is left alone.
+UPDATE orders SET status = 'cancelled', cancel_reason = 'payment_expired', cancelled_at = @now::timestamptz, updated_at = @now::timestamptz
+WHERE id = @id AND status = 'pending_payment' AND payment_expires_at < @now;
+
+-- name: ListExpiredOrderIDs :many
+-- Served by orders_payment_expires_idx.
+SELECT id FROM orders
+WHERE status = 'pending_payment' AND payment_expires_at < @now
+ORDER BY payment_expires_at
+LIMIT @batch_size;
+
+-- name: LockOrderVariants :many
+-- Before a stock restore: the order's variants in id order, the order
+-- every path that locks several variants uses (ADR 0006, "Lock order").
+-- FOR NO KEY UPDATE, like checkout: new cart lines on these variants are
+-- not blocked.
+SELECT v.id FROM product_variants v
+WHERE v.id IN (SELECT oi.variant_id FROM order_items oi WHERE oi.order_id = @order_id)
+ORDER BY v.id
+FOR NO KEY UPDATE OF v;
+
+-- Account deletion (DELETE /v1/me) cancels the buyer's unpaid orders in
+-- its own transaction, after the users row: the orders in id order, then
+-- all their variants in id order in one statement (locking each order's
+-- variants in turn would not be one global id order), then all their
+-- vouchers in id order, then ONE aggregated stock restore and ONE
+-- aggregated voucher release, then each cancel. Aggregated, because
+-- writing a row twice in one transaction makes PostgreSQL re-check its
+-- foreign key and lock the parent (a variant's product), which deadlocks
+-- with an admin save (ADR 0006, "Lock order").
+
+-- name: LockPendingOrdersOfUser :many
+-- Served by orders_user_pending_idx.
+SELECT id FROM orders
+WHERE user_id = @user_id AND status = 'pending_payment'
+ORDER BY id
+FOR UPDATE;
+
+-- name: LockOrdersVariants :exec
+-- Served by order_items_order_variant_key and the variants' primary key.
+SELECT v.id FROM product_variants v
+WHERE v.id IN (SELECT oi.variant_id FROM order_items oi WHERE oi.order_id = ANY(@order_ids::uuid[]))
+ORDER BY v.id
+FOR NO KEY UPDATE OF v;
+
+-- name: LockOrdersVouchers :exec
+SELECT vo.id FROM vouchers vo
+WHERE vo.id IN (
+    SELECT o.voucher_id FROM orders o
+    WHERE o.id = ANY(@order_ids::uuid[]) AND o.voucher_id IS NOT NULL)
+ORDER BY vo.id
+FOR NO KEY UPDATE OF vo;
+
+-- name: RestoreOrdersStock :exec
+-- Every variant once, with the sum over the orders.
+UPDATE product_variants v
+SET stock = v.stock + s.quantity, version = v.version + 1, updated_at = now()
+FROM (
+    SELECT oi.variant_id, sum(oi.quantity)::integer AS quantity
+    FROM order_items oi
+    WHERE oi.order_id = ANY(@order_ids::uuid[])
+    GROUP BY oi.variant_id
+) s
+WHERE v.id = s.variant_id;
+
+-- name: ReleaseOrdersVouchers :exec
+-- Every voucher once, with the number of orders that used it.
+UPDATE vouchers vo
+SET used_count = GREATEST(vo.used_count - s.uses, 0), updated_at = now()
+FROM (
+    SELECT o.voucher_id, count(*)::integer AS uses
+    FROM orders o
+    WHERE o.id = ANY(@order_ids::uuid[]) AND o.voucher_id IS NOT NULL
+    GROUP BY o.voucher_id
+) s
+WHERE vo.id = s.voucher_id;
+
+-- name: RestoreOrderStock :exec
+-- Gives every line's quantity back, archived variants included (the count
+-- stays true if one is restored later), and bumps version like every stock
+-- change.
+UPDATE product_variants v
+SET stock = v.stock + oi.quantity, version = v.version + 1, updated_at = now()
+FROM order_items oi
+WHERE oi.order_id = @order_id AND v.id = oi.variant_id;
+
+-- name: ReleaseVoucher :exec
+-- A cancelled order gives its voucher use back.
+UPDATE vouchers SET used_count = used_count - 1, updated_at = now()
+WHERE id = (SELECT o.voucher_id FROM orders o WHERE o.id = @order_id) AND used_count > 0;
+
+-- name: GetOrderStatus :one
+-- After a status change that changed nothing: why.
+SELECT status FROM orders
+WHERE id = @id AND (sqlc.narg('buyer_id')::uuid IS NULL OR user_id = sqlc.narg('buyer_id')::uuid);
+
+-- name: GetOrder :one
+-- Any order, for sellers and admins.
+SELECT id, code, user_id, status, cancel_reason, subtotal, discount, shipping_fee, total, total_weight_grams,
+       voucher_code, courier, courier_service, tracking_number,
+       shipping_recipient, shipping_phone, shipping_street, shipping_city, shipping_province, shipping_postal_code,
+       payment_expires_at, paid_at, shipped_at, completed_at, cancelled_at, created_at, updated_at
+FROM orders
+WHERE id = @id;
+
+-- name: ListOrdersByStatus :many
+-- The admin queue: one status, newest first, after the cursor. Served by
+-- orders_status_created_idx.
+SELECT id, code, user_id, status, cancel_reason, subtotal, discount, shipping_fee, total, total_weight_grams,
+       voucher_code, courier, courier_service, tracking_number,
+       shipping_recipient, shipping_phone, shipping_street, shipping_city, shipping_province, shipping_postal_code,
+       payment_expires_at, paid_at, shipped_at, completed_at, cancelled_at, created_at, updated_at
+FROM orders
+WHERE status = @status
+  AND (created_at, id) < (@cursor_created_at::timestamptz, @cursor_id::uuid)
+ORDER BY created_at DESC, id DESC
+LIMIT @page_size;

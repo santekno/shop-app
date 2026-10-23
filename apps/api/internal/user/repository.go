@@ -13,13 +13,21 @@ import (
 // PostgresRepository reads and writes accounts in PostgreSQL with the
 // queries sqlc generated from internal/db/queries/users.sql.
 type PostgresRepository struct {
-	db *sql.DB
-	q  *sqlc.Queries
+	db       *sql.DB
+	q        *sqlc.Queries
+	onDelete []DeleteHook
 }
 
-// NewPostgresRepository returns a repository on db, the API's pool.
-func NewPostgresRepository(db *sql.DB) *PostgresRepository {
-	return &PostgresRepository{db: db, q: sqlc.New(db)}
+// DeleteHook is more work for an account deletion, run in its transaction
+// after the users row is locked and anonymised: other features' data of
+// the user (Bab 5: cancel the unpaid orders, delete the cart). It lets
+// those features join the deletion without this package importing them.
+type DeleteHook func(ctx context.Context, q *sqlc.Queries, userID string) error
+
+// NewPostgresRepository returns a repository on db, the API's pool, that
+// runs onDelete in every account deletion.
+func NewPostgresRepository(db *sql.DB, onDelete ...DeleteHook) *PostgresRepository {
+	return &PostgresRepository{db: db, q: sqlc.New(db), onDelete: onDelete}
 }
 
 // Get returns the account with id, or ErrNotFound when there is none or
@@ -58,8 +66,9 @@ func (r *PostgresRepository) Update(ctx context.Context, id string, p ProfileUpd
 // transaction: the users row stays (orders will point to it) but loses its
 // email (deleted+<id>@invalid), name, phone and password; the user's
 // addresses, sign-in identities and email tokens are deleted; and every
-// session is revoked. It returns the revoked sessions' ids, or ErrNotFound
-// when there is no such account or it was deleted already.
+// session is revoked; then the DeleteHooks run (Bab 5: unpaid orders
+// cancelled, cart deleted). It returns the revoked sessions' ids, or
+// ErrNotFound when there is no such account or it was deleted already.
 func (r *PostgresRepository) Anonymise(ctx context.Context, id string) ([]string, error) {
 	var sessions []string
 	err := database.WithTx(ctx, r.db, func(q *sqlc.Queries) error {
@@ -82,6 +91,11 @@ func (r *PostgresRepository) Anonymise(ctx context.Context, id string) ([]string
 		sessions, err = q.RevokeUserSessions(ctx, id)
 		if err != nil {
 			return fmt.Errorf("revoke sessions: %w", err)
+		}
+		for _, hook := range r.onDelete {
+			if err := hook(ctx, q, id); err != nil {
+				return err
+			}
 		}
 		return nil
 	})

@@ -65,10 +65,12 @@ Known limits:
 - Admin routes are mounted behind `auth.Guard.Authenticate` and `auth.RequireRole(seller, admin)` in one place (`internal/app/app.go`), so a new admin route cannot be added without them.
 - `RequireRole` without claims answers 401, so a route mounted in the wrong group fails closed.
 - The API cannot create an admin; `make seed-admin` does it locally only.
+- Order status changes are split by role: `/v1/admin/orders/…` (seller or admin) move any order through processing and shipping; a buyer's `/v1/orders/{id}/cancel` and `/complete` are scoped by `user_id` in the SQL and allow only the buyer's moves (cancel while unpaid, confirm receipt). Marking an order paid has no route at all until the signed Midtrans webhook (Bab 6).
 
 ## API6: Unrestricted access to sensitive business flows
 
 - Sign-up, login and password reset are rate limited and send email only to the address's owner.
+- **Account deletion releases stock**: deleting an account cancels its unpaid orders in the same transaction (stock and voucher uses back) and deletes its cart, so a deleted account cannot keep stock reserved until the payment deadline (Bab 5; paid orders stay for the seller).
 - **Stock hoarding**: checkout takes stock while an order waits for payment, so a buyer may have at most 5 unpaid orders (409 `TOO_MANY_PENDING_ORDERS`, counted under the buyer's row lock), every line is capped at 99 units and the stock on hand, and an unpaid order gives its stock back at `payment_expires_at` (`APP_PAYMENT_TTL`).
 - **Guest carts** are created at most 30 times per hour per client IP (`cart.LimitGuestCartPerIP`); a cart holds at most 50 lines.
 - **Voucher codes cannot be enumerated**: the preview and checkout answer a code that does not exist and a promo that has not started yet alike (`reason: not_found`), and the per-buyer limit above bounds how many codes one account can try.

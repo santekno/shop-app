@@ -13,6 +13,62 @@ import (
 	"github.com/lib/pq"
 )
 
+const cancelOrder = `-- name: CancelOrder :execrows
+UPDATE orders SET status = 'cancelled', cancel_reason = $1::text, cancelled_at = $2::timestamptz, updated_at = $2::timestamptz
+WHERE id = $3 AND status = ANY($4::text[])
+  AND ($5::uuid IS NULL OR user_id = $5::uuid)
+`
+
+type CancelOrderParams struct {
+	CancelReason string
+	Now          time.Time
+	ID           string
+	FromStatuses []string
+	BuyerID      *string
+}
+
+// Only when this returns a row does the same transaction give the stock
+// and the voucher use back, so a retried cancel restores nothing twice.
+func (q *Queries) CancelOrder(ctx context.Context, arg CancelOrderParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, cancelOrder,
+		arg.CancelReason,
+		arg.Now,
+		arg.ID,
+		pq.Array(arg.FromStatuses),
+		arg.BuyerID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const completeOrder = `-- name: CompleteOrder :execrows
+UPDATE orders SET status = 'completed', completed_at = $1::timestamptz, updated_at = $1::timestamptz
+WHERE id = $2 AND status = ANY($3::text[])
+  AND ($4::uuid IS NULL OR user_id = $4::uuid)
+`
+
+type CompleteOrderParams struct {
+	Now          time.Time
+	ID           string
+	FromStatuses []string
+	BuyerID      *string
+}
+
+func (q *Queries) CompleteOrder(ctx context.Context, arg CompleteOrderParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, completeOrder,
+		arg.Now,
+		arg.ID,
+		pq.Array(arg.FromStatuses),
+		arg.BuyerID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const countPendingOrders = `-- name: CountPendingOrders :one
 SELECT count(*) FROM orders WHERE user_id = $1 AND status = 'pending_payment'
 `
@@ -87,6 +143,101 @@ type DeleteOrderedCartItemsParams struct {
 func (q *Queries) DeleteOrderedCartItems(ctx context.Context, arg DeleteOrderedCartItemsParams) error {
 	_, err := q.db.ExecContext(ctx, deleteOrderedCartItems, arg.UserID, pq.Array(arg.VariantIds))
 	return err
+}
+
+const expireOrder = `-- name: ExpireOrder :execrows
+UPDATE orders SET status = 'cancelled', cancel_reason = 'payment_expired', cancelled_at = $1::timestamptz, updated_at = $1::timestamptz
+WHERE id = $2 AND status = 'pending_payment' AND payment_expires_at < $1
+`
+
+type ExpireOrderParams struct {
+	Now time.Time
+	ID  string
+}
+
+// The expiry job. It re-checks the deadline and the status itself, so an
+// order paid (or cancelled) since the job listed it is left alone.
+func (q *Queries) ExpireOrder(ctx context.Context, arg ExpireOrderParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, expireOrder, arg.Now, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const getOrder = `-- name: GetOrder :one
+SELECT id, code, user_id, status, cancel_reason, subtotal, discount, shipping_fee, total, total_weight_grams,
+       voucher_code, courier, courier_service, tracking_number,
+       shipping_recipient, shipping_phone, shipping_street, shipping_city, shipping_province, shipping_postal_code,
+       payment_expires_at, paid_at, shipped_at, completed_at, cancelled_at, created_at, updated_at
+FROM orders
+WHERE id = $1
+`
+
+type GetOrderRow struct {
+	ID                 string
+	Code               string
+	UserID             string
+	Status             string
+	CancelReason       sql.NullString
+	Subtotal           int64
+	Discount           int64
+	ShippingFee        int64
+	Total              int64
+	TotalWeightGrams   int32
+	VoucherCode        sql.NullString
+	Courier            string
+	CourierService     string
+	TrackingNumber     sql.NullString
+	ShippingRecipient  string
+	ShippingPhone      string
+	ShippingStreet     string
+	ShippingCity       string
+	ShippingProvince   string
+	ShippingPostalCode string
+	PaymentExpiresAt   time.Time
+	PaidAt             sql.NullTime
+	ShippedAt          sql.NullTime
+	CompletedAt        sql.NullTime
+	CancelledAt        sql.NullTime
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+}
+
+// Any order, for sellers and admins.
+func (q *Queries) GetOrder(ctx context.Context, id string) (GetOrderRow, error) {
+	row := q.db.QueryRowContext(ctx, getOrder, id)
+	var i GetOrderRow
+	err := row.Scan(
+		&i.ID,
+		&i.Code,
+		&i.UserID,
+		&i.Status,
+		&i.CancelReason,
+		&i.Subtotal,
+		&i.Discount,
+		&i.ShippingFee,
+		&i.Total,
+		&i.TotalWeightGrams,
+		&i.VoucherCode,
+		&i.Courier,
+		&i.CourierService,
+		&i.TrackingNumber,
+		&i.ShippingRecipient,
+		&i.ShippingPhone,
+		&i.ShippingStreet,
+		&i.ShippingCity,
+		&i.ShippingProvince,
+		&i.ShippingPostalCode,
+		&i.PaymentExpiresAt,
+		&i.PaidAt,
+		&i.ShippedAt,
+		&i.CompletedAt,
+		&i.CancelledAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const getOrderForUser = `-- name: GetOrderForUser :one
@@ -167,6 +318,24 @@ func (q *Queries) GetOrderForUser(ctx context.Context, arg GetOrderForUserParams
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const getOrderStatus = `-- name: GetOrderStatus :one
+SELECT status FROM orders
+WHERE id = $1 AND ($2::uuid IS NULL OR user_id = $2::uuid)
+`
+
+type GetOrderStatusParams struct {
+	ID      string
+	BuyerID *string
+}
+
+// After a status change that changed nothing: why.
+func (q *Queries) GetOrderStatus(ctx context.Context, arg GetOrderStatusParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, getOrderStatus, arg.ID, arg.BuyerID)
+	var status string
+	err := row.Scan(&status)
+	return status, err
 }
 
 const insertOrder = `-- name: InsertOrder :execrows
@@ -275,6 +444,42 @@ func (q *Queries) InsertOrderItem(ctx context.Context, arg InsertOrderItemParams
 	return err
 }
 
+const listExpiredOrderIDs = `-- name: ListExpiredOrderIDs :many
+SELECT id FROM orders
+WHERE status = 'pending_payment' AND payment_expires_at < $1
+ORDER BY payment_expires_at
+LIMIT $2
+`
+
+type ListExpiredOrderIDsParams struct {
+	Now       time.Time
+	BatchSize int32
+}
+
+// Served by orders_payment_expires_idx.
+func (q *Queries) ListExpiredOrderIDs(ctx context.Context, arg ListExpiredOrderIDsParams) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listExpiredOrderIDs, arg.Now, arg.BatchSize)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOrderItems = `-- name: ListOrderItems :many
 SELECT id, variant_id, product_name, variant_name, sku, unit_price, quantity, line_total
 FROM order_items
@@ -312,6 +517,113 @@ func (q *Queries) ListOrderItems(ctx context.Context, orderID string) ([]ListOrd
 			&i.UnitPrice,
 			&i.Quantity,
 			&i.LineTotal,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOrdersByStatus = `-- name: ListOrdersByStatus :many
+SELECT id, code, user_id, status, cancel_reason, subtotal, discount, shipping_fee, total, total_weight_grams,
+       voucher_code, courier, courier_service, tracking_number,
+       shipping_recipient, shipping_phone, shipping_street, shipping_city, shipping_province, shipping_postal_code,
+       payment_expires_at, paid_at, shipped_at, completed_at, cancelled_at, created_at, updated_at
+FROM orders
+WHERE status = $1
+  AND (created_at, id) < ($2::timestamptz, $3::uuid)
+ORDER BY created_at DESC, id DESC
+LIMIT $4
+`
+
+type ListOrdersByStatusParams struct {
+	Status          string
+	CursorCreatedAt time.Time
+	CursorID        string
+	PageSize        int32
+}
+
+type ListOrdersByStatusRow struct {
+	ID                 string
+	Code               string
+	UserID             string
+	Status             string
+	CancelReason       sql.NullString
+	Subtotal           int64
+	Discount           int64
+	ShippingFee        int64
+	Total              int64
+	TotalWeightGrams   int32
+	VoucherCode        sql.NullString
+	Courier            string
+	CourierService     string
+	TrackingNumber     sql.NullString
+	ShippingRecipient  string
+	ShippingPhone      string
+	ShippingStreet     string
+	ShippingCity       string
+	ShippingProvince   string
+	ShippingPostalCode string
+	PaymentExpiresAt   time.Time
+	PaidAt             sql.NullTime
+	ShippedAt          sql.NullTime
+	CompletedAt        sql.NullTime
+	CancelledAt        sql.NullTime
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+}
+
+// The admin queue: one status, newest first, after the cursor. Served by
+// orders_status_created_idx.
+func (q *Queries) ListOrdersByStatus(ctx context.Context, arg ListOrdersByStatusParams) ([]ListOrdersByStatusRow, error) {
+	rows, err := q.db.QueryContext(ctx, listOrdersByStatus,
+		arg.Status,
+		arg.CursorCreatedAt,
+		arg.CursorID,
+		arg.PageSize,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListOrdersByStatusRow
+	for rows.Next() {
+		var i ListOrdersByStatusRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Code,
+			&i.UserID,
+			&i.Status,
+			&i.CancelReason,
+			&i.Subtotal,
+			&i.Discount,
+			&i.ShippingFee,
+			&i.Total,
+			&i.TotalWeightGrams,
+			&i.VoucherCode,
+			&i.Courier,
+			&i.CourierService,
+			&i.TrackingNumber,
+			&i.ShippingRecipient,
+			&i.ShippingPhone,
+			&i.ShippingStreet,
+			&i.ShippingCity,
+			&i.ShippingProvince,
+			&i.ShippingPostalCode,
+			&i.PaymentExpiresAt,
+			&i.PaidAt,
+			&i.ShippedAt,
+			&i.CompletedAt,
+			&i.CancelledAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -427,4 +739,241 @@ func (q *Queries) LockCheckoutVariants(ctx context.Context, ids []string) ([]Loc
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockOrderVariants = `-- name: LockOrderVariants :many
+SELECT v.id FROM product_variants v
+WHERE v.id IN (SELECT oi.variant_id FROM order_items oi WHERE oi.order_id = $1)
+ORDER BY v.id
+FOR NO KEY UPDATE OF v
+`
+
+// Before a stock restore: the order's variants in id order, the order
+// every path that locks several variants uses (ADR 0006, "Lock order").
+// FOR NO KEY UPDATE, like checkout: new cart lines on these variants are
+// not blocked.
+func (q *Queries) LockOrderVariants(ctx context.Context, orderID string) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, lockOrderVariants, orderID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockOrdersVariants = `-- name: LockOrdersVariants :exec
+SELECT v.id FROM product_variants v
+WHERE v.id IN (SELECT oi.variant_id FROM order_items oi WHERE oi.order_id = ANY($1::uuid[]))
+ORDER BY v.id
+FOR NO KEY UPDATE OF v
+`
+
+// Served by order_items_order_variant_key and the variants' primary key.
+func (q *Queries) LockOrdersVariants(ctx context.Context, orderIds []string) error {
+	_, err := q.db.ExecContext(ctx, lockOrdersVariants, pq.Array(orderIds))
+	return err
+}
+
+const lockOrdersVouchers = `-- name: LockOrdersVouchers :exec
+SELECT vo.id FROM vouchers vo
+WHERE vo.id IN (
+    SELECT o.voucher_id FROM orders o
+    WHERE o.id = ANY($1::uuid[]) AND o.voucher_id IS NOT NULL)
+ORDER BY vo.id
+FOR NO KEY UPDATE OF vo
+`
+
+func (q *Queries) LockOrdersVouchers(ctx context.Context, orderIds []string) error {
+	_, err := q.db.ExecContext(ctx, lockOrdersVouchers, pq.Array(orderIds))
+	return err
+}
+
+const lockPendingOrdersOfUser = `-- name: LockPendingOrdersOfUser :many
+
+SELECT id FROM orders
+WHERE user_id = $1 AND status = 'pending_payment'
+ORDER BY id
+FOR UPDATE
+`
+
+// Account deletion (DELETE /v1/me) cancels the buyer's unpaid orders in
+// its own transaction, after the users row: the orders in id order, then
+// all their variants in id order in one statement (locking each order's
+// variants in turn would not be one global id order), then all their
+// vouchers in id order, then ONE aggregated stock restore and ONE
+// aggregated voucher release, then each cancel. Aggregated, because
+// writing a row twice in one transaction makes PostgreSQL re-check its
+// foreign key and lock the parent (a variant's product), which deadlocks
+// with an admin save (ADR 0006, "Lock order").
+// Served by orders_user_pending_idx.
+func (q *Queries) LockPendingOrdersOfUser(ctx context.Context, userID string) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, lockPendingOrdersOfUser, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const markOrderPaid = `-- name: MarkOrderPaid :execrows
+
+UPDATE orders SET status = 'paid', paid_at = $1::timestamptz, updated_at = $1::timestamptz
+WHERE id = $2 AND status = ANY($3::text[])
+`
+
+type MarkOrderPaidParams struct {
+	Now          time.Time
+	ID           string
+	FromStatuses []string
+}
+
+// Status changes (ADR 0006). Each is one conditional UPDATE whose @from
+// comes from the Go table order.From, so a move the table does not allow
+// changes nothing, and two racing requests cannot both move an order: the
+// second waits for the first's row lock, re-checks status, and finds it
+// moved. Zero rows: not found, or not in a status it may move from.
+// buyer_id, when set, scopes the change to that buyer's order. Every time
+// they write, updated_at included, is @now from the API's clock, like the
+// rest of the row (InsertOrder).
+// The Midtrans webhook (Bab 6).
+func (q *Queries) MarkOrderPaid(ctx context.Context, arg MarkOrderPaidParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, markOrderPaid, arg.Now, arg.ID, pq.Array(arg.FromStatuses))
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const releaseOrdersVouchers = `-- name: ReleaseOrdersVouchers :exec
+UPDATE vouchers vo
+SET used_count = GREATEST(vo.used_count - s.uses, 0), updated_at = now()
+FROM (
+    SELECT o.voucher_id, count(*)::integer AS uses
+    FROM orders o
+    WHERE o.id = ANY($1::uuid[]) AND o.voucher_id IS NOT NULL
+    GROUP BY o.voucher_id
+) s
+WHERE vo.id = s.voucher_id
+`
+
+// Every voucher once, with the number of orders that used it.
+func (q *Queries) ReleaseOrdersVouchers(ctx context.Context, orderIds []string) error {
+	_, err := q.db.ExecContext(ctx, releaseOrdersVouchers, pq.Array(orderIds))
+	return err
+}
+
+const releaseVoucher = `-- name: ReleaseVoucher :exec
+UPDATE vouchers SET used_count = used_count - 1, updated_at = now()
+WHERE id = (SELECT o.voucher_id FROM orders o WHERE o.id = $1) AND used_count > 0
+`
+
+// A cancelled order gives its voucher use back.
+func (q *Queries) ReleaseVoucher(ctx context.Context, orderID string) error {
+	_, err := q.db.ExecContext(ctx, releaseVoucher, orderID)
+	return err
+}
+
+const restoreOrderStock = `-- name: RestoreOrderStock :exec
+UPDATE product_variants v
+SET stock = v.stock + oi.quantity, version = v.version + 1, updated_at = now()
+FROM order_items oi
+WHERE oi.order_id = $1 AND v.id = oi.variant_id
+`
+
+// Gives every line's quantity back, archived variants included (the count
+// stays true if one is restored later), and bumps version like every stock
+// change.
+func (q *Queries) RestoreOrderStock(ctx context.Context, orderID string) error {
+	_, err := q.db.ExecContext(ctx, restoreOrderStock, orderID)
+	return err
+}
+
+const restoreOrdersStock = `-- name: RestoreOrdersStock :exec
+UPDATE product_variants v
+SET stock = v.stock + s.quantity, version = v.version + 1, updated_at = now()
+FROM (
+    SELECT oi.variant_id, sum(oi.quantity)::integer AS quantity
+    FROM order_items oi
+    WHERE oi.order_id = ANY($1::uuid[])
+    GROUP BY oi.variant_id
+) s
+WHERE v.id = s.variant_id
+`
+
+// Every variant once, with the sum over the orders.
+func (q *Queries) RestoreOrdersStock(ctx context.Context, orderIds []string) error {
+	_, err := q.db.ExecContext(ctx, restoreOrdersStock, pq.Array(orderIds))
+	return err
+}
+
+const shipOrder = `-- name: ShipOrder :execrows
+UPDATE orders SET status = 'shipped', tracking_number = $1::text, shipped_at = $2::timestamptz, updated_at = $2::timestamptz
+WHERE id = $3 AND status = ANY($4::text[])
+`
+
+type ShipOrderParams struct {
+	TrackingNumber string
+	Now            time.Time
+	ID             string
+	FromStatuses   []string
+}
+
+func (q *Queries) ShipOrder(ctx context.Context, arg ShipOrderParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, shipOrder,
+		arg.TrackingNumber,
+		arg.Now,
+		arg.ID,
+		pq.Array(arg.FromStatuses),
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const startProcessingOrder = `-- name: StartProcessingOrder :execrows
+UPDATE orders SET status = 'processing', updated_at = $1::timestamptz
+WHERE id = $2 AND status = ANY($3::text[])
+`
+
+type StartProcessingOrderParams struct {
+	Now          time.Time
+	ID           string
+	FromStatuses []string
+}
+
+func (q *Queries) StartProcessingOrder(ctx context.Context, arg StartProcessingOrderParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, startProcessingOrder, arg.Now, arg.ID, pq.Array(arg.FromStatuses))
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }

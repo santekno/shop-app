@@ -28,9 +28,15 @@ type Repository interface {
 	VoucherUses(ctx context.Context, voucherID, userID string) (int64, error)
 	Place(ctx context.Context, in PlaceInput) (string, error)
 	Get(ctx context.Context, userID, id string) (Order, error)
+	Transition(ctx context.Context, c Change) error
+	ExpiredOrderIDs(ctx context.Context, now time.Time, limit int32) ([]string, error)
+	GetAny(ctx context.Context, id string) (Order, error)
+	ListByStatus(ctx context.Context, q StatusQuery) ([]Order, error)
 }
 
-// Deps is what the service needs; every field but Clock is required.
+// Deps is what the service needs. Every field but Clock and PaymentTTL is
+// required to serve requests; the background jobs (ExpireDue) need only
+// Repo.
 type Deps struct {
 	Repo      Repository
 	Carts     Carts

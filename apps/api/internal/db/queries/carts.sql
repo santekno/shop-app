@@ -81,3 +81,7 @@ SELECT token_hash FROM carts WHERE id = @id AND user_id IS NULL FOR UPDATE;
 -- name: DeleteCart :exec
 -- After a merge. Its lines go with it (ON DELETE CASCADE).
 DELETE FROM carts WHERE id = @id;
+
+-- name: DeleteUserCart :exec
+-- Account deletion: the cart and, through the CASCADE, its lines.
+DELETE FROM carts WHERE user_id = @user_id;

@@ -24,7 +24,15 @@ const (
 	CodeEmailUnverified     = "EMAIL_UNVERIFIED"
 	CodeTooManyPending      = "TOO_MANY_PENDING_ORDERS"
 	CodeCartChanged         = "CART_CHANGED"
+	CodeInvalidTransition   = "INVALID_TRANSITION"
 )
+
+// Orders is what the buyer's order handlers need from the service.
+type Orders interface {
+	Get(ctx context.Context, userID, id string) (Order, error)
+	Complete(ctx context.Context, buyerID, id string) error
+	CancelByBuyer(ctx context.Context, buyerID, id string) error
+}
 
 // Checkout is what the checkout handlers need from the service.
 type Checkout interface {
@@ -37,14 +45,17 @@ type Checkout interface {
 // auth middleware: the buyer is the caller in the access token.
 type Handler struct {
 	checkout  Checkout
+	orders    Orders
+	staff     Staff
 	validator *httpapi.Validator
 	limiter   auth.RateLimiter
 	limits    Limits
 }
 
-// NewHandler returns a Handler.
-func NewHandler(checkout Checkout, validator *httpapi.Validator) *Handler {
-	return &Handler{checkout: checkout, validator: validator}
+// NewHandler returns a Handler. svc is usually one *Service that is
+// Checkout, Orders and Staff.
+func NewHandler(checkout Checkout, orders Orders, staff Staff, validator *httpapi.Validator) *Handler {
+	return &Handler{checkout: checkout, orders: orders, staff: staff, validator: validator}
 }
 
 // Routes registers the buyer's routes on r (mounted under /v1, behind
@@ -53,6 +64,30 @@ func (h *Handler) Routes(r chi.Router) {
 	r.Post("/checkout/preview", h.Preview)
 	r.Get("/checkout/shipping-quotes", h.ShippingQuotes)
 	r.Post("/checkout", h.Checkout)
+	r.Post("/orders/{id}/cancel", h.buyerMove(h.orders.CancelByBuyer))
+	r.Post("/orders/{id}/complete", h.buyerMove(h.orders.Complete))
+}
+
+// buyerMove is a buyer's status change on their own order {id}: 200 with
+// the order afterwards. Another user's order is 404.
+func (h *Handler) buyerMove(move func(ctx context.Context, buyerID, id string) error) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, ok := orderID(w, r)
+		if !ok {
+			return
+		}
+		buyer := ctxx.UserID(r.Context())
+		if err := move(r.Context(), buyer, id); err != nil {
+			httpapi.Error(w, r, toHTTPError(err))
+			return
+		}
+		o, err := h.orders.Get(r.Context(), buyer, id)
+		if err != nil {
+			httpapi.Error(w, r, toHTTPError(err))
+			return
+		}
+		httpapi.JSON(w, r, http.StatusOK, dataResponse{Data: toOrderJSON(o)})
+	}
 }
 
 // checkoutBody is the request body of POST /v1/checkout.
@@ -176,7 +211,16 @@ func (h *Handler) ShippingQuotes(w http.ResponseWriter, r *http.Request) {
 func toHTTPError(err error) error {
 	var problems *ProblemsError
 	var voucherErr *VoucherError
+	var transitionErr *TransitionError
 	switch {
+	case errors.As(err, &transitionErr):
+		return errx.New(CodeInvalidTransition, "the order cannot make this change in its current status").
+			WithHTTPStatus(http.StatusConflict).
+			WithDetails(map[string]any{"status": string(transitionErr.Current), "to": string(transitionErr.To)})
+	case errors.Is(err, ErrInvalidCursor):
+		return httpapi.ValidationError("invalid query parameters", map[string]any{
+			"cursor": "is not a cursor from page.next_cursor for this list; start again without it",
+		})
 	case errors.As(err, &voucherErr):
 		reason := voucherErr.Reason
 		if reason == VoucherNotStarted {
