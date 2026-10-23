@@ -61,17 +61,21 @@ type RateLimiter interface {
 // them.
 type RedisRateLimiter struct {
 	limiters map[string]*ratelimitx.Limiter
+	// now is the clock of the windows, shared with ratelimitx so both
+	// agree on where a window ends; time.Now outside tests.
+	now func() time.Time
 }
 
 // NewRedisRateLimiter returns a limiter for limits on client (a go-redis
 // client through redisconn.Counter).
 func NewRedisRateLimiter(client ratelimitx.Client, limits []Limit) *RedisRateLimiter {
-	l := &RedisRateLimiter{limiters: make(map[string]*ratelimitx.Limiter, len(limits))}
+	l := &RedisRateLimiter{limiters: make(map[string]*ratelimitx.Limiter, len(limits)), now: time.Now}
 	for _, limit := range limits {
 		l.limiters[limit.Name] = ratelimitx.New(client,
 			ratelimitx.WithLimit(limit.Max),
 			ratelimitx.WithWindow(limit.Window),
 			ratelimitx.WithPrefix("goshop:rl:"+limit.Name),
+			ratelimitx.WithNow(func() time.Time { return l.now() }),
 		)
 	}
 	return l
@@ -88,7 +92,20 @@ func (l *RedisRateLimiter) Allow(ctx context.Context, limit Limit, key string) (
 	if err != nil {
 		return false, 0, fmt.Errorf("rate limit %s: %w", limit.Name, err)
 	}
-	return res.Allowed, res.RetryAfter, nil
+	if res.Allowed {
+		return true, res.RetryAfter, nil
+	}
+	return false, min(res.RetryAfter, untilWindowEnds(l.now(), limit.Window)), nil
+}
+
+// untilWindowEnds is how long the fixed window that now falls in still
+// runs. ratelimitx starts a new counter when the window turns
+// (now.Truncate(window)), but its RetryAfter is the counter key's TTL,
+// which it sets to a whole window at the first attempt: an attempt at
+// 09:06 in a 15-minute window would be told to wait until 09:21, while
+// counting starts again at 09:15 (see docs/sdk-gaps.md).
+func untilWindowEnds(now time.Time, window time.Duration) time.Duration {
+	return window - now.Sub(now.Truncate(window))
 }
 
 // EmailKey is the rate-limit key for an email: a hash of its normalised

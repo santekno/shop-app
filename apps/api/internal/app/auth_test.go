@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -197,10 +198,22 @@ func TestApp_DefaultRateLimiterUsesRedis(t *testing.T) {
 		rec, code := call(t, h, http.MethodPost, "/v1/auth/register", "", `{}`)
 		testx.AssertEqual(t, code, "VALIDATION_FAILED", "attempt %d: %s", i+1, rec.Body.String())
 	}
+	before := time.Now()
 	rec, code := call(t, h, http.MethodPost, "/v1/auth/register", "", `{}`)
+	after := time.Now()
 	testx.AssertEqual(t, rec.Code, http.StatusTooManyRequests)
 	testx.AssertEqual(t, code, "RATE_LIMITED")
-	testx.AssertEqual(t, rec.Header().Get("Retry-After"), "3600")
+	// The counter's TTL is the whole hour, but counting starts again when
+	// the clock's hour turns: Retry-After is the time until then, in
+	// whole seconds rounded up.
+	retryAfter, err := strconv.Atoi(rec.Header().Get("Retry-After"))
+	testx.AssertNoError(t, err)
+	untilHour := func(t time.Time) int {
+		left := time.Hour - t.Sub(t.Truncate(time.Hour))
+		return int((left + time.Second - 1) / time.Second)
+	}
+	testx.AssertTrue(t, retryAfter >= untilHour(after) && retryAfter <= untilHour(before),
+		"Retry-After %d, want between %d and %d", retryAfter, untilHour(after), untilHour(before))
 }
 
 func TestApp_GoogleSignIn(t *testing.T) {

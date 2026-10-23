@@ -62,6 +62,10 @@ func TestRedisRateLimiter_Allow(t *testing.T) {
 	counter.pttl = 90 * time.Second
 	limit := Limit{Name: "test-limit", Max: 2, Window: time.Hour}
 	l := NewRedisRateLimiter(counter, []Limit{limit})
+	// 09:06: 54 minutes are left of the hour window, more than the
+	// counter's 90 s TTL, so the TTL is the answer. With the real clock
+	// the test would fail in the last 90 s of every hour.
+	l.now = func() time.Time { return time.Date(2026, 10, 23, 9, 6, 0, 0, time.UTC) }
 	ctx := context.Background()
 
 	for i := range 2 {
