@@ -17,6 +17,12 @@
 // catalog, with the password in SEED_ADMIN_PASSWORD (make seed-admin):
 //
 //	SEED_ADMIN_PASSWORD=… DATABASE_URL=postgres://… go run ./cmd/seed -admin admin@goshop.local
+//
+// -loadtest N seeds N verified buyers with addresses and a load-test
+// product for the k6 checkout test, and resets the run's stock (make
+// seed-loadtest; password in SEED_LOADTEST_PASSWORD):
+//
+//	SEED_LOADTEST_PASSWORD=… DATABASE_URL=postgres://… go run ./cmd/seed -loadtest 50
 package main
 
 import (
@@ -42,15 +48,19 @@ func main() {
 	generated := flag.Int("generated", 0, "also insert this many generated products (for EXPLAIN on a larger catalog)")
 	allowRemote := flag.Bool("allow-remote", false, "seed a database that is not on this machine")
 	admin := flag.String("admin", "", "create or promote this admin account (password in "+adminPasswordEnv+"; promoting revokes its sessions) instead of seeding the catalog")
+	loadTest := flag.Int("loadtest", 0, "seed this many load-test buyers and the load-test product (password in "+loadTestPasswordEnv+") and reset its stock, instead of seeding the catalog")
 	flag.Parse()
 
 	databaseURL := os.Getenv("DATABASE_URL")
 	err := requireLocal(databaseURL, *allowRemote)
 	if err == nil {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-		if *admin != "" {
+		switch {
+		case *admin != "":
 			err = runAdmin(ctx, databaseURL, *admin, os.Getenv(adminPasswordEnv))
-		} else {
+		case *loadTest != 0:
+			err = runLoadTest(ctx, databaseURL, *loadTest, os.Getenv(loadTestPasswordEnv))
+		default:
 			err = run(ctx, databaseURL, *generated)
 		}
 		stop()

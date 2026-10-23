@@ -40,6 +40,9 @@ SQLC := $(CURDIR)/$(API)/bin/sqlc-$(SQLC_VERSION)/sqlc
 # here, so a production URL in .env is never picked up by accident).
 DATABASE_URL ?= postgres://goshop:goshop@localhost:5432/goshop?sslmode=disable
 
+# make seed-loadtest: how many load-test buyers.
+users ?= 50
+
 # Destructive targets refuse any database that is not on this machine. A
 # host= or hostaddr= parameter is refused outright: pgx lets it override the
 # host in the URL, and the local Compose URL never needs one.
@@ -69,7 +72,7 @@ IT_ENV := POSTGRES_DSN='postgres://goshop:goshop@localhost:5432/goshop?sslmode=d
 	GOSHOP_API_URL=http://127.0.0.1:8080
 
 .PHONY: help doctor build lint lint-openapi test-unit test-integration test-mobile-e2e docker-build scan verify up down dev-api docs-api \
-	migrate-up migrate-down migrate-new seed seed-large seed-admin sqlc sqlc-check expire-orders cleanup-idempotency-keys publish-events
+	migrate-up migrate-down migrate-new seed seed-large seed-admin seed-loadtest sqlc sqlc-check expire-orders cleanup-idempotency-keys publish-events
 
 help: ## List targets
 	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -180,6 +183,12 @@ seed-admin: ## Create or promote a local admin: SEED_ADMIN_PASSWORD=… make see
 	@[[ "$(email)" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+$$ ]] || { echo "usage: SEED_ADMIN_PASSWORD=… make seed-admin email=admin@goshop.local" >&2; exit 1; }
 	@[ -n "$$SEED_ADMIN_PASSWORD" ] || { echo "seed-admin: set SEED_ADMIN_PASSWORD (read from the environment, never a flag)" >&2; exit 1; }
 	@cd $(API) && DATABASE_URL='$(DATABASE_URL)' go run ./cmd/seed -admin '$(email)'
+
+seed-loadtest: ## Load-test buyers and stock for the k6 checkout test: SEED_LOADTEST_PASSWORD=… make seed-loadtest users=50
+	$(require_local_db)
+	@[[ "$(users)" =~ ^[0-9]+$$ ]] || { echo "usage: SEED_LOADTEST_PASSWORD=… make seed-loadtest users=50" >&2; exit 1; }
+	@[ -n "$$SEED_LOADTEST_PASSWORD" ] || { echo "seed-loadtest: set SEED_LOADTEST_PASSWORD (read from the environment, never a flag)" >&2; exit 1; }
+	@cd $(API) && DATABASE_URL='$(DATABASE_URL)' go run ./cmd/seed -loadtest '$(users)'
 
 sqlc: $(SQLC) ## Generate internal/db/sqlc from migrations/ and internal/db/queries/
 	cd $(API) && $(SQLC) generate

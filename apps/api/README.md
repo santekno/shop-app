@@ -96,6 +96,19 @@ Checkout idempotency keys live 24 hours; `make cleanup-idempotency-keys` (`/api 
 
 In production, run `/api expire-orders`, `/api publish-events` and `/api cleanup-idempotency-keys` from Railway cron services on the api image every few minutes; Bab 6's worker takes it over. Two runs at once are safe.
 
+### Load-testing checkout
+
+The k6 checkout test (`e2e/`, artikel 14) needs buyers who can check out and stock to fight over:
+
+```bash
+make seed                                                  # the catalog, for the kaos category
+SEED_LOADTEST_PASSWORD='a-long-local-password' make seed-loadtest users=50
+```
+
+This creates `loadtest-0001@goshop.local` … `loadtest-0050@goshop.local`, verified, each with one default address and the same password (a rerun with another `SEED_LOADTEST_PASSWORD` changes it for every `loadtest-*` buyer), and the active product `loadtest-kaos` with two variants: `LOADTEST-PLENTY` (1 000 000 units, for throughput) and `LOADTEST-SCARCE` (10 units: however many buyers race, exactly 10 orders may get one). Every run resets both stocks and cancels the load-test buyers' unpaid orders, so runs start the same; like `make seed`, it refuses a database that is not on this machine.
+
+Three limits shape the script: the checkout routes allow `APP_CHECKOUT_LIMIT_PER_MINUTE` requests per buyer per minute (30 by default, far below one k6 VU's rate: start the stack with `APP_CHECKOUT_LIMIT_PER_MINUTE=100000 make up` for a load test); login is limited to 20 attempts per client IP per 15 minutes (log in at most 20 buyers per run, or clear `goshop:rl:*` in the local Redis between runs), and a buyer may hold at most 5 unpaid orders (cancel each order after checking out, `POST /v1/orders/{id}/cancel`, which also returns its stock).
+
 ## Run it
 
 All settings come from environment variables ([docs/configuration.md](../../docs/configuration.md)). `APP_ENV`, `DATABASE_URL`, `REDIS_URL` and `JWT_SECRET` are required (and `GOOGLE_CLIENT_ID` outside development); everything else has a default. The API pings PostgreSQL once at start and exits if it cannot, then shares one connection pool (`APP_DB_*` sizes it) for its whole life and closes it after graceful shutdown.
