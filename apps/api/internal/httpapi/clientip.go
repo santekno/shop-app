@@ -9,11 +9,16 @@ import (
 // RateLimitKey is the key the per-IP limits count ip (from ClientIP) under:
 // the address itself for IPv4, and its /64 network for IPv6, because one
 // IPv6 customer usually gets a whole /64 and could otherwise change address
-// on every attempt. Anything that is not an IP is returned as it is.
+// on every attempt. An IPv4-mapped IPv6 address (::ffff:a.b.c.d) is the
+// IPv4 client a.b.c.d, so it is counted as plain a.b.c.d, never apart from
+// it. Anything that is not an IP is returned as it is.
 func RateLimitKey(ip string) string {
 	parsed := net.ParseIP(ip)
-	if parsed == nil || parsed.To4() != nil {
+	if parsed == nil {
 		return ip
+	}
+	if v4 := parsed.To4(); v4 != nil {
+		return v4.String()
 	}
 	return parsed.Mask(net.CIDRMask(64, 128)).String() + "/64"
 }
