@@ -12,8 +12,9 @@ import (
 
 // TestVouchers_Refusals: each reason a voucher does not apply is a 409
 // VOUCHER_NOT_APPLICABLE with details.voucher_code and details.reason, in
-// the preview and at checkout; min_spend also names the amount. Nothing is
-// counted for a refused voucher.
+// the preview and at checkout; min_spend also names the amount, and a
+// voucher that has not started is not_found. Nothing is counted for a
+// refused voucher.
 func TestVouchers_Refusals(t *testing.T) {
 	sh := newShop(t, nil)
 	p := sh.product(t, "kaos-voucher", variant("VC-M", "M", 60000, 50))
@@ -37,11 +38,13 @@ func TestVouchers_Refusals(t *testing.T) {
 	sh.add(t, b, m, 1)
 
 	tests := []struct{ code, reason string }{
-		{"TIDAKADA", "not_found"}, {"BELUM", "not_started"}, {"LEWAT", "expired"}, {"HABIS", "exhausted"},
+		// A promo that has not started answers like an unknown code, so
+		// upcoming codes cannot be found by trying them (OWASP API6).
+		{"TIDAKADA", "not_found"}, {"BELUM", "not_found"}, {"LEWAT", "expired"}, {"HABIS", "exhausted"},
 		{"MINIMAL", "min_spend"}, {"SEKALI", "per_user_limit"},
 	}
 	for _, tt := range tests {
-		t.Run(tt.reason, func(t *testing.T) {
+		t.Run(tt.code, func(t *testing.T) {
 			for what, resp := range map[string]response{
 				"preview":  sh.call(t, http.MethodPost, "/v1/checkout/preview", map[string]any{"voucher_code": tt.code}, b.Token),
 				"checkout": sh.checkout(t, b.Token, uuidx.NewV7(), withVoucher(checkoutBody(b.AddressID), tt.code)),
