@@ -162,3 +162,27 @@ func (r *PostgresRepository) ListByStatus(ctx context.Context, q StatusQuery) ([
 	}
 	return out, nil
 }
+
+// HistoryQuery selects one page of a buyer's orders.
+type HistoryQuery struct {
+	UserID string
+	After  position
+	Limit  int
+}
+
+// ListForUser returns up to q.Limit of q.UserID's orders after q.After,
+// newest first, without their items.
+func (r *PostgresRepository) ListForUser(ctx context.Context, q HistoryQuery) ([]Order, error) {
+	rows, err := r.q.ListOrdersForUser(ctx, sqlc.ListOrdersForUserParams{
+		UserID: q.UserID, CursorCreatedAt: q.After.CreatedAt, CursorID: q.After.ID,
+		PageSize: int32(q.Limit), // #nosec G115 -- at most MaxPageSize + 1
+	})
+	if err != nil {
+		return nil, fmt.Errorf("query orders: %w", err)
+	}
+	out := make([]Order, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, fromOrderRow(orderRow(row)))
+	}
+	return out, nil
+}

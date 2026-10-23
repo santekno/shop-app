@@ -259,3 +259,16 @@ WHERE status = @status
   AND (created_at, id) < (@cursor_created_at::timestamptz, @cursor_id::uuid)
 ORDER BY created_at DESC, id DESC
 LIMIT @page_size;
+
+-- name: ListOrdersForUser :many
+-- A buyer's order history, newest first, after the cursor. Served by
+-- orders_user_created_idx; scoped by the buyer like every buyer read.
+SELECT id, code, user_id, status, cancel_reason, subtotal, discount, shipping_fee, total, total_weight_grams,
+       voucher_code, courier, courier_service, tracking_number,
+       shipping_recipient, shipping_phone, shipping_street, shipping_city, shipping_province, shipping_postal_code,
+       payment_expires_at, paid_at, shipped_at, completed_at, cancelled_at, created_at, updated_at
+FROM orders
+WHERE user_id = @user_id
+  AND (created_at, id) < (@cursor_created_at::timestamptz, @cursor_id::uuid)
+ORDER BY created_at DESC, id DESC
+LIMIT @page_size;

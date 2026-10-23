@@ -32,6 +32,7 @@ type Repository interface {
 	ExpiredOrderIDs(ctx context.Context, now time.Time, limit int32) ([]string, error)
 	GetAny(ctx context.Context, id string) (Order, error)
 	ListByStatus(ctx context.Context, q StatusQuery) ([]Order, error)
+	ListForUser(ctx context.Context, q HistoryQuery) ([]Order, error)
 }
 
 // Deps is what the service needs. Every field but Clock and PaymentTTL is
@@ -197,6 +198,25 @@ func (s *Service) Checkout(ctx context.Context, userID string, in CheckoutInput)
 		return Order{}, fmt.Errorf("checkout: %w", err)
 	}
 	return s.Get(ctx, userID, id)
+}
+
+// History returns one page of userID's orders, newest first.
+func (s *Service) History(ctx context.Context, userID, cursor string, limit int) (Page, error) {
+	if limit < 1 || limit > MaxPageSize {
+		return Page{}, fmt.Errorf("order history: limit %d out of range", limit)
+	}
+	// The cursor names the list, not the user: the query is scoped by the
+	// caller anyway, so another user's cursor only says where to start.
+	const list = "mine"
+	after, err := decodeCursor(list, cursor)
+	if err != nil {
+		return Page{}, err
+	}
+	rows, err := s.repo.ListForUser(ctx, HistoryQuery{UserID: userID, After: after, Limit: limit + 1})
+	if err != nil {
+		return Page{}, fmt.Errorf("order history: %w", err)
+	}
+	return paginate(list, rows, limit), nil
 }
 
 // Get returns userID's order id, or ErrNotFound.

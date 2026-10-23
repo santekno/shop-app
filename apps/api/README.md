@@ -36,6 +36,8 @@ The Go REST API behind the GoShop storefront, admin dashboard and mobile app. Th
 | POST | `/v1/checkout/preview` | **Access token.** Validate the cart as checkout will (409 `CHECKOUT_PROBLEMS` lists every line that is unavailable, short of stock or repriced) and compute the totals, with the shipping fee once `address_id`, `courier` and `service` are sent and the discount of `voucher_code` (409 `VOUCHER_NOT_APPLICABLE` says why one does not apply); writes nothing. `make seed` adds example vouchers (`HEMAT10`, `POTONG15RB`, `KILAT50`) |
 | GET | `/v1/checkout/shipping-quotes?address_id=` | **Access token.** JNE, J&T and SiCepat services for the cart's weight to one of the caller's addresses, cheapest first (Biteship, or the fixed table without `BITESHIP_API_KEY`); 503 `UPSTREAM_UNAVAILABLE` when the rates API does not answer, 422 `SHIPPING_UNAVAILABLE` when no courier serves the address |
 | POST | `/v1/checkout` | **Access token, verified email.** Turn the cart into an order waiting for payment, in one transaction (buyer row, then variants in id order, re-validated; guarded voucher and stock updates); 201 with `Location: /v1/orders/{id}`. At most 5 unpaid orders per buyer |
+| GET | `/v1/orders` | **Access token.** The caller's orders, newest first (cursor pagination) |
+| GET | `/v1/orders/{id}` | **Access token.** One of the caller's orders with its line snapshots; anyone else's is 404 |
 | POST | `/v1/orders/{id}/cancel` | **Access token.** Cancel the caller's own unpaid order; its stock and voucher use go back |
 | POST | `/v1/orders/{id}/complete` | **Access token.** Confirm that the caller's shipped order arrived |
 | GET | `/v1/admin/orders?status=paid` | **Seller or admin.** One status's order queue, newest first (cursor pagination) |

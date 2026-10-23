@@ -638,6 +638,113 @@ func (q *Queries) ListOrdersByStatus(ctx context.Context, arg ListOrdersByStatus
 	return items, nil
 }
 
+const listOrdersForUser = `-- name: ListOrdersForUser :many
+SELECT id, code, user_id, status, cancel_reason, subtotal, discount, shipping_fee, total, total_weight_grams,
+       voucher_code, courier, courier_service, tracking_number,
+       shipping_recipient, shipping_phone, shipping_street, shipping_city, shipping_province, shipping_postal_code,
+       payment_expires_at, paid_at, shipped_at, completed_at, cancelled_at, created_at, updated_at
+FROM orders
+WHERE user_id = $1
+  AND (created_at, id) < ($2::timestamptz, $3::uuid)
+ORDER BY created_at DESC, id DESC
+LIMIT $4
+`
+
+type ListOrdersForUserParams struct {
+	UserID          string
+	CursorCreatedAt time.Time
+	CursorID        string
+	PageSize        int32
+}
+
+type ListOrdersForUserRow struct {
+	ID                 string
+	Code               string
+	UserID             string
+	Status             string
+	CancelReason       sql.NullString
+	Subtotal           int64
+	Discount           int64
+	ShippingFee        int64
+	Total              int64
+	TotalWeightGrams   int32
+	VoucherCode        sql.NullString
+	Courier            string
+	CourierService     string
+	TrackingNumber     sql.NullString
+	ShippingRecipient  string
+	ShippingPhone      string
+	ShippingStreet     string
+	ShippingCity       string
+	ShippingProvince   string
+	ShippingPostalCode string
+	PaymentExpiresAt   time.Time
+	PaidAt             sql.NullTime
+	ShippedAt          sql.NullTime
+	CompletedAt        sql.NullTime
+	CancelledAt        sql.NullTime
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+}
+
+// A buyer's order history, newest first, after the cursor. Served by
+// orders_user_created_idx; scoped by the buyer like every buyer read.
+func (q *Queries) ListOrdersForUser(ctx context.Context, arg ListOrdersForUserParams) ([]ListOrdersForUserRow, error) {
+	rows, err := q.db.QueryContext(ctx, listOrdersForUser,
+		arg.UserID,
+		arg.CursorCreatedAt,
+		arg.CursorID,
+		arg.PageSize,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListOrdersForUserRow
+	for rows.Next() {
+		var i ListOrdersForUserRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Code,
+			&i.UserID,
+			&i.Status,
+			&i.CancelReason,
+			&i.Subtotal,
+			&i.Discount,
+			&i.ShippingFee,
+			&i.Total,
+			&i.TotalWeightGrams,
+			&i.VoucherCode,
+			&i.Courier,
+			&i.CourierService,
+			&i.TrackingNumber,
+			&i.ShippingRecipient,
+			&i.ShippingPhone,
+			&i.ShippingStreet,
+			&i.ShippingCity,
+			&i.ShippingProvince,
+			&i.ShippingPostalCode,
+			&i.PaymentExpiresAt,
+			&i.PaidAt,
+			&i.ShippedAt,
+			&i.CompletedAt,
+			&i.CancelledAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockCheckoutCart = `-- name: LockCheckoutCart :one
 SELECT id FROM carts WHERE user_id = $1 FOR UPDATE
 `

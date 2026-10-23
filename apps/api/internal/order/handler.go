@@ -30,6 +30,7 @@ const (
 // Orders is what the buyer's order handlers need from the service.
 type Orders interface {
 	Get(ctx context.Context, userID, id string) (Order, error)
+	History(ctx context.Context, userID, cursor string, limit int) (Page, error)
 	Complete(ctx context.Context, buyerID, id string) error
 	CancelByBuyer(ctx context.Context, buyerID, id string) error
 }
@@ -64,8 +65,46 @@ func (h *Handler) Routes(r chi.Router) {
 	r.Post("/checkout/preview", h.Preview)
 	r.Get("/checkout/shipping-quotes", h.ShippingQuotes)
 	r.Post("/checkout", h.Checkout)
+	r.Get("/orders", h.History)
+	r.Get("/orders/{id}", h.GetOrder)
 	r.Post("/orders/{id}/cancel", h.buyerMove(h.orders.CancelByBuyer))
 	r.Post("/orders/{id}/complete", h.buyerMove(h.orders.Complete))
+}
+
+// historyQuery is the query string of GET /v1/orders.
+type historyQuery struct {
+	Cursor string `query:"cursor" validate:"omitempty,max=512"`
+	Limit  int    `query:"limit" validate:"min=1,max=50"`
+}
+
+// History serves GET /v1/orders: the caller's orders, newest first.
+func (h *Handler) History(w http.ResponseWriter, r *http.Request) {
+	q := historyQuery{Limit: 20}
+	if err := h.validator.BindQuery(r, &q); err != nil {
+		httpapi.Error(w, r, err)
+		return
+	}
+	page, err := h.orders.History(r.Context(), ctxx.UserID(r.Context()), q.Cursor, q.Limit)
+	if err != nil {
+		httpapi.Error(w, r, toHTTPError(err))
+		return
+	}
+	httpapi.JSON(w, r, http.StatusOK, toPageJSON(page))
+}
+
+// GetOrder serves GET /v1/orders/{id}. Another user's order is 404 like a
+// missing one (OWASP API1): the query is scoped by the caller.
+func (h *Handler) GetOrder(w http.ResponseWriter, r *http.Request) {
+	id, ok := orderID(w, r)
+	if !ok {
+		return
+	}
+	o, err := h.orders.Get(r.Context(), ctxx.UserID(r.Context()), id)
+	if err != nil {
+		httpapi.Error(w, r, toHTTPError(err))
+		return
+	}
+	httpapi.JSON(w, r, http.StatusOK, dataResponse{Data: toOrderJSON(o)})
 }
 
 // buyerMove is a buyer's status change on their own order {id}: 200 with

@@ -1290,6 +1290,68 @@ paths:
         "503":
           $ref: "#/components/responses/UpstreamUnavailable"
 
+  /v1/orders:
+    get:
+      tags: [Orders]
+      operationId: listMyOrders
+      summary: My order history
+      description: The caller's orders, newest first, without their items. Cursor pagination as in the catalog.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: cursor
+          in: query
+          required: false
+          description: "`page.next_cursor` of the previous page."
+          schema:
+            type: string
+            maxLength: 512
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      responses:
+        "200":
+          description: One page of the caller's orders.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/orders/{id}:
+    parameters:
+      - $ref: "#/components/parameters/OrderID"
+    get:
+      tags: [Orders]
+      operationId: getMyOrder
+      summary: One of my orders
+      description: The order with its line snapshots, totals and shipping address copy. Another user's order answers 404 exactly like a missing one.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The order.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/OrderNotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /v1/orders/{id}/cancel:
     parameters:
       - $ref: "#/components/parameters/OrderID"
