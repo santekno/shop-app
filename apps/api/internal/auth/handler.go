@@ -28,6 +28,8 @@ type Accounts interface {
 	Login(ctx context.Context, email, password string) (Tokens, error)
 	Refresh(ctx context.Context, refreshToken string) (Tokens, error)
 	Logout(ctx context.Context, refreshToken string) error
+	VerifyEmail(ctx context.Context, token string) error
+	ResendVerification(ctx context.Context, userID string) error
 }
 
 // Handler serves the /v1/auth endpoints.
@@ -52,6 +54,13 @@ func (h *Handler) Routes(r chi.Router) {
 	r.Post("/auth/login", h.Login)
 	r.Post("/auth/refresh", h.Refresh)
 	r.Post("/auth/logout", h.Logout)
+	r.Post("/auth/verify-email", h.VerifyEmail)
+}
+
+// ProtectedRoutes registers the auth routes that need a logged-in user, on
+// r (mounted under /v1 behind Guard.Authenticate).
+func (h *Handler) ProtectedRoutes(r chi.Router) {
+	r.Post("/auth/verify-email/resend", h.ResendVerification)
 }
 
 // registerBody is the request body of POST /v1/auth/register. The
@@ -152,6 +161,38 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// tokenBody is the request body of the endpoints that use a token sent by
+// email.
+type tokenBody struct {
+	Token string `json:"token" validate:"required,max=200"`
+}
+
+// VerifyEmail serves POST /v1/auth/verify-email: 204, and the account's
+// email is verified.
+func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
+	var body tokenBody
+	if err := h.decodeValid(w, r, &body); err != nil {
+		httpapi.Error(w, r, err)
+		return
+	}
+	if err := h.svc.VerifyEmail(r.Context(), body.Token); err != nil {
+		httpapi.Error(w, r, toHTTPError(err))
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ResendVerification serves POST /v1/auth/verify-email/resend: 202, and a
+// new token is on its way unless the email is verified already.
+func (h *Handler) ResendVerification(w http.ResponseWriter, r *http.Request) {
+	claims, _ := ClaimsFrom(r.Context()) // the route is behind Guard.Authenticate
+	if err := h.svc.ResendVerification(r.Context(), claims.UserID); err != nil {
+		httpapi.Error(w, r, toHTTPError(err))
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
+}
+
 // decodeValid decodes the JSON body into dst and validates it.
 func (h *Handler) decodeValid(w http.ResponseWriter, r *http.Request, dst any) error {
 	if err := httpapi.DecodeJSON(w, r, dst); err != nil {
@@ -204,6 +245,14 @@ func toHTTPError(err error) error {
 	case errors.Is(err, ErrRefreshTokenExpired):
 		return errx.New(CodeTokenExpired, "the token has expired; log in again").
 			WithHTTPStatus(http.StatusUnauthorized)
+	case errors.Is(err, ErrEmailTokenInvalid):
+		return errx.New(CodeTokenInvalid, "the token is invalid or has already been used").
+			WithHTTPStatus(http.StatusBadRequest)
+	case errors.Is(err, ErrEmailTokenExpired):
+		return errx.New(CodeTokenExpired, "the token has expired; ask for a new email").
+			WithHTTPStatus(http.StatusBadRequest)
+	case errors.Is(err, ErrNoUser):
+		return httpapi.UnauthorizedError("this account no longer exists")
 	case errors.Is(err, ErrInvalidText):
 		return httpapi.ValidationError("invalid request", map[string]any{"body": httpapi.InvalidTextMessage})
 	default:

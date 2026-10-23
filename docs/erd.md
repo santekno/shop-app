@@ -11,6 +11,7 @@ Every column is `NOT NULL` unless the diagram says `nullable`.
 | Bab 3 | `apps/api/migrations/000001_create_catalog` | `categories`, `products`, `product_variants`, with every constraint and index below that belongs to them |
 | Bab 4 | `000002_create_users` | `users`: the email lower-case CHECK (ASCII only, enforced by the API), the role CHECK (`buyer`, `seller`, `admin`), and a CHECK that an anonymised row keeps no password, phone or name |
 | Bab 4 | `000003_create_refresh_tokens` | `refresh_tokens` ([ADR 0005](adr/0005-auth-tokens.md)): SHA-256 of the secret only, `family_id` = the session, `used_at` for rotation and reuse detection, `revoked_at`; indexes on `family_id` and on `user_id` for the tokens that can still be used |
+| Bab 4 | `000004_create_user_tokens` | `user_tokens`: one-time email tokens (`verify_email`, `reset_password`), SHA-256 of the secret only, `used_at`, `expires_at`; an index on `(user_id, purpose)`, not partial, so it also serves deleting a user's tokens and the CASCADE |
 
 Two choices made while building it:
 

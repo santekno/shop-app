@@ -137,3 +137,29 @@ func (q *Queries) InsertUser(ctx context.Context, arg InsertUserParams) (InsertU
 	)
 	return i, err
 }
+
+const lockUser = `-- name: LockUser :one
+SELECT id FROM users
+WHERE id = $1 AND anonymized_at IS NULL
+FOR UPDATE
+`
+
+// Serialises writes to one user's child rows (email tokens; from artikel 11
+// the address book), and fails for a deleted account.
+func (q *Queries) LockUser(ctx context.Context, id string) (string, error) {
+	row := q.db.QueryRowContext(ctx, lockUser, id)
+	var id_2 string
+	err := row.Scan(&id_2)
+	return id_2, err
+}
+
+const markEmailVerified = `-- name: MarkEmailVerified :exec
+UPDATE users SET email_verified_at = COALESCE(email_verified_at, now()), updated_at = now()
+WHERE id = $1 AND anonymized_at IS NULL
+`
+
+// Keeps the first verification time when the address is confirmed again.
+func (q *Queries) MarkEmailVerified(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, markEmailVerified, id)
+	return err
+}

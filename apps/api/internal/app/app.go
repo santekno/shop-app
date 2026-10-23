@@ -24,6 +24,7 @@ import (
 	"github.com/santekno/shop-app/apps/api/internal/httpapi"
 	"github.com/santekno/shop-app/apps/api/internal/httpserver"
 	"github.com/santekno/shop-app/apps/api/internal/logging"
+	"github.com/santekno/shop-app/apps/api/internal/mail"
 	"github.com/santekno/shop-app/apps/api/internal/product"
 	"github.com/santekno/shop-app/apps/api/internal/user"
 )
@@ -40,7 +41,15 @@ type App struct {
 // Every dependency is created here and passed to the code that needs it;
 // nothing reaches for a global. New does not close db: whoever opened it
 // does, after the server has stopped.
-func New(cfg config.Config, logger logx.Logger, db *sql.DB) *App {
+func New(cfg config.Config, logger logx.Logger, db *sql.DB, opts ...Option) *App {
+	o := options{
+		// Development logs every email with its token, so a developer can
+		// copy it; elsewhere the body (and the token) is never logged.
+		mailer: mail.NewLogMailer(logger, cfg.IsDevelopment()),
+	}
+	for _, opt := range opts {
+		opt(&o)
+	}
 	readiness := &health.Readiness{}
 
 	// Repositories: SQL on the shared pool.
@@ -59,6 +68,7 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB) *App {
 		Hasher:     auth.NewArgon2Hasher(auth.DefaultMaxConcurrentHashes),
 		Access:     accessTokens,
 		RefreshTTL: cfg.Auth.RefreshTokenTTL,
+		Mailer:     o.mailer,
 	})
 
 	// Handlers: HTTP in and out, given their services.
@@ -85,6 +95,7 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB) *App {
 			r.Group(func(r chi.Router) {
 				r.Use(guard.Authenticate)
 				userHandler.Routes(r)
+				authHandler.ProtectedRoutes(r)
 				// Store staff only: sellers manage the catalog, and admins
 				// can do everything a seller can (docs/prd.md).
 				r.With(auth.RequireRole(user.RoleSeller, user.RoleAdmin)).
@@ -95,6 +106,16 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB) *App {
 
 	return &App{cfg: cfg, logger: logger, readiness: readiness, handler: router}
 }
+
+// Option replaces one of the real dependencies New would build, for tests.
+type Option func(*options)
+
+type options struct {
+	mailer mail.Mailer
+}
+
+// WithMailer makes the API send email through m instead of the log.
+func WithMailer(m mail.Mailer) Option { return func(o *options) { o.mailer = m } }
 
 // Handler is the API's router with all middleware, for httptest.
 func (a *App) Handler() http.Handler { return a.handler }

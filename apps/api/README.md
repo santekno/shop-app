@@ -19,6 +19,8 @@ The Go REST API behind the GoShop storefront, admin dashboard and mobile app. Th
 | POST | `/v1/auth/login` | Email + password → access token (JWT); 401 `INVALID_CREDENTIALS` for every failure, in the same time |
 | POST | `/v1/auth/refresh` | Rotate the refresh token; a reused one revokes its whole session (ADR 0005) |
 | POST | `/v1/auth/logout` | Revoke the session of a refresh token; always 204 |
+| POST | `/v1/auth/verify-email` | Use the one-time token from the verification email (24 h) |
+| POST | `/v1/auth/verify-email/resend` | **Access token.** Send a new verification email (202) |
 | GET | `/v1/me` | **Access token.** The caller's own account |
 | POST | `/v1/admin/products` | **Seller or admin.** Create a product with its variants |
 | GET | `/v1/admin/products/{id}` | **Seller or admin.** Any product, whatever its status |
@@ -26,6 +28,10 @@ The Go REST API behind the GoShop storefront, admin dashboard and mobile app. Th
 | DELETE | `/v1/admin/products/{id}` | **Seller or admin.** Archive a product (soft delete) |
 
 Routes marked **Access token** need `Authorization: Bearer <access_token>` (401 `UNAUTHORIZED` without one); routes marked **Seller or admin** also need that role (403 `FORBIDDEN` for a buyer). The token design is [ADR 0005](../../docs/adr/0005-auth-tokens.md).
+
+### Email in development
+
+There is no mail provider until Bab 6. Email goes through the `mail.Mailer` interface, and `mail.LogMailer` writes each message to the API's log instead of sending it: in development with the recipient and the whole body, so you can copy a verification or reset token from the output (`docker compose logs api | grep email`); in staging and production with the subject only, because a token in a log line would let anyone who reads the logs take over the account.
 
 ### A local admin
 

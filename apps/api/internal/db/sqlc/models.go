@@ -71,3 +71,13 @@ type User struct {
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 }
+
+type UserToken struct {
+	ID        string
+	UserID    string
+	Purpose   string
+	TokenHash []byte
+	ExpiresAt time.Time
+	UsedAt    sql.NullTime
+	CreatedAt time.Time
+}

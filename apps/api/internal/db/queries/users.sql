@@ -20,3 +20,15 @@ WHERE id = @id AND anonymized_at IS NULL;
 SELECT id, email, password_hash, name, phone, role, email_verified_at, created_at, updated_at
 FROM users
 WHERE email = @email AND anonymized_at IS NULL;
+
+-- name: MarkEmailVerified :exec
+-- Keeps the first verification time when the address is confirmed again.
+UPDATE users SET email_verified_at = COALESCE(email_verified_at, now()), updated_at = now()
+WHERE id = @id AND anonymized_at IS NULL;
+
+-- name: LockUser :one
+-- Serialises writes to one user's child rows (email tokens; from artikel 11
+-- the address book), and fails for a deleted account.
+SELECT id FROM users
+WHERE id = @id AND anonymized_at IS NULL
+FOR UPDATE;

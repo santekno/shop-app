@@ -12,8 +12,12 @@ import (
 	"github.com/santekno/sdk/logx"
 	"github.com/santekno/sdk/uuidx"
 
+	"github.com/santekno/shop-app/apps/api/internal/mail"
 	"github.com/santekno/shop-app/apps/api/internal/user"
 )
+
+// VerifyEmailTTL is how long an email-verification token works.
+const VerifyEmailTTL = 24 * time.Hour
 
 // Repository is where accounts and their credentials are stored. The
 // service depends on this interface, so a test can hand it a fake.
@@ -23,10 +27,13 @@ type Repository interface {
 	CreateRefreshToken(ctx context.Context, t NewRefreshToken) error
 	RotateRefreshToken(ctx context.Context, presented, next opaqueToken, now, nextExpiresAt time.Time) (Rotated, error)
 	RevokeSessionOf(ctx context.Context, presented opaqueToken) (string, error)
+	GetUser(ctx context.Context, id string) (user.User, error)
+	CreateEmailToken(ctx context.Context, t NewEmailToken) error
+	VerifyEmail(ctx context.Context, presented opaqueToken, now time.Time) error
 }
 
-// Deps is what the service needs. Repo, Hasher, Access and RefreshTTL are
-// required; the others default to the real thing when nil, and exist so a
+// Deps is what the service needs. Repo, Hasher, Access, RefreshTTL and
+// Mailer are required; the others default to the real thing when nil, and exist so a
 // test can make time and randomness predictable.
 type Deps struct {
 	Repo   Repository
@@ -34,6 +41,8 @@ type Deps struct {
 	Access *AccessTokens
 	// RefreshTTL is how long a refresh token lives (APP_REFRESH_TOKEN_TTL).
 	RefreshTTL time.Duration
+	// Mailer sends the verification and reset emails.
+	Mailer mail.Mailer
 	// Clock is the current time; time.Now when nil.
 	Clock func() time.Time
 	// Random is where token secrets come from; crypto/rand.Reader when nil.
@@ -48,6 +57,7 @@ type Service struct {
 	hasher     Hasher
 	access     *AccessTokens
 	refreshTTL time.Duration
+	mailer     mail.Mailer
 	now        func() time.Time
 	random     io.Reader
 	newID      func() string
@@ -57,7 +67,7 @@ type Service struct {
 func NewService(deps Deps) *Service {
 	s := &Service{
 		repo: deps.Repo, hasher: deps.Hasher, access: deps.Access, refreshTTL: deps.RefreshTTL,
-		now: deps.Clock, random: deps.Random, newID: deps.NewID,
+		mailer: deps.Mailer, now: deps.Clock, random: deps.Random, newID: deps.NewID,
 	}
 	if s.now == nil {
 		s.now = time.Now
@@ -88,9 +98,13 @@ type RegisterInput struct {
 	Name     string
 }
 
-// Register creates a buyer account with a hashed password. It returns a
-// *PasswordError when the password breaks the policy, and ErrEmailTaken
-// when the email already has an account.
+// Register creates a buyer account with a hashed password and emails it a
+// verification token. It returns a *PasswordError when the password breaks
+// the policy, and ErrEmailTaken when the email already has an account.
+//
+// The account exists once Register has stored it: a failure to send the
+// verification email is logged, not returned, and the user asks for a new
+// one with ResendVerification.
 func (s *Service) Register(ctx context.Context, in RegisterInput) (user.User, error) {
 	if err := CheckPassword(in.Password); err != nil {
 		return user.User{}, err
@@ -109,7 +123,77 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (user.User, er
 	if err != nil {
 		return user.User{}, fmt.Errorf("register: %w", err)
 	}
+	if err := s.sendVerification(ctx, u); err != nil {
+		logx.FromContext(ctx).Error("send verification email after registration", "error", err.Error())
+	}
 	return u, nil
+}
+
+// ResendVerification emails a new verification token to the account with
+// userID, unless its email is verified already (then it does nothing). The
+// new token replaces any older one.
+func (s *Service) ResendVerification(ctx context.Context, userID string) error {
+	u, err := s.repo.GetUser(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("resend verification: %w", err)
+	}
+	if u.EmailVerified() {
+		return nil
+	}
+	return s.sendVerification(ctx, u)
+}
+
+// VerifyEmail uses a verification token: the account's email becomes
+// verified and the token stops working. It returns ErrEmailTokenInvalid or
+// ErrEmailTokenExpired when the token cannot be used.
+func (s *Service) VerifyEmail(ctx context.Context, token string) error {
+	presented, ok := parseOpaqueToken(token)
+	if !ok {
+		return ErrEmailTokenInvalid
+	}
+	if err := s.repo.VerifyEmail(ctx, presented, s.now()); err != nil {
+		return fmt.Errorf("verify email: %w", err)
+	}
+	return nil
+}
+
+// sendVerification stores a new verification token for u and emails it.
+func (s *Service) sendVerification(ctx context.Context, u user.User) error {
+	token, err := s.newEmailToken(ctx, u.ID, PurposeVerifyEmail, VerifyEmailTTL)
+	if err != nil {
+		return err
+	}
+	return s.send(ctx, mail.Message{
+		To:      u.Email,
+		Subject: "Verifikasi email akun GoShop kamu",
+		Body: "Halo " + u.Name + ",\n\n" +
+			"Konfirmasi alamat email ini dengan token berikut (berlaku 24 jam):\n\n" + token + "\n\n" +
+			"Kirim token itu ke POST /v1/auth/verify-email. Kalau kamu tidak mendaftar di GoShop, abaikan email ini.",
+	})
+}
+
+// newEmailToken stores a one-time token for userID and returns the string
+// to email.
+func (s *Service) newEmailToken(ctx context.Context, userID string, purpose Purpose, ttl time.Duration) (string, error) {
+	raw, token, err := newOpaqueToken(s.random, s.newID)
+	if err != nil {
+		return "", fmt.Errorf("new %s token: %w", purpose, err)
+	}
+	err = s.repo.CreateEmailToken(ctx, NewEmailToken{
+		Token: token, UserID: userID, Purpose: purpose, ExpiresAt: s.now().Add(ttl),
+	})
+	if err != nil {
+		return "", fmt.Errorf("new %s token: %w", purpose, err)
+	}
+	return raw, nil
+}
+
+// send hands m to the mailer.
+func (s *Service) send(ctx context.Context, m mail.Message) error {
+	if err := s.mailer.Send(ctx, m); err != nil {
+		return fmt.Errorf("send %q: %w", m.Subject, err)
+	}
+	return nil
 }
 
 // Login checks email and password and returns tokens for the account. Every
