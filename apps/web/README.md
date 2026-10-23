@@ -47,10 +47,14 @@ We chose a build argument over a run-time `config.js` written at container start
 
 `apps/web/Dockerfile` (repo root as context) builds with pnpm on `node:24-alpine`, then serves `dist/` with Caddy (`apps/web/Caddyfile`) as a non-root user, listening on `$PORT` (8080 by default; Railway sets it). Caddy:
 
-- answers `GET /healthz` with 200 (Docker `HEALTHCHECK`, Railway health check);
-- sends `index.html` for every path that is not a file, so client-side routes work;
-- caches the hashed files in `/assets/` for a year and revalidates everything else;
-- sets a Content-Security-Policy whose `connect-src` is `VITE_API_URL`, so the page can call only its own API.
+- answers `GET /healthz` with `ok` (Docker `HEALTHCHECK`, Railway health check), without touching a file;
+- serves `/assets/` (the hashed files) with a one-year cache, and answers a missing one with a plain 404, never with `index.html`;
+- sends the file for any other path that has one, otherwise `index.html`, so client-side routes work; both are revalidated on every visit;
+- sets the same security headers on every response, errors included: `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, a `Permissions-Policy` that turns off camera, microphone, geolocation and payment, and a Content-Security-Policy whose `connect-src` is the API's **origin**.
+
+The CSP uses the origin of `VITE_API_URL` (scheme, host and port: `https://api.example.com/base/` becomes `https://api.example.com`), because a CSP source with a path allows only that exact path. The Dockerfile computes it with `new URL(…).origin` at build time, which also rejects a malformed URL, and Caddy reads it from `/etc/caddy/api-origin`.
+
+There is no `Strict-Transport-Security` header: Caddy serves plain HTTP behind Railway's edge, which terminates TLS. HSTS belongs to the layer that serves HTTPS, so it is set there (with the custom domain), not by this container.
 
 ```bash
 docker build -f apps/web/Dockerfile --build-arg VITE_API_URL=http://localhost:8080 -t goshop-web .
