@@ -9,10 +9,12 @@ import { ProductImage } from "./ProductImage.tsx";
  */
 interface ProductCardProps {
   product: Product;
+  /** Called with the product's slug when the buyer opens it. */
+  onSelect: (slug: string) => void;
 }
 
 /** One product in the catalog grid: photo, name, category, price, stock. */
-export function ProductCard({ product }: ProductCardProps) {
+export function ProductCard({ product, onSelect }: ProductCardProps) {
   // Destructuring renames the API's snake_case fields to camelCase locals.
   const { name, category, variants } = product;
   const { price_from: priceFrom, in_stock: inStock } = product;
@@ -24,7 +26,21 @@ export function ProductCard({ product }: ProductCardProps) {
   return (
     <Card as="article" className="product-card">
       <ProductImage name={name} />
-      <h3 className="product-card__name">{name}</h3>
+      <h3 className="product-card__name">
+        {/* A real <button>: it is reachable with Tab, opens with Enter or
+            Space, and its name for screen readers is the product name.
+            onClick receives a function to call later; writing
+            onClick={onSelect(product.slug)} would call it during render. */}
+        <button
+          type="button"
+          className="link-button"
+          onClick={() => {
+            onSelect(product.slug);
+          }}
+        >
+          {name}
+        </button>
+      </h3>
       <p className="muted">{category.name}</p>
       <p className="price">
         {hasPriceRange && <span className="price__from">Mulai </span>}
