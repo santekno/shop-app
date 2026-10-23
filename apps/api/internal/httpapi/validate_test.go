@@ -156,6 +156,9 @@ type createProduct struct {
 	Note  string `json:"note" validate:"max=5"`
 	Email string `json:"email" validate:"omitempty,email"`
 	Sort  string `json:"-" validate:"oneof=newest oldest"`
+	Phone string `json:"phone" validate:"omitempty,id_phone"`
+	Zip   string `json:"zip" validate:"omitempty,id_postal"`
+	Site  string `json:"site" validate:"omitempty,url"`
 }
 
 func validProduct() createProduct {
@@ -176,6 +179,9 @@ func TestValidator_Struct(t *testing.T) {
 		{name: "max only", change: func(p *createProduct) { p.Stock = 1000 }, want: map[string]any{"stock": "must be at most 999"}},
 		{name: "max on a string counts characters", change: func(p *createProduct) { p.Note = "panjang" }, want: map[string]any{"note": "must be at most 5 characters"}},
 		{name: "email", change: func(p *createProduct) { p.Email = "nope" }, want: map[string]any{"email": "must be an email address such as budi@example.com"}},
+		{name: "id_phone", change: func(p *createProduct) { p.Phone = "12345" }, want: map[string]any{"phone": "must be an Indonesian phone number such as 081234567890 or +6281234567890"}},
+		{name: "id_postal", change: func(p *createProduct) { p.Zip = "4011" }, want: map[string]any{"zip": "must be a 5-digit Indonesian postal code"}},
+		{name: "other rules", change: func(p *createProduct) { p.Site = "not a url" }, want: map[string]any{"site": "is invalid"}},
 		{name: "json:\"-\" uses the Go name", change: func(p *createProduct) { p.Sort = "random" }, want: map[string]any{"Sort": "must be one of: newest, oldest"}},
 	}
 	for _, tt := range tests {
