@@ -1,25 +1,13 @@
-/**
- * The body of every API error, as api/openapi.yaml defines it
- * (components.schemas.Error):
- *
- *   {"error":{"code":"NOT_FOUND","message":"product not found"}}
- *
- * The request ID is not in the body: it travels in the X-Request-ID
- * response header, which the API exposes to browsers through CORS.
- */
-interface ErrorBody {
-  error: {
-    code: string;
-    message: string;
-    details?: Record<string, unknown>;
-  };
-}
+import type { ErrorBody } from "./types.ts";
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 /**
- * Checks at run time that a parsed JSON value has the error body's shape.
+ * Checks at run time that a parsed JSON value has the shape of the API's
+ * error body, `{"error":{"code","message","details"}}` (the Error schema in
+ * api/openapi.yaml). The request ID is not in the body: it travels in the
+ * X-Request-ID response header, which the API exposes to browsers.
  * TypeScript types are erased, so a value from the network is `unknown`
  * until code like this has looked at it.
  */

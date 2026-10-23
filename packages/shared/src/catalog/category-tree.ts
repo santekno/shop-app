@@ -1,15 +1,4 @@
-/**
- * A category as GET /v1/categories returns it.
- *
- * Written by hand for now; artikel 11 replaces it with the type generated
- * from api/openapi.yaml, so it can never drift from the contract.
- */
-export interface Category {
-  id: string;
-  slug: string;
-  name: string;
-  parent_id: string | null;
-}
+import type { Category } from "../api/types.ts";
 
 /** A category with its sub-categories, for rendering a nested menu. */
 export interface CategoryNode extends Category {

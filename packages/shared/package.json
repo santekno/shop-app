@@ -9,9 +9,12 @@
   },
   "sideEffects": false,
   "scripts": {
+    "gen": "openapi-typescript ../../api/openapi.yaml --output src/api/schema.gen.ts",
+    "gen:check": "openapi-typescript ../../api/openapi.yaml --output src/api/schema.gen.ts --check",
     "typecheck": "tsc"
   },
   "devDependencies": {
+    "openapi-typescript": "catalog:",
     "typescript": "catalog:"
   }
 }

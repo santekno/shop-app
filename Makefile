@@ -13,6 +13,10 @@ COMPOSE ?= $(shell docker compose version >/dev/null 2>&1 && echo "docker compos
 HAS_API  := $(wildcard $(API)/go.mod)
 HAS_PNPM := $(wildcard pnpm-lock.yaml)
 
+# pnpm writes this file on every install. Targets that run pnpm depend on it,
+# so a fresh clone (or a changed lockfile) installs the workspace first.
+PNPM_INSTALLED := node_modules/.modules.yaml
+
 # golangci-lint refuses a module whose `go` line is newer than the Go it was
 # built with, and a prebuilt binary may lag behind (go1.25 vs our go 1.26).
 # make lint therefore builds this pinned version once, with the module's own
@@ -75,7 +79,7 @@ IT_ENV := POSTGRES_DSN='postgres://goshop:goshop@localhost:5432/goshop?sslmode=d
 	GOSHOP_API_URL=http://127.0.0.1:8080
 
 .PHONY: help doctor build lint lint-openapi test-unit test-integration test-mobile-e2e docker-build scan verify up down dev-api docs-api \
-	migrate-up migrate-down migrate-new seed seed-large seed-admin seed-loadtest loadtest sqlc sqlc-check expire-orders cleanup-idempotency-keys publish-events reconcile-payments process-images fake-pay dead-tasks requeue-task requeue-dead-tasks
+	migrate-up migrate-down migrate-new seed seed-large seed-admin seed-loadtest loadtest sqlc sqlc-check expire-orders cleanup-idempotency-keys publish-events reconcile-payments process-images fake-pay dead-tasks requeue-task requeue-dead-tasks gen-types gen-types-check
 
 help: ## List targets
 	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -83,7 +87,7 @@ help: ## List targets
 doctor: ## Check that the required tools are installed
 	./scripts/check-tools.sh
 
-build: ## Compile and type-check every app present
+build: $(if $(HAS_PNPM),$(PNPM_INSTALLED)) ## Compile and type-check every app present
 ifneq ($(HAS_API),)
 	cd $(API) && go build -o bin/ ./...
 endif
@@ -93,7 +97,7 @@ ifneq ($(HAS_PNPM),)
 endif
 	@echo "build: ok"
 
-lint: lint-openapi $(if $(HAS_API),$(GOLANGCI) sqlc-check) ## Lint every app present, the API contract and the sqlc output
+lint: lint-openapi $(if $(HAS_API),$(GOLANGCI) sqlc-check) $(if $(HAS_PNPM),gen-types-check) ## Lint every app present, the API contract and the generated code
 ifneq ($(HAS_API),)
 	cd $(API) && go vet -tags=integration ./... && $(GOLANGCI) run ./...
 endif
@@ -109,7 +113,17 @@ $(GOLANGCI):
 lint-openapi: ## Lint the API contract (api/openapi.yaml, rules in redocly.yaml)
 	$(REDOCLY) lint api/openapi.yaml
 
-test-unit: ## Unit tests + coverage thresholds (Go >= 80%, TS >= 70%)
+$(PNPM_INSTALLED): pnpm-lock.yaml package.json
+	pnpm install --frozen-lockfile
+	@touch $@
+
+gen-types: $(PNPM_INSTALLED) ## Generate the TypeScript API types (packages/shared) from api/openapi.yaml
+	pnpm --filter @goshop/shared run gen
+
+gen-types-check: $(PNPM_INSTALLED) ## Fail when the generated TypeScript API types do not match api/openapi.yaml
+	@pnpm --filter @goshop/shared --silent run gen:check || { echo "gen-types-check: packages/shared/src/api/schema.gen.ts is out of date; run make gen-types and commit the result" >&2; exit 1; }
+
+test-unit: $(if $(HAS_PNPM),$(PNPM_INSTALLED)) ## Unit tests + coverage thresholds (Go >= 80%, TS >= 70%)
 ifneq ($(HAS_API),)
 	./scripts/go-coverage.sh $(API) 80
 endif

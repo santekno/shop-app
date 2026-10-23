@@ -12,7 +12,7 @@ export { createUrlBuilder, toQueryString } from "./api/url.ts";
 export type { QueryParams, QueryValue } from "./api/url.ts";
 
 export { buildCategoryTree } from "./catalog/category-tree.ts";
-export type { Category, CategoryNode } from "./catalog/category-tree.ts";
+export type { CategoryNode } from "./catalog/category-tree.ts";
 
 export { retry, sleep } from "./lib/async.ts";
 export type { RetryOptions } from "./lib/async.ts";
@@ -33,3 +33,15 @@ export type {
   HttpMethod,
   RequestOptions,
 } from "./api/client.ts";
+
+export { listCategories } from "./api/catalog.ts";
+export type { EndpointOptions } from "./api/catalog.ts";
+
+export type {
+  Category,
+  CategoryList,
+  ErrorBody,
+  components,
+  operations,
+  paths,
+} from "./api/types.ts";
