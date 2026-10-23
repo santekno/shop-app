@@ -34,6 +34,29 @@ type NewUser struct {
 	Role         user.Role
 }
 
+// Credentials is a user with the password hash a login checks. Hash is
+// empty for an account without a password (Google sign-in only).
+type Credentials struct {
+	User user.User
+	Hash string
+}
+
+// ErrNoUser means no account (that is not anonymised) matches.
+var ErrNoUser = errors.New("no such user")
+
+// GetCredentials returns the account with email (already normalised) and
+// its password hash, or ErrNoUser.
+func (r *PostgresRepository) GetCredentials(ctx context.Context, email string) (Credentials, error) {
+	row, err := r.q.GetUserByEmail(ctx, email)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Credentials{}, ErrNoUser
+	}
+	if err != nil {
+		return Credentials{}, fmt.Errorf("query user: %w", err)
+	}
+	return Credentials{User: userFromRow(sqlc.GetUserByIDRow(row)), Hash: row.PasswordHash.String}, nil
+}
+
 // CreateUser inserts u and returns it as stored, or ErrEmailTaken.
 func (r *PostgresRepository) CreateUser(ctx context.Context, u NewUser) (user.User, error) {
 	row, err := r.q.InsertUser(ctx, sqlc.InsertUserParams{

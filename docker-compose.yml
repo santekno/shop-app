@@ -62,6 +62,10 @@ services:
       # The host is the Compose service name, not localhost, so this is not
       # taken from .env (whose DATABASE_URL is for tools on your machine).
       DATABASE_URL: postgres://goshop:goshop@postgres:5432/goshop?sslmode=disable
+      # `api migrate` validates the whole configuration like the server
+      # does (Railway's pre-deploy command runs with the api's variables),
+      # so it gets the same required values; it uses neither.
+      JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-string}
     depends_on:
       postgres:
         condition: service_healthy
@@ -94,6 +98,10 @@ services:
       APP_DB_MAX_OPEN_CONNS: ${APP_DB_MAX_OPEN_CONNS:-10}
       APP_DB_MAX_IDLE_CONNS: ${APP_DB_MAX_IDLE_CONNS:-5}
       APP_DB_CONN_MAX_LIFETIME: ${APP_DB_CONN_MAX_LIFETIME:-30m}
+      # The .env.example placeholder, which the API accepts only when
+      # APP_ENV=development; set a real JWT_SECRET in .env for anything else.
+      JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-string}
+      APP_ACCESS_TOKEN_TTL: ${APP_ACCESS_TOKEN_TTL:-15m}
     ports:
       - "127.0.0.1:8080:8080"
     healthcheck:

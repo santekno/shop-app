@@ -27,11 +27,21 @@ import (
 // test; Run's tests that reach the database use closedDatabaseURL instead.
 const testDatabaseURL = "postgres://localhost:5432/goshop?sslmode=disable"
 
+// requiredEnv is every variable Load requires, with test values (none of
+// them is real).
+var requiredEnv = map[string]string{
+	"DATABASE_URL": testDatabaseURL,
+	"JWT_SECRET":   "unit-test-jwt-secret-not-a-real-key-0123456789",
+}
+
 // setEnv clears every APP_* variable, PORT and DATABASE_URL for the test,
 // sets DATABASE_URL (required) to testDatabaseURL, then sets vars over it.
 func setEnv(t *testing.T, vars map[string]string) {
 	t.Helper()
-	names := []string{"PORT", "DATABASE_URL"}
+	names := []string{"PORT"}
+	for name := range requiredEnv {
+		names = append(names, name)
+	}
 	for _, kv := range os.Environ() {
 		if name, _, _ := strings.Cut(kv, "="); strings.HasPrefix(name, "APP_") {
 			names = append(names, name)
@@ -43,8 +53,10 @@ func setEnv(t *testing.T, vars map[string]string) {
 			t.Fatalf("unset %s: %v", name, err)
 		}
 	}
-	if _, ok := vars["DATABASE_URL"]; !ok {
-		t.Setenv("DATABASE_URL", testDatabaseURL)
+	for name, value := range requiredEnv {
+		if _, ok := vars[name]; !ok {
+			t.Setenv(name, value)
+		}
 	}
 	for k, v := range vars {
 		t.Setenv(k, v)

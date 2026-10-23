@@ -52,6 +52,17 @@ const (
 	// of Postgres move them.
 	DefaultDBConnMaxLifetime = 30 * time.Minute
 	maxDBConns               = 100
+
+	// DefaultAccessTokenTTL is used when APP_ACCESS_TOKEN_TTL is not set
+	// (ADR 0005): short, because an access token cannot be recalled once
+	// issued except through the session revocation check.
+	DefaultAccessTokenTTL = 15 * time.Minute
+	// MinJWTSecretBytes is the shortest JWT_SECRET accepted: HS256 needs a
+	// key at least as long as its 32-byte output.
+	MinJWTSecretBytes = 32
+	// JWTSecretPlaceholder is the value in .env.example. It is accepted in
+	// development only, so a copied example file never signs real tokens.
+	JWTSecretPlaceholder = "change-me-to-a-long-random-string"
 )
 
 // Config is the validated configuration of the API.
@@ -79,6 +90,17 @@ type Config struct {
 	ShutdownTimeout time.Duration
 	// Database is the PostgreSQL connection.
 	Database Database
+	// Auth configures tokens.
+	Auth Auth
+}
+
+// Auth configures the tokens of ADR 0005.
+type Auth struct {
+	// JWTSecret is JWT_SECRET, the HS256 key that signs access tokens: at
+	// least 32 bytes, never logged or put in an error.
+	JWTSecret []byte
+	// AccessTokenTTL is APP_ACCESS_TOKEN_TTL (1m-1h, default 15m).
+	AccessTokenTTL time.Duration
 }
 
 // Database configures the PostgreSQL connection pool.
@@ -168,6 +190,15 @@ func Load() (Config, error) {
 		DefaultDBConnMaxLifetime, time.Minute, 24*time.Hour)
 	errs = append(errs, err)
 
+	// JWT_SECRET has no APP_ prefix, like DATABASE_URL: it is a secret
+	// that lives in the platform's secret store under its usual name.
+	cfg.Auth.JWTSecret, err = parseJWTSecret(os.Getenv("JWT_SECRET"), cfg.Env)
+	errs = append(errs, err)
+
+	cfg.Auth.AccessTokenTTL, err = parseDuration("APP_ACCESS_TOKEN_TTL", src.String("access.token.ttl"),
+		DefaultAccessTokenTTL, time.Minute, time.Hour)
+	errs = append(errs, err)
+
 	if err := errors.Join(errs...); err != nil {
 		return Config{}, fmt.Errorf("config: %w", err)
 	}
@@ -217,6 +248,22 @@ func parseDatabaseURL(value string) (string, error) {
 		return "", errors.New("DATABASE_URL: must be a URL like postgres://user:pass@host:5432/dbname")
 	}
 	return value, nil
+}
+
+// parseJWTSecret checks the signing key. The value is a secret, so no error
+// repeats it. The .env.example placeholder, or anything that still says
+// "change-me", is refused outside development.
+func parseJWTSecret(value, env string) ([]byte, error) {
+	switch {
+	case value == "":
+		return nil, errors.New("JWT_SECRET: is required; generate one with: openssl rand -base64 48")
+	case len(value) < MinJWTSecretBytes:
+		return nil, fmt.Errorf("JWT_SECRET: must be at least %d bytes, got %d; generate one with: openssl rand -base64 48",
+			MinJWTSecretBytes, len(value))
+	case env != EnvDevelopment && (value == JWTSecretPlaceholder || strings.Contains(strings.ToLower(value), "change-me")):
+		return nil, errors.New("JWT_SECRET: is the placeholder from .env.example, which is allowed in development only; generate one with: openssl rand -base64 48")
+	}
+	return []byte(value), nil
 }
 
 // parseOrigins splits a comma-separated list of origins and checks each one.

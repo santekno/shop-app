@@ -424,6 +424,43 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /v1/auth/login:
+    post:
+      tags: [Auth]
+      operationId: login
+      summary: Log in with email and password
+      description: |
+        Returns a short-lived access token (a JWT, `APP_ACCESS_TOKEN_TTL`,
+        15 minutes by default) to send as `Authorization: Bearer <token>`.
+
+        Every failure is 401 `INVALID_CREDENTIALS`: an unknown email, a
+        wrong password, an account that signs in with Google only, and a
+        deleted account all look the same, and take the same time (one
+        argon2id verification each), so the endpoint does not reveal which
+        emails have an account.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+            example:
+              email: budi@example.com
+              password: kopi-susu-gula-aren
+      responses:
+        "200":
+          description: Logged in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenPairDetail"
+        "400":
+          $ref: "#/components/responses/BadAuthRequest"
+        "401":
+          $ref: "#/components/responses/InvalidCredentials"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 components:
   schemas:
     Money:
@@ -756,6 +793,47 @@ components:
         data:
           $ref: "#/components/schemas/User"
 
+    LoginRequest:
+      type: object
+      required: [email, password]
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+          maxLength: 254
+          description: Trimmed and lower-cased before the lookup.
+        password:
+          type: string
+          format: password
+          maxLength: 1024
+
+    TokenPair:
+      type: object
+      description: The tokens of a session (ADR 0005) and the account they belong to.
+      required: [access_token, token_type, expires_in, user]
+      additionalProperties: false
+      properties:
+        access_token:
+          type: string
+          description: "A JWT. Send it as `Authorization: Bearer <access_token>`. Clients must not rely on its claims; they may change."
+        token_type:
+          type: string
+          const: Bearer
+        expires_in:
+          type: integer
+          minimum: 0
+          description: Seconds until the access token expires.
+        user:
+          $ref: "#/components/schemas/User"
+
+    TokenPairDetail:
+      type: object
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          $ref: "#/components/schemas/TokenPair"
+
     HealthCheck:
       type: object
       required: [status, duration_ms]
@@ -928,6 +1006,17 @@ components:
               message: an account with this email already exists
               details:
                 email: is already registered; log in or reset the password
+
+    InvalidCredentials:
+      description: The email and password do not match an account. The same answer for every reason, so it does not reveal whether the email is registered.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: INVALID_CREDENTIALS
+              message: email or password is incorrect
 
     InternalError:
       description: Unexpected server error. The code is always `INTERNAL_ERROR`, the code sdk `middleware/chi` `Recovery` writes after a panic, and handlers use the same code for every other 500. The details are in the server log, never in the response.

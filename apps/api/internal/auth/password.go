@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"strings"
-	"sync"
 	"unicode/utf8"
 
 	"github.com/santekno/sdk/hashx"
@@ -82,19 +81,27 @@ const DefaultMaxConcurrentHashes = 4
 // memory.
 type Argon2Hasher struct {
 	slots chan struct{}
-
-	dummyOnce sync.Once
-	dummy     string
-	dummyErr  error
+	// dummy is the hash of a random password nobody knows. It gives a login
+	// for an unknown email the same cost as a wrong password.
+	dummy string
 }
 
 // NewArgon2Hasher returns a hasher that runs at most maxConcurrent hashes
-// at once (DefaultMaxConcurrentHashes when it is below 1).
+// at once (DefaultMaxConcurrentHashes when it is below 1). It computes its
+// dummy hash here, once, so the first login for an unknown email is not
+// slower than the others.
 func NewArgon2Hasher(maxConcurrent int) *Argon2Hasher {
 	if maxConcurrent < 1 {
 		maxConcurrent = DefaultMaxConcurrentHashes
 	}
-	return &Argon2Hasher{slots: make(chan struct{}, maxConcurrent)}
+	b := make([]byte, 32)
+	_, _ = rand.Read(b) // crypto/rand.Read never fails (Go 1.24+)
+	dummy, err := hashx.HashPassword(base64.RawStdEncoding.EncodeToString(b))
+	if err != nil {
+		// hashx fails only for an empty password, which this is not.
+		panic(fmt.Sprintf("auth: hash dummy password: %v", err))
+	}
+	return &Argon2Hasher{slots: make(chan struct{}, maxConcurrent), dummy: dummy}
 }
 
 // Hash implements Hasher.
@@ -115,11 +122,7 @@ func (h *Argon2Hasher) Hash(ctx context.Context, password string) (string, error
 func (h *Argon2Hasher) Verify(ctx context.Context, password, hash string) (bool, error) {
 	usedDummy := hash == ""
 	if usedDummy {
-		dummy, err := h.dummyHash()
-		if err != nil {
-			return false, err
-		}
-		hash = dummy
+		hash = h.dummy
 	}
 	release, err := h.acquire(ctx)
 	if err != nil {
@@ -138,18 +141,4 @@ func (h *Argon2Hasher) acquire(ctx context.Context) (release func(), err error) 
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
-}
-
-// dummyHash is the hash of a random password nobody knows, made once. It
-// gives a login for an unknown email the same cost as a wrong password.
-func (h *Argon2Hasher) dummyHash() (string, error) {
-	h.dummyOnce.Do(func() {
-		b := make([]byte, 32)
-		_, _ = rand.Read(b) // crypto/rand.Read never fails (Go 1.24+)
-		h.dummy, h.dummyErr = hashx.HashPassword(base64.RawStdEncoding.EncodeToString(b))
-		if h.dummyErr != nil {
-			h.dummyErr = fmt.Errorf("hash dummy password: %w", h.dummyErr)
-		}
-	})
-	return h.dummy, h.dummyErr
 }

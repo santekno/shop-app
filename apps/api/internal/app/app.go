@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/santekno/sdk/logx"
@@ -49,16 +50,18 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB) *App {
 	// Services: the business rules, given their repositories.
 	categoryService := category.NewService(categoryRepo)
 	productService := product.NewService(productRepo, categoryService)
+	accessTokens := auth.NewAccessTokens(cfg.Auth.JWTSecret, cfg.Auth.AccessTokenTTL, time.Now)
 	authService := auth.NewService(auth.Deps{
 		Repo:   authRepo,
 		Hasher: auth.NewArgon2Hasher(auth.DefaultMaxConcurrentHashes),
+		Access: accessTokens,
 	})
 
 	// Handlers: HTTP in and out, given their services.
 	validator := httpapi.NewValidator()
 	categoryHandler := category.NewHandler(categoryService)
 	productHandler := product.NewHandler(productService, productService, validator)
-	authHandler := auth.NewHandler(authService, validator)
+	authHandler := auth.NewHandler(authService, validator, time.Now)
 	healthHandler := health.NewHandler(logger, readiness, !cfg.IsDevelopment(),
 		health.PostgresCheck(db))
 

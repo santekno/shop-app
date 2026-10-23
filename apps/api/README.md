@@ -16,6 +16,7 @@ The Go REST API behind the GoShop storefront, admin dashboard and mobile app. Th
 | GET | `/v1/products` | One page of active products with their sellable variants, `price_from` and a computed `in_stock` |
 | GET | `/v1/products/{slug}` | One active product; a malformed or unknown slug is 404 |
 | POST | `/v1/auth/register` | Create a buyer account (argon2id password hash); 409 `EMAIL_TAKEN` for a registered email |
+| POST | `/v1/auth/login` | Email + password → access token (JWT); 401 `INVALID_CREDENTIALS` for every failure, in the same time |
 | POST | `/v1/admin/products` | **Development only.** Create a product with its variants |
 | GET | `/v1/admin/products/{id}` | **Development only.** Any product, whatever its status |
 | PUT | `/v1/admin/products/{id}` | **Development only.** Save a product and its variants; variants left out are archived |
@@ -31,7 +32,7 @@ Every error, including unknown routes (404 `NOT_FOUND`) and wrong methods (405 `
 
 ## Run it
 
-All settings come from environment variables ([docs/configuration.md](../../docs/configuration.md)). `APP_ENV` and `DATABASE_URL` are required; everything else has a default. The API pings PostgreSQL once at start and exits if it cannot, then shares one connection pool (`APP_DB_*` sizes it) for its whole life and closes it after graceful shutdown.
+All settings come from environment variables ([docs/configuration.md](../../docs/configuration.md)). `APP_ENV`, `DATABASE_URL` and `JWT_SECRET` are required; everything else has a default. The API pings PostgreSQL once at start and exits if it cannot, then shares one connection pool (`APP_DB_*` sizes it) for its whole life and closes it after graceful shutdown.
 
 Every connection asks Postgres for `plan_cache_mode=force_custom_plan` ([why](../../docs/explain/catalog.md#12-and-13-why-the-api-forces-custom-plans)); the API logs a warning at start when the session did not get it, and [docs/configuration.md](../../docs/configuration.md) says what to do behind a pooler.
 

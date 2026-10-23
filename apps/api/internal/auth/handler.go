@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/santekno/sdk/errx"
@@ -15,28 +16,36 @@ import (
 
 // The 4xx codes this feature adds (see api/openapi.yaml).
 const (
-	CodeEmailTaken = "EMAIL_TAKEN"
+	CodeEmailTaken         = "EMAIL_TAKEN"
+	CodeInvalidCredentials = "INVALID_CREDENTIALS" //nolint:gosec // an error code, not a credential
 )
 
 // Authenticator is what the handlers need from the service.
 type Authenticator interface {
 	Register(ctx context.Context, in RegisterInput) (user.User, error)
+	Login(ctx context.Context, email, password string) (Tokens, error)
 }
 
 // Handler serves the /v1/auth endpoints.
 type Handler struct {
 	svc       Authenticator
 	validator *httpapi.Validator
+	now       func() time.Time
 }
 
-// NewHandler returns a Handler.
-func NewHandler(svc Authenticator, validator *httpapi.Validator) *Handler {
-	return &Handler{svc: svc, validator: validator}
+// NewHandler returns a Handler. now is the clock for "expires_in"; nil
+// means time.Now.
+func NewHandler(svc Authenticator, validator *httpapi.Validator, now func() time.Time) *Handler {
+	if now == nil {
+		now = time.Now
+	}
+	return &Handler{svc: svc, validator: validator, now: now}
 }
 
 // Routes registers the auth routes on r (mounted under /v1).
 func (h *Handler) Routes(r chi.Router) {
 	r.Post("/auth/register", h.Register)
+	r.Post("/auth/login", h.Login)
 }
 
 // registerBody is the request body of POST /v1/auth/register. The
@@ -76,6 +85,33 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	httpapi.JSON(w, r, http.StatusCreated, dataResponse{Data: user.ToJSON(u)})
 }
 
+// loginBody is the request body of POST /v1/auth/login. Only presence and
+// a sane length are checked: a malformed email simply matches no account.
+type loginBody struct {
+	Email    string `json:"email" validate:"required,max=254"`
+	Password string `json:"password" validate:"required,max=1024"`
+}
+
+// Login serves POST /v1/auth/login: 200 with an access token, or 401
+// INVALID_CREDENTIALS whatever was wrong.
+func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
+	var body loginBody
+	if err := httpapi.DecodeJSON(w, r, &body); err != nil {
+		httpapi.Error(w, r, err)
+		return
+	}
+	if err := h.validator.Struct(body); err != nil {
+		httpapi.Error(w, r, err)
+		return
+	}
+	tokens, err := h.svc.Login(r.Context(), body.Email, body.Password)
+	if err != nil {
+		httpapi.Error(w, r, toHTTPError(err))
+		return
+	}
+	httpapi.JSON(w, r, http.StatusOK, dataResponse{Data: toTokensJSON(tokens, h.now())})
+}
+
 // checkEmail adds a message to details when email, already checked for
 // shape by the validator, is not plain ASCII.
 func checkEmail(details map[string]any, email string) {
@@ -111,6 +147,9 @@ func toHTTPError(err error) error {
 		return errx.New(CodeEmailTaken, "an account with this email already exists").
 			WithHTTPStatus(http.StatusConflict).
 			WithDetails(map[string]any{"email": "is already registered; log in or reset the password"})
+	case errors.Is(err, ErrInvalidCredentials):
+		return errx.New(CodeInvalidCredentials, "email or password is incorrect").
+			WithHTTPStatus(http.StatusUnauthorized)
 	case errors.Is(err, ErrInvalidText):
 		return httpapi.ValidationError("invalid request", map[string]any{"body": httpapi.InvalidTextMessage})
 	default:
@@ -120,4 +159,26 @@ func toHTTPError(err error) error {
 
 type dataResponse struct {
 	Data any `json:"data"`
+}
+
+// tokensJSON is TokenPair in api/openapi.yaml.
+type tokensJSON struct {
+	AccessToken string    `json:"access_token"`
+	TokenType   string    `json:"token_type"`
+	ExpiresIn   int64     `json:"expires_in"`
+	User        user.JSON `json:"user"`
+}
+
+func toTokensJSON(t Tokens, now time.Time) tokensJSON {
+	return tokensJSON{
+		AccessToken: t.AccessToken,
+		TokenType:   "Bearer",
+		ExpiresIn:   secondsUntil(t.AccessExpiresAt, now),
+		User:        user.ToJSON(t.User),
+	}
+}
+
+// secondsUntil is how many whole seconds remain until t, never negative.
+func secondsUntil(t, now time.Time) int64 {
+	return max(0, int64(t.Sub(now)/time.Second))
 }

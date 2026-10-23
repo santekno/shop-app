@@ -17,6 +17,11 @@ import (
 // (user:pass), the only one make scan allows in a URL.
 const testDatabaseURL = "postgres://localhost:5432/goshop?sslmode=disable"
 
+// Valid values for the other variables Load requires; none of them is real.
+const (
+	testJWTSecret = "unit-test-jwt-secret-not-a-real-key-0123456789" //nolint:gosec // a test value, not a credential
+)
+
 // setEnv gives the test a clean environment: every APP_* variable, PORT and
 // DATABASE_URL is removed (and restored afterwards), then DATABASE_URL is set
 // to testDatabaseURL, the one required variable without a default, and vars
@@ -31,9 +36,15 @@ func setEnv(t *testing.T, vars map[string]string) {
 		}
 	}
 	unsetEnv(t, "PORT")
-	unsetEnv(t, "DATABASE_URL")
-	if _, ok := vars["DATABASE_URL"]; !ok {
-		t.Setenv("DATABASE_URL", testDatabaseURL)
+	required := map[string]string{
+		"DATABASE_URL": testDatabaseURL,
+		"JWT_SECRET":   testJWTSecret,
+	}
+	for name, value := range required {
+		unsetEnv(t, name)
+		if _, ok := vars[name]; !ok {
+			t.Setenv(name, value)
+		}
 	}
 	for k, v := range vars {
 		t.Setenv(k, v)
