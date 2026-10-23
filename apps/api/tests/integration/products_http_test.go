@@ -75,6 +75,14 @@ func variantJSON(id, sku, name string, price, stock int) map[string]any {
 	return v
 }
 
+// withVersion adds the version an existing variant was loaded with, which
+// a PUT must send back with its id since Bab 5 (optimistic locking, ADR
+// 0006).
+func withVersion(v map[string]any, version int32) map[string]any {
+	v["version"] = version
+	return v
+}
+
 // catalogServer is a development server with the example categories and
 // the listing fixture in its own database, whose s.send and s.do act as an
 // admin (the admin routes need a seller or admin token since Bab 4).
@@ -204,7 +212,7 @@ func TestAdminHTTP_CreateGetUpdate(t *testing.T) {
 	// the body is the position.
 	m := created.Variants[0]
 	resp = s.send(t, http.MethodPut, "/v1/admin/products/"+created.ID, productJSON(t, c.cats["kaos"], "kaos-admin", "active",
-		variantJSON("", "KA-S", "S", 89000, 2), variantJSON(m.ID, "KA-M", "M", 89000, 4)))
+		variantJSON("", "KA-S", "S", 89000, 2), withVersion(variantJSON(m.ID, "KA-M", "M", 89000, 4), m.Version)))
 	if resp.Status != http.StatusOK {
 		t.Fatalf("PUT = %d, want 200: %s", resp.Status, resp.Body)
 	}
@@ -223,13 +231,17 @@ func TestAdminHTTP_CreateGetUpdate(t *testing.T) {
 		t.Error("KA-L, left out of the PUT, was not archived")
 	}
 
-	// Last save wins: two saves in a row, the second one is what stays.
+	// Last save wins: two saves in a row, each with the version the
+	// previous one returned, and the second one is what stays.
+	version := updated.Variants[0].Version
 	for _, name := range []string{"first", "second"} {
 		body := strings.Replace(productJSON(t, c.cats["kemeja"], "kaos-admin", "draft",
-			variantJSON(updated.Variants[0].ID, "KA-S", "S", 79000, 1)), `"Produk kaos-admin"`, `"`+name+`"`, 1)
-		if r := s.send(t, http.MethodPut, "/v1/admin/products/"+created.ID, body); r.Status != http.StatusOK {
+			withVersion(variantJSON(updated.Variants[0].ID, "KA-S", "S", 79000, 1), version)), `"Produk kaos-admin"`, `"`+name+`"`, 1)
+		r := s.send(t, http.MethodPut, "/v1/admin/products/"+created.ID, body)
+		if r.Status != http.StatusOK {
 			t.Fatalf("PUT %s = %d: %s", name, r.Status, r.Body)
 		}
+		version = assertAdminProduct(t, r.Body).Variants[0].Version
 	}
 	final := assertAdminProduct(t, s.get(t, "/v1/admin/products/"+created.ID).Body)
 	if final.Name != "second" || final.CategoryID != c.cats["kemeja"] || final.Status != "draft" ||
@@ -253,7 +265,8 @@ func TestAdminHTTP_WriteErrors(t *testing.T) {
 	existing := c.create(t, "kaos", "kaos-ada", "Kaos Ada", "", variant("ADA-1", "M", 50000, 1), variant("ADA-2", "L", 60000, 1))
 	// ADA-2 is archived: its SKU stays taken.
 	mustExec(t, s.db, `UPDATE product_variants SET archived_at = now() WHERE sku = 'ADA-2'`)
-	adaVariant := getAdmin(t, c, existing).Variants[0].ID
+	ada := getAdmin(t, c, existing).Variants[0]
+	adaVariant := ada.ID
 	other := c.create(t, "kaos", "kaos-polos", "Kaos Polos", "", variant("KP-1", "M", 1000, 1))
 	ok := variantJSON("", "NEW-1", "M", 1000, 1)
 	before := queryInt(t, s.db, `SELECT count(*) FROM products`) + queryInt(t, s.db, `SELECT count(*) FROM product_variants`)
@@ -295,7 +308,7 @@ func TestAdminHTTP_WriteErrors(t *testing.T) {
 		{"same SKU twice after upper-casing", "POST", "", productJSON(t, kaos, "kaos-baru", "active",
 			variantJSON("", "dup-1", "M", 10, 1), variantJSON("", " DUP-1", "L", 10, 1)),
 			400, "VALIDATION_FAILED", "variants[1].sku", "another variant in this request"},
-		{"variant id on create", "POST", "", productJSON(t, kaos, "kaos-baru", "active", variantJSON(adaVariant, "NEW-4", "M", 10, 1)),
+		{"variant id on create", "POST", "", productJSON(t, kaos, "kaos-baru", "active", withVersion(variantJSON(adaVariant, "NEW-4", "M", 10, 1), ada.Version)),
 			400, "VALIDATION_FAILED", "variants", ""},
 		{"unknown category", "POST", "", productJSON(t, uuidx.NewV7(), "kaos-baru", "active", ok),
 			400, "UNKNOWN_CATEGORY", "category_id", "names no category"},
@@ -305,7 +318,7 @@ func TestAdminHTTP_WriteErrors(t *testing.T) {
 		{"archived SKU taken", "POST", "", productJSON(t, kaos, "kaos-baru", "active", variantJSON("", "ADA-2", "L", 10, 1)),
 			409, "SKU_TAKEN", "variants", ""},
 		{"update: variant of another product", "PUT", "/" + other,
-			productJSON(t, kaos, "kaos-polos", "active", variantJSON(adaVariant, "KP-1", "M", 1000, 1)),
+			productJSON(t, kaos, "kaos-polos", "active", withVersion(variantJSON(adaVariant, "KP-1", "M", 1000, 1), ada.Version)),
 			400, "VALIDATION_FAILED", "variants", "sellable variant of this product"},
 		{"update: slug taken", "PUT", "/" + other,
 			productJSON(t, kaos, "kaos-ada", "active", variantJSON("", "KP-9", "M", 1000, 1)), 409, "SLUG_TAKEN", "slug", ""},

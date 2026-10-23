@@ -41,7 +41,8 @@ func TestAdminHTTP_Archive(t *testing.T) {
 
 	// Restoring is a status change.
 	body := productJSON(t, archived.CategoryID, archived.Slug, "active",
-		variantJSON(archived.Variants[0].ID, archived.Variants[0].SKU, archived.Variants[0].Name, int(archived.Variants[0].Price.Amount), 3))
+		withVersion(variantJSON(archived.Variants[0].ID, archived.Variants[0].SKU, archived.Variants[0].Name,
+			int(archived.Variants[0].Price.Amount), 3), archived.Variants[0].Version))
 	if r := s.send(t, http.MethodPut, "/v1/admin/products/"+p.ID, body); r.Status != http.StatusOK {
 		t.Fatalf("PUT status active = %d: %s", r.Status, r.Body)
 	}

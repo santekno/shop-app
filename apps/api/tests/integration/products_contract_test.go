@@ -48,6 +48,7 @@ type adminVariantOut struct {
 	Price       moneyOut `json:"price"`
 	Stock       int32    `json:"stock"`
 	WeightGrams int32    `json:"weight_grams"`
+	Version     int32    `json:"version"`
 }
 
 type adminProductOut struct {
