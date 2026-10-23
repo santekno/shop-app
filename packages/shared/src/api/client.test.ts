@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  expectTypeOf,
+  it,
+  vi,
+} from "vitest";
 import { createApiClient } from "./client.ts";
 import type { ApiClientOptions } from "./client.ts";
 import { ApiError } from "./errors.ts";
@@ -194,6 +202,7 @@ describe("request: the outgoing call", () => {
     expect(headers.get("Accept")).toBe("application/problem+json");
     expect(headers.get("X-Trace")).toBe("t-1");
   });
+
   it("accepts only the HTTP methods the API uses", async () => {
     const { api, fetchMock } = setup();
     fetchMock.mockResolvedValue(json(200, {}));
@@ -302,6 +311,23 @@ describe("request: reading the response", () => {
       message: `unexpected response from the API (HTTP ${res.status})`,
       requestId: "req-gw",
     });
+  });
+});
+
+describe("request: the response type", () => {
+  it("returns the JSON as the type the caller names, unknown by default", async () => {
+    const { api, fetchMock } = setup();
+    fetchMock.mockImplementation(() =>
+      Promise.resolve(json(200, { data: [{ id: "1" }] })),
+    );
+
+    const typed = api.request<{ data: { id: string }[] }>("/v1/x");
+    const untyped = api.request("/v1/x");
+
+    expectTypeOf(typed).resolves.toEqualTypeOf<{ data: { id: string }[] }>();
+    expectTypeOf(untyped).resolves.toBeUnknown();
+    expect((await typed).data[0]?.id).toBe("1");
+    expect(await untyped).toEqual({ data: [{ id: "1" }] });
   });
 });
 
