@@ -83,6 +83,16 @@ describe("ProductCard", () => {
     expect(onSelect).toHaveBeenCalledExactlyOnceWith("kaos-polos");
   });
 
+  it("marks its button with the product's slug, for App to return the focus to", () => {
+    render(<ProductCard product={product("kaos-polos")} onSelect={vi.fn()} />);
+
+    expect(
+      screen
+        .getByRole("button", { name: "Produk kaos-polos" })
+        .getAttribute("data-product-slug"),
+    ).toBe("kaos-polos");
+  });
+
   it("opens the product from the keyboard", async () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();

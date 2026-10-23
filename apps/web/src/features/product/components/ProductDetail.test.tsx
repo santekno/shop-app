@@ -29,6 +29,11 @@ const checkedVariant = () =>
     ?.querySelector(".variant-picker__name")?.textContent;
 
 const price = () => document.querySelector(".price--large")?.textContent;
+const subtotal = () =>
+  screen.queryByText(/Subtotal/)?.querySelector("strong")?.textContent;
+const stepperValue = () =>
+  screen.getByRole("group", { name: "Jumlah" }).querySelector("output")
+    ?.textContent;
 
 beforeEach(() => {
   document.title = "GoShop";
@@ -107,5 +112,102 @@ describe("ProductDetail", () => {
     expect(price()).toBeUndefined();
     expect(screen.queryByRole("group", { name: "Jumlah" })).toBeNull();
     expect(screen.queryByText("Stok habis")).toBeNull();
+  });
+
+  it("shows the subtotal as price times quantity", async () => {
+    const user = userEvent.setup();
+    render(<ProductDetail product={kaos()} />);
+    expect(subtotal()).toBe(rupiah(89_000));
+
+    await user.click(screen.getByRole("button", { name: "Tambah jumlah" }));
+    await user.click(screen.getByRole("button", { name: "Tambah jumlah" }));
+
+    expect(stepperValue()).toBe("3");
+    expect(subtotal()).toBe(rupiah(3 * 89_000));
+    await user.click(screen.getByRole("button", { name: "Kurangi jumlah" }));
+    expect(subtotal()).toBe(rupiah(2 * 89_000));
+  });
+
+  it("caps the quantity at the stock of a variant picked later", async () => {
+    const user = userEvent.setup();
+    render(<ProductDetail product={kaos()} />);
+    for (let i = 0; i < 3; i++) {
+      await user.click(screen.getByRole("button", { name: "Tambah jumlah" }));
+    }
+    expect(stepperValue()).toBe("4");
+
+    await user.click(screen.getByRole("radio", { name: /^XL/ }));
+
+    expect(stepperValue()).toBe("2");
+    expect(screen.getByText("Maks. 2")).toBeTruthy();
+    expect(subtotal()).toBe(rupiah(2 * 99_000));
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Tambah jumlah" })
+        .disabled,
+    ).toBe(true);
+  });
+
+  it("offers at most 99 even when there is more stock", () => {
+    render(
+      <ProductDetail
+        product={kaos([variant("m", { name: "M", stock: 500 })])}
+      />,
+    );
+
+    expect(screen.getByText("Maks. 99")).toBeTruthy();
+  });
+
+  it("keeps the capped quantity when the buyer switches back", async () => {
+    const user = userEvent.setup();
+    render(
+      <ProductDetail
+        product={kaos([
+          variant("m", { name: "M", stock: 20 }),
+          variant("l", { name: "L", stock: 8 }),
+        ])}
+      />,
+    );
+    for (let i = 1; i < 12; i++) {
+      await user.click(screen.getByRole("button", { name: "Tambah jumlah" }));
+    }
+    expect(stepperValue()).toBe("12");
+
+    await user.click(screen.getByRole("radio", { name: /^L/ }));
+    expect(stepperValue()).toBe("8");
+
+    await user.click(screen.getByRole("radio", { name: /^M/ }));
+    expect(stepperValue()).toBe("8");
+    expect(subtotal()).toBe(rupiah(8 * 89_000));
+  });
+
+  it("stores 0 for a sold-out variant and 1 when switching back to one in stock", async () => {
+    const user = userEvent.setup();
+    render(<ProductDetail product={kaos()} />);
+    for (let i = 1; i < 4; i++) {
+      await user.click(screen.getByRole("button", { name: "Tambah jumlah" }));
+    }
+    expect(stepperValue()).toBe("4");
+
+    await user.click(screen.getByRole("radio", { name: /^S/ }));
+    expect(screen.getByText("Stok habis")).toBeTruthy();
+
+    await user.click(screen.getByRole("radio", { name: /^M/ }));
+    expect(stepperValue()).toBe("1");
+    expect(subtotal()).toBe(rupiah(89_000));
+  });
+
+  it("starts at 0, sold out, when every variant is sold out", () => {
+    render(
+      <ProductDetail
+        product={kaos([
+          variant("s", { name: "S", stock: 0 }),
+          variant("m", { name: "M", stock: 0 }),
+        ])}
+      />,
+    );
+
+    expect(screen.getByText("Stok habis")).toBeTruthy();
+    expect(screen.queryByRole("group", { name: "Jumlah" })).toBeNull();
+    expect(screen.queryByText(/Subtotal/)).toBeNull();
   });
 });
