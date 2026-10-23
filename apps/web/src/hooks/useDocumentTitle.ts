@@ -11,7 +11,7 @@ import { useEffect } from "react";
  *
  * What does not belong in an effect, and how this app does it instead:
  * - Values computed from props or state: compute them while rendering
- *   (the clamped quantity in QuantityStepper, "Mulai" in ProductCard).
+ *   ("Mulai" in ProductCard, the subtotal in ProductDetail).
  *   Copying them into state in an effect costs an extra render and can
  *   show a stale value for a frame; the react-hooks lint rule
  *   set-state-in-effect reports it.

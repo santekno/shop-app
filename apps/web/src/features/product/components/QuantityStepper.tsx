@@ -1,30 +1,30 @@
-import { useId, useState } from "react";
-import { clampQuantity, maxQuantity } from "../quantity.ts";
+import { useId } from "react";
 
 interface QuantityStepperProps {
-  /** Units in stock for the chosen variant; the stepper never goes above it (or 99). */
-  stock: number;
+  /** The quantity shown, from 1 to `max`. */
+  value: number;
+  /** The highest quantity on offer (the stock, at most 99), at least 1. */
+  max: number;
+  /** Called with the new quantity when − or + is pressed. */
+  onChange: (quantity: number) => void;
   label?: string;
 }
 
 /**
- * − [ 2 ] + : picks how many units to buy, from 1 up to the stock (at most
- * 99). Only for a variant in stock; the cart arrives in a later chapter, so
- * for now the number only lives here.
+ * − [ 2 ] + : picks how many units to buy, from 1 up to `max`.
+ *
+ * A controlled component: the number lives in the parent (ProductDetail),
+ * which needs it for the subtotal, and arrives here as `value`; a press is
+ * reported through onChange. In artikel 05 the stepper kept the number in
+ * its own useState; lifting it up is what lets the parent read it.
  */
 export function QuantityStepper({
-  stock,
+  value,
+  max,
+  onChange,
   label = "Jumlah",
 }: QuantityStepperProps) {
-  // useState keeps a value between renders. Calling setQuantity stores the
-  // new value and renders the component again, which reads it back.
-  const [quantity, setQuantity] = useState(1);
   const labelId = useId();
-
-  const max = maxQuantity(stock);
-  // Computed while rendering, not stored: when the stock is lower than the
-  // number picked, the stepper shows the stock.
-  const value = clampQuantity(quantity, stock);
 
   return (
     <div className="stepper" role="group" aria-labelledby={labelId}>
@@ -35,10 +35,8 @@ export function QuantityStepper({
         type="button"
         aria-label="Kurangi jumlah"
         disabled={value <= 1}
-        // The updater form, (q) => …, computes from the latest stored value
-        // even when several updates are queued before the next render.
         onClick={() => {
-          setQuantity((q) => clampQuantity(q - 1, stock));
+          onChange(value - 1);
         }}
       >
         −
@@ -51,7 +49,7 @@ export function QuantityStepper({
         aria-label="Tambah jumlah"
         disabled={value >= max}
         onClick={() => {
-          setQuantity((q) => clampQuantity(q + 1, stock));
+          onChange(value + 1);
         }}
       >
         +

@@ -34,6 +34,9 @@ export function ProductCard({ product, onSelect }: ProductCardProps) {
         <button
           type="button"
           className="link-button"
+          // App looks the button up by this attribute to give it the focus
+          // back when the buyer returns from the product page.
+          data-product-slug={product.slug}
           onClick={() => {
             onSelect(product.slug);
           }}

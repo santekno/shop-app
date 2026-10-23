@@ -302,3 +302,12 @@ button:disabled {
 .catalog__footer:empty {
   display: none;
 }
+
+.brand {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
