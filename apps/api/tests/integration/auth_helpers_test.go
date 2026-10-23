@@ -25,8 +25,11 @@ import (
 // read the tokens the API emails from a recording mailer
 // (app.WithMailer) or, for the development log mailer, from the log.
 
-// testPassword and otherPassword are passwords the policy accepts.
+// testPassword and otherPassword are passwords the policy accepts;
+// wrongPassword is one no test account has.
 const (
+	wrongPassword = "salah-kata-sandi-9" //nolint:gosec // not a secret
+
 	testPassword  = "nasi-goreng-kampung-1" //nolint:gosec // a test account's password, not a secret
 	otherPassword = "soto-betawi-santan-2"  //nolint:gosec // a test account's password, not a secret
 )
@@ -252,3 +255,11 @@ func (unlimited) Allow(context.Context, auth.Limit, string) (bool, time.Duration
 
 // withUnlimitedRate is app.WithRateLimiter(unlimited{}).
 func withUnlimitedRate() app.Option { return app.WithRateLimiter(unlimited{}) }
+
+// liveSessions counts the refresh tokens of userID that still work: not
+// used, not revoked. Each live one is a session that can go on.
+func (s *server) liveSessions(t *testing.T, userID string) int {
+	t.Helper()
+	return s.count(t, `SELECT count(*) FROM refresh_tokens
+		WHERE user_id = $1 AND used_at IS NULL AND revoked_at IS NULL`, userID)
+}
