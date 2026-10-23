@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { formatRupiah } from "@goshop/shared";
 import type { Product } from "@goshop/shared";
 import { Card } from "@/components/ui/Card.tsx";
@@ -13,8 +14,20 @@ interface ProductCardProps {
   onSelect: (slug: string) => void;
 }
 
-/** One product in the catalog grid: photo, name, category, price, stock. */
-export function ProductCard({ product, onSelect }: ProductCardProps) {
+/**
+ * One product in the catalog grid: photo, name, category, price, stock.
+ *
+ * Wrapped in memo: React skips rendering a card again when its props are
+ * the same objects as last time. "Muat lebih banyak" re-renders the grid
+ * with 12 more products; with memo, the cards already on screen are left
+ * alone. It only works because both props stay the same: `product` keeps
+ * its identity (useProducts appends pages without copying products) and
+ * `onSelect` is the same function (App wraps it in useCallback).
+ */
+export const ProductCard = memo(function ProductCard({
+  product,
+  onSelect,
+}: ProductCardProps) {
   // Destructuring renames the API's snake_case fields to camelCase locals.
   const { name, category, variants } = product;
   const { price_from: priceFrom, in_stock: inStock } = product;
@@ -52,4 +65,4 @@ export function ProductCard({ product, onSelect }: ProductCardProps) {
       {!inStock && <p className="badge">Stok habis</p>}
     </Card>
   );
-}
+});

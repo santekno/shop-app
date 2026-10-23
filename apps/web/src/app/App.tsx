@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { CatalogPage } from "@/features/catalog/components/CatalogPage.tsx";
 import { ProductDetailPage } from "@/features/product/components/ProductDetailPage.tsx";
 import { SiteHeader } from "./SiteHeader.tsx";
@@ -16,11 +16,20 @@ export function App() {
   // again: a ref, not state, because changing it must not render anything.
   const returnFocusTo = useRef<string | null>(null);
 
-  const showProduct = (slug: string) => {
+  // useCallback returns the same function on every render (until a
+  // dependency changes). Needed here because the function reaches every
+  // ProductCard, which is memoised: a new function on each render would
+  // count as a changed prop and re-render all the cards.
+  const showProduct = useCallback((slug: string) => {
     setSelectedSlug(slug);
     // The product page starts at the top, not where the grid was scrolled.
     window.scrollTo({ top: 0 });
-  };
+  }, []);
+
+  // No useCallback: the header and the product page are not memoised, so
+  // a new function costs nothing. Neither does useMemo pay for cheap work
+  // such as the subtotal in ProductDetail; reach for both when a profile
+  // (React DevTools) shows a render that is slow or happens for nothing.
   const showCatalog = () => {
     returnFocusTo.current = selectedSlug;
     setSelectedSlug(null);
