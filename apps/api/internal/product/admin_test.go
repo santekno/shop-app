@@ -21,7 +21,7 @@ func adminProduct() product.AdminProduct {
 		ID: productID, CategoryID: catID, Slug: "kaos-polos-hitam", Name: "Kaos Polos Hitam",
 		Description: "Katun", Status: product.StatusActive, PriceFrom: &price,
 		Variants: []product.AdminVariant{
-			{ID: variantID, SKU: "KPH-S", Name: "S", Price: 89000, Stock: 3, WeightGrams: 180},
+			{ID: variantID, SKU: "KPH-S", Name: "S", Price: 89000, Stock: 3, WeightGrams: 180, Version: 4},
 		},
 		CreatedAt: time.Date(2026, 10, 1, 19, 0, 0, 0, time.FixedZone("WIB", 7*3600)),
 		UpdatedAt: time.Date(2026, 10, 2, 19, 0, 0, 0, time.FixedZone("WIB", 7*3600)),
@@ -81,6 +81,7 @@ func TestAdmin_GetProduct(t *testing.T) {
 	v := data["variants"].([]any)[0].(map[string]any)
 	testx.AssertEqual(t, v["weight_grams"], any(json.Number("180")))
 	testx.AssertEqual(t, v["sku"], any("KPH-S"))
+	testx.AssertEqual(t, v["version"], any(json.Number("4")), "the form sends it back with the save")
 }
 
 func TestAdmin_GetProduct_NoSellableVariant(t *testing.T) {
@@ -422,6 +423,12 @@ func TestAdmin_ServiceErrors(t *testing.T) {
 		{
 			name: "text the database refused", err: product.ErrInvalidText, wantStatus: 400, wantCode: httpapi.CodeValidationFailed,
 			wantDetails: map[string]any{"body": "must be valid UTF-8 text without NUL characters"},
+		},
+		{
+			// A sale (or another admin) changed the variant since the form
+			// loaded it: reload and save again (ADR 0006).
+			name: "version conflict", err: &product.VersionConflictError{VariantID: variantID}, wantStatus: 409, wantCode: product.CodeVersionConflict,
+			wantDetails: map[string]any{"variant_id": variantID},
 		},
 		{name: "not found", err: product.ErrNotFound, wantStatus: 404, wantCode: httpapi.CodeNotFound},
 		{name: "failure", err: errors.New("connection refused"), wantStatus: 500, wantCode: httpapi.CodeInternal},
