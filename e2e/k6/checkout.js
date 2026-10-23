@@ -13,7 +13,9 @@
 //
 // Every buyer logs in once (POST /v1/auth/login is limited to 20 per IP per
 // 15 minutes, so PLENTY_VUS + SCARCE_VUS is at most 20; e2e/k6/run.sh clears
-// the counters first). Run it with `make loadtest`; see README.md.
+// the counters first). One VU checks out about 1,200 times a minute, so the
+// api must run with APP_CHECKOUT_LIMIT_PER_MINUTE=100000 (run.sh refuses
+// to start otherwise). Run it with `make loadtest`; see README.md.
 
 import http from 'k6/http';
 import { check, fail } from 'k6';
@@ -95,7 +97,7 @@ function login() {
     // A wrong password or a missing buyer is a setup problem: stop the
     // whole test rather than let every iteration log in again (and hit
     // the login rate limit).
-    exec.test.abort(`login ${email}: ${res.status}; run make seed-loadtest users=${exec.vu.idInTest} or more with this SEED_LOADTEST_PASSWORD (it does not change the password of buyers that exist)`);
+    exec.test.abort(`login ${email}: ${res.status}; run make seed-loadtest users=${exec.vu.idInTest} or more with this SEED_LOADTEST_PASSWORD (a rerun sets it on every loadtest-* buyer)`);
   }
   const token = res.json('data.access_token');
   const addresses = http.get(`${API}/v1/me/addresses`, Object.assign(headers(token), { tags: { name: 'addresses' } }));

@@ -7,7 +7,7 @@ oversold stock with `verify.sql`.
 ## Run it
 
 ```bash
-make up
+APP_CHECKOUT_LIMIT_PER_MINUTE=100000 make up
 make seed
 SEED_LOADTEST_PASSWORD='a-password-the-policy-accepts' make seed-loadtest users=20
 SEED_LOADTEST_PASSWORD='a-password-the-policy-accepts' make loadtest
@@ -22,9 +22,17 @@ SEED_LOADTEST_PASSWORD='a-password-the-policy-accepts' make loadtest
   `loadtest-kaos`, with `LOADTEST-PLENTY` (1,000,000 units) and
   `LOADTEST-SCARCE` (10 units). Run it again before every load test: it
   resets both stocks and closes the load-test buyers' unpaid orders.
-- **It does not change the password of buyers that already exist.** Use the
-  same `SEED_LOADTEST_PASSWORD` every time. If you have forgotten it,
-  `docker-compose down -v` starts from an empty database.
+- A rerun with another `SEED_LOADTEST_PASSWORD` sets that password on every
+  `loadtest-*` buyer that already exists, so the password `make loadtest`
+  gets is always the one the last `make seed-loadtest` used.
+- **The api must run with `APP_CHECKOUT_LIMIT_PER_MINUTE=100000`.** Preview,
+  shipping quotes and checkout are limited per buyer, 30 per minute each by
+  default, and one VU checks out about 1,200 times a minute. With the default,
+  almost every checkout would be a 429 and the test would measure the rate
+  limiter. `run.sh` reads the running api container's environment and stops
+  with a message before k6 starts when the limit is lower. Restart with
+  `APP_CHECKOUT_LIMIT_PER_MINUTE=100000 make up`, and use a plain `make up`
+  again afterwards.
 - Login is limited to 20 attempts per IP per 15 minutes, and every k6 VU
   logs in once. So `PLENTY_VUS + SCARCE_VUS` is at most 20, and `run.sh`
   clears `goshop:rl:*` in the Compose Redis first, so you can run twice in a
@@ -77,27 +85,28 @@ k6 thresholds:
 
 `make loadtest` fails if either the thresholds or the SQL check fail.
 
-## Results (2026-10-23, `bab-5`, MacBook arm64, colima, k6 2.3.0 in Docker)
+## Results (2026-10-24, `bab-5`, MacBook arm64, colima, k6 2.3.0 in Docker)
 
-Defaults: 12 plenty VUs for 30 s, and 8 scarce VUs × 3 attempts. Each run
-started from a fresh `make seed-loadtest users=20`.
+Defaults: 12 plenty VUs for 30 s, and 8 scarce VUs × 3 attempts, against
+`APP_CHECKOUT_LIMIT_PER_MINUTE=100000 make up`. Each run started from a fresh
+`make seed-loadtest users=20`, the second with a new password.
 
 ```
   █ THRESHOLDS
-    http_req_duration{name:checkout,scenario:plenty}   ✓ 'p(95)<500' p(95)=51.4ms
-    http_req_duration{name:checkout,scenario:scarce}   ✓ 'p(95)<500' p(95)=42.29ms
-    plenty_orders                                      ✓ 'count>0' count=7678
+    http_req_duration{name:checkout,scenario:plenty}   ✓ 'p(95)<500' p(95)=57.81ms
+    http_req_duration{name:checkout,scenario:scarce}   ✓ 'p(95)<500' p(95)=21.36ms
+    plenty_orders                                      ✓ 'count>0' count=7844
     scarce_orders                                      ✓ 'count<=10' count=10
     unexpected_responses                               ✓ 'rate<0.01' rate=0.00%
 
-    checks_succeeded...: 100.00% 23140 out of 23140
-    plenty_orders......: 7678  255.6/s
+    checks_succeeded...: 100.00% 23636 out of 23636
+    plenty_orders......: 7844  261.2/s
     scarce_orders......: 10
     scarce_sold_out....: 14
-    { name:checkout,scenario:plenty }: avg=22.55ms med=17.89ms p(90)=41.48ms p(95)=51.4ms max=645.75ms
-    { name:checkout,scenario:scarce }: avg=24.68ms med=20.84ms p(90)=38.6ms  p(95)=42.29ms max=44.68ms
-    http_reqs..........: 23140 770.4/s   (http_req_failed 0.06%: the 14 expected sold-out 409s)
-    iterations.........: 7702  256.4/s
+    { name:checkout,scenario:plenty }: avg=22.75ms med=16.21ms p(90)=44.54ms p(95)=57.81ms max=368.64ms
+    { name:checkout,scenario:scarce }: avg=13.7ms  med=13.91ms p(90)=19.79ms p(95)=21.36ms max=22.35ms
+    http_reqs..........: 23636 787.1/s   (http_req_failed 0.05%: the 14 expected sold-out 409s)
+    iterations.........: 7868  262.0/s
 
 loadtest: checking the database for oversold stock
 NOTICE:  LOADTEST-SCARCE: stock 0, 10 unpaid orders, 10 units
@@ -105,16 +114,19 @@ NOTICE:  LOADTEST-PLENTY: stock 1000000, 0 units in live orders
 NOTICE:  oversell check passed
 ```
 
-Four more runs gave the same outcome every time: 10 scarce orders, scarce
-stock 0, no unexpected answer, and plenty checkout p95 between 48 and 76 ms.
+The second run, with a different `SEED_LOADTEST_PASSWORD`, gave the same
+outcome: 7,987 plenty orders at 801 req/s, plenty checkout p95 56.37 ms,
+scarce p95 30.48 ms, 0 unexpected answers, and exactly 10 scarce orders with
+stock 0. Earlier runs on 2026-10-23, before the per-buyer limits existed,
+had plenty checkout p95 between 48 and 76 ms.
 
-One of those runs was made while the machine's 15-minute load average was
-about 86, from other test suites on the same colima VM. In that run, a 7-s
-cluster of slow requests appeared. It hit every kind of request at once,
-including cart adds that take no contested lock, and pushed the checkout
-max to 7.4 s. A rerun with `log_lock_waits = on` showed no lock wait over
-`deadlock_timeout` (1 s). So read the max as a property of the machine, not
-of the locks; the p95 is the number to compare.
+One of those earlier runs was made while the machine's 15-minute load
+average was about 86, from other test suites on the same colima VM. In that
+run, a 7-s cluster of slow requests appeared. It hit every kind of request
+at once, including cart adds that take no contested lock, and pushed the
+checkout max to 7.4 s. A rerun with `log_lock_waits = on` showed no lock
+wait over `deadlock_timeout` (1 s). So read the max as a property of the
+machine, not of the locks; the p95 is the number to compare.
 
 All plenty buyers decrement and restore the same variant row, which is the
 worst case ADR 0006 describes: buyers queue on that row's lock. At

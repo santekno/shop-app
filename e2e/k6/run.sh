@@ -2,7 +2,7 @@
 # make loadtest: the k6 checkout load test (e2e/k6/checkout.js) against the
 # Compose stack, then the oversell check in SQL (e2e/k6/verify.sql).
 #
-# Needs `make up`, `make seed` and
+# Needs `APP_CHECKOUT_LIMIT_PER_MINUTE=100000 make up`, `make seed` and
 # `SEED_LOADTEST_PASSWORD=… make seed-loadtest users=20` first, and the same
 # SEED_LOADTEST_PASSWORD in the environment. Uses a local k6 when there is
 # one, otherwise the grafana/k6 image, which joins the api container's
@@ -21,7 +21,21 @@ if [ -z "${SEED_LOADTEST_PASSWORD:-}" ]; then
 fi
 api=$($COMPOSE ps -q api)
 if [ -z "$api" ]; then
-	echo "loadtest: the api service is not running; start the stack with make up" >&2
+	echo "loadtest: the api service is not running; start the stack with APP_CHECKOUT_LIMIT_PER_MINUTE=100000 make up" >&2
+	exit 1
+fi
+
+# Each VU checks out about 1,200 times a minute, against a per-buyer limit
+# of APP_CHECKOUT_LIMIT_PER_MINUTE (30 by default): read the running api's
+# value and refuse a run that would measure 429s.
+need=100000
+limit=$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$api" |
+	sed -n 's/^APP_CHECKOUT_LIMIT_PER_MINUTE=//p')
+limit=${limit:-30}
+case $limit in *[!0-9]*) limit=0 ;; esac
+if [ "$limit" -lt "$need" ]; then
+	echo "loadtest: the api runs with APP_CHECKOUT_LIMIT_PER_MINUTE=$limit, and the load test needs $need." >&2
+	echo "loadtest: restart it with: APP_CHECKOUT_LIMIT_PER_MINUTE=$need make up" >&2
 	exit 1
 fi
 
