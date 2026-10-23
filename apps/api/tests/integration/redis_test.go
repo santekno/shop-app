@@ -71,6 +71,24 @@ func newTestRedis(t *testing.T) (string, *redis.Client) {
 	return fmt.Sprintf("redis://%s/%d", addr, n), client
 }
 
+// redisKeys lists the keys matching pattern in the server's own Redis
+// database.
+func (s *server) redisKeys(t *testing.T, pattern string) []string {
+	t.Helper()
+	if s.rdb == nil {
+		t.Fatal("this server has no Redis client of the test's own")
+	}
+	var out []string
+	iter := s.rdb.Scan(t.Context(), 0, pattern, 100).Iterator()
+	for iter.Next(t.Context()) {
+		out = append(out, iter.Val())
+	}
+	if err := iter.Err(); err != nil {
+		t.Fatalf("scan %s: %v", pattern, err)
+	}
+	return out
+}
+
 // TestRedis_IsolatedPerTest checks the isolation the other tests rely on:
 // two servers started in one test write to different logical databases,
 // and a database is empty when a test receives it.
