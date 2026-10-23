@@ -649,3 +649,70 @@ describe("request: retries", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 });
+
+describe("request: client defaults and per-request overrides", () => {
+  it("times out after 10 000 ms by default, even when given undefined", async () => {
+    const { api, fetchMock } = setup({ timeoutMs: undefined });
+    fetchMock.mockImplementation(hangingFetch);
+
+    const result = failure(api.request("/v1/x"));
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(callOf(fetchMock).init.signal?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(await result).toMatchObject({
+      code: "CLIENT_TIMEOUT",
+      message: "the API did not answer within 10000 ms",
+    });
+  });
+
+  it("lets a request's timeoutMs override the client's", async () => {
+    const { api, fetchMock } = setup({ timeoutMs: 10_000 });
+    fetchMock.mockImplementation(hangingFetch);
+
+    const result = failure(api.request("/v1/x", { timeoutMs: 50 }));
+    await vi.advanceTimersByTimeAsync(50);
+
+    expect(await result).toMatchObject({
+      code: "CLIENT_TIMEOUT",
+      message: "the API did not answer within 50 ms",
+    });
+  });
+
+  it("lets a request's retries raise the client's", async () => {
+    const { api, fetchMock } = setup({ retries: 0, retryDelayMs: 10 });
+    fetchMock.mockRejectedValue(new TypeError("down"));
+
+    const result = failure(api.request("/v1/x", { retries: 2 }));
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect((await result).code).toBe("NETWORK_ERROR");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("lets a request's retries of 0 turn off the client's", async () => {
+    const { api, fetchMock } = setup({ retries: 3, retryDelayMs: 10 });
+    fetchMock.mockRejectedValue(new TypeError("down"));
+
+    const result = failure(api.request("/v1/x", { retries: 0 }));
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect((await result).code).toBe("NETWORK_ERROR");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps each client's settings separate", async () => {
+    const first = setup({ retries: 1, retryDelayMs: 10 });
+    const second = setup();
+    first.fetchMock.mockRejectedValue(new TypeError("down"));
+    second.fetchMock.mockRejectedValue(new TypeError("down"));
+
+    const a = failure(first.api.request("/v1/x"));
+    const b = failure(second.api.request("/v1/x"));
+    await vi.advanceTimersByTimeAsync(1_000);
+    await Promise.all([a, b]);
+
+    expect(first.fetchMock).toHaveBeenCalledTimes(2);
+    expect(second.fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
