@@ -49,7 +49,8 @@ type PlaceInput struct {
 //  4. check and count the voucher with its guarded UPDATE;
 //  5. insert the order and its line snapshots, decrement the stock with the
 //     guarded UPDATE, and take the lines out of the cart;
-//  6. store the 201 answer under the idempotency key.
+//  6. record order.created in the outbox and store the 201 answer under the
+//     idempotency key.
 //
 // Any error rolls everything back. It returns the answer.
 func (r *PostgresRepository) Place(ctx context.Context, in PlaceInput) (Response, error) {
@@ -88,7 +89,14 @@ func (r *PostgresRepository) Place(ctx context.Context, in PlaceInput) (Response
 		if err := insertItems(ctx, q, in.UserID, orderID, lines, in.Now); err != nil {
 			return err
 		}
-		resp, err = createdResponse(ctx, q, in.UserID, orderID)
+		o, err := readOrder(ctx, q, in.UserID, orderID)
+		if err != nil {
+			return err
+		}
+		if err := recordEvent(ctx, q, o); err != nil {
+			return err
+		}
+		resp, err = createdResponse(o)
 		if err != nil {
 			return err
 		}
@@ -97,23 +105,27 @@ func (r *PostgresRepository) Place(ctx context.Context, in PlaceInput) (Response
 	return resp, err
 }
 
-// createdResponse reads the new order back through the transaction and
-// renders the 201 answer: the bytes the client gets now and on every
-// replay.
-func createdResponse(ctx context.Context, q *sqlc.Queries, userID, orderID string) (Response, error) {
+// readOrder reads the new order back through the transaction.
+func readOrder(ctx context.Context, q *sqlc.Queries, userID, orderID string) (Order, error) {
 	row, err := q.GetOrderForUser(ctx, sqlc.GetOrderForUserParams{ID: orderID, UserID: userID})
 	if err != nil {
-		return Response{}, fmt.Errorf("read new order: %w", err)
+		return Order{}, fmt.Errorf("read new order: %w", err)
 	}
 	o := fromOrderRow(row)
 	if o.Items, err = loadItems(ctx, q, orderID); err != nil {
-		return Response{}, err
+		return Order{}, err
 	}
+	return o, nil
+}
+
+// createdResponse renders the 201 answer of o: the bytes the client gets
+// now and on every replay.
+func createdResponse(o Order) (Response, error) {
 	body, err := encodeResponse(dataResponse{Data: toOrderJSON(o)})
 	if err != nil {
 		return Response{}, err
 	}
-	return Response{Status: http.StatusCreated, Body: body, OrderID: orderID}, nil
+	return Response{Status: http.StatusCreated, Body: body, OrderID: o.ID}, nil
 }
 
 // lockBuyer takes the users-first lock and applies the buyer's rules.

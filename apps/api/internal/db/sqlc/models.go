@@ -109,6 +109,16 @@ type OrderItem struct {
 	CreatedAt   time.Time
 }
 
+type OutboxEvent struct {
+	ID            string
+	AggregateType string
+	AggregateID   string
+	EventType     string
+	Payload       json.RawMessage
+	CreatedAt     time.Time
+	PublishedAt   sql.NullTime
+}
+
 type Product struct {
 	ID          string
 	CategoryID  string

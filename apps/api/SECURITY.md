@@ -59,6 +59,7 @@ Known limits:
 - **Per-buyer limits on checkout:** `POST /v1/checkout/preview`, `GET /v1/checkout/shipping-quotes` and `POST /v1/checkout` each allow `APP_CHECKOUT_LIMIT_PER_MINUTE` requests per buyer per minute (30 by default; 429 `RATE_LIMITED` with `Retry-After`). Every preview and quote can call the courier rates API, so without the limit one account could use GoShop to flood it.
 - Known limit: the refresh-token table grows with every refresh; expired rows are cleaned up by a worker job from Bab 6.
 - Known limit: abandoned guest carts are never deleted in Bab 5 (only a merge removes one); the per-IP limit bounds how fast they grow, and a Bab 6 worker job deletes old ones.
+- Known limit: `outbox_events` keeps every published event in Bab 5 (one row per order status change); Bab 6's worker deletes published events once its consumers have them.
 
 ## API5: Broken function level authorization
 

@@ -90,9 +90,11 @@ An unpaid order is cancelled (`payment_expired`) once `payment_expires_at` has p
 make expire-orders            # docker compose run --rm --no-deps api expire-orders
 ```
 
+Every order change (created, paid, processing, shipped, completed, cancelled) writes a domain event to `outbox_events` in the same transaction ([ADR 0006](../../docs/adr/0006-cart-checkout-orders.md), transactional outbox). `make publish-events` (`/api publish-events`) publishes the pending ones, oldest first, with `FOR UPDATE SKIP LOCKED` so two runs never take the same event; in Bab 5 "publishing" writes each event to the log (`outbox.LogPublisher`, look for `domain event`), and Bab 6 sends them to the job queue for emails and notifications. Delivery is at least once: consumers deduplicate by the event `id`.
+
 Checkout idempotency keys live 24 hours; `make cleanup-idempotency-keys` (`/api cleanup-idempotency-keys`) deletes the expired ones, in batches.
 
-In production, run `/api expire-orders` and `/api cleanup-idempotency-keys` from Railway cron services on the api image every few minutes; Bab 6's worker takes it over. Two runs at once are safe.
+In production, run `/api expire-orders`, `/api publish-events` and `/api cleanup-idempotency-keys` from Railway cron services on the api image every few minutes; Bab 6's worker takes it over. Two runs at once are safe.
 
 ## Run it
 

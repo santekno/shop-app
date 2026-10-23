@@ -18,6 +18,7 @@ Every column is `NOT NULL` unless the diagram says `nullable`.
 | Bab 5 | `000008_create_vouchers` | `vouchers`: `vouchers_code_key`, kind/value/window/limit CHECKs, and `vouchers_used_count_check` (the counter never passes its limit) |
 | Bab 5 | `000009_create_orders` | `orders` and `order_items` as below, with `discount`, `voucher_id` and `voucher_code` added in Bab 5 (`orders_amounts_check`: `total = subtotal - discount + shipping_fee`); `orders_paid_check` (every status from `paid` on has `paid_at`); indexes `orders_user_created_idx`, `orders_user_pending_idx` (partial, `pending_payment`), `orders_status_created_idx`, `orders_payment_expires_idx` (partial, `pending_payment`), `orders_voucher_user_idx` (partial) and `order_items_variant_id_idx` |
 | Bab 5 | `000010_create_idempotency_keys` | `idempotency_keys`: primary key `(user_id, key)`, the SHA-256 of the body, a `claim_id` that saving and releasing must match, the stored answer (`json`, so a replay is byte for byte) and `order_id` (no foreign key: short-lived request state); `idempotency_keys_expires_at_idx` for the cleanup |
+| Bab 5 | `000011_create_outbox_events` | `outbox_events` (ADR 0006): one row per order status change, written in the change's transaction; `aggregate_type` and `event_type` CHECKs; the partial `outbox_events_unpublished_idx (created_at, id) WHERE published_at IS NULL` for the dispatcher |
 
 Two choices made while building it:
 

@@ -30,6 +30,7 @@ import (
 	"github.com/santekno/shop-app/apps/api/internal/logging"
 	"github.com/santekno/shop-app/apps/api/internal/mail"
 	"github.com/santekno/shop-app/apps/api/internal/order"
+	"github.com/santekno/shop-app/apps/api/internal/outbox"
 	"github.com/santekno/shop-app/apps/api/internal/product"
 	"github.com/santekno/shop-app/apps/api/internal/redisconn"
 	"github.com/santekno/shop-app/apps/api/internal/shipping"
@@ -276,8 +277,10 @@ func Run(ctx context.Context, args []string, stdout io.Writer) error {
 		return runJob(ctx, cfg, logger, "expire-orders", expireOrders)
 	case len(args) == 1 && args[0] == "cleanup-idempotency-keys":
 		return runJob(ctx, cfg, logger, "cleanup-idempotency-keys", cleanupIdempotencyKeys)
+	case len(args) == 1 && args[0] == "publish-events":
+		return runJob(ctx, cfg, logger, "publish-events", publishEvents)
 	default:
-		return fmt.Errorf("unknown arguments %q (usage: api [healthcheck|migrate|expire-orders|cleanup-idempotency-keys])", args)
+		return fmt.Errorf("unknown arguments %q (usage: api [healthcheck|migrate|expire-orders|cleanup-idempotency-keys|publish-events])", args)
 	}
 
 	db, err := database.Open(ctx, cfg.Database, logger)
@@ -325,7 +328,8 @@ func closeRedis(rdb *redis.Client, logger logx.Logger) {
 }
 
 // runJob runs one of the background jobs once against the database and
-// exits: `api expire-orders`, `api cleanup-idempotency-keys`. Bab 5 has no worker yet, so a scheduler runs
+// exits: `api expire-orders`, `api cleanup-idempotency-keys`,
+// `api publish-events`. Bab 5 has no worker yet, so a scheduler runs
 // the command (make expire-orders locally, a Railway cron service in
 // production); Bab 6's worker calls the same service methods on a ticker
 // (ADR 0006). Each job is safe to run twice at once.
@@ -358,6 +362,14 @@ func cleanupIdempotencyKeys(ctx context.Context, db *sql.DB, logger logx.Logger)
 	svc := order.NewService(order.Deps{Repo: order.NewPostgresRepository(db)})
 	n, err := svc.CleanupKeys(ctx)
 	logger.Info("deleted expired idempotency keys", "deleted", n)
+	return err
+}
+
+// publishEvents publishes the outbox's pending domain events to the log
+// (outbox.LogPublisher); Bab 6 publishes them to the job queue instead.
+func publishEvents(ctx context.Context, db *sql.DB, logger logx.Logger) error {
+	n, err := outbox.NewDispatcher(db, outbox.LogPublisher{Logger: logger}).PublishPending(ctx)
+	logger.Info("published domain events", "published", n)
 	return err
 }
 

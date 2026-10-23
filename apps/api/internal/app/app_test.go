@@ -310,13 +310,13 @@ func TestRun_Errors(t *testing.T) {
 			name:    "unknown argument",
 			env:     map[string]string{"APP_ENV": "production"},
 			args:    []string{"serve"},
-			wantErr: `unknown arguments ["serve"] (usage: api [healthcheck|migrate|expire-orders|cleanup-idempotency-keys])`,
+			wantErr: `unknown arguments ["serve"] (usage: api [healthcheck|migrate|expire-orders|cleanup-idempotency-keys|publish-events])`,
 		},
 		{
 			name:    "migrate with extra arguments",
 			env:     map[string]string{"APP_ENV": "production"},
 			args:    []string{"migrate", "now"},
-			wantErr: `unknown arguments ["migrate" "now"] (usage: api [healthcheck|migrate|expire-orders|cleanup-idempotency-keys])`,
+			wantErr: `unknown arguments ["migrate" "now"] (usage: api [healthcheck|migrate|expire-orders|cleanup-idempotency-keys|publish-events])`,
 		},
 		{
 			name:    "DATABASE_URL is required",

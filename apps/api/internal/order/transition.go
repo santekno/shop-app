@@ -27,8 +27,9 @@ type Change struct {
 
 // Transition applies c in one transaction with one conditional UPDATE
 // (ADR 0006). A cancel also gives back the stock, locking the order's
-// variants in id order first, and the voucher use. Errors: ErrNotFound,
-// *TransitionError.
+// variants in id order first, and the voucher use. Every change records
+// its event (order.paid, order.cancelled, ...) in the outbox in the same
+// transaction. Errors: ErrNotFound, *TransitionError.
 func (r *PostgresRepository) Transition(ctx context.Context, c Change) error {
 	return database.WithTx(ctx, r.db, func(q *sqlc.Queries) error {
 		n, err := applyChange(ctx, q, c)
@@ -39,9 +40,15 @@ func (r *PostgresRepository) Transition(ctx context.Context, c Change) error {
 			return whyUnchanged(ctx, q, c)
 		}
 		if c.To == StatusCancelled {
-			return giveBack(ctx, q, c.OrderID)
+			if err := giveBack(ctx, q, c.OrderID); err != nil {
+				return err
+			}
 		}
-		return nil
+		row, err := q.GetOrder(ctx, c.OrderID)
+		if err != nil {
+			return fmt.Errorf("read changed order: %w", err)
+		}
+		return recordEvent(ctx, q, fromOrderRow(orderRow(row)))
 	})
 }
 
