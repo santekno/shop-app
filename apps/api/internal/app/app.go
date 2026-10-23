@@ -71,16 +71,19 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 	// Services: the business rules, given their repositories.
 	categoryService := category.NewService(categoryRepo)
 	productService := product.NewService(productRepo, categoryService)
-	userService := user.NewService(userRepo)
+	// Revoked sessions live in Redis as long as an access token (ADR 0005).
+	revocations := auth.NewRedisSessionRevocations(redisconn.NewKV(rdb), cfg.Auth.AccessTokenTTL)
+	userService := user.NewService(userRepo, revocations)
 	addressService := address.NewService(addressRepo)
 	accessTokens := auth.NewAccessTokens(cfg.Auth.JWTSecret, cfg.Auth.AccessTokenTTL, time.Now)
 	authService := auth.NewService(auth.Deps{
-		Repo:       authRepo,
-		Hasher:     auth.NewArgon2Hasher(auth.DefaultMaxConcurrentHashes),
-		Access:     accessTokens,
-		RefreshTTL: cfg.Auth.RefreshTokenTTL,
-		Mailer:     o.mailer,
-		Google:     o.google,
+		Repo:        authRepo,
+		Hasher:      auth.NewArgon2Hasher(auth.DefaultMaxConcurrentHashes),
+		Access:      accessTokens,
+		RefreshTTL:  cfg.Auth.RefreshTokenTTL,
+		Mailer:      o.mailer,
+		Google:      o.google,
+		Revocations: revocations,
 	})
 
 	// Handlers: HTTP in and out, given their services.
@@ -96,7 +99,7 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 	})
 	userHandler := user.NewHandler(userService, validator)
 	addressHandler := address.NewHandler(addressService, validator)
-	guard := auth.NewGuard(accessTokens)
+	guard := auth.NewGuard(accessTokens, revocations)
 	healthHandler := health.NewHandler(logger, readiness, !cfg.IsDevelopment(),
 		health.PostgresCheck(db), health.RedisCheck(redisconn.NewPinger(rdb)))
 

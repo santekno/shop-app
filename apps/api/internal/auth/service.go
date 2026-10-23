@@ -40,8 +40,8 @@ type Repository interface {
 	CreateUserWithIdentity(ctx context.Context, u NewUser, identityID, provider, subject string) (user.User, error)
 }
 
-// Deps is what the service needs. Repo, Hasher, Access, RefreshTTL and
-// Mailer are required; the others default to the real thing when nil, and exist so a
+// Deps is what the service needs. Repo, Hasher, Access, RefreshTTL, Mailer
+// and Revocations are required; the others default to the real thing when nil, and exist so a
 // test can make time and randomness predictable.
 type Deps struct {
 	Repo   Repository
@@ -54,6 +54,8 @@ type Deps struct {
 	// Google verifies Google ID tokens; nil turns Google sign-in off
 	// (GoogleLogin then returns ErrGoogleDisabled).
 	Google GoogleVerifier
+	// Revocations ends the access tokens of revoked sessions (required).
+	Revocations SessionRevocations
 	// Clock is the current time; time.Now when nil.
 	Clock func() time.Time
 	// Random is where token secrets come from; crypto/rand.Reader when nil.
@@ -70,6 +72,7 @@ type Service struct {
 	refreshTTL time.Duration
 	mailer     mail.Mailer
 	google     GoogleVerifier
+	revoked    SessionRevocations
 	now        func() time.Time
 	random     io.Reader
 	newID      func() string
@@ -79,7 +82,7 @@ type Service struct {
 func NewService(deps Deps) *Service {
 	s := &Service{
 		repo: deps.Repo, hasher: deps.Hasher, access: deps.Access, refreshTTL: deps.RefreshTTL,
-		mailer: deps.Mailer, google: deps.Google, now: deps.Clock, random: deps.Random, newID: deps.NewID,
+		mailer: deps.Mailer, google: deps.Google, revoked: deps.Revocations, now: deps.Clock, random: deps.Random, newID: deps.NewID,
 	}
 	if s.now == nil {
 		s.now = time.Now
@@ -305,9 +308,11 @@ func (s *Service) ResetPassword(ctx context.Context, token, newPassword string) 
 	if err != nil {
 		return fmt.Errorf("reset password: %w", err)
 	}
-	if _, err := s.repo.ResetPassword(ctx, presented, s.now(), hash); err != nil {
+	sessions, err := s.repo.ResetPassword(ctx, presented, s.now(), hash)
+	if err != nil {
 		return fmt.Errorf("reset password: %w", err)
 	}
+	s.endAccessTokens(ctx, sessions...)
 	return nil
 }
 
@@ -449,6 +454,7 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (Tokens, err
 	if errors.Is(err, ErrRefreshTokenReused) {
 		logx.FromContext(ctx).Warn("refresh token reused; session revoked",
 			"session_id", rotated.FamilyID)
+		s.endAccessTokens(ctx, rotated.FamilyID)
 		return Tokens{}, ErrRefreshTokenInvalid
 	}
 	if err != nil {
@@ -467,8 +473,33 @@ func (s *Service) Logout(ctx context.Context, refreshToken string) error {
 	if !ok {
 		return nil
 	}
-	if _, err := s.repo.RevokeSessionOf(ctx, presented); err != nil {
+	sessionID, err := s.repo.RevokeSessionOf(ctx, presented)
+	if err != nil {
+		return fmt.Errorf("logout: %w", err)
+	}
+	if sessionID == "" {
+		return nil
+	}
+	// The refresh token is revoked; now its access tokens. If Redis fails,
+	// the client gets an error and logs out again, which finds the same
+	// session and retries this step.
+	if err := s.revoked.Revoke(ctx, sessionID); err != nil {
 		return fmt.Errorf("logout: %w", err)
 	}
 	return nil
+}
+
+// endAccessTokens marks sessions whose refresh tokens were just revoked in
+// PostgreSQL as revoked in Redis, so their access tokens stop working now
+// rather than when they expire. The PostgreSQL change has committed and is
+// what counts, so a Redis failure here is logged, not returned: the access
+// tokens then die within APP_ACCESS_TOKEN_TTL.
+func (s *Service) endAccessTokens(ctx context.Context, sessionIDs ...string) {
+	if len(sessionIDs) == 0 {
+		return
+	}
+	if err := s.revoked.Revoke(ctx, sessionIDs...); err != nil {
+		logx.FromContext(ctx).Error("revoke access tokens of ended sessions",
+			"sessions", len(sessionIDs), "error", err.Error())
+	}
 }

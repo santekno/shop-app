@@ -17,14 +17,17 @@ type claimsKey struct{}
 // Guard turns the access token of a request into a known user, or ends the
 // request with 401 UNAUTHORIZED.
 type Guard struct {
-	access *AccessTokens
-	jwt    func(http.Handler) http.Handler
+	access  *AccessTokens
+	revoked SessionRevocations
+	jwt     func(http.Handler) http.Handler
 }
 
-// NewGuard returns a Guard that accepts access tokens issued by access.
-func NewGuard(access *AccessTokens) *Guard {
+// NewGuard returns a Guard that accepts access tokens issued by access,
+// unless their session is in revoked.
+func NewGuard(access *AccessTokens, revoked SessionRevocations) *Guard {
 	return &Guard{
-		access: access,
+		access:  access,
+		revoked: revoked,
 		// sdk JWTAuth reads "Authorization: Bearer <token>" and verifies
 		// the signature, the algorithm and exp with jwtx. Its 401 goes
 		// through httpapi, so it has the API's error body and logging.
@@ -34,14 +37,31 @@ func NewGuard(access *AccessTokens) *Guard {
 
 // Authenticate is the middleware for every route that needs a logged-in
 // user. After sdk JWTAuth it checks the claims this API requires
-// (AccessTokens.Check), stores them for ClaimsFrom and RequireRole, and
-// adds user_id to the request's logger.
+// (AccessTokens.Check) and that the token's session has not been revoked
+// (logout, a reused refresh token, a password reset, account deletion),
+// stores the claims for ClaimsFrom and RequireRole, and adds user_id to the
+// request's logger.
+//
+// When Redis cannot answer, the request fails with 500 instead of letting
+// a possibly revoked token through (fail closed). /readyz reports redis
+// unavailable at the same time; Railway checks it only while a deployment
+// starts, so a new deployment waits for Redis, and a load balancer that
+// polls it would also stop routing to this instance.
 func (g *Guard) Authenticate(next http.Handler) http.Handler {
 	return g.jwt(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := sdkmw.ClaimsFromContext(r.Context())
 		claims, err := g.access.Check(raw)
 		if err != nil {
 			writeUnauthorized(w, r, httpapi.UnauthorizedError("invalid or expired token"))
+			return
+		}
+		revoked, err := g.revoked.IsRevoked(r.Context(), claims.SessionID)
+		if err != nil {
+			httpapi.Error(w, r, err)
+			return
+		}
+		if revoked {
+			writeUnauthorized(w, r, httpapi.UnauthorizedError("this session has ended; log in again"))
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(withClaims(r.Context(), claims)))

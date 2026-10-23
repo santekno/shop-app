@@ -34,7 +34,7 @@ The Go REST API behind the GoShop storefront, admin dashboard and mobile app. Th
 | PUT | `/v1/admin/products/{id}` | **Seller or admin.** Save a product and its variants; variants left out are archived |
 | DELETE | `/v1/admin/products/{id}` | **Seller or admin.** Archive a product (soft delete) |
 
-Routes marked **Access token** need `Authorization: Bearer <access_token>` (401 `UNAUTHORIZED` without one); routes marked **Seller or admin** also need that role (403 `FORBIDDEN` for a buyer). The token design is [ADR 0005](../../docs/adr/0005-auth-tokens.md).
+Routes marked **Access token** need `Authorization: Bearer <access_token>` (401 `UNAUTHORIZED` without one); routes marked **Seller or admin** also need that role (403 `FORBIDDEN` for a buyer). The token design is [ADR 0005](../../docs/adr/0005-auth-tokens.md): refresh tokens live hashed in PostgreSQL; a revoked session (logout, a reused refresh token, a password reset, a deleted account) is also marked in Redis as `goshop:session-revoked:<sid>` for one access-token lifetime, and the auth middleware checks that key on every request, so the session's access tokens stop working at once. Without Redis, authenticated requests fail with 500 rather than skip the check.
 
 ### Rate limits
 

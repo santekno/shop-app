@@ -537,8 +537,10 @@ paths:
       operationId: logout
       summary: End the session
       description: |
-        Revokes the session of the refresh token: the refresh token and
-        every access token of the session stop working. No access token is
+        Revokes the session of the refresh token: the refresh token stops
+        working, and so does every access token of the session, from the
+        next request on (the session is marked revoked in Redis for one
+        access-token lifetime). No access token is
         needed, so a client whose access token has expired can still log
         out. Answers 204 whether or not the token was still valid.
       requestBody:
@@ -848,10 +850,9 @@ paths:
       description: |
         Uses the token from the reset email to set a new password (same
         policy as registration). In the same transaction the email becomes
-        verified, and **every session of the account is revoked**: refresh
-        tokens stop working at once, access tokens at the latest when they
-        expire (Bab 4 artikel 12 makes that immediate). The user logs in
-        again with the new password.
+        verified, and **every session of the account is revoked**: its
+        refresh tokens and access tokens stop working at once. The user
+        logs in again with the new password.
       requestBody:
         required: true
         content:
