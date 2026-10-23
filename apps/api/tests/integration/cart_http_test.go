@@ -35,7 +35,7 @@ func TestCart_SignedIn(t *testing.T) {
 		got.Problem != nil || got.SKU != "KK-M" || got.ProductSlug != "kaos-keranjang" || got.Stock != 10 || got.WeightGrams != 200 {
 		t.Errorf("line after the first add = %+v", got)
 	}
-	c = sh.add(t, b, m, 1)
+	sh.add(t, b, m, 1)
 	c = sh.add(t, b, l, 1)
 	if len(c.Lines) != 2 || c.Lines[0].VariantID != m || c.Lines[1].VariantID != l || c.Lines[0].Quantity != 3 {
 		t.Errorf("cart = %+v, want M×3 (summed) then L×1, oldest first", c.Lines)
