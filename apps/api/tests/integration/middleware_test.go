@@ -193,10 +193,10 @@ func TestCORS(t *testing.T) {
 		if got := resp.Header.Get("Access-Control-Allow-Origin"); got != web {
 			t.Errorf("Access-Control-Allow-Origin = %q, want %q", got, web)
 		}
-		// The browser only lets the client read X-Request-ID when exposed.
-		if got := resp.Header.Get("Access-Control-Expose-Headers"); !strings.EqualFold(got, "X-Request-ID") {
-			t.Errorf("Access-Control-Expose-Headers = %q, want X-Request-ID", got)
-		}
+		// The browser only lets the client read the headers it is told
+		// it may: the request ID, Retry-After on a 429 and Location on a
+		// 201.
+		assertExposes(t, resp, "X-Request-ID", "Retry-After", "Location")
 	})
 
 	t.Run("error response to an allowed origin carries CORS headers", func(t *testing.T) {
@@ -331,3 +331,26 @@ func assertNoCORS(t *testing.T, resp response) {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+// assertExposes fails unless Access-Control-Expose-Headers on resp lists
+// exactly names, in any order and case.
+func assertExposes(t *testing.T, resp response, names ...string) {
+	t.Helper()
+	var got []string
+	for _, v := range resp.Header.Values("Access-Control-Expose-Headers") {
+		for h := range strings.SplitSeq(v, ",") {
+			if h = strings.ToLower(strings.TrimSpace(h)); h != "" {
+				got = append(got, h)
+			}
+		}
+	}
+	want := make([]string, 0, len(names))
+	for _, n := range names {
+		want = append(want, strings.ToLower(n))
+	}
+	slices.Sort(got)
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Errorf("Access-Control-Expose-Headers = %q, want %v", resp.Header.Values("Access-Control-Expose-Headers"), names)
+	}
+}

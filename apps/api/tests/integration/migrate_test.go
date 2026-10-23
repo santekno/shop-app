@@ -5,7 +5,11 @@ package integration_test
 import (
 	"database/sql"
 	"errors"
+	"fmt"
+	"io/fs"
 	"net"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -20,22 +24,42 @@ import (
 	"github.com/santekno/shop-app/apps/api/migrations"
 )
 
-// catalogTables are the tables migration 000001 creates.
-var catalogTables = []string{"categories", "products", "product_variants"}
+// catalogTables are the tables migration 000001 creates, and authTables
+// those of 000002 to 000006 (Bab 4).
+var (
+	catalogTables = []string{"categories", "products", "product_variants"}
+	authTables    = []string{"users", "refresh_tokens", "user_tokens", "user_identities", "addresses"}
+)
 
-// assertSchema checks that db has the catalog schema at version want, or no
-// catalog tables at all when want is 0.
+// latestMigration is the version of the newest embedded migration, read
+// from the files, so a new migration does not need this test changed.
+var latestMigration = func() int {
+	ups, err := fs.Glob(migrations.FS, "*.up.sql")
+	if err != nil || len(ups) == 0 {
+		panic(fmt.Sprintf("read the embedded migrations: %v", err))
+	}
+	slices.Sort(ups)
+	v, err := strconv.Atoi(strings.SplitN(ups[len(ups)-1], "_", 2)[0])
+	if err != nil {
+		panic(fmt.Sprintf("version of %s: %v", ups[len(ups)-1], err))
+	}
+	return v
+}()
+
+// assertSchema checks that db has the whole schema at version want, or no
+// tables of it at all when want is 0.
 func assertSchema(t *testing.T, db *sql.DB, want int) {
 	t.Helper()
-	tables := queryInt(t, db, `SELECT count(*) FROM pg_tables WHERE schemaname = 'public' AND tablename = ANY($1)`, catalogTables)
+	all := slices.Concat(catalogTables, authTables)
+	tables := queryInt(t, db, `SELECT count(*) FROM pg_tables WHERE schemaname = 'public' AND tablename = ANY($1)`, all)
 	if want == 0 {
 		if tables != 0 {
-			t.Errorf("%d catalog tables exist, want none", tables)
+			t.Errorf("%d schema tables exist, want none", tables)
 		}
 		return
 	}
-	if tables != len(catalogTables) {
-		t.Errorf("%d of the catalog tables exist, want %d", tables, len(catalogTables))
+	if tables != len(all) {
+		t.Errorf("%d of the %d schema tables exist (%v)", tables, len(all), all)
 	}
 	if v := queryInt(t, db, `SELECT version FROM schema_migrations WHERE NOT dirty`); v != want {
 		t.Errorf("schema_migrations version = %d, want %d (and not dirty)", v, want)
@@ -46,6 +70,13 @@ func assertSchema(t *testing.T, db *sql.DB, want int) {
 		 'products_search_idx', 'product_variants_product_id_idx')`)
 	if indexes != 5 {
 		t.Errorf("%d of the 5 catalog indexes exist", indexes)
+	}
+	authIndexes := queryInt(t, db, `SELECT count(*) FROM pg_indexes WHERE indexname IN
+		('users_email_key', 'refresh_tokens_family_idx', 'refresh_tokens_user_active_idx',
+		 'user_tokens_user_purpose_idx', 'user_identities_provider_subject_key',
+		 'addresses_user_id_idx', 'addresses_one_default_idx')`)
+	if authIndexes != 7 {
+		t.Errorf("%d of the 7 auth indexes exist", authIndexes)
 	}
 	if n := queryInt(t, db, `SELECT attstattarget FROM pg_attribute
 		WHERE attrelid = 'products'::regclass AND attname = 'search'`); n != 1000 {
@@ -62,16 +93,16 @@ func TestMigrate(t *testing.T) {
 		assertSchema(t, check, 0)
 
 		v, err := database.Migrate(openDB(t, dsn))
-		if err != nil || v != 1 {
-			t.Fatalf("Migrate = %d, %v; want version 1", v, err)
+		if err != nil || v != uint(latestMigration) {
+			t.Fatalf("Migrate = %d, %v; want version %d", v, err, latestMigration)
 		}
-		assertSchema(t, check, 1)
+		assertSchema(t, check, latestMigration)
 
 		// No new migration: no error, same version, one row in
 		// schema_migrations.
 		v, err = database.Migrate(openDB(t, dsn))
-		if err != nil || v != 1 {
-			t.Fatalf("second Migrate = %d, %v; want version 1 and no error", v, err)
+		if err != nil || v != uint(latestMigration) {
+			t.Fatalf("second Migrate = %d, %v; want version %d and no error", v, err, latestMigration)
 		}
 		if n := queryInt(t, check, `SELECT count(*) FROM schema_migrations`); n != 1 {
 			t.Errorf("schema_migrations has %d rows, want 1", n)
@@ -92,11 +123,11 @@ func TestMigrate(t *testing.T) {
 		}
 		wg.Wait()
 		for i := range n {
-			if errs[i] != nil || versions[i] != 1 {
-				t.Errorf("Migrate %d = %d, %v; want version 1 (the advisory lock serialises them)", i, versions[i], errs[i])
+			if errs[i] != nil || versions[i] != uint(latestMigration) {
+				t.Errorf("Migrate %d = %d, %v; want version %d (the advisory lock serialises them)", i, versions[i], errs[i], latestMigration)
 			}
 		}
-		assertSchema(t, openDB(t, dsn), 1)
+		assertSchema(t, openDB(t, dsn), latestMigration)
 	})
 
 	t.Run("down migration reverses up", func(t *testing.T) {
@@ -129,10 +160,10 @@ func TestMigrate(t *testing.T) {
 		_, _ = m.Close()
 		assertSchema(t, check, 0)
 
-		if v, err := database.Migrate(openDB(t, dsn)); err != nil || v != 1 {
-			t.Fatalf("Migrate after down = %d, %v; want version 1", v, err)
+		if v, err := database.Migrate(openDB(t, dsn)); err != nil || v != uint(latestMigration) {
+			t.Fatalf("Migrate after down = %d, %v; want version %d", v, err, latestMigration)
 		}
-		assertSchema(t, check, 1)
+		assertSchema(t, check, latestMigration)
 	})
 }
 
@@ -149,15 +180,15 @@ func TestRun_Migrate(t *testing.T) {
 		}
 		var logged bool
 		for _, line := range out.jsonLines() {
-			if line["msg"] == "database migrated" && line["version"] == float64(1) {
+			if line["msg"] == "database migrated" && line["version"] == float64(latestMigration) {
 				logged = true
 			}
 		}
 		if !logged {
-			t.Errorf("%s run: no 'database migrated' log line with version 1:\n%s", run, out.String())
+			t.Errorf("%s run: no 'database migrated' log line with version %d:\n%s", run, latestMigration, out.String())
 		}
 	}
-	assertSchema(t, openDB(t, dsn), 1)
+	assertSchema(t, openDB(t, dsn), latestMigration)
 }
 
 // TestRun_MigrateUnreachable checks that `api migrate` fails, without the

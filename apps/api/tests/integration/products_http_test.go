@@ -16,9 +16,11 @@ import (
 	"github.com/santekno/shop-app/apps/api/internal/config"
 	"github.com/santekno/shop-app/apps/api/internal/httpapi"
 	"github.com/santekno/shop-app/apps/api/internal/product"
+	"github.com/santekno/shop-app/apps/api/internal/user"
 )
 
 // send makes a request with a JSON body and returns the whole response.
+// It carries s.bearer when that is set.
 func (s *server) send(t *testing.T, method, path, body string) response {
 	t.Helper()
 	req, err := http.NewRequestWithContext(t.Context(), method, s.URL+path, strings.NewReader(body))
@@ -26,6 +28,9 @@ func (s *server) send(t *testing.T, method, path, body string) response {
 		t.Fatalf("new request: %v", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if s.bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+s.bearer)
+	}
 	resp, err := s.client.Do(req)
 	if err != nil {
 		t.Fatalf("%s %s: %v", method, path, err)
@@ -71,10 +76,12 @@ func variantJSON(id, sku, name string, price, stock int) map[string]any {
 }
 
 // catalogServer is a development server with the example categories and
-// the listing fixture in its own database.
+// the listing fixture in its own database, whose s.send and s.do act as an
+// admin (the admin routes need a seller or admin token since Bab 4).
 func catalogServer(t *testing.T, env map[string]string) (*server, *catalog) {
 	t.Helper()
 	s := startServer(t, env)
+	s.actAsStaff(t)
 	c := newCatalog(t, s.db)
 	c.addListingProducts(t)
 	return s, c
@@ -163,6 +170,7 @@ func TestProductsHTTP_Detail(t *testing.T) {
 // checks each step on the storefront too.
 func TestAdminHTTP_CreateGetUpdate(t *testing.T) {
 	s := startServer(t, nil)
+	s.actAsStaff(t)
 	c := newCatalog(t, s.db)
 
 	// Create: SKUs are trimmed and upper-cased; 201 with Location.
@@ -239,6 +247,7 @@ func TestAdminHTTP_CreateGetUpdate(t *testing.T) {
 // failed request stored anything.
 func TestAdminHTTP_WriteErrors(t *testing.T) {
 	s := startServer(t, nil)
+	s.actAsStaff(t)
 	c := newCatalog(t, s.db)
 	kaos := c.cats["kaos"]
 	existing := c.create(t, "kaos", "kaos-ada", "Kaos Ada", "", variant("ADA-1", "M", 50000, 1), variant("ADA-2", "L", 60000, 1))
@@ -346,6 +355,7 @@ func TestAdminHTTP_WriteErrors(t *testing.T) {
 // are not UUIDs, on every admin route.
 func TestAdminHTTP_NotFound(t *testing.T) {
 	s := startServer(t, nil)
+	s.actAsStaff(t)
 	c := newCatalog(t, s.db)
 	body := productJSON(t, c.cats["kaos"], "kaos-x", "active", variantJSON("", "X-1", "M", 1000, 1))
 	for _, id := range []string{uuidx.NewV7(), "not-a-uuid", "123"} {
@@ -364,33 +374,45 @@ func TestAdminHTTP_NotFound(t *testing.T) {
 	}
 }
 
-// TestAdminHTTP_OnlyInDevelopment checks that the unauthenticated admin
-// routes exist only with APP_ENV=development and answer the router's 404
-// everywhere else.
-func TestAdminHTTP_OnlyInDevelopment(t *testing.T) {
+// TestAdminHTTP_RequiresStaff checks that the admin routes are mounted in
+// every environment since Bab 4, and only behind the auth guard and
+// RequireRole: no token is 401 with WWW-Authenticate, a buyer is 403, and a
+// seller or an admin reaches the handler (here its 404 for an unknown id,
+// and a 400 for an empty body). The Bab 3 development-only, unauthenticated
+// mount and its warning are gone.
+func TestAdminHTTP_RequiresStaff(t *testing.T) {
 	id := uuidx.NewV7()
-	routes := []struct{ method, path string }{
-		{http.MethodPost, "/v1/admin/products"},
-		{http.MethodGet, "/v1/admin/products/" + id},
-		{http.MethodPut, "/v1/admin/products/" + id},
-		{http.MethodDelete, "/v1/admin/products/" + id},
+	routes := []struct {
+		method, path string
+		staffStatus  int
+	}{
+		{http.MethodPost, "/v1/admin/products", http.StatusBadRequest},
+		{http.MethodGet, "/v1/admin/products/" + id, http.StatusNotFound},
+		{http.MethodPut, "/v1/admin/products/" + id, http.StatusBadRequest},
+		{http.MethodDelete, "/v1/admin/products/" + id, http.StatusNotFound},
 	}
 	for _, env := range []string{config.EnvDevelopment, config.EnvStaging, config.EnvProduction} {
 		t.Run(env, func(t *testing.T) {
 			s := startServer(t, map[string]string{"APP_ENV": env})
+			_, buyer := s.newAccount(t, "pembeli")
+			seller := s.accountWithRole(t, user.RoleSeller)
+			admin := s.accountWithRole(t, user.RoleAdmin)
 			for _, r := range routes {
-				resp := s.send(t, r.method, r.path, `{}`)
-				routerNotFound := resp.Status == http.StatusNotFound && strings.Contains(string(resp.Body), "route not found")
-				if env == config.EnvDevelopment && routerNotFound {
-					t.Errorf("%s %s is not mounted in development", r.method, r.path)
+				what := r.method + " " + r.path
+				anon := s.call(t, r.method, r.path, `{}`, "")
+				assertError(t, anon, http.StatusUnauthorized, "UNAUTHORIZED")
+				if got := anon.Header.Get("WWW-Authenticate"); got != `Bearer realm="goshop"` {
+					t.Errorf("%s without a token: WWW-Authenticate = %q", what, got)
 				}
-				if env != config.EnvDevelopment && !routerNotFound {
-					t.Errorf("%s %s in %s = %d %s, want the router's 404", r.method, r.path, env, resp.Status, resp.Body)
+				assertError(t, s.call(t, r.method, r.path, `{}`, buyer.AccessToken), http.StatusForbidden, "FORBIDDEN")
+				for role, tok := range map[string]string{"seller": seller.AccessToken, "admin": admin.AccessToken} {
+					if resp := s.call(t, r.method, r.path, `{}`, tok); resp.Status != r.staffStatus {
+						t.Errorf("%s as %s = %d, want %d from the handler: %s", what, role, resp.Status, r.staffStatus, resp.Body)
+					}
 				}
 			}
-			warned := strings.Contains(s.logs.String(), "admin routes are mounted WITHOUT authentication")
-			if warned != (env == config.EnvDevelopment) {
-				t.Errorf("admin warning logged = %v in %s", warned, env)
+			if strings.Contains(s.logs.String(), "WITHOUT authentication") {
+				t.Errorf("the Bab 3 unauthenticated-admin warning is still logged in %s", env)
 			}
 		})
 	}

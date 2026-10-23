@@ -8,9 +8,10 @@
 // chain, so these tests catch what the httptest-based unit tests cannot:
 // wiring, middleware order, real headers, real SQL and graceful shutdown.
 //
-// Each test gets its own throwaway database (see db_test.go). Run them with
+// Each test gets its own throwaway database (see db_test.go) and a Redis
+// logical database of its own (see redis_test.go). Run them with
 // `make test-integration`, which starts the Compose stack, exports
-// POSTGRES_DSN, and also serves the tests in stack_test.go.
+// POSTGRES_DSN and REDIS_ADDR, and also serves the tests in stack_test.go.
 package integration_test
 
 import (
@@ -30,10 +31,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/redis/go-redis/v9"
+
 	"github.com/santekno/shop-app/apps/api/internal/app"
 	"github.com/santekno/shop-app/apps/api/internal/config"
 	"github.com/santekno/shop-app/apps/api/internal/database"
 	"github.com/santekno/shop-app/apps/api/internal/logging"
+	"github.com/santekno/shop-app/apps/api/internal/redisconn"
 )
 
 // server is one running API instance on 127.0.0.1 and a random port.
@@ -43,8 +47,15 @@ type server struct {
 	// db is a pool on the server's own test database, for the test to put
 	// fixtures in and check rows, and dbURL is that database's URL; both
 	// are empty when the test passed its own DATABASE_URL.
-	db     *sql.DB
-	dbURL  string
+	db    *sql.DB
+	dbURL string
+	// rdb is the server's Redis client, on the test's own logical
+	// database, for the test to check keys with; nil when the test passed
+	// its own client.
+	rdb *redis.Client
+	// bearer, when set, is sent as "Authorization: Bearer <bearer>" by
+	// send and do on requests that set no Authorization header.
+	bearer string
 	app    *app.App
 	logs   *syncBuffer
 	client *http.Client
@@ -56,12 +67,14 @@ type server struct {
 }
 
 // startServer clears every APP_* variable and PORT, sets env (APP_ENV
-// defaults to development), loads the config exactly like `api` does, opens
-// the pool with database.Open and serves the app on a free port. Unless env
-// sets DATABASE_URL, the app gets a new, migrated, empty database of its
-// own (newTestDB), never the shared one. The server is stopped when the test
-// ends.
-func startServer(t *testing.T, env map[string]string) *server {
+// defaults to development; see setEnv for the auth variables), loads the
+// config exactly like `api` does, opens the pool with database.Open and
+// the Redis client with redisconn.Open, and serves app.New(…, opts...) on a
+// free port. Unless env sets DATABASE_URL, the app gets a new, migrated,
+// empty database of its own (newTestDB), never the shared one; unless it
+// sets REDIS_URL, a Redis logical database of its own (newTestRedis). The
+// server is stopped when the test ends.
+func startServer(t *testing.T, env map[string]string, opts ...app.Option) *server {
 	t.Helper()
 	env = maps.Clone(env)
 	if env == nil {
@@ -71,7 +84,7 @@ func startServer(t *testing.T, env map[string]string) *server {
 	if _, ok := env["DATABASE_URL"]; !ok {
 		env["DATABASE_URL"], fixtures = newTestDB(t)
 	}
-	s := startServerWithPool(t, env, nil)
+	s := startServerWith(t, env, nil, nil, opts...)
 	if fixtures != nil {
 		s.db, s.dbURL = fixtures, env["DATABASE_URL"]
 	}
@@ -82,7 +95,14 @@ func startServer(t *testing.T, env map[string]string) *server {
 // DATABASE_URL, for a pool database.Open would refuse, such as one that
 // cannot connect. A nil pool means "open DATABASE_URL"; env must set
 // DATABASE_URL either way, because config.Load requires it.
-func startServerWithPool(t *testing.T, env map[string]string, pool *sql.DB) *server {
+func startServerWithPool(t *testing.T, env map[string]string, pool *sql.DB, opts ...app.Option) *server {
+	t.Helper()
+	return startServerWith(t, env, pool, nil, opts...)
+}
+
+// startServerWith is startServerWithPool that also takes the Redis client:
+// nil means "open REDIS_URL" with redisconn.Open, as Run does.
+func startServerWith(t *testing.T, env map[string]string, pool *sql.DB, rdb redis.UniversalClient, opts ...app.Option) *server {
 	t.Helper()
 	setEnv(t, env)
 
@@ -99,10 +119,20 @@ func startServerWithPool(t *testing.T, env map[string]string, pool *sql.DB) *ser
 			t.Fatalf("database.Open: %v", err)
 		}
 	}
-	// Registered before the server's own cleanup, so it runs after it: the
-	// pool closes once the server has stopped, as in Run.
+	// Registered before the server's own cleanup, so they run after it:
+	// the pool and the Redis client close once the server has stopped, as
+	// in Run.
 	t.Cleanup(func() { _ = pool.Close() })
-	a := app.New(cfg, logger, pool, nil)
+	var own *redis.Client
+	if rdb == nil {
+		own, err = redisconn.Open(context.Background(), cfg.RedisURL)
+		if err != nil {
+			t.Fatalf("redisconn.Open: %v", err)
+		}
+		t.Cleanup(func() { _ = own.Close() })
+		rdb = own
+	}
+	a := app.New(cfg, logger, pool, rdb, opts...)
 
 	var lc net.ListenConfig
 	ln, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
@@ -113,9 +143,10 @@ func startServerWithPool(t *testing.T, env map[string]string, pool *sql.DB) *ser
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &server{
 		URL:    "http://" + ln.Addr().String(),
+		rdb:    own,
 		app:    a,
 		logs:   logs,
-		client: &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{}},
+		client: &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{MaxIdleConnsPerHost: 64}},
 		cancel: cancel,
 		done:   make(chan error, 1),
 	}
@@ -154,6 +185,13 @@ type response struct {
 // do sends method path to s with headers and returns the whole response.
 func (s *server) do(t *testing.T, method, path string, headers map[string]string) response {
 	t.Helper()
+	if _, ok := headers["Authorization"]; !ok && s.bearer != "" {
+		headers = maps.Clone(headers)
+		if headers == nil {
+			headers = map[string]string{}
+		}
+		headers["Authorization"] = "Bearer " + s.bearer
+	}
 	return doRequest(t, s.client, method, s.URL+path, headers)
 }
 
@@ -207,12 +245,25 @@ func decodeObject(t *testing.T, body []byte) map[string]json.RawMessage {
 	return obj
 }
 
-// setEnv clears every APP_* variable and PORT for the test, so a value in the
-// developer's shell cannot leak in, then sets vars. APP_ENV defaults to
-// development.
+// testJWTSecret signs the access tokens of every in-process test server
+// (the value make test-integration also exports). It is a test key only.
+const testJWTSecret = "integration-tests-only-signing-key-0123456789"
+
+// testGoogleClientID is the GOOGLE_CLIENT_ID of test servers outside
+// development, where config.Load requires one. No test reaches Google:
+// sign-in tests replace the verifier (app.WithGoogleVerifier).
+const testGoogleClientID = "goshop-integration-tests.apps.googleusercontent.com"
+
+// setEnv clears every APP_* variable, PORT and GOOGLE_CLIENT_ID for the
+// test, so a value in the developer's shell cannot leak in, then sets
+// vars. Defaults: APP_ENV development, JWT_SECRET testJWTSecret, REDIS_URL
+// a Redis logical database of the test's own (newTestRedis), and outside
+// development GOOGLE_CLIENT_ID testGoogleClientID and
+// APP_TRUSTED_PROXY_HOPS 0. A var set to "" stays empty, for tests of a
+// missing variable.
 func setEnv(t *testing.T, vars map[string]string) {
 	t.Helper()
-	names := []string{"PORT"}
+	names := []string{"PORT", "GOOGLE_CLIENT_ID"}
 	for _, kv := range os.Environ() {
 		if name, _, _ := strings.Cut(kv, "="); strings.HasPrefix(name, "APP_") {
 			names = append(names, name)
@@ -224,8 +275,25 @@ func setEnv(t *testing.T, vars map[string]string) {
 			t.Fatalf("unset %s: %v", name, err)
 		}
 	}
-	if _, ok := vars["APP_ENV"]; !ok {
-		t.Setenv("APP_ENV", config.EnvDevelopment)
+	env, ok := vars["APP_ENV"]
+	if !ok {
+		env = config.EnvDevelopment
+		t.Setenv("APP_ENV", env)
+	}
+	if _, ok := vars["JWT_SECRET"]; !ok {
+		t.Setenv("JWT_SECRET", testJWTSecret)
+	}
+	if _, ok := vars["REDIS_URL"]; !ok {
+		redisURL, _ := newTestRedis(t)
+		t.Setenv("REDIS_URL", redisURL)
+	}
+	if _, ok := vars["GOOGLE_CLIENT_ID"]; !ok && env != config.EnvDevelopment {
+		t.Setenv("GOOGLE_CLIENT_ID", testGoogleClientID)
+	}
+	// Required outside development; the test servers have no proxy in
+	// front of them.
+	if _, ok := vars["APP_TRUSTED_PROXY_HOPS"]; !ok && env != config.EnvDevelopment {
+		t.Setenv("APP_TRUSTED_PROXY_HOPS", "0")
 	}
 	for k, v := range vars {
 		t.Setenv(k, v)
