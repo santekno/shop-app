@@ -151,3 +151,31 @@ button {
   color: var(--error);
   font-size: 0.8125rem;
 }
+
+/* --- Product detail --------------------------------------------------- */
+
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.stepper__label {
+  font-weight: 600;
+  margin-right: 0.25rem;
+}
+
+.stepper button {
+  min-width: 2.5rem;
+}
+
+.stepper__value {
+  min-width: 2ch;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
