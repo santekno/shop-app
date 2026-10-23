@@ -314,9 +314,9 @@ func runCommand(t *testing.T, name string) string {
 
 // testShipping is a shipping.Provider a test steers. By default it prices
 // like shipping.Static. failing makes every quote fail as an unreachable
-// courier API would; a barrier makes the next n quotes wait for each
-// other, so n checkouts read their carts before any of them commits; a
-// hold parks quotes until released.
+// courier API would; barrier(n) makes the next n quotes wait for each
+// other, so n checkouts read their carts before any of them commits;
+// holdNext parks the next quote alone until the test releases it.
 type testShipping struct {
 	failing atomic.Bool
 	calls   atomic.Int64
@@ -325,7 +325,13 @@ type testShipping struct {
 	parties int
 	arrived int
 	gate    chan struct{}
+	holds   []parkedQuote
+}
+
+// parkedQuote is one quote holdNext parks.
+type parkedQuote struct {
 	entered chan struct{}
+	release chan struct{}
 }
 
 var _ shipping.Provider = (*testShipping)(nil)
@@ -339,22 +345,26 @@ func (p *testShipping) Quote(ctx context.Context, req shipping.Request) ([]shipp
 	if p.failing.Load() {
 		return nil, fmt.Errorf("%w: the test made the courier API fail", shipping.ErrUnavailable)
 	}
+	var wait chan struct{}
 	p.mu.Lock()
-	gate, entered := p.gate, p.entered
-	if gate != nil && p.parties > 0 {
+	switch {
+	case len(p.holds) > 0:
+		h := p.holds[0]
+		p.holds = p.holds[1:]
+		close(h.entered)
+		wait = h.release
+	case p.gate != nil:
+		wait = p.gate
 		p.arrived++
 		if p.arrived == p.parties {
-			close(gate)
+			close(p.gate)
 			p.gate, p.parties, p.arrived = nil, 0, 0
 		}
 	}
 	p.mu.Unlock()
-	if gate != nil {
-		if entered != nil {
-			entered <- struct{}{}
-		}
+	if wait != nil {
 		select {
-		case <-gate:
+		case <-wait:
 		case <-time.After(10 * time.Second):
 		case <-ctx.Done():
 			return nil, fmt.Errorf("%w: %w", shipping.ErrUnavailable, ctx.Err())
@@ -363,28 +373,33 @@ func (p *testShipping) Quote(ctx context.Context, req shipping.Request) ([]shipp
 	return shipping.Static{}.Quote(ctx, req) //nolint:wrapcheck // Static never fails
 }
 
-// barrier makes the next n quotes wait until all n have arrived.
+// barrier makes the next n quotes wait until all n have arrived (at most
+// 10 seconds).
 func (p *testShipping) barrier(n int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.gate, p.parties, p.arrived, p.entered = make(chan struct{}), n, 0, nil
+	p.gate, p.parties, p.arrived = make(chan struct{}), n, 0
 }
 
-// hold parks every quote until the returned release is called; each
-// parked quote first sends on entered.
-func (p *testShipping) hold() (entered <-chan struct{}, release func()) {
+// holdNext parks the next quote: entered is closed when it arrives, and it
+// goes on when release is called (or after 10 seconds). Quotes after it
+// are not held.
+func (p *testShipping) holdNext() (entered <-chan struct{}, release func()) {
+	h := parkedQuote{entered: make(chan struct{}), release: make(chan struct{})}
 	p.mu.Lock()
-	defer p.mu.Unlock()
-	gate, in := make(chan struct{}), make(chan struct{}, 16)
-	p.gate, p.parties, p.arrived, p.entered = gate, 0, 0, in
+	p.holds = append(p.holds, h)
+	p.mu.Unlock()
 	var once sync.Once
-	return in, func() {
-		once.Do(func() {
-			p.mu.Lock()
-			p.gate, p.entered = nil, nil
-			p.mu.Unlock()
-			close(gate)
-		})
+	return h.entered, func() { once.Do(func() { close(h.release) }) }
+}
+
+// waitFor fails the test unless ch is closed within 10 seconds.
+func waitFor(t *testing.T, ch <-chan struct{}, what string) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(10 * time.Second):
+		t.Fatalf("timed out waiting for %s", what)
 	}
 }
 
