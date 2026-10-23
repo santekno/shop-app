@@ -109,6 +109,18 @@ describe("buildCategoryTree", () => {
     expect(shape(tree)).toEqual([["1", [["2", []]]]]);
   });
 
+  it("cuts a loop that returns to a node below the root", () => {
+    // 1 → 2 → 3, then a second "2" under 3 points back into the path.
+    const tree = buildCategoryTree([
+      category("1"),
+      category("2", "1"),
+      category("3", "2"),
+      { ...category("2", "3"), name: "Duplicate" },
+    ]);
+
+    expect(shape(tree)).toEqual([["1", [["2", [["3", []]]]]]]);
+  });
+
   it("returns nothing for a cycle that has no root", () => {
     expect(buildCategoryTree([category("a", "b"), category("b", "a")])).toEqual(
       [],
