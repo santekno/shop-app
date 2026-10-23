@@ -38,3 +38,5 @@ An ADR records one significant decision: the context, the decision and its conse
 | [0001](adr/0001-monorepo-one-api.md) | One monorepo, one API for every client | Accepted |
 | [0002](adr/0002-santekno-sdk-and-chi.md) | Build the API on santekno/sdk and chi | Accepted |
 | [0003](adr/0003-seaweedfs-local-s3.md) | SeaweedFS as local S3 storage | Accepted |
+| [0004](adr/0004-api-layering.md) | Layer the API per feature: handler, service, repository | Accepted |
+| [0005](adr/0005-auth-tokens.md) | Authenticate with a short-lived JWT and a rotating refresh token | Accepted |
