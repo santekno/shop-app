@@ -1,5 +1,48 @@
 import { describe, expect, it } from "vitest";
-import { createUrlBuilder } from "./url.ts";
+import { createUrlBuilder, toQueryString } from "./url.ts";
+
+describe("toQueryString", () => {
+  it("returns an empty string for no parameters", () => {
+    expect(toQueryString({})).toBe("");
+  });
+
+  it("skips undefined and null but keeps 0, false and the empty string", () => {
+    expect(
+      toQueryString({
+        a: undefined,
+        zero: 0,
+        b: null,
+        no: false,
+        empty: "",
+      }),
+    ).toBe("zero=0&no=false&empty=");
+  });
+
+  it("returns an empty string when every value is undefined or null", () => {
+    expect(toQueryString({ cursor: null, q: undefined })).toBe("");
+  });
+
+  it("encodes spaces as + and escapes reserved characters", () => {
+    expect(toQueryString({ q: "kaos polos", tag: "a&b=c/d?" })).toBe(
+      "q=kaos+polos&tag=a%26b%3Dc%2Fd%3F",
+    );
+  });
+
+  it("keeps the order other keys were written in", () => {
+    expect(toQueryString({ z: 1, a: 2, m: true })).toBe("z=1&a=2&m=true");
+  });
+
+  it("puts integer-like keys first, in ascending order (Object.entries order)", () => {
+    expect(toQueryString({ z: 1, "10": "a", a: 2, "2": "b", m: true })).toBe(
+      "2=b&10=a&z=1&a=2&m=true",
+    );
+    // "01", "-1" and "1.5" are not array-index-like, so they stay where
+    // they were written.
+    expect(toQueryString({ b: 1, "01": 2, "-1": 3, "1.5": 4, "3": 5 })).toBe(
+      "3=5&b=1&01=2&-1=3&1.5=4",
+    );
+  });
+});
 
 describe("createUrlBuilder", () => {
   it.each([
@@ -66,5 +109,22 @@ describe("createUrlBuilder", () => {
       "http://localhost:8080/v1/categories",
     );
     expect(urlFor("/v1/products")).toBe("http://localhost:8080/v1/products");
+  });
+
+  it("adds a query string only when the query is not empty", () => {
+    const urlFor = createUrlBuilder("http://localhost:8080");
+
+    expect(urlFor("/v1/products", {})).toBe(
+      "http://localhost:8080/v1/products",
+    );
+    expect(urlFor("/v1/products", { cursor: null, q: undefined })).toBe(
+      "http://localhost:8080/v1/products",
+    );
+    expect(urlFor("/v1/products", { category: "kaos", limit: 20 })).toBe(
+      "http://localhost:8080/v1/products?category=kaos&limit=20",
+    );
+    expect(urlFor("/v1/products", { page: 0 })).toBe(
+      "http://localhost:8080/v1/products?page=0",
+    );
   });
 });
