@@ -1,4 +1,5 @@
 import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { product, rupiah, variant } from "@/test/fake-api.ts";
 import { ProductCard } from "./ProductCard.tsx";
@@ -62,5 +63,34 @@ describe("ProductCard", () => {
 
     rerender(<ProductCard product={product("kaos")} onSelect={vi.fn()} />);
     expect(screen.queryByText("Stok habis")).toBeNull();
+  });
+
+  it("opens the product through a button named after it", async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    render(
+      <ProductCard
+        product={product("kaos-polos", { name: "Kaos Polos" })}
+        onSelect={onSelect}
+      />,
+    );
+
+    const button = screen.getByRole("button", { name: "Kaos Polos" });
+    expect(button.getAttribute("type")).toBe("button");
+    expect(onSelect).not.toHaveBeenCalled();
+    await user.click(button);
+
+    expect(onSelect).toHaveBeenCalledExactlyOnceWith("kaos-polos");
+  });
+
+  it("opens the product from the keyboard", async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    render(<ProductCard product={product("kaos")} onSelect={onSelect} />);
+
+    await user.tab();
+    await user.keyboard("{Enter}");
+
+    expect(onSelect).toHaveBeenCalledExactlyOnceWith("kaos");
   });
 });
