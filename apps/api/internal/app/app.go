@@ -25,6 +25,7 @@ import (
 	"github.com/santekno/shop-app/apps/api/internal/httpserver"
 	"github.com/santekno/shop-app/apps/api/internal/logging"
 	"github.com/santekno/shop-app/apps/api/internal/product"
+	"github.com/santekno/shop-app/apps/api/internal/user"
 )
 
 // App is the wired API, ready to serve.
@@ -46,10 +47,12 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB) *App {
 	categoryRepo := category.NewPostgresRepository(db)
 	productRepo := product.NewPostgresRepository(db)
 	authRepo := auth.NewPostgresRepository(db)
+	userRepo := user.NewPostgresRepository(db)
 
 	// Services: the business rules, given their repositories.
 	categoryService := category.NewService(categoryRepo)
 	productService := product.NewService(productRepo, categoryService)
+	userService := user.NewService(userRepo)
 	accessTokens := auth.NewAccessTokens(cfg.Auth.JWTSecret, cfg.Auth.AccessTokenTTL, time.Now)
 	authService := auth.NewService(auth.Deps{
 		Repo:       authRepo,
@@ -63,6 +66,8 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB) *App {
 	categoryHandler := category.NewHandler(categoryService)
 	productHandler := product.NewHandler(productService, productService, validator)
 	authHandler := auth.NewHandler(authService, validator, time.Now)
+	userHandler := user.NewHandler(userService)
+	guard := auth.NewGuard(accessTokens)
 	healthHandler := health.NewHandler(logger, readiness, !cfg.IsDevelopment(),
 		health.PostgresCheck(db))
 
@@ -76,6 +81,11 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB) *App {
 			categoryHandler.Routes(r)
 			productHandler.Routes(r)
 			authHandler.Routes(r)
+			// Everything below needs a logged-in user.
+			r.Group(func(r chi.Router) {
+				r.Use(guard.Authenticate)
+				userHandler.Routes(r)
+			})
 			// The admin routes have no authentication until Bab 4, so they
 			// exist only on a developer's machine. Bab 4 mounts them
 			// everywhere, behind the admin role.

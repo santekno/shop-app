@@ -19,6 +19,7 @@ The Go REST API behind the GoShop storefront, admin dashboard and mobile app. Th
 | POST | `/v1/auth/login` | Email + password → access token (JWT); 401 `INVALID_CREDENTIALS` for every failure, in the same time |
 | POST | `/v1/auth/refresh` | Rotate the refresh token; a reused one revokes its whole session (ADR 0005) |
 | POST | `/v1/auth/logout` | Revoke the session of a refresh token; always 204 |
+| GET | `/v1/me` | **Access token.** The caller's own account |
 | POST | `/v1/admin/products` | **Development only.** Create a product with its variants |
 | GET | `/v1/admin/products/{id}` | **Development only.** Any product, whatever its status |
 | PUT | `/v1/admin/products/{id}` | **Development only.** Save a product and its variants; variants left out are archived |

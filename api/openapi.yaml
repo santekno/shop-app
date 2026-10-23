@@ -49,7 +49,10 @@ tags:
     description: |
       Accounts and tokens (Bab 4, design in ADR 0005). Passwords are hashed
       with argon2id and never logged or returned.
+  - name: Me
+    description: The logged-in user's own account. Every operation needs an access token.
   - name: Admin
+
 
     description: |
       Product management for the admin dashboard.
@@ -521,7 +524,37 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /v1/me:
+    get:
+      tags: [Me]
+      operationId: getMe
+      summary: Get my account
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The caller's account.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        The `access_token` from `/v1/auth/login` or `/v1/auth/refresh`, as
+        `Authorization: Bearer <token>`. It lives 15
+        minutes by default (ADR 0005); refresh it before or after it
+        expires.
+
   schemas:
     Money:
       type: object
@@ -1115,6 +1148,30 @@ components:
                 error:
                   code: TOKEN_EXPIRED
                   message: the token has expired; log in again
+
+    Unauthorized:
+      description: |
+        No valid access token: the `Authorization` header is missing or not
+        `Bearer <token>`, or the token is malformed, expired, signed with
+        another key, revoked (its session was logged out or ended), or its
+        account was deleted. The response carries
+        `WWW-Authenticate: Bearer realm="goshop"`. The code is always
+        `UNAUTHORIZED` (sdk `JWTAuth` does not tell an expired token from a
+        bad one), so a client refreshes once and retries; if the refresh
+        fails, the user logs in again.
+      headers:
+        WWW-Authenticate:
+          description: Always `Bearer realm="goshop"`.
+          schema:
+            type: string
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: UNAUTHORIZED
+              message: invalid or expired token
 
     InternalError:
       description: Unexpected server error. The code is always `INTERNAL_ERROR`, the code sdk `middleware/chi` `Recovery` writes after a panic, and handlers use the same code for every other 500. The details are in the server log, never in the response.

@@ -22,8 +22,8 @@ const (
 	CodeTokenExpired       = "TOKEN_EXPIRED"
 )
 
-// Authenticator is what the handlers need from the service.
-type Authenticator interface {
+// Accounts is what the handlers need from the service.
+type Accounts interface {
 	Register(ctx context.Context, in RegisterInput) (user.User, error)
 	Login(ctx context.Context, email, password string) (Tokens, error)
 	Refresh(ctx context.Context, refreshToken string) (Tokens, error)
@@ -32,14 +32,14 @@ type Authenticator interface {
 
 // Handler serves the /v1/auth endpoints.
 type Handler struct {
-	svc       Authenticator
+	svc       Accounts
 	validator *httpapi.Validator
 	now       func() time.Time
 }
 
 // NewHandler returns a Handler. now is the clock for "expires_in"; nil
 // means time.Now.
-func NewHandler(svc Authenticator, validator *httpapi.Validator, now func() time.Time) *Handler {
+func NewHandler(svc Accounts, validator *httpapi.Validator, now func() time.Time) *Handler {
 	if now == nil {
 		now = time.Now
 	}

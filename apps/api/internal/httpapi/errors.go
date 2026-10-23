@@ -20,6 +20,8 @@ const (
 	CodeMethodNotAllowed = "METHOD_NOT_ALLOWED"
 	CodeInternal         = "INTERNAL_ERROR" // the code sdk Recovery uses after a panic
 	CodeTimeout          = "TIMEOUT"
+	CodeUnauthorized     = "UNAUTHORIZED" // the code sdk middleware/chi JWTAuth uses
+	CodeForbidden        = "FORBIDDEN"
 )
 
 // The constructors below return a new *errx.AppError on every call, rather
@@ -29,6 +31,18 @@ const (
 // NotFoundError is 404 NOT_FOUND with message, e.g. "product not found".
 func NotFoundError(message string) *errx.AppError {
 	return errx.New(CodeNotFound, message).WithHTTPStatus(http.StatusNotFound)
+}
+
+// UnauthorizedError is 401 UNAUTHORIZED: the request has no valid access
+// token. The client refreshes its tokens or logs in again.
+func UnauthorizedError(message string) *errx.AppError {
+	return errx.New(CodeUnauthorized, message).WithHTTPStatus(http.StatusUnauthorized)
+}
+
+// ForbiddenError is 403 FORBIDDEN: the caller is known but their role may
+// not do this.
+func ForbiddenError() *errx.AppError {
+	return errx.New(CodeForbidden, "your role is not allowed to do this").WithHTTPStatus(http.StatusForbidden)
 }
 
 // MethodNotAllowedError is 405 METHOD_NOT_ALLOWED.
@@ -93,6 +107,12 @@ func Error(w http.ResponseWriter, r *http.Request, err error) {
 		}
 		log.Error("request failed",
 			"code", appErr.Code, "error", cause, "method", r.Method, "path", r.URL.Path)
+	}
+	if appErr.Code == CodeUnauthorized {
+		// RFC 6750: a 401 for a missing or unusable access token says which
+		// scheme to use, so every UNAUTHORIZED carries it, from the guard
+		// and from a handler that finds the account gone alike.
+		w.Header().Set("WWW-Authenticate", `Bearer realm="goshop"`)
 	}
 	sdkmw.DefaultErrorWriter(w, r, appErr)
 }
