@@ -31,6 +31,16 @@ func (q *Queries) DeleteUnusedUserTokens(ctx context.Context, arg DeleteUnusedUs
 	return err
 }
 
+const deleteUserTokens = `-- name: DeleteUserTokens :exec
+DELETE FROM user_tokens WHERE user_id = $1
+`
+
+// Account deletion: every email token of the user, used or not.
+func (q *Queries) DeleteUserTokens(ctx context.Context, userID string) error {
+	_, err := q.db.ExecContext(ctx, deleteUserTokens, userID)
+	return err
+}
+
 const insertUserToken = `-- name: InsertUserToken :exec
 INSERT INTO user_tokens (id, user_id, purpose, token_hash, expires_at)
 VALUES ($1, $2, $3, $4, $5)

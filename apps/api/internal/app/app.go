@@ -17,6 +17,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/santekno/sdk/logx"
 
+	"github.com/santekno/shop-app/apps/api/internal/address"
 	"github.com/santekno/shop-app/apps/api/internal/auth"
 	"github.com/santekno/shop-app/apps/api/internal/category"
 	"github.com/santekno/shop-app/apps/api/internal/config"
@@ -65,11 +66,13 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 	productRepo := product.NewPostgresRepository(db)
 	authRepo := auth.NewPostgresRepository(db)
 	userRepo := user.NewPostgresRepository(db)
+	addressRepo := address.NewPostgresRepository(db)
 
 	// Services: the business rules, given their repositories.
 	categoryService := category.NewService(categoryRepo)
 	productService := product.NewService(productRepo, categoryService)
 	userService := user.NewService(userRepo)
+	addressService := address.NewService(addressRepo)
 	accessTokens := auth.NewAccessTokens(cfg.Auth.JWTSecret, cfg.Auth.AccessTokenTTL, time.Now)
 	authService := auth.NewService(auth.Deps{
 		Repo:       authRepo,
@@ -91,7 +94,8 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 		Clock:            time.Now,
 		TrustedProxyHops: cfg.TrustedProxyHops,
 	})
-	userHandler := user.NewHandler(userService)
+	userHandler := user.NewHandler(userService, validator)
+	addressHandler := address.NewHandler(addressService, validator)
 	guard := auth.NewGuard(accessTokens)
 	healthHandler := health.NewHandler(logger, readiness, !cfg.IsDevelopment(),
 		health.PostgresCheck(db), health.RedisCheck(redisconn.NewPinger(rdb)))
@@ -110,6 +114,7 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 			r.Group(func(r chi.Router) {
 				r.Use(guard.Authenticate)
 				userHandler.Routes(r)
+				addressHandler.Routes(r)
 				authHandler.ProtectedRoutes(r)
 				// Store staff only: sellers manage the catalog, and admins
 				// can do everything a seller can (docs/prd.md).

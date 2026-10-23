@@ -27,8 +27,8 @@ UPDATE users SET email_verified_at = COALESCE(email_verified_at, now()), updated
 WHERE id = @id AND anonymized_at IS NULL;
 
 -- name: LockUser :one
--- Serialises writes to one user's child rows (email tokens; from artikel 11
--- the address book), and fails for a deleted account.
+-- Serialises writes to one user's child rows (email tokens, the address
+-- book with its limit and single default), and fails for a deleted account.
 SELECT id FROM users
 WHERE id = @id AND anonymized_at IS NULL
 FOR UPDATE;
@@ -43,3 +43,23 @@ WHERE id = @id AND anonymized_at IS NULL;
 INSERT INTO users (id, email, name, role, email_verified_at)
 VALUES (@id, @email, @name, @role, now())
 RETURNING id, email, password_hash, name, phone, role, email_verified_at, created_at, updated_at;
+
+-- name: UpdateUserProfile :one
+-- A NULL name keeps it; set_phone decides whether phone is written (NULL
+-- then clears it).
+UPDATE users
+SET name       = COALESCE(sqlc.narg('name'), name),
+    phone      = CASE WHEN @set_phone::boolean THEN sqlc.narg('phone') ELSE phone END,
+    updated_at = now()
+WHERE id = @id AND anonymized_at IS NULL
+RETURNING id, email, password_hash, name, phone, role, email_verified_at, created_at, updated_at;
+
+-- name: AnonymizeUser :execrows
+-- Account deletion (docs/erd.md): the row stays for the orders that point
+-- to it, but nothing identifies the person. The email becomes the unique
+-- placeholder deleted+<id>@invalid (.invalid never receives mail).
+UPDATE users
+SET email = 'deleted+' || id::text || '@invalid',
+    name = '', phone = NULL, password_hash = NULL,
+    anonymized_at = now(), updated_at = now()
+WHERE id = @id AND anonymized_at IS NULL;

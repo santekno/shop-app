@@ -25,6 +25,10 @@ The Go REST API behind the GoShop storefront, admin dashboard and mobile app. Th
 | POST | `/v1/auth/reset-password` | New password with the reset token; revokes every session of the account |
 | POST | `/v1/auth/google` | Google ID token → session; links by Google's subject id, never by email; 404 when `GOOGLE_CLIENT_ID` is unset (development) |
 | GET | `/v1/me` | **Access token.** The caller's own account |
+| PATCH | `/v1/me` | **Access token.** Change name and phone (`phone: null` removes it) |
+| DELETE | `/v1/me` | **Access token.** Delete the account: anonymise it, delete its addresses, Google link and email tokens, end every session |
+| GET, POST | `/v1/me/addresses` | **Access token.** The caller's address book (at most 20; exactly one default) |
+| GET, PATCH, DELETE | `/v1/me/addresses/{id}` | **Access token.** One of the caller's addresses; anyone else's is 404 |
 | POST | `/v1/admin/products` | **Seller or admin.** Create a product with its variants |
 | GET | `/v1/admin/products/{id}` | **Seller or admin.** Any product, whatever its status |
 | PUT | `/v1/admin/products/{id}` | **Seller or admin.** Save a product and its variants; variants left out are archived |

@@ -11,6 +11,16 @@ import (
 	"time"
 )
 
+const deleteUserIdentities = `-- name: DeleteUserIdentities :exec
+DELETE FROM user_identities WHERE user_id = $1
+`
+
+// Account deletion. Served by user_identities_user_provider_key.
+func (q *Queries) DeleteUserIdentities(ctx context.Context, userID string) error {
+	_, err := q.db.ExecContext(ctx, deleteUserIdentities, userID)
+	return err
+}
+
 const getUserByIdentity = `-- name: GetUserByIdentity :one
 
 SELECT u.id, u.email, u.password_hash, u.name, u.phone, u.role, u.email_verified_at, u.created_at, u.updated_at

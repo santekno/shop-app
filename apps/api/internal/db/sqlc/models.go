@@ -9,6 +9,21 @@ import (
 	"time"
 )
 
+type Address struct {
+	ID            string
+	UserID        string
+	Label         string
+	RecipientName string
+	Phone         string
+	Street        string
+	City          string
+	Province      string
+	PostalCode    string
+	IsDefault     bool
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
 type Category struct {
 	ID          string
 	ParentID    *string

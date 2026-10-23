@@ -573,6 +573,197 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "500":
           $ref: "#/components/responses/InternalError"
+    patch:
+      tags: [Me]
+      operationId: updateMe
+      summary: Update my profile
+      description: Changes the name and the phone number. A field left out keeps its value; `phone` set to `null` removes it. The email cannot be changed yet (a new address would need verifying first).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProfilePatch"
+            example:
+              name: Budi Santoso
+              phone: "081234567890"
+      responses:
+        "200":
+          description: The updated account.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserDetail"
+        "400":
+          $ref: "#/components/responses/BadMeRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      tags: [Me]
+      operationId: deleteMe
+      summary: Delete my account
+      description: |
+        Deletes the account by anonymising it (orders keep pointing at it):
+        the email becomes `deleted+<id>@invalid`, the name, phone and
+        password are removed, the addresses, Google sign-in link and email
+        tokens are deleted, and every session ends. The email is free to
+        register again. This cannot be undone.
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: The account is deleted.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/me/addresses:
+    get:
+      tags: [Me]
+      operationId: listAddresses
+      summary: List my addresses
+      description: Every address of the caller, the default first, then the newest. At most 20, so the list is not paginated.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The caller's addresses.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AddressList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      tags: [Me]
+      operationId: createAddress
+      summary: Add an address
+      description: |
+        The first address is the default whatever `is_default` says. A new
+        address with `is_default: true` becomes the default and the old one
+        stops being it. A user keeps exactly one default while they have
+        any address, and at most 20 addresses (409
+        `ADDRESS_LIMIT_REACHED`).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddressCreate"
+            example:
+              label: Rumah
+              recipient_name: Budi Santoso
+              phone: "081234567890"
+              street: Jl. Merdeka No. 10, RT 01/RW 02
+              city: Bandung
+              province: Jawa Barat
+              postal_code: "40111"
+              is_default: true
+      responses:
+        "201":
+          description: The address was added.
+          headers:
+            Location:
+              description: URL of the new address, `/v1/me/addresses/{id}`.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AddressDetail"
+        "400":
+          $ref: "#/components/responses/BadMeRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/AddressConflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/me/addresses/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: Address ID. Another user's address, and an ID that is not a UUID, answer 404 `NOT_FOUND` exactly like a missing one.
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags: [Me]
+      operationId: getAddress
+      summary: Get one of my addresses
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The address.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AddressDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    patch:
+      tags: [Me]
+      operationId: updateAddress
+      summary: Change one of my addresses
+      description: A field left out (or `null`) keeps its value. `is_default` true makes this the default; false on the default address answers 409 `DEFAULT_ADDRESS_REQUIRED` (make another address the default instead).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddressPatch"
+      responses:
+        "200":
+          description: The updated address.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AddressDetail"
+        "400":
+          $ref: "#/components/responses/BadMeRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/AddressConflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      tags: [Me]
+      operationId: deleteAddress
+      summary: Delete one of my addresses
+      description: When it was the default, the newest remaining address becomes the default.
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: The address is deleted.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 
   /v1/auth/verify-email:
     post:
@@ -1173,6 +1364,140 @@ components:
           maxLength: 8192
           description: The ID token (a JWT) from Google Sign-In, issued to `GOOGLE_CLIENT_ID`.
 
+    ProfilePatch:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Trimmed by the API.
+        phone:
+          type: [string, "null"]
+          description: An Indonesian phone number such as `081234567890` or `+6281234567890`; `null` removes it.
+
+    Address:
+      type: object
+      required: [id, label, recipient_name, phone, street, city, province, postal_code, is_default, created_at, updated_at]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        label:
+          type: string
+          example: Rumah
+        recipient_name:
+          type: string
+        phone:
+          type: string
+        street:
+          type: string
+        city:
+          type: string
+        province:
+          type: string
+        postal_code:
+          type: string
+          pattern: "^[1-9][0-9]{4}$"
+        is_default:
+          type: boolean
+          description: Exactly one of a user's addresses is the default.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    AddressCreate:
+      type: object
+      required: [label, recipient_name, phone, street, city, province, postal_code]
+      additionalProperties: false
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 50
+        recipient_name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        phone:
+          type: string
+          description: An Indonesian phone number, `08…`, `628…` or `+628…`.
+        street:
+          type: string
+          minLength: 1
+          maxLength: 500
+        city:
+          type: string
+          minLength: 1
+          maxLength: 100
+        province:
+          type: string
+          minLength: 1
+          maxLength: 100
+        postal_code:
+          type: string
+          pattern: "^[1-9][0-9]{4}$"
+        is_default:
+          type: boolean
+          default: false
+
+    AddressPatch:
+      type: object
+      description: Every field is optional; a field that is left out or `null` keeps its value. Text is trimmed by the API.
+      additionalProperties: false
+      properties:
+        label:
+          type: [string, "null"]
+          minLength: 1
+          maxLength: 50
+        recipient_name:
+          type: [string, "null"]
+          minLength: 1
+          maxLength: 100
+        phone:
+          type: [string, "null"]
+        street:
+          type: [string, "null"]
+          minLength: 1
+          maxLength: 500
+        city:
+          type: [string, "null"]
+          minLength: 1
+          maxLength: 100
+        province:
+          type: [string, "null"]
+          minLength: 1
+          maxLength: 100
+        postal_code:
+          type: [string, "null"]
+          pattern: "^[1-9][0-9]{4}$"
+        is_default:
+          type: [boolean, "null"]
+
+    AddressDetail:
+      type: object
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          $ref: "#/components/schemas/Address"
+
+    AddressList:
+      type: object
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          type: array
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/Address"
+
     HealthCheck:
       type: object
       required: [status, duration_ms]
@@ -1476,6 +1801,43 @@ components:
               message: too many attempts; try again later
               details:
                 retry_after_seconds: 540
+
+    BadMeRequest:
+      description: The body is not valid JSON or breaks the schema (`VALIDATION_FAILED`, one entry per field).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: VALIDATION_FAILED
+              message: invalid request
+              details:
+                phone: must be an Indonesian phone number such as 081234567890 or +6281234567890
+                postal_code: must be a 5-digit Indonesian postal code
+    AddressConflict:
+      description: The caller already has 20 addresses (`ADDRESS_LIMIT_REACHED`), or the change would leave them without a default address (`DEFAULT_ADDRESS_REQUIRED`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            limit:
+              summary: Too many addresses
+              value:
+                error:
+                  code: ADDRESS_LIMIT_REACHED
+                  message: you already have the maximum number of addresses; delete one first
+                  details:
+                    max: 20
+            defaultRequired:
+              summary: Unsetting the default
+              value:
+                error:
+                  code: DEFAULT_ADDRESS_REQUIRED
+                  message: make another address the default instead
+                  details:
+                    is_default: the default address cannot be unset; set is_default on another address
 
     InternalError:
       description: Unexpected server error. The code is always `INTERNAL_ERROR`, the code sdk `middleware/chi` `Recovery` writes after a panic, and handlers use the same code for every other 500. The details are in the server log, never in the response.

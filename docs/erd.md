@@ -13,13 +13,14 @@ Every column is `NOT NULL` unless the diagram says `nullable`.
 | Bab 4 | `000003_create_refresh_tokens` | `refresh_tokens` ([ADR 0005](adr/0005-auth-tokens.md)): SHA-256 of the secret only, `family_id` = the session, `used_at` for rotation and reuse detection, `revoked_at`; indexes on `family_id` and on `user_id` for the tokens that can still be used |
 | Bab 4 | `000004_create_user_tokens` | `user_tokens`: one-time email tokens (`verify_email`, `reset_password`), SHA-256 of the secret only, `used_at`, `expires_at`; an index on `(user_id, purpose)`, not partial, so it also serves deleting a user's tokens and the CASCADE |
 | Bab 4 | `000005_create_user_identities` | `user_identities`: `UNIQUE (provider, subject)` (the sign-in lookup) and `UNIQUE (user_id, provider)`; provider CHECK (`google`) |
+| Bab 4 | `000006_create_addresses` | `addresses`: postal-code CHECK, `addresses (user_id)`, and the partial unique index `addresses (user_id) WHERE is_default` (at most one default; the API keeps exactly one while the user has any) |
 
 Two choices made while building it:
 
 - **Timestamps are set by the queries, not by triggers.** `created_at` comes from the column default; every `UPDATE` in `apps/api/internal/db/queries` writes `updated_at = now()`. A trigger would also catch hand-written SQL, but it hides the rule from someone reading the query, and the API is the only writer. `now()` is the transaction's start time, so everything one transaction writes carries the same timestamp.
 - **Soft delete only.** `DELETE /v1/admin/products/{id}` sets `status = 'archived'`; a variant left out of `PUT /v1/admin/products/{id}` gets `archived_at`. The API has no SQL `DELETE` for the catalog. Because a save always carries at least one variant, the "last sellable variant" case in the catalog rules below cannot happen through the API yet.
 
-`users` and `addresses` arrive with their own migration in Bab 4, `orders` and `order_items` in Bab 5. Constraints that the API maps to an error have explicit names (`products_slug_key`, `product_variants_sku_key`, …), so the code matches on a stable name rather than on Postgres's generated one.
+`orders` and `order_items` arrive with their own migration in Bab 5. Constraints that the API maps to an error have explicit names (`products_slug_key`, `product_variants_sku_key`, …), so the code matches on a stable name rather than on Postgres's generated one.
 
 ```mermaid
 erDiagram
@@ -309,5 +310,5 @@ The `indonesian` configuration stems Indonesian words (`dipakai` is indexed as `
 
 - **Orders are never deleted.** They are financial records.
 - **Products and variants are archived**, not deleted: `products.status = 'archived'`, `product_variants.archived_at`.
-- **Users are anonymised**, not deleted, because their orders RESTRICT the delete. `anonymized_at` is set; the email becomes the unique lower-case placeholder `deleted+<id>@invalid` (`.invalid` is a reserved domain that never receives mail); name is cleared to `''`; phone and password hash become `NULL`. The orders keep their shipping snapshot. Login and every user lookup skip rows with `anonymized_at IS NOT NULL`. A user with no orders may be deleted outright; their addresses go with them (CASCADE).
+- **Users are anonymised**, not deleted, because their orders RESTRICT the delete. `anonymized_at` is set; the email becomes the unique lower-case placeholder `deleted+<id>@invalid` (`.invalid` is a reserved domain that never receives mail); name is cleared to `''`; phone and password hash become `NULL`. In the same transaction (`DELETE /v1/me`, Bab 4) the user's **addresses, sign-in identities and email tokens are deleted** and every session is revoked. The orders keep their shipping snapshot. Login and every user lookup skip rows with `anonymized_at IS NOT NULL`. Bab 4 always anonymises, even a user without orders: one path, and nothing is lost; deleting such a user outright (their rows go with them, CASCADE) stays possible later.
 - **Google sign-in** uses the `user_identities (provider, subject)` table (Bab 4). Accounts are linked by the provider's stable subject id, never by matching email addresses: a first Google sign-in whose email already has an account is refused (409 `EMAIL_TAKEN`) instead of linked.

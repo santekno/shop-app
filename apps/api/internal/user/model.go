@@ -52,3 +52,13 @@ type User struct {
 
 // EmailVerified reports whether the user has confirmed their email.
 func (u User) EmailVerified() bool { return u.EmailVerifiedAt != nil }
+
+// ProfileUpdate is a change to a user's own profile; a field that is not
+// set keeps its value.
+type ProfileUpdate struct {
+	// Name, when not nil, is the new name.
+	Name *string
+	// SetPhone says whether Phone is written; Phone nil then removes it.
+	SetPhone bool
+	Phone    *string
+}

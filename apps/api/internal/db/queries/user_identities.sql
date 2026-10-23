@@ -10,3 +10,7 @@ WHERE i.provider = @provider AND i.subject = @subject AND u.anonymized_at IS NUL
 -- name: InsertUserIdentity :exec
 INSERT INTO user_identities (id, user_id, provider, subject)
 VALUES (@id, @user_id, @provider, @subject);
+
+-- name: DeleteUserIdentities :exec
+-- Account deletion. Served by user_identities_user_provider_key.
+DELETE FROM user_identities WHERE user_id = @user_id;

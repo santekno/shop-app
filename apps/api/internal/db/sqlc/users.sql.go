@@ -11,6 +11,25 @@ import (
 	"time"
 )
 
+const anonymizeUser = `-- name: AnonymizeUser :execrows
+UPDATE users
+SET email = 'deleted+' || id::text || '@invalid',
+    name = '', phone = NULL, password_hash = NULL,
+    anonymized_at = now(), updated_at = now()
+WHERE id = $1 AND anonymized_at IS NULL
+`
+
+// Account deletion (docs/erd.md): the row stays for the orders that point
+// to it, but nothing identifies the person. The email becomes the unique
+// placeholder deleted+<id>@invalid (.invalid never receives mail).
+func (q *Queries) AnonymizeUser(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, anonymizeUser, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const getUserByEmail = `-- name: GetUserByEmail :one
 SELECT id, email, password_hash, name, phone, role, email_verified_at, created_at, updated_at
 FROM users
@@ -193,8 +212,8 @@ WHERE id = $1 AND anonymized_at IS NULL
 FOR UPDATE
 `
 
-// Serialises writes to one user's child rows (email tokens; from artikel 11
-// the address book), and fails for a deleted account.
+// Serialises writes to one user's child rows (email tokens, the address
+// book with its limit and single default), and fails for a deleted account.
 func (q *Queries) LockUser(ctx context.Context, id string) (string, error) {
 	row := q.db.QueryRowContext(ctx, lockUser, id)
 	var id_2 string
@@ -226,4 +245,56 @@ type SetUserPasswordParams struct {
 func (q *Queries) SetUserPassword(ctx context.Context, arg SetUserPasswordParams) error {
 	_, err := q.db.ExecContext(ctx, setUserPassword, arg.PasswordHash, arg.ID)
 	return err
+}
+
+const updateUserProfile = `-- name: UpdateUserProfile :one
+UPDATE users
+SET name       = COALESCE($1, name),
+    phone      = CASE WHEN $2::boolean THEN $3 ELSE phone END,
+    updated_at = now()
+WHERE id = $4 AND anonymized_at IS NULL
+RETURNING id, email, password_hash, name, phone, role, email_verified_at, created_at, updated_at
+`
+
+type UpdateUserProfileParams struct {
+	Name     sql.NullString
+	SetPhone bool
+	Phone    sql.NullString
+	ID       string
+}
+
+type UpdateUserProfileRow struct {
+	ID              string
+	Email           string
+	PasswordHash    sql.NullString
+	Name            string
+	Phone           sql.NullString
+	Role            string
+	EmailVerifiedAt sql.NullTime
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
+// A NULL name keeps it; set_phone decides whether phone is written (NULL
+// then clears it).
+func (q *Queries) UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) (UpdateUserProfileRow, error) {
+	row := q.db.QueryRowContext(ctx, updateUserProfile,
+		arg.Name,
+		arg.SetPhone,
+		arg.Phone,
+		arg.ID,
+	)
+	var i UpdateUserProfileRow
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.PasswordHash,
+		&i.Name,
+		&i.Phone,
+		&i.Role,
+		&i.EmailVerifiedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }

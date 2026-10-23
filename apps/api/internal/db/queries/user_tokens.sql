@@ -31,3 +31,7 @@ FOR UPDATE OF ut;
 -- name: MarkUserTokenUsed :exec
 UPDATE user_tokens SET used_at = now()
 WHERE id = @id;
+
+-- name: DeleteUserTokens :exec
+-- Account deletion: every email token of the user, used or not.
+DELETE FROM user_tokens WHERE user_id = @user_id;
