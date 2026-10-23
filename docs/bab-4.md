@@ -9,7 +9,7 @@ Branch: `bab-4` (from `bab-3` @ `3b9cc9d`; Bab 3 verified code `878a8c0`)
 | 0 build/lint/docker | backend-engineer | pass | migrations 000002–000006 (users, refresh_tokens, user_tokens, user_identities, addresses); packages `auth`, `user`, `address`, `mail`, `redisconn`; Redis joins `/readyz` |
 | 1 unit tests | test-engineer | pass | 91.5% total coverage (auth 99.2%); mutation-checked after every fix round |
 | 2 DB audit | database-auditor | pass | 5 findings on lock order and indexes, fixed (below), then 0 blocking |
-| 3 integration | integration-engineer | pass | every auth, user and address route against real PostgreSQL and Redis; a Redis logical database per test; 8 races × 25 iterations judged on the final DB state; 1804 passed, 0 skipped on a cold `make verify` |
+| 3 integration | integration-engineer | pass | every auth, user and address route against real PostgreSQL and Redis; a Redis logical database per test; 9 races × 25 iterations judged on the final DB state (the 8 the stage started with plus the Google double tap); 1804 passed, 0 skipped on a cold `make verify` |
 | 4 quality review | quality-review | pass | 2 rounds: 1 blocking (sdk `apikey` neither used nor recorded as a gap) plus 13 advice items, fixed; re-review clean |
 
 **Verified SHA:** `803bb533183417ead5e1a9aefa1a220b1ea6462e` (2026-10-23)
