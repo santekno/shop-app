@@ -1,3 +1,4 @@
+import { Section } from "@/components/ui/Section.tsx";
 import { errorMessage, errorRequestId } from "@/lib/error-message.ts";
 import { useCategoryTree } from "../hooks/useCategoryTree.ts";
 import { CategoryTree } from "./CategoryTree.tsx";
@@ -7,9 +8,7 @@ export function CategorySection() {
   const { state, reload } = useCategoryTree();
 
   return (
-    <section className="card" aria-labelledby="categories-heading">
-      <h2 id="categories-heading">Kategori</h2>
-
+    <Section title="Kategori">
       {state.status === "loading" && <p role="status">Memuat kategori…</p>}
 
       {state.status === "error" && (
@@ -32,6 +31,6 @@ export function CategorySection() {
         ) : (
           <CategoryTree nodes={state.data} />
         ))}
-    </section>
+    </Section>
   );
 }

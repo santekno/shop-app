@@ -1,5 +1,6 @@
 import { formatRupiah } from "@goshop/shared";
 import type { Product } from "@goshop/shared";
+import { Card } from "@/components/ui/Card.tsx";
 import { ProductImage } from "./ProductImage.tsx";
 
 /**
@@ -21,7 +22,7 @@ export function ProductCard({ product }: ProductCardProps) {
   );
 
   return (
-    <article className="card product-card">
+    <Card as="article" className="product-card">
       <ProductImage name={name} />
       <h3 className="product-card__name">{name}</h3>
       <p className="muted">{category.name}</p>
@@ -30,6 +31,6 @@ export function ProductCard({ product }: ProductCardProps) {
         {formatRupiah(priceFrom)}
       </p>
       {!inStock && <p className="badge">Stok habis</p>}
-    </article>
+    </Card>
   );
 }
