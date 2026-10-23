@@ -1,0 +1,13 @@
+{
+  "name": "@goshop/shared",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Code shared by the GoShop web, admin and mobile apps: API types and the API client",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc"
+  },
+  "devDependencies": {
+    "typescript": "catalog:"
+  }
+}

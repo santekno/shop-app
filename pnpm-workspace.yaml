@@ -2,3 +2,8 @@ packages:
   - "apps/*"
   - "packages/*"
   - "e2e" # Playwright suite, owned by integration-engineer; created in Bab 7
+
+# One pinned version per tool for every workspace package: a package.json
+# says "catalog:" and gets the version written here. Bump a tool once, here.
+catalog:
+  typescript: 5.9.3

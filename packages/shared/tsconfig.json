@@ -1,0 +1,28 @@
+{
+  // The package has no build step: apps import its .ts files and Node 24
+  // runs them directly by stripping the types. tsc only checks them.
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": [],
+
+    // ES modules exactly as Node runs them: relative imports name the
+    // file with its .ts extension, type-only imports say `import type`,
+    // and only syntax that disappears when types are stripped is allowed
+    // (no enum, no namespace, no constructor parameter properties).
+    "module": "nodenext",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
+    "noEmit": true,
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "skipLibCheck": true
+  },
+  "include": ["src"]
+}
