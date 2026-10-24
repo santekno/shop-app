@@ -9,6 +9,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -17,6 +19,7 @@ import (
 	"github.com/santekno/sdk/uuidx"
 
 	"github.com/santekno/shop-app/apps/api/internal/app"
+	"github.com/santekno/shop-app/apps/api/internal/logging"
 	"github.com/santekno/shop-app/apps/api/internal/shipping"
 )
 
@@ -30,6 +33,9 @@ type fakeBiteship struct {
 	status atomic.Int64
 	delay  atomic.Int64
 	hijack atomic.Bool
+	// refusePostal, when set, is a destination postal code no courier
+	// serves: Biteship answers it 400 whatever status says.
+	refusePostal atomic.Int64
 	// done counts the requests it finished answering; entered gets a
 	// value as each request arrives.
 	done    atomic.Int64
@@ -73,6 +79,9 @@ func (f *fakeBiteship) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	status := int(f.status.Load())
+	if p := f.refusePostal.Load(); p != 0 && body["destination_postal_code"] == float64(p) {
+		status = http.StatusBadRequest
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if status != http.StatusOK {
@@ -247,4 +256,79 @@ func TestBiteship_ClientHangUpKeepsBreakerClosed(t *testing.T) {
 		t.Errorf("quotes after the hang-ups = %+v", q.Quotes)
 	}
 	assertOrderDetail(t, sh.checkout(t, b.Token, uuidx.NewV7(), checkoutBody(b.AddressID)), http.StatusCreated, "checkout after the hang-ups")
+}
+
+// TestBiteship_UnservedAddressFreesTheKey: Biteship refuses the address's
+// postal code (400), so checkout answers 422 SHIPPING_UNAVAILABLE, the
+// contract's CheckoutUnprocessable, and writes nothing: no order, no stock
+// taken, and the Idempotency-Key freed. The same key then places the order
+// to an address a courier serves (201, not a replay and not
+// IDEMPOTENCY_KEY_REUSED); only after that is the key bound to the
+// finished body, so resending the refused body is 422
+// IDEMPOTENCY_KEY_REUSED, the response's other code. The refusal is logged
+// at WARN with Biteship's status and numeric code only: never the key,
+// the request or Biteship's message.
+func TestBiteship_UnservedAddressFreesTheKey(t *testing.T) {
+	if got := contractResponse(t, "/v1/checkout", "post", "422"); got != "CheckoutUnprocessable" {
+		t.Fatalf("the contract answers the checkout 422 with %q, want CheckoutUnprocessable", got)
+	}
+	raw, err := os.ReadFile(openAPIPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := strings.Index(string(raw), "\n    CheckoutUnprocessable:")
+	j := strings.Index(string(raw), "\n    ShippingUnavailable:")
+	if i < 0 || j < i || !strings.Contains(string(raw)[i:j], "`SHIPPING_UNAVAILABLE`") || !strings.Contains(string(raw)[i:j], "`IDEMPOTENCY_KEY_REUSED`") {
+		t.Fatal("CheckoutUnprocessable does not list SHIPPING_UNAVAILABLE and IDEMPOTENCY_KEY_REUSED")
+	}
+
+	f := newFakeBiteship(t)
+	f.refusePostal.Store(99999)
+	// The app attaches its own logger only to a Biteship it builds from
+	// BITESHIP_API_KEY; this one gets a logger made the same way
+	// (logging.New, development text), on a buffer the test reads.
+	logs := &syncBuffer{}
+	provider := shipping.NewBiteship(fakeBiteshipKey, f.URL, 5*time.Second).WithLogger(logging.New(logs, true, "info"))
+	sh := newShop(t, map[string]string{"APP_SHIPPING_ORIGIN_POSTAL_CODE": "40111"}, app.WithShippingProvider(provider))
+	p := sh.product(t, "kaos-alamat", variant("AL-M", "M", 50000, 10))
+	b := sh.buyer(t, "alamat")
+	sh.add(t, b, p.Variants["AL-M"], 2)
+	far := addressBody("Pulau", false)
+	far["postal_code"] = "99999"
+	unserved := assertAddress(t, sh.call(t, http.MethodPost, "/v1/me/addresses", far, b.Token), http.StatusCreated, "unserved address")
+	key := uuidx.NewV7()
+
+	refused := sh.checkout(t, b.Token, key, checkoutBody(unserved.ID))
+	assertError(t, refused, http.StatusUnprocessableEntity, "SHIPPING_UNAVAILABLE")
+	assertKeys(t, decodeObject(t, refused.Body), []string{"error"}, "CheckoutUnprocessable body")
+	if n := sh.count(t, `SELECT count(*) FROM orders`) + sh.count(t, `SELECT count(*) FROM idempotency_keys`) +
+		sh.count(t, `SELECT count(*) FROM outbox_events`); n != 0 {
+		t.Errorf("the refused checkout wrote %d orders, keys and events", n)
+	}
+	if s := sh.stock(t, p.Variants["AL-M"]); s != 10 {
+		t.Errorf("stock = %d, want 10", s)
+	}
+
+	placed := sh.checkout(t, b.Token, key, checkoutBody(b.AddressID))
+	o := assertOrderDetail(t, placed, http.StatusCreated, "the same key to a served address")
+	if placed.Header.Get("Idempotency-Replayed") != "" || o.Shipping.Address.PostalCode != "40111" || o.Totals.ShippingFee != moneyOf(12000) {
+		t.Errorf("order = %s to %s, fee %d", placed.Header.Get("Idempotency-Replayed"), o.Shipping.Address.PostalCode, o.Totals.ShippingFee.Amount)
+	}
+	assertError(t, sh.checkout(t, b.Token, key, checkoutBody(unserved.ID)), http.StatusUnprocessableEntity, "IDEMPOTENCY_KEY_REUSED")
+
+	var warn string
+	for line := range strings.Lines(logs.String()) {
+		if strings.Contains(line, "biteship refused a rates request") {
+			warn = line
+		}
+	}
+	if !strings.Contains(warn, "level=WARN") || !strings.Contains(warn, "status=400") || !strings.Contains(warn, "biteship_code=40001001") {
+		t.Errorf("want a WARN line with status=400 and biteship_code=40001001, got %q\nlogs:\n%s", warn, logs.String())
+	}
+	for _, secret := range []string{fakeBiteshipKey, "fake refusal", "origin_postal_code", "99999", "GoShop order"} {
+		if strings.Contains(logs.String(), secret) {
+			t.Errorf("the log carries %q:\n%s", secret, logs.String())
+		}
+	}
+	assertNoErrorLog(t, sh.server)
 }
