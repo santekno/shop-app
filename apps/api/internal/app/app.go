@@ -374,7 +374,7 @@ func Run(ctx context.Context, args []string, stdout io.Writer) error {
 	case len(args) == 1 && args[0] == "cleanup-idempotency-keys":
 		return runJob(ctx, cfg, logger, "cleanup-idempotency-keys", cleanupIdempotencyKeys)
 	case len(args) == 1 && args[0] == "publish-events":
-		return runJob(ctx, cfg, logger, "publish-events", publishEvents)
+		return runPublishEvents(ctx, cfg, logger)
 	case len(args) == 1 && args[0] == "reconcile-payments":
 		return runJob(ctx, cfg, logger, "reconcile-payments", reconcilePayments(cfg.Payment))
 	case len(args) == 1 && args[0] == "process-images":
@@ -465,12 +465,35 @@ func cleanupIdempotencyKeys(ctx context.Context, db *sql.DB, logger logx.Logger)
 	return err
 }
 
-// publishEvents publishes the outbox's pending domain events to the log
-// (outbox.LogPublisher); Bab 6 publishes them to the job queue instead.
-func publishEvents(ctx context.Context, db *sql.DB, logger logx.Logger) error {
-	n, err := outbox.NewDispatcher(db, outbox.LogPublisher{Logger: logger}).PublishPending(ctx)
-	logger.Info("published domain events", "published", n)
-	return err
+// publishEvents publishes the outbox's pending domain events through
+// publisher, once: what the worker does every 5 seconds, for an operator.
+func publishEvents(publisher outbox.Publisher) func(context.Context, *sql.DB, logx.Logger) error {
+	return func(ctx context.Context, db *sql.DB, logger logx.Logger) error {
+		n, err := outbox.NewDispatcher(db, publisher).PublishPending(logx.WithContextLogger(ctx, logger))
+		logger.Info("published domain events", "published", n)
+		return err
+	}
+}
+
+// runPublishEvents is `api publish-events`: the outbox to the worker's
+// queue (notify.QueuePublisher), the same publisher the worker uses.
+// The database is opened first, like every job.
+func runPublishEvents(ctx context.Context, cfg config.Config, logger logx.Logger) error {
+	db, err := database.Open(ctx, cfg.Database, logger)
+	if err != nil {
+		return err
+	}
+	defer closeDB(db, logger)
+	rdb, err := redisconn.Open(ctx, cfg.RedisURL)
+	if err != nil {
+		return err
+	}
+	defer closeRedis(rdb, logger)
+	publisher := notify.NewQueuePublisher(asynq.NewClientFromRedisClient(rdb), notify.NewRoutes(cfg.Telegram.BotToken != ""))
+	if err := publishEvents(publisher)(ctx, db, logger); err != nil {
+		return fmt.Errorf("publish-events: %w", err)
+	}
+	return nil
 }
 
 // reconcilePayments asks the payment gateway about the open payments and

@@ -30,6 +30,7 @@ const (
 	TypeCleanupRefreshTokens  = "auth:cleanup-refresh-tokens" // #nosec G101 -- a task name, not a credential
 	TypeCleanupGuestCarts     = "carts:cleanup-guests"
 	TypeCleanupPendingUploads = "images:cleanup-pending"
+	TypeCleanupOutbox         = "outbox:cleanup"
 )
 
 // Periodic is one scheduled job: its task type, how often it runs (an
@@ -53,6 +54,7 @@ var Schedule = []Periodic{
 	{Type: TypeCleanupRefreshTokens, Every: time.Hour, Timeout: 10 * time.Minute},
 	{Type: TypeCleanupGuestCarts, Every: time.Hour, Timeout: 10 * time.Minute},
 	{Type: TypeCleanupPendingUploads, Every: time.Hour, Timeout: 10 * time.Minute},
+	{Type: TypeCleanupOutbox, Every: 24 * time.Hour, Timeout: 30 * time.Minute},
 }
 
 // Jobs runs the scheduled jobs. Every dependency but the database may be
@@ -115,6 +117,14 @@ func (j *Jobs) Register(mux *asynq.ServeMux) {
 	mux.HandleFunc(TypeCleanupRefreshTokens, j.CleanupRefreshTokens)
 	mux.HandleFunc(TypeCleanupGuestCarts, j.CleanupGuestCarts)
 	mux.HandleFunc(TypeCleanupPendingUploads, j.CleanupPendingUploads)
+	mux.HandleFunc(TypeCleanupOutbox, j.CleanupOutbox)
+}
+
+// CleanupOutbox deletes events published, and delivery records made, more
+// than outbox.Retention ago (the Bab 5 deferred item).
+func (j *Jobs) CleanupOutbox(ctx context.Context, _ *asynq.Task) error {
+	n, err := outbox.Cleanup(ctx, j.db, j.now())
+	return done(ctx, "deleted published outbox events", int(n), err)
 }
 
 // PublishEvents publishes the outbox's pending events.

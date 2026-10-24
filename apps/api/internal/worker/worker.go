@@ -1,7 +1,7 @@
 // Package worker is GoShop's background worker (ADR 0007): a second
 // binary from the API's module, cmd/worker, that runs Asynq tasks from
-// Redis. It runs the scheduled jobs, and from Bab 6 artikel 08 the tasks
-// the outbox publishes (emails, the seller's Telegram message). It serves
+// Redis: the scheduled jobs, and the tasks the outbox publishes (emails,
+// the seller's Telegram message). It serves
 // no public HTTP: only /healthz and /readyz on $PORT for the platform.
 package worker
 
@@ -84,17 +84,21 @@ func serve(ctx context.Context, cfg config.Config, logger logx.Logger, db *sql.D
 	if err != nil {
 		return err
 	}
-	deps := JobDeps{DB: db, Gateway: app.PaymentGateway(cfg.Payment, logger), Publisher: outbox.LogPublisher{Logger: logger}}
+	telegramOn := cfg.Telegram.BotToken != ""
+	publisher := notify.NewQueuePublisher(asynq.NewClientFromRedisClient(rdb), notify.NewRoutes(telegramOn))
+	deps := JobDeps{DB: db, Gateway: app.PaymentGateway(cfg.Payment, logger), Publisher: publisher}
 	if store != nil {
 		deps.Store = store
 	}
 	mux := asynq.NewServeMux()
 	NewJobs(deps).Register(mux)
+
 	orders := order.NewPostgresRepository(db)
-	RegisterNotifications(mux, notify.NewEmails(app.WorkerMailer(cfg, logger), orders, user.NewPostgresRepository(db)))
-	if cfg.Telegram.BotToken != "" {
-		mux.HandleFunc(notify.TypeSellerPaidOrder,
-			notify.NewTelegramSeller(cfg.Telegram.BotToken, cfg.Telegram.ChatID, orders).PaidOrder)
+	deliveries := outbox.NewDeliveries(db)
+	RegisterNotifications(mux, deliveries, notify.NewEmails(app.WorkerMailer(cfg, logger), orders, user.NewPostgresRepository(db)))
+	if telegramOn {
+		mux.HandleFunc(notify.TypeSellerPaidOrder, notify.Once(deliveries,
+			notify.NewTelegramSeller(cfg.Telegram.BotToken, cfg.Telegram.ChatID, orders).PaidOrder))
 	} else {
 		logger.Info("seller notifications are off: TELEGRAM_BOT_TOKEN is not set")
 	}
@@ -148,13 +152,13 @@ func enqueued(logger logx.Logger) func(*asynq.TaskInfo, error) {
 }
 
 // RegisterNotifications adds the email tasks' handlers to mux. The API
-// queues TypeSendEmail; the outbox publishes the order emails (Bab 6
-// artikel 11).
-func RegisterNotifications(mux *asynq.ServeMux, emails *notify.Emails) {
+// queues TypeSendEmail; the outbox publishes the order emails, each made
+// idempotent per event with deliveries.
+func RegisterNotifications(mux *asynq.ServeMux, deliveries notify.Deliveries, emails *notify.Emails) {
 	mux.HandleFunc(notify.TypeSendEmail, emails.SendQueued)
-	mux.HandleFunc(notify.TypeOrderConfirmationEmail, emails.OrderConfirmation)
-	mux.HandleFunc(notify.TypePaymentReceivedEmail, emails.PaymentReceived)
-	mux.HandleFunc(notify.TypeOrderShippedEmail, emails.OrderShipped)
+	mux.HandleFunc(notify.TypeOrderConfirmationEmail, notify.Once(deliveries, emails.OrderConfirmation))
+	mux.HandleFunc(notify.TypePaymentReceivedEmail, notify.Once(deliveries, emails.PaymentReceived))
+	mux.HandleFunc(notify.TypeOrderShippedEmail, notify.Once(deliveries, emails.OrderShipped))
 }
 
 // register schedules every job of Schedule. Unique: when two worker

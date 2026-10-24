@@ -17,6 +17,7 @@ import (
 	"github.com/santekno/shop-app/apps/api/internal/cart"
 	"github.com/santekno/shop-app/apps/api/internal/config"
 	"github.com/santekno/shop-app/apps/api/internal/order"
+	"github.com/santekno/shop-app/apps/api/internal/outbox"
 	"github.com/santekno/shop-app/apps/api/internal/payment"
 	"github.com/santekno/shop-app/apps/api/internal/shipping"
 )
@@ -130,7 +131,7 @@ func TestJobs(t *testing.T) {
 	}
 	t.Run("publish-events without a transaction", func(t *testing.T) {
 		logger, logs := jsonLogger()
-		err := publishEvents(context.Background(), (&jobDB{}).open(t), logger)
+		err := publishEvents(outbox.LogPublisher{Logger: logger})(context.Background(), (&jobDB{}).open(t), logger)
 		testx.AssertError(t, err)
 		testx.AssertContains(t, logs.String(), `"msg":"published domain events","published":0`)
 	})

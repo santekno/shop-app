@@ -52,7 +52,7 @@ func NewEventTask(taskType string, e outbox.Event) (*asynq.Task, error) {
 // decode never will: SkipRetry sends the task to the dead-letter queue.
 func decodeEvent(t *asynq.Task) (EventPayload, error) {
 	var p EventPayload
-	if err := json.Unmarshal(t.Payload(), &p); err != nil || p.AggregateID == "" {
+	if err := json.Unmarshal(t.Payload(), &p); err != nil || p.AggregateID == "" || p.EventID == "" {
 		return EventPayload{}, fmt.Errorf("%s: bad payload: %w", t.Type(), asynq.SkipRetry)
 	}
 	return p, nil

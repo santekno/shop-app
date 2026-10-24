@@ -53,6 +53,12 @@ type Category struct {
 	UpdatedAt   time.Time
 }
 
+type EventDelivery struct {
+	EventID     string
+	Consumer    string
+	DeliveredAt time.Time
+}
+
 type IdempotencyKey struct {
 	UserID         string
 	Key            string
