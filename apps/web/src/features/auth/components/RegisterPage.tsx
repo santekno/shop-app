@@ -4,12 +4,14 @@ import { Link, useNavigate } from "react-router";
 import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
+  isApiError,
   registerSchema,
 } from "@goshop/shared";
 import type { RegisterRequest } from "@goshop/shared";
 import { Card } from "@/components/ui/Card.tsx";
 import { TextField } from "@/components/ui/TextField.tsx";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle.ts";
+import { setApiFieldErrors } from "@/lib/api-form-errors.ts";
 import { authErrorMessage } from "../auth-errors.ts";
 import { useRegister } from "../hooks/useRegister.ts";
 import { registeredState } from "../navigation-state.ts";
@@ -33,6 +35,7 @@ export function RegisterPage() {
   const {
     register,
     handleSubmit,
+    setError,
     formState: { errors },
   } = useForm({
     resolver: zodResolver(registerSchema),
@@ -43,6 +46,28 @@ export function RegisterPage() {
     registerMutation.mutate(account, {
       onSuccess: (user) => {
         void navigate("/masuk", { state: registeredState(user.email) });
+      },
+      onError: (error) => {
+        // 400 VALIDATION_FAILED: under each field the API refused. The
+        // schema already checked what it could, so this is mostly what
+        // only the server knows: a password on its list of leaked ones.
+        if (setApiFieldErrors(error, setError, ["name", "email", "password"])) {
+          return;
+        }
+        // 409 EMAIL_TAKEN is about the email field too.
+        if (isApiError(error, "EMAIL_TAKEN")) {
+          setError(
+            "email",
+            {
+              type: "server",
+              message:
+                "Email ini sudah terdaftar. Silakan masuk, atau gunakan email lain.",
+            },
+            { shouldFocus: true },
+          );
+          return;
+        }
+        setError("root.server", { message: authErrorMessage(error) });
       },
     });
   };
@@ -76,9 +101,9 @@ export function RegisterPage() {
           error={errors.password?.message}
           {...register("password")}
         />
-        {registerMutation.isError && (
+        {errors.root?.server !== undefined && (
           <p role="alert" className="error-text">
-            {authErrorMessage(registerMutation.error)}
+            {errors.root.server.message}
           </p>
         )}
         <button type="submit" disabled={registerMutation.isPending}>

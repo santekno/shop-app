@@ -6,6 +6,7 @@ import type { LoginRequest } from "@goshop/shared";
 import { Card } from "@/components/ui/Card.tsx";
 import { TextField } from "@/components/ui/TextField.tsx";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle.ts";
+import { setApiFieldErrors } from "@/lib/api-form-errors.ts";
 import { authErrorMessage } from "../auth-errors.ts";
 import { useLogin } from "../hooks/useLogin.ts";
 import { registeredEmailFrom } from "../navigation-state.ts";
@@ -34,6 +35,7 @@ export function LoginPage() {
   const {
     register,
     handleSubmit,
+    setError,
     formState: { errors },
   } = useForm({
     resolver: zodResolver(loginSchema),
@@ -45,6 +47,13 @@ export function LoginPage() {
       // replace: Back from the catalog should not reopen the login form.
       onSuccess: () => {
         void navigate("/", { replace: true });
+      },
+      // The API's answer, shown where it belongs: a field's own problem
+      // under that field, anything else (INVALID_CREDENTIALS, the
+      // network) above the button, as the form's `root` error.
+      onError: (error) => {
+        if (setApiFieldErrors(error, setError, ["email", "password"])) return;
+        setError("root.server", { message: authErrorMessage(error) });
       },
     });
   };
@@ -77,9 +86,9 @@ export function LoginPage() {
           error={errors.password?.message}
           {...register("password")}
         />
-        {loginMutation.isError && (
+        {errors.root?.server !== undefined && (
           <p role="alert" className="error-text">
-            {authErrorMessage(loginMutation.error)}
+            {errors.root.server.message}
           </p>
         )}
         <button type="submit" disabled={loginMutation.isPending}>
