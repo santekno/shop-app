@@ -580,6 +580,60 @@ paths:
         "503":
           $ref: "#/components/responses/StorageUnavailable"
 
+  /v1/admin/reports/sales:
+    get:
+      tags: [Admin]
+      operationId: getSalesReport
+      summary: Sales report
+      description: |
+        Revenue, order count and average order value per period, with a
+        running total, and the top 5 products, for the orders paid in the
+        range that were not cancelled afterwards (status `paid`,
+        `processing`, `shipped` or `completed`). Dates are Jakarta dates
+        (WIB), both included; at most 366 days. Every period of the range
+        is listed, empty ones included; weeks start on Monday, and the
+        first week or month may start before `from`. Revenue is the orders'
+        totals (after vouchers, with shipping); a top product's revenue is
+        its lines' totals (goods only, before vouchers).
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          description: First day; 29 days before `to` when not given.
+          schema:
+            type: string
+            format: date
+          example: "2026-10-01"
+        - name: to
+          in: query
+          description: Last day; today (Jakarta) when not given.
+          schema:
+            type: string
+            format: date
+          example: "2026-10-31"
+        - name: group
+          in: query
+          schema:
+            type: string
+            enum: [day, week, month]
+            default: day
+      responses:
+        "200":
+          description: The report.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesReportDetail"
+        "400":
+          $ref: "#/components/responses/BadReportQuery"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /v1/auth/register:
     post:
       tags: [Auth]
@@ -3322,6 +3376,89 @@ components:
         data:
           $ref: "#/components/schemas/NotificationResult"
 
+    SalesReport:
+      type: object
+      required: [from, to, group, time_zone, totals, series, top_products]
+      additionalProperties: false
+      properties:
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+        group:
+          type: string
+          enum: [day, week, month]
+        time_zone:
+          type: string
+          const: Asia/Jakarta
+        totals:
+          type: object
+          required: [revenue, order_count, average_order_value]
+          additionalProperties: false
+          properties:
+            revenue:
+              $ref: "#/components/schemas/Money"
+            order_count:
+              type: integer
+              minimum: 0
+            average_order_value:
+              $ref: "#/components/schemas/Money"
+              description: Revenue divided by order count, rounded to the rupiah; 0 without orders.
+        series:
+          type: array
+          items:
+            type: object
+            required: [period, revenue, order_count, average_order_value, cumulative_revenue]
+            additionalProperties: false
+            properties:
+              period:
+                type: string
+                format: date
+                description: The period's first day.
+              revenue:
+                $ref: "#/components/schemas/Money"
+              order_count:
+                type: integer
+                minimum: 0
+              average_order_value:
+                $ref: "#/components/schemas/Money"
+              cumulative_revenue:
+                $ref: "#/components/schemas/Money"
+                description: Revenue from the range's start through this period.
+        top_products:
+          type: array
+          maxItems: 5
+          items:
+            type: object
+            required: [rank, product_id, name, units, revenue]
+            additionalProperties: false
+            properties:
+              rank:
+                type: integer
+                minimum: 1
+                description: Products with the same revenue share a rank.
+              product_id:
+                type: string
+                format: uuid
+              name:
+                type: string
+                description: The product's current name.
+              units:
+                type: integer
+                minimum: 1
+              revenue:
+                $ref: "#/components/schemas/Money"
+
+    SalesReportDetail:
+      type: object
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          $ref: "#/components/schemas/SalesReport"
+
     ShipRequest:
       type: object
       required: [tracking_number]
@@ -4022,3 +4159,15 @@ components:
             error:
               code: NOT_FOUND
               message: image not found
+    BadReportQuery:
+      description: A date is not `YYYY-MM-DD`, `group` is not day, week or month, or `to` is before `from` or the range is longer than 366 days, both included (`VALIDATION_FAILED`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: VALIDATION_FAILED
+              message: invalid query parameters
+              details:
+                to: must be on or after from, at most 366 days in all, both included

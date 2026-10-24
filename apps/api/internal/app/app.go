@@ -37,6 +37,7 @@ import (
 	"github.com/santekno/shop-app/apps/api/internal/payment/midtrans"
 	"github.com/santekno/shop-app/apps/api/internal/product"
 	"github.com/santekno/shop-app/apps/api/internal/redisconn"
+	"github.com/santekno/shop-app/apps/api/internal/report"
 	"github.com/santekno/shop-app/apps/api/internal/shipping"
 	"github.com/santekno/shop-app/apps/api/internal/storage"
 	"github.com/santekno/shop-app/apps/api/internal/user"
@@ -161,6 +162,7 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 	paymentHandler := payment.NewHandler(payment.HandlerDeps{
 		Payer: paymentService, Limiter: o.limiter, TrustedProxyHops: cfg.TrustedProxyHops,
 	})
+	reportHandler := report.NewHandler(report.NewService(db), validator, o.clock)
 	userHandler := user.NewHandler(userService, validator)
 	addressHandler := address.NewHandler(addressService, validator)
 	cartHandler := cart.NewHandler(cart.HandlerDeps{
@@ -205,6 +207,7 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 					Route("/admin", func(r chi.Router) {
 						productHandler.AdminRoutes(r)
 						orderHandler.AdminRoutes(r)
+						reportHandler.AdminRoutes(r)
 					})
 			})
 		})
