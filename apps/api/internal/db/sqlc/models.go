@@ -182,6 +182,7 @@ type ProductImage struct {
 	Height      sql.NullInt32
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+	Variants    json.RawMessage
 }
 
 type ProductVariant struct {

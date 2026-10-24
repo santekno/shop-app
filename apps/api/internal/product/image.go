@@ -2,6 +2,7 @@ package product
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -11,11 +12,13 @@ import (
 	"io"
 	"net/http"
 	"slices"
+	"strconv"
 	"time"
 
 	"github.com/santekno/sdk/logx"
 	_ "golang.org/x/image/webp"
 
+	"github.com/santekno/shop-app/apps/api/internal/imaging"
 	"github.com/santekno/shop-app/apps/api/internal/storage"
 )
 
@@ -26,7 +29,9 @@ import (
 // Image statuses: the product_images_status_check values.
 const (
 	ImagePendingUpload = "pending_upload"
+	ImageProcessing    = "processing"
 	ImageReady         = "ready"
+	ImageFailed        = "failed"
 )
 
 // Upload limits.
@@ -59,10 +64,29 @@ type Image struct {
 	// OriginalKey is the uploaded file's S3 key.
 	OriginalKey string
 	// Width and Height are the original's pixels; 0 until confirmed.
-	Width     int32
-	Height    int32
+	Width  int32
+	Height int32
+	// Variants are the storefront's JPEG copies, narrowest first; empty
+	// until the worker has made them.
+	Variants  []ImageVariant
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+// ImageVariant is one resized copy of an image.
+type ImageVariant struct {
+	Width  int32  `json:"width"`
+	Height int32  `json:"height"`
+	Key    string `json:"key"`
+}
+
+// Largest is the widest variant, which the storefront's url points at;
+// false while there is none.
+func (img Image) Largest() (ImageVariant, bool) {
+	if len(img.Variants) == 0 {
+		return ImageVariant{}, false
+	}
+	return img.Variants[len(img.Variants)-1], true
 }
 
 // Upload is a presigned upload of a new image.
@@ -97,6 +121,7 @@ type ObjectStore interface {
 	Stat(ctx context.Context, key string) (storage.ObjectInfo, error)
 	Get(ctx context.Context, key string) (io.ReadCloser, error)
 	Delete(ctx context.Context, key string) error
+	Put(ctx context.Context, key, contentType string, r io.Reader) (string, error)
 	PublicURL(key string) string
 }
 
@@ -107,6 +132,8 @@ type ImageRepository interface {
 	GetImage(ctx context.Context, productID, imageID string) (Image, error)
 	ConfirmImage(ctx context.Context, img Image, status string) error
 	DeleteImage(ctx context.Context, productID, imageID string) error
+	ProcessingImages(ctx context.Context, limit int32) ([]Image, error)
+	FinishImage(ctx context.Context, id, status string, variants []ImageVariant) error
 }
 
 // ImageService is the upload flow.
@@ -121,9 +148,13 @@ func NewImageService(repo ImageRepository, store ObjectStore) *ImageService {
 	return &ImageService{repo: repo, store: store}
 }
 
-// ImageKey is the S3 key of an image's uploaded original.
+// ImageKey is the S3 key of an image's uploaded original. Originals live
+// under uploads/, which is never public: the file is the seller's, with
+// its metadata (a phone photo's GPS position), and may not even be an
+// image until confirm has looked at it. Only what the worker makes, under
+// products/, is publicly readable (ADR 0007).
 func ImageKey(productID, imageID string) string {
-	return "products/" + productID + "/" + imageID + "/original"
+	return "uploads/" + productID + "/" + imageID + "/original"
 }
 
 // StartUpload records a pending image of productID and signs a PUT of
@@ -144,8 +175,9 @@ func (s *ImageService) StartUpload(ctx context.Context, productID, contentType s
 	return Upload{Image: img, Upload: up}, nil
 }
 
-// Confirm checks the uploaded file of image imageID and puts the image on
-// the storefront with alt as its text. Confirming twice returns the image
+// Confirm checks the uploaded file of image imageID and hands it to the
+// worker (processing) with alt as its text; the worker's ProcessPending
+// makes its variants and puts it on the storefront. Confirming twice returns the image
 // again. Errors: ErrStorageDisabled, ErrImageNotFound, ErrUploadMissing,
 // *UploadInvalidError (the file and the image are deleted).
 func (s *ImageService) Confirm(ctx context.Context, productID, imageID, alt string) (Image, error) {
@@ -169,7 +201,7 @@ func (s *ImageService) Confirm(ctx context.Context, productID, imageID, alt stri
 		return Image{}, err
 	}
 	img.Alt, img.Width, img.Height = alt, width, height
-	if err := s.repo.ConfirmImage(ctx, img, ImageReady); err != nil {
+	if err := s.repo.ConfirmImage(ctx, img, ImageProcessing); err != nil {
 		return Image{}, err
 	}
 	return s.repo.GetImage(ctx, productID, imageID)
@@ -248,7 +280,82 @@ func (s *ImageService) Delete(ctx context.Context, productID, imageID string) er
 }
 
 // Keys lists every S3 key the image owns.
-func (img Image) Keys() []string { return []string{img.OriginalKey} }
+func (img Image) Keys() []string {
+	keys := []string{img.OriginalKey}
+	for _, v := range img.Variants {
+		keys = append(keys, v.Key)
+	}
+	return keys
+}
 
 // AllowedImageType reports whether a seller may upload contentType.
 func AllowedImageType(contentType string) bool { return slices.Contains(ImageTypes, contentType) }
+
+// ProcessBatchSize is how many images one ProcessPending run resizes. One
+// at a time, so the worker holds one decoded bitmap (at most
+// MaxImagePixels × 4 bytes, about 96 MB).
+const ProcessBatchSize = 10
+
+// VariantKey is the S3 key of an image's variant of width pixels.
+func VariantKey(productID, imageID string, width int) string {
+	return "products/" + productID + "/" + imageID + "/" + strconv.Itoa(width) + ".jpg"
+}
+
+// ProcessPending makes the variants of up to ProcessBatchSize confirmed
+// images, oldest first, and returns how many it finished (ready or
+// failed). A file that does not decode fails the image for good; a
+// storage error leaves it for the next run. Two runs at once may resize
+// the same image: they write the same keys, and only one finishes it.
+// `api process-images` runs it once; the worker every 30 seconds.
+func (s *ImageService) ProcessPending(ctx context.Context) (int, error) {
+	if s.store == nil {
+		return 0, ErrStorageDisabled
+	}
+	images, err := s.repo.ProcessingImages(ctx, ProcessBatchSize)
+	if err != nil {
+		return 0, err
+	}
+	done := 0
+	for _, img := range images {
+		variants, err := s.resize(ctx, img)
+		switch {
+		case errors.Is(err, imaging.ErrUndecodable):
+			logx.FromContext(ctx).Warn("image cannot be processed", "image_id", img.ID, "error", err.Error())
+			err = s.repo.FinishImage(ctx, img.ID, ImageFailed, nil)
+		case err != nil:
+			logx.FromContext(ctx).Warn("process image", "image_id", img.ID, "error", err.Error())
+			continue
+		default:
+			err = s.repo.FinishImage(ctx, img.ID, ImageReady, variants)
+		}
+		if err != nil && !errors.Is(err, ErrImageNotFound) {
+			return done, err
+		}
+		if err == nil {
+			done++
+		}
+	}
+	return done, nil
+}
+
+// resize reads img's original, makes its variants and stores them.
+func (s *ImageService) resize(ctx context.Context, img Image) ([]ImageVariant, error) {
+	obj, err := s.store.Get(ctx, img.OriginalKey)
+	if err != nil {
+		return nil, fmt.Errorf("read original: %w", err)
+	}
+	defer func() { _ = obj.Close() }()
+	resized, err := imaging.Resize(io.LimitReader(obj, MaxImageBytes), imaging.Widths, MaxImagePixels)
+	if err != nil {
+		return nil, err
+	}
+	variants := make([]ImageVariant, 0, len(resized))
+	for _, v := range resized {
+		key := VariantKey(img.ProductID, img.ID, v.Width)
+		if _, err := s.store.Put(ctx, key, "image/jpeg", bytes.NewReader(v.JPEG)); err != nil {
+			return nil, fmt.Errorf("store variant: %w", err)
+		}
+		variants = append(variants, ImageVariant{Width: int32(v.Width), Height: int32(v.Height), Key: key}) // #nosec G115 -- at most MaxImageSide
+	}
+	return variants, nil
+}

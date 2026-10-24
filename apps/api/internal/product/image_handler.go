@@ -188,26 +188,36 @@ func (h *Handler) imageURL(key string) string {
 // imageJSON is ProductImage in api/openapi.yaml: a photo as the
 // storefront shows it.
 type imageJSON struct {
-	ID     string `json:"id"`
-	URL    string `json:"url"`
-	Alt    string `json:"alt"`
+	ID       string             `json:"id"`
+	URL      string             `json:"url"`
+	Alt      string             `json:"alt"`
+	Width    int32              `json:"width"`
+	Height   int32              `json:"height"`
+	Variants []variantJSONImage `json:"variants"`
+}
+
+// variantJSONImage is ImageVariant in api/openapi.yaml: one entry of a
+// srcset ("<url> <width>w").
+type variantJSONImage struct {
 	Width  int32  `json:"width"`
 	Height int32  `json:"height"`
+	URL    string `json:"url"`
 }
 
 // adminImageJSON is AdminProductImage: every image, with its status.
 type adminImageJSON struct {
-	ID          string    `json:"id"`
-	Status      string    `json:"status"`
-	Position    int16     `json:"position"`
-	Alt         string    `json:"alt"`
-	ContentType string    `json:"content_type"`
-	SizeBytes   int32     `json:"size_bytes"`
-	URL         *string   `json:"url"` // null until confirmed
-	Width       *int32    `json:"width"`
-	Height      *int32    `json:"height"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID          string             `json:"id"`
+	Status      string             `json:"status"`
+	Position    int16              `json:"position"`
+	Alt         string             `json:"alt"`
+	ContentType string             `json:"content_type"`
+	SizeBytes   int32              `json:"size_bytes"`
+	URL         *string            `json:"url"` // null until ready
+	Width       *int32             `json:"width"`
+	Height      *int32             `json:"height"`
+	Variants    []variantJSONImage `json:"variants"`
+	CreatedAt   time.Time          `json:"created_at"`
+	UpdatedAt   time.Time          `json:"updated_at"`
 }
 
 type presignedJSON struct {
@@ -222,12 +232,27 @@ type uploadJSON struct {
 	Upload presignedJSON  `json:"upload"`
 }
 
+// toImagesJSON is the storefront's images: ready ones only, each pointing
+// at its widest variant, never at the original.
 func (h *Handler) toImagesJSON(images []Image) []imageJSON {
 	out := make([]imageJSON, 0, len(images))
 	for _, img := range images {
+		largest, ok := img.Largest()
+		if img.Status != ImageReady || !ok {
+			continue
+		}
 		out = append(out, imageJSON{
-			ID: img.ID, URL: h.imageURL(img.OriginalKey), Alt: img.Alt, Width: img.Width, Height: img.Height,
+			ID: img.ID, URL: h.imageURL(largest.Key), Alt: img.Alt, Width: largest.Width, Height: largest.Height,
+			Variants: h.toVariantsJSON(img.Variants),
 		})
+	}
+	return out
+}
+
+func (h *Handler) toVariantsJSON(variants []ImageVariant) []variantJSONImage {
+	out := make([]variantJSONImage, 0, len(variants))
+	for _, v := range variants {
+		out = append(out, variantJSONImage{Width: v.Width, Height: v.Height, URL: h.imageURL(v.Key)})
 	}
 	return out
 }
@@ -235,10 +260,11 @@ func (h *Handler) toImagesJSON(images []Image) []imageJSON {
 func (h *Handler) toAdminImageJSON(img Image) adminImageJSON {
 	out := adminImageJSON{
 		ID: img.ID, Status: img.Status, Position: img.Position, Alt: img.Alt, ContentType: img.ContentType,
-		SizeBytes: img.SizeBytes, CreatedAt: img.CreatedAt.UTC(), UpdatedAt: img.UpdatedAt.UTC(),
+		SizeBytes: img.SizeBytes, Variants: h.toVariantsJSON(img.Variants),
+		CreatedAt: img.CreatedAt.UTC(), UpdatedAt: img.UpdatedAt.UTC(),
 	}
-	if img.Status != ImagePendingUpload {
-		url, w, ht := h.imageURL(img.OriginalKey), img.Width, img.Height
+	if largest, ok := img.Largest(); ok && img.Status == ImageReady {
+		url, w, ht := h.imageURL(largest.Key), largest.Width, largest.Height
 		out.URL, out.Width, out.Height = &url, &w, &ht
 	}
 	return out

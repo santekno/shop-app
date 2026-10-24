@@ -8,6 +8,7 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 
 	"github.com/lib/pq"
 )
@@ -80,8 +81,30 @@ func (q *Queries) DeleteProductImage(ctx context.Context, arg DeleteProductImage
 	return result.RowsAffected()
 }
 
+const finishProductImage = `-- name: FinishProductImage :execrows
+UPDATE product_images SET status = $1, variants = $2, updated_at = now()
+WHERE id = $3 AND status = 'processing'
+`
+
+type FinishProductImageParams struct {
+	Status   string
+	Variants json.RawMessage
+	ID       string
+}
+
+// The worker's answer: ready with its variants, or failed. Only from
+// processing, so an image deleted (or finished by another worker) since
+// it was listed is left alone.
+func (q *Queries) FinishProductImage(ctx context.Context, arg FinishProductImageParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, finishProductImage, arg.Status, arg.Variants, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const getProductImage = `-- name: GetProductImage :one
-SELECT id, product_id, position, alt, status, content_type, size_bytes, original_key, width, height, created_at, updated_at
+SELECT id, product_id, position, alt, status, content_type, size_bytes, original_key, width, height, created_at, updated_at, variants
 FROM product_images
 WHERE id = $1 AND product_id = $2
 `
@@ -107,6 +130,7 @@ func (q *Queries) GetProductImage(ctx context.Context, arg GetProductImageParams
 		&i.Height,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Variants,
 	)
 	return i, err
 }
@@ -137,8 +161,55 @@ func (q *Queries) InsertProductImage(ctx context.Context, arg InsertProductImage
 	return err
 }
 
+const listProcessingImages = `-- name: ListProcessingImages :many
+SELECT id, product_id, position, alt, status, content_type, size_bytes, original_key, width, height, created_at, updated_at, variants
+FROM product_images
+WHERE status = 'processing'
+ORDER BY updated_at
+LIMIT $1
+`
+
+// Confirmed images waiting for their variants, oldest first. Served by
+// product_images_processing_idx.
+func (q *Queries) ListProcessingImages(ctx context.Context, batchSize int32) ([]ProductImage, error) {
+	rows, err := q.db.QueryContext(ctx, listProcessingImages, batchSize)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ProductImage
+	for rows.Next() {
+		var i ProductImage
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProductID,
+			&i.Position,
+			&i.Alt,
+			&i.Status,
+			&i.ContentType,
+			&i.SizeBytes,
+			&i.OriginalKey,
+			&i.Width,
+			&i.Height,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Variants,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listProductImages = `-- name: ListProductImages :many
-SELECT id, product_id, position, alt, status, content_type, size_bytes, original_key, width, height, created_at, updated_at
+SELECT id, product_id, position, alt, status, content_type, size_bytes, original_key, width, height, created_at, updated_at, variants
 FROM product_images
 WHERE product_id = ANY($1::uuid[])
 ORDER BY product_id, position, id
@@ -169,6 +240,7 @@ func (q *Queries) ListProductImages(ctx context.Context, productIds []string) ([
 			&i.Height,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Variants,
 		); err != nil {
 			return nil, err
 		}

@@ -9,7 +9,7 @@
     },
     {
       "name": "anonymous",
-      "actions": ["Read:goshop"]
+      "actions": ["Read:goshop/products/*"]
     }
   ]
 }

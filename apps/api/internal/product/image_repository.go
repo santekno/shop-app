@@ -3,6 +3,7 @@ package product
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -122,10 +123,47 @@ func (r *PostgresRepository) attachImages(ctx context.Context, products []Produc
 	return nil
 }
 
+// ProcessingImages returns up to limit confirmed images waiting for their
+// variants, oldest first.
+func (r *PostgresRepository) ProcessingImages(ctx context.Context, limit int32) ([]Image, error) {
+	rows, err := r.q.ListProcessingImages(ctx, limit)
+	if err != nil {
+		return nil, fmt.Errorf("query processing images: %w", err)
+	}
+	out := make([]Image, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, fromImageRow(row))
+	}
+	return out, nil
+}
+
+// FinishImage moves the processing image id to status with its variants.
+// ErrImageNotFound: deleted or finished meanwhile.
+func (r *PostgresRepository) FinishImage(ctx context.Context, id, status string, variants []ImageVariant) error {
+	if variants == nil {
+		variants = []ImageVariant{}
+	}
+	raw, err := json.Marshal(variants)
+	if err != nil {
+		return fmt.Errorf("encode variants: %w", err)
+	}
+	n, err := r.q.FinishProductImage(ctx, sqlc.FinishProductImageParams{ID: id, Status: status, Variants: raw})
+	if err != nil {
+		return fmt.Errorf("finish image: %w", err)
+	}
+	if n == 0 {
+		return ErrImageNotFound
+	}
+	return nil
+}
+
 func fromImageRow(row sqlc.ProductImage) Image {
-	return Image{
+	img := Image{
 		ID: row.ID, ProductID: row.ProductID, Position: row.Position, Alt: row.Alt, Status: row.Status,
 		ContentType: row.ContentType, SizeBytes: row.SizeBytes, OriginalKey: row.OriginalKey,
 		Width: row.Width.Int32, Height: row.Height.Int32, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
 	}
+	// The worker wrote it; a row that does not decode simply has none.
+	_ = json.Unmarshal(row.Variants, &img.Variants)
+	return img
 }

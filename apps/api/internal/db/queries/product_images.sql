@@ -18,7 +18,7 @@ INSERT INTO product_images (id, product_id, position, content_type, size_bytes, 
 VALUES (@id, @product_id, @position, @content_type, @size_bytes, @original_key);
 
 -- name: GetProductImage :one
-SELECT id, product_id, position, alt, status, content_type, size_bytes, original_key, width, height, created_at, updated_at
+SELECT id, product_id, position, alt, status, content_type, size_bytes, original_key, width, height, created_at, updated_at, variants
 FROM product_images
 WHERE id = @id AND product_id = @product_id;
 
@@ -36,7 +36,23 @@ DELETE FROM product_images WHERE id = @id AND product_id = @product_id;
 -- Every image of the products, any status, in order: the storefront keeps
 -- the ready ones, the admin shows all. Served by
 -- product_images_product_idx.
-SELECT id, product_id, position, alt, status, content_type, size_bytes, original_key, width, height, created_at, updated_at
+SELECT id, product_id, position, alt, status, content_type, size_bytes, original_key, width, height, created_at, updated_at, variants
 FROM product_images
 WHERE product_id = ANY(@product_ids::uuid[])
 ORDER BY product_id, position, id;
+
+-- name: ListProcessingImages :many
+-- Confirmed images waiting for their variants, oldest first. Served by
+-- product_images_processing_idx.
+SELECT id, product_id, position, alt, status, content_type, size_bytes, original_key, width, height, created_at, updated_at, variants
+FROM product_images
+WHERE status = 'processing'
+ORDER BY updated_at
+LIMIT @batch_size;
+
+-- name: FinishProductImage :execrows
+-- The worker's answer: ready with its variants, or failed. Only from
+-- processing, so an image deleted (or finished by another worker) since
+-- it was listed is left alone.
+UPDATE product_images SET status = @status, variants = @variants, updated_at = now()
+WHERE id = @id AND status = 'processing';

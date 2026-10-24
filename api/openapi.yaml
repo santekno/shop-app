@@ -251,10 +251,17 @@ paths:
                         stock: 0
                     images:
                       - id: 0192f3b2-0a1b-7c2d-8e3f-4a5b6c7d8e9f
-                        url: http://localhost:8333/goshop/products/0192f3a1-5e6f-7a8b-9c0d-1e2f3a4b5c6d/0192f3b2-0a1b-7c2d-8e3f-4a5b6c7d8e9f/original
+                        url: http://localhost:8333/goshop/products/0192f3a1-5e6f-7a8b-9c0d-1e2f3a4b5c6d/0192f3b2-0a1b-7c2d-8e3f-4a5b6c7d8e9f/800.jpg
                         alt: Kaos polos hitam, tampak depan
-                        width: 1600
-                        height: 1600
+                        width: 800
+                        height: 800
+                        variants:
+                          - width: 400
+                            height: 400
+                            url: http://localhost:8333/goshop/products/0192f3a1-5e6f-7a8b-9c0d-1e2f3a4b5c6d/0192f3b2-0a1b-7c2d-8e3f-4a5b6c7d8e9f/400.jpg
+                          - width: 800
+                            height: 800
+                            url: http://localhost:8333/goshop/products/0192f3a1-5e6f-7a8b-9c0d-1e2f3a4b5c6d/0192f3b2-0a1b-7c2d-8e3f-4a5b6c7d8e9f/800.jpg
                     created_at: "2026-11-01T08:00:00Z"
                 page:
                   next_cursor: eyJjIjoiMjAyNi0xMS0wMVQwODowMDowMFoiLCJpZCI6IjAxOTJmM2ExIn0
@@ -511,7 +518,10 @@ paths:
         and type must be the declared ones, its first bytes must really be
         that format, and it must be at most 6000 pixels a side and 24
         megapixels. A file that fails is deleted with its pending photo
-        (422); start a new upload. Confirming a confirmed photo answers it
+        (422); start a new upload. A photo that passes is `processing`:
+        the worker resizes it into 400 and 800 pixel wide JPEGs (dropping
+        the original's metadata) and then it is `ready` on the storefront,
+        normally within 30 seconds. Confirming a confirmed photo answers it
         again.
       security:
         - bearerAuth: []
@@ -2016,7 +2026,7 @@ components:
             $ref: "#/components/schemas/ProductVariant"
         images:
           type: array
-          description: The product's photos in order, the first being its main photo; empty while it has none. Only photos the server has checked are listed (Bab 6).
+          description: The product's photos in order, the first being its main photo; empty while it has none. Only `ready` photos are listed (Bab 6).
           maxItems: 10
           items:
             $ref: "#/components/schemas/ProductImage"
@@ -2026,8 +2036,8 @@ components:
 
     ProductImage:
       type: object
-      description: A product photo as the storefront shows it.
-      required: [id, url, alt, width, height]
+      description: A product photo as the storefront shows it, resized by the server into JPEGs; the uploaded original is never linked.
+      required: [id, url, alt, width, height, variants]
       additionalProperties: false
       properties:
         id:
@@ -2036,7 +2046,7 @@ components:
         url:
           type: string
           format: uri
-          description: Where the photo is read from (the bucket's public URL or a CDN). Never changes for one image id, so it may be cached.
+          description: The widest variant, for an `<img src>`. Read from the bucket's public URL or a CDN; never changes for one image id, so it may be cached.
         alt:
           type: string
           maxLength: 200
@@ -2044,14 +2054,36 @@ components:
         width:
           type: integer
           minimum: 1
+          description: The width of `url`.
         height:
           type: integer
           minimum: 1
+        variants:
+          type: array
+          description: Every size, narrowest first (400 and 800 pixels wide, or the original's width when it is smaller), for `srcset="<url> <width>w, …"`.
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/ImageVariant"
+
+    ImageVariant:
+      type: object
+      required: [width, height, url]
+      additionalProperties: false
+      properties:
+        width:
+          type: integer
+          minimum: 1
+        height:
+          type: integer
+          minimum: 1
+        url:
+          type: string
+          format: uri
 
     AdminProductImage:
       type: object
       description: A product photo as the admin sees it, pending uploads included.
-      required: [id, status, position, alt, content_type, size_bytes, url, width, height, created_at, updated_at]
+      required: [id, status, position, alt, content_type, size_bytes, url, width, height, variants, created_at, updated_at]
       additionalProperties: false
       properties:
         id:
@@ -2059,8 +2091,8 @@ components:
           format: uuid
         status:
           type: string
-          enum: [pending_upload, ready]
-          description: "`pending_upload`: signed but not confirmed; `ready`: on the storefront."
+          enum: [pending_upload, processing, ready, failed]
+          description: "`pending_upload`: signed but not confirmed; `processing`: confirmed, the worker is making its sizes (normally within 30 seconds); `ready`: on the storefront; `failed`: the file could not be decoded, delete it and upload again."
         position:
           type: integer
           minimum: 0
@@ -2075,12 +2107,13 @@ components:
           minimum: 1
           maximum: 5242880
         url:
-          description: The photo's public URL, `null` until confirmed.
+          description: The widest variant's public URL, `null` until `ready`.
           oneOf:
             - type: string
               format: uri
             - type: "null"
         width:
+          description: The width of `url`, `null` until `ready`.
           oneOf:
             - type: integer
               minimum: 1
@@ -2090,6 +2123,11 @@ components:
             - type: integer
               minimum: 1
             - type: "null"
+        variants:
+          type: array
+          description: Every size, narrowest first; empty until `ready`.
+          items:
+            $ref: "#/components/schemas/ImageVariant"
         created_at:
           type: string
           format: date-time

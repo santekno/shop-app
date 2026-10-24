@@ -353,8 +353,10 @@ func Run(ctx context.Context, args []string, stdout io.Writer) error {
 		return runJob(ctx, cfg, logger, "publish-events", publishEvents)
 	case len(args) == 1 && args[0] == "reconcile-payments":
 		return runJob(ctx, cfg, logger, "reconcile-payments", reconcilePayments(cfg.Payment))
+	case len(args) == 1 && args[0] == "process-images":
+		return runJob(ctx, cfg, logger, "process-images", processImages(cfg.Storage))
 	default:
-		return fmt.Errorf("unknown arguments %q (usage: api [healthcheck|migrate|expire-orders|cleanup-idempotency-keys|publish-events|reconcile-payments])", args)
+		return fmt.Errorf("unknown arguments %q (usage: api [healthcheck|migrate|expire-orders|cleanup-idempotency-keys|publish-events|reconcile-payments|process-images])", args)
 	}
 
 	db, err := database.Open(ctx, cfg.Database, logger)
@@ -460,6 +462,26 @@ func reconcilePayments(cfg config.Payment) func(context.Context, *sql.DB, logx.L
 		svc := payment.NewService(payment.Deps{Repo: payment.NewPostgresRepository(db), Gateway: gateway})
 		res, err := svc.Reconcile(logx.WithContextLogger(ctx, logger))
 		logger.Info("reconciled payments", "checked", res.Checked, "changed", res.Changed, "failed", res.Failed)
+		return err
+	}
+}
+
+// processImages makes the variants of the confirmed product images
+// (product.ImageService.ProcessPending), once. With storage off it does
+// nothing.
+func processImages(cfg config.Storage) func(context.Context, *sql.DB, logx.Logger) error {
+	return func(ctx context.Context, db *sql.DB, logger logx.Logger) error {
+		store, err := objectStore(cfg)
+		if err != nil {
+			return err
+		}
+		if store == nil {
+			logger.Warn("image uploads are off: S3_ENDPOINT is not set; nothing to process")
+			return nil
+		}
+		svc := product.NewImageService(product.NewPostgresRepository(db), store)
+		n, err := svc.ProcessPending(logx.WithContextLogger(ctx, logger))
+		logger.Info("processed product images", "finished", n)
 		return err
 	}
 }
