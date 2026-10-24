@@ -17,6 +17,13 @@ export type Product = Schemas["Product"];
 export type ProductList = Schemas["ProductList"];
 export type ProductDetail = Schemas["ProductDetail"];
 export type ProductVariant = Schemas["ProductVariant"];
+/** A cart (Bab 5): its lines, the number of units and the subtotal. */
+export type Cart = Schemas["Cart"];
+export type CartLine = Schemas["CartLine"];
+export type CartDetail = Schemas["CartDetail"];
+export type CartAddResult = Schemas["CartAddResult"];
+/** The body of POST /v1/cart/items. */
+export type CartItemAdd = Schemas["CartItemAdd"];
 /** The body of every API error: {"error":{"code","message","details"}}. */
 export type ErrorBody = Schemas["Error"];
 

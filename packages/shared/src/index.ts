@@ -43,7 +43,15 @@ export type {
 export { getProduct, listCategories, listProducts } from "./api/catalog.ts";
 export type { EndpointOptions } from "./api/catalog.ts";
 
+export { EMPTY_CART, addCartItem, getCart } from "./api/cart.ts";
+export type { AddCartItemResult, CartRequestOptions } from "./api/cart.ts";
+
 export type {
+  Cart,
+  CartAddResult,
+  CartDetail,
+  CartItemAdd,
+  CartLine,
   Category,
   CategoryList,
   ErrorBody,

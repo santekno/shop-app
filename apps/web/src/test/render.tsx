@@ -12,6 +12,7 @@ import type { ReactElement, ReactNode } from "react";
 import { createMemoryRouter, MemoryRouter, RouterProvider } from "react-router";
 import type { InitialEntry, RouteObject } from "react-router";
 import { routes } from "@/app/routes.tsx";
+import { CartTokenProvider } from "@/features/cart/CartTokenProvider.tsx";
 import { createQueryClient } from "@/lib/query-client.ts";
 import { LocationProbe } from "./LocationProbe.tsx";
 
@@ -23,7 +24,9 @@ export const createTestQueryClient = () => createQueryClient();
 
 /** The app-wide providers App puts around the router. */
 export const providers = (queryClient: QueryClient, children: ReactNode) => (
-  <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  <QueryClientProvider client={queryClient}>
+    <CartTokenProvider>{children}</CartTokenProvider>
+  </QueryClientProvider>
 );
 
 interface RenderOptions {

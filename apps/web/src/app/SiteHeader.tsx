@@ -1,4 +1,5 @@
 import { Link, NavLink } from "react-router";
+import { CartNavLink } from "@/features/cart/components/CartNavLink.tsx";
 
 /**
  * The site's banner and main navigation, on every page (RootLayout).
@@ -25,7 +26,7 @@ export function SiteHeader() {
         <nav aria-label="Utama">
           <ul className="site-nav">
             <li>
-              <NavLink to="/keranjang">Keranjang</NavLink>
+              <CartNavLink />
             </li>
             <li>
               <NavLink to="/masuk">Masuk</NavLink>

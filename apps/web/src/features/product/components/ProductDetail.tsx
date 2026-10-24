@@ -3,6 +3,7 @@ import { formatRupiah } from "@goshop/shared";
 import type { Product } from "@goshop/shared";
 import { Card } from "@/components/ui/Card.tsx";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle.ts";
+import { AddToCart } from "@/features/cart/components/AddToCart.tsx";
 import { ProductImage } from "@/features/catalog/components/ProductImage.tsx";
 import { clampQuantity, maxQuantity } from "../quantity.ts";
 import { QuantityStepper } from "./QuantityStepper.tsx";
@@ -93,6 +94,7 @@ export function ProductDetail({ product }: ProductDetailProps) {
                   })}
                 </strong>
               </p>
+              <AddToCart variantId={variant.id} quantity={quantity} />
             </>
           ) : (
             <p className="badge">Stok habis</p>
