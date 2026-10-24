@@ -8,3 +8,7 @@ import { afterEach } from "vitest";
 afterEach(() => {
   cleanup();
 });
+
+// jsdom has no scrolling: window.scrollTo only reports "Not implemented".
+// The router's ScrollRestoration calls it on every navigation.
+window.scrollTo = () => undefined;

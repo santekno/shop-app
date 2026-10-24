@@ -16,7 +16,8 @@
   "dependencies": {
     "@goshop/shared": "workspace:*",
     "react": "catalog:",
-    "react-dom": "catalog:"
+    "react-dom": "catalog:",
+    "react-router": "catalog:"
   },
   "devDependencies": {
     "@eslint/js": "catalog:",

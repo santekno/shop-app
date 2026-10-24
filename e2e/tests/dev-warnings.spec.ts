@@ -98,10 +98,10 @@ test("the development build logs no warning or error across the storefront", asy
     });
     await article.getByRole("radio", { name: /^L/ }).check();
     await article.getByRole("button", { name: "Tambah jumlah" }).click();
-    await page.getByRole("button", { name: "← Kembali ke katalog" }).click();
+    await page.getByRole("link", { name: "← Kembali ke katalog" }).click();
     await expect(productSection(page)).toBeVisible();
 
-    // A sold-out variant and the brand button.
+    // A sold-out variant and the brand link.
     await openProduct(page, "Rengginang Terasi 250 g");
     await page
       .getByRole("article", { name: "Rengginang Terasi 250 g" })
@@ -109,7 +109,7 @@ test("the development build logs no warning or error across the storefront", asy
       .check();
     await page
       .getByRole("banner")
-      .getByRole("button", { name: "GoShop", exact: true })
+      .getByRole("link", { name: "GoShop", exact: true })
       .click();
     await expect(productSection(page)).toBeVisible();
 
@@ -121,6 +121,9 @@ test("the development build logs no warning or error across the storefront", asy
       cause: error,
     });
   } finally {
+    // A request still in flight when the test ends (a background refetch)
+    // must not fail the next test from its route handler.
+    await page.unrouteAll({ behavior: "ignoreErrors" });
     vite?.kill("SIGTERM");
   }
 });

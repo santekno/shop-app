@@ -1,8 +1,6 @@
-import * as shared from "@goshop/shared";
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { StrictMode } from "react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   categoriesResponse,
   category,
@@ -10,210 +8,136 @@ import {
   product,
   productResponse,
   productsResponse,
-  requestUrl,
   serve,
 } from "@/test/fake-api.ts";
+import { renderApp } from "@/test/render.tsx";
 import { App } from "./App.tsx";
 
 vi.mock("@/lib/api.ts", () => import("@/test/fake-api.ts"));
-// Real behaviour; formatRupiah's calls tell whether product cards rendered.
-vi.mock("@goshop/shared", { spy: true });
-const formatRupiah = vi.mocked(shared.formatRupiah);
+// Under Node, react-router/dom loads react-router's ESM build while the
+// app's own imports get its CommonJS build: two router contexts, and the
+// routes cannot see the router. The browser bundle has one copy, so here
+// App gets the RouterProvider of the copy the routes use.
+vi.mock("react-router/dom", async () => {
+  const { RouterProvider } = await import("react-router");
+  return { RouterProvider };
+});
 
 const kaos = product("kaos-polos", { name: "Kaos Polos" });
-const kemeja = product("kemeja", { name: "Kemeja Flanel" });
-
-/** jsdom has no scrollTo; App calls it when a product opens. */
-let scrollTo: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   fetchMock.mockReset();
   document.title = "GoShop";
-  scrollTo = vi.fn();
-  vi.stubGlobal("scrollTo", scrollTo);
   serve((url) => {
     if (url.pathname === "/v1/categories") {
       return categoriesResponse([category("1", "Pakaian")]);
     }
-    if (url.pathname === "/v1/products") {
-      return productsResponse([kaos, kemeja], null);
-    }
+    if (url.pathname === "/v1/products") return productsResponse([kaos], null);
     if (url.pathname === "/v1/products/kaos-polos")
       return productResponse(kaos);
     return undefined;
   });
 });
 
-afterEach(() => {
-  vi.unstubAllGlobals();
-});
-
-const productRequests = () =>
-  fetchMock.mock.calls.filter(
-    ([input]) => requestUrl(input).pathname === "/v1/products",
-  ).length;
-
-const catalog = () =>
-  screen.getByRole("region", { name: "Produk", hidden: true });
-
-const openKaos = async (user: ReturnType<typeof userEvent.setup>) => {
-  await user.click(await screen.findByRole("button", { name: "Kaos Polos" }));
-  await screen.findByRole("heading", { level: 2, name: "Kaos Polos" });
-};
+const pageHeading = (name: string) =>
+  screen.findByRole("heading", { level: 1, name });
 
 describe("App", () => {
-  it("shows the GoShop heading, as a button, and the catalog", async () => {
+  it("renders the storefront at the browser's address", async () => {
     render(<App />);
 
-    const heading = screen.getByRole("heading", { level: 1, name: "GoShop" });
-    expect(
-      within(heading).getByRole("button", { name: "GoShop" }),
-    ).toBeTruthy();
-    const main = screen.getByRole("main");
-    expect(
-      main.contains(screen.getByRole("region", { name: "Kategori" })),
-    ).toBe(true);
-    expect(
-      await screen.findByRole("button", { name: "Kaos Polos" }),
-    ).toBeTruthy();
-    expect(await screen.findByText("Pakaian")).toBeTruthy();
-    expect(document.title).toBe("Katalog — GoShop");
+    expect(await pageHeading("Katalog")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "GoShop" })).toBeTruthy();
   });
+});
 
-  it("opens a product: hides the catalog, keeps it mounted, scrolls to the top", async () => {
-    const user = userEvent.setup();
-    render(<App />);
+describe("the storefront's routes", () => {
+  it.each([
+    ["/", "Katalog", "Katalog — GoShop"],
+    ["/produk/kaos-polos", "Kaos Polos", "Kaos Polos — GoShop"],
+    ["/keranjang", "Keranjang", "Keranjang — GoShop"],
+    ["/masuk", "Masuk", "Masuk — GoShop"],
+    ["/daftar", "Daftar akun", "Daftar — GoShop"],
+    [
+      "/tidak/ada",
+      "Halaman tidak ditemukan",
+      "Halaman tidak ditemukan — GoShop",
+    ],
+  ])(
+    "shows %s with its heading and title, inside the layout",
+    async (url, heading, title) => {
+      renderApp(url);
 
-    await openKaos(user);
+      const h1 = await pageHeading(heading);
+      expect(screen.getByRole("main").contains(h1)).toBe(true);
+      expect(screen.getByRole("banner")).toBeTruthy();
+      expect(document.title).toBe(title);
+    },
+  );
 
-    expect(screen.queryByRole("region", { name: "Produk" })).toBeNull();
-    expect(catalog().closest("[hidden]")).not.toBeNull();
-    expect(scrollTo).toHaveBeenCalledExactlyOnceWith({ top: 0 });
-    expect(document.title).toBe("Kaos Polos — GoShop");
-    expect(
-      screen.getByRole("button", { name: "← Kembali ke katalog" }),
-    ).toBeTruthy();
-  });
+  it("leaves the focus alone on the first render", async () => {
+    renderApp("/");
 
-  it("goes back with Kembali to the same catalog, without loading it again", async () => {
-    const user = userEvent.setup();
-    render(<App />);
-    await openKaos(user);
-    const loads = productRequests();
-
-    await user.click(
-      screen.getByRole("button", { name: "← Kembali ke katalog" }),
-    );
-
-    expect(screen.getByRole("region", { name: "Produk" })).toBe(catalog());
-    expect(catalog().closest("[hidden]")).toBeNull();
-    expect(
-      screen.queryByRole("heading", { level: 2, name: "Kaos Polos" }),
-    ).toBeNull();
-    expect(screen.getByRole("button", { name: "Kemeja Flanel" })).toBeTruthy();
-    expect(productRequests()).toBe(loads);
-    expect(document.title).toBe("Katalog — GoShop");
-  });
-
-  it("puts the focus back on the opened card's button after Kembali", async () => {
-    const user = userEvent.setup();
-    render(<App />);
-    await screen.findByRole("button", { name: "Kemeja Flanel" });
-    await user.click(screen.getByRole("button", { name: "Kemeja Flanel" }));
-    await screen.findByText("Produk tidak ditemukan.");
-
-    await user.click(
-      screen.getByRole("button", { name: "← Kembali ke katalog" }),
-    );
-
-    expect(document.activeElement).toBe(
-      screen.getByRole("button", { name: "Kemeja Flanel" }),
-    );
-  });
-
-  it("puts the focus back on the opened card's button after the GoShop brand", async () => {
-    const user = userEvent.setup();
-    render(<App />);
-    await openKaos(user);
-
-    await user.click(screen.getByRole("button", { name: "GoShop" }));
-
-    expect(document.activeElement).toBe(
-      screen.getByRole("button", { name: "Kaos Polos" }),
-    );
-  });
-
-  it("moves no focus when the brand is clicked on the catalog", async () => {
-    const user = userEvent.setup();
-    render(<App />);
-    await screen.findByRole("button", { name: "Kaos Polos" });
-
-    await user.click(screen.getByRole("button", { name: "GoShop" }));
-
-    expect(document.activeElement).toBe(
-      screen.getByRole("button", { name: "GoShop" }),
-    );
-  });
-
-  it("moves no focus when the brand is clicked after a product was already left", async () => {
-    const user = userEvent.setup();
-    render(<App />);
-    await openKaos(user);
-    await user.click(
-      screen.getByRole("button", { name: "← Kembali ke katalog" }),
-    );
-    (document.activeElement as HTMLElement).blur();
-
-    await user.click(screen.getByRole("button", { name: "GoShop" }));
-
-    expect(document.activeElement).toBe(
-      screen.getByRole("button", { name: "GoShop" }),
-    );
-  });
-
-  it("moves no focus on mount, StrictMode's double mount included", async () => {
-    render(
-      <StrictMode>
-        <App />
-      </StrictMode>,
-    );
-    await screen.findByRole("button", { name: "Kaos Polos" });
-
+    await pageHeading("Katalog");
     expect(document.activeElement).toBe(document.body);
   });
 
-  it("goes back to the catalog through the GoShop brand", async () => {
+  it("focuses the new page's heading after a navigation", async () => {
     const user = userEvent.setup();
-    render(<App />);
-    await openKaos(user);
+    renderApp("/");
+    await pageHeading("Katalog");
 
-    await user.click(screen.getByRole("button", { name: "GoShop" }));
+    await user.click(
+      within(screen.getByRole("navigation", { name: "Utama" })).getByRole(
+        "link",
+        { name: "Keranjang" },
+      ),
+    );
 
-    expect(screen.getByRole("region", { name: "Produk" })).toBeTruthy();
-    expect(
-      screen.queryByRole("button", { name: "← Kembali ke katalog" }),
-    ).toBeNull();
+    expect(document.activeElement).toBe(await pageHeading("Keranjang"));
   });
 
-  it("keeps the product cards from rendering again when a product opens", async () => {
+  it("focuses <main> when the new page has no heading yet", async () => {
     const user = userEvent.setup();
-    // The product never arrives, so nothing on the product page formats a
-    // price: every formatRupiah call comes from a card.
     serve((url) => {
-      if (url.pathname === "/v1/categories") return categoriesResponse([]);
-      if (url.pathname === "/v1/products") {
-        return productsResponse([kaos, kemeja], null);
+      if (url.pathname === "/v1/products/kaos-polos") {
+        return new Promise<Response>(() => undefined);
       }
-      return new Promise<Response>(() => undefined);
+      if (url.pathname === "/v1/products")
+        return productsResponse([kaos], null);
+      return categoriesResponse([]);
     });
-    render(<App />);
-    const card = await screen.findByRole("button", { name: "Kaos Polos" });
-    const renders = formatRupiah.mock.calls.length;
-    expect(renders).toBeGreaterThanOrEqual(2);
+    renderApp("/");
 
-    await user.click(card);
+    await user.click(await screen.findByRole("button", { name: "Kaos Polos" }));
 
     expect(await screen.findByText("Memuat produk…")).toBeTruthy();
-    expect(formatRupiah.mock.calls.length).toBe(renders);
+    expect(document.activeElement).toBe(screen.getByRole("main"));
+  });
+
+  it("keeps the focus where it is when only the query string changes", async () => {
+    const { router } = renderApp("/");
+    const heading = await pageHeading("Katalog");
+    const brand = screen.getByRole("link", { name: "GoShop" });
+    brand.focus();
+
+    await act(() => router.navigate("/?urut=termurah"));
+
+    expect(document.activeElement).toBe(brand);
+    expect(heading.isConnected).toBe(true);
+  });
+
+  it("goes back to the catalog from a product with Kembali", async () => {
+    const user = userEvent.setup();
+    renderApp("/");
+    await user.click(await screen.findByRole("button", { name: "Kaos Polos" }));
+    await pageHeading("Kaos Polos");
+
+    await user.click(
+      screen.getByRole("link", { name: "← Kembali ke katalog" }),
+    );
+
+    expect(await pageHeading("Katalog")).toBeTruthy();
+    expect(document.title).toBe("Katalog — GoShop");
   });
 });

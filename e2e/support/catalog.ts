@@ -136,6 +136,17 @@ export const productSection = (page: Page): Locator =>
 export const productCards = (page: Page): Locator =>
   productSection(page).locator(".product-grid > li > article");
 
+/** What opens a product from its card: the name, as a link or a button. */
+export const cardOpener = (page: Page, name: string): Locator =>
+  productSection(page)
+    .locator(".product-card__name")
+    .getByRole("link", { name, exact: true })
+    .or(
+      productSection(page)
+        .locator(".product-card__name")
+        .getByRole("button", { name, exact: true }),
+    );
+
 /** Clicks "Muat lebih banyak" until the end message shows. */
 export const loadEverything = async (page: Page): Promise<void> => {
   const section = productSection(page);
@@ -155,13 +166,10 @@ export const loadEverything = async (page: Page): Promise<void> => {
  * first when the card is not on the ones already shown.
  */
 export const openProduct = async (page: Page, name: string): Promise<void> => {
-  const button = productSection(page).getByRole("button", {
-    name,
-    exact: true,
-  });
+  const opener = cardOpener(page, name);
   await expect(productCards(page).first()).toBeVisible();
-  if ((await button.count()) === 0) await loadEverything(page);
-  await button.click();
+  if ((await opener.count()) === 0) await loadEverything(page);
+  await opener.click();
 };
 
 /** Counts the requests the page sends, per API path (query left out). */

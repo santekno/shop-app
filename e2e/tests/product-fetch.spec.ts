@@ -56,9 +56,8 @@ test("a slug that needs encoding is encoded, and a 404 shows Produk tidak ditemu
   // NOT_FOUND is an answer, not a failure: no error box, nothing to retry.
   await expect(page.getByRole("alert")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Coba lagi" })).toHaveCount(0);
-  await expect(
-    page.getByRole("button", { name: "← Kembali ke katalog" }),
-  ).toBeFocused();
+  // A new page with no heading of its own: the focus is on <main>.
+  await expect(page.locator("main")).toBeFocused();
 
   // Chrome logs the 404 itself as a failed resource load; that is the
   // answer under test, and nothing else may appear.

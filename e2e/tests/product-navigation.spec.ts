@@ -1,6 +1,6 @@
-// Moving between the catalog and a product without a router: a card opens
-// the product, "Kembali" and the brand go back, and the catalog, hidden
-// rather than unmounted, keeps every page the buyer already loaded.
+// Moving between the catalog and a product with React Router: a card opens
+// the product at /produk/<slug>, and "Kembali" and the brand go back to
+// the catalog at /.
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { watchBrowser } from "../support/browser.ts";
@@ -9,6 +9,7 @@ import {
   expectNoProblems,
   fetchAllProducts,
   fetchProduct,
+  PAGE_SIZE,
   loadEverything,
   openProduct,
   productCards,
@@ -17,56 +18,19 @@ import {
 } from "../support/catalog.ts";
 import { BROWSER_API_URL } from "../support/stack.ts";
 
-const backButton = (page: Page) =>
-  page.getByRole("button", { name: "← Kembali ke katalog" });
+const backLink = (page: Page) =>
+  page.getByRole("link", { name: "← Kembali ke katalog" });
+
+const brandLink = (page: Page) =>
+  page.getByRole("banner").getByRole("link", { name: "GoShop", exact: true });
 
 const detail = (page: Page, name: string) =>
   page.getByRole("article", { name, exact: true });
 
-const cardButton = (page: Page, name: string) =>
-  productSection(page).getByRole("button", { name, exact: true });
+const catalogHeading = (page: Page) =>
+  page.getByRole("heading", { level: 1, name: "Katalog" });
 
-const scrollY = (page: Page): Promise<number> =>
-  page.evaluate(() => window.scrollY);
-
-/**
- * Opens the card named name, which must sit far down the page, and returns
- * where the page was scrolled when the buyer clicked it.
- */
-const openFarDown = async (page: Page, name: string): Promise<number> => {
-  const button = cardButton(page, name);
-  await button.scrollIntoViewIfNeeded();
-  const before = await scrollY(page);
-  expect(before, `${name} is far down the catalog`).toBeGreaterThan(
-    page.viewportSize()?.height ?? 0,
-  );
-  await button.click();
-  await expect(detail(page, name)).toBeVisible();
-  // The product page starts at the top.
-  expect(await scrollY(page)).toBe(0);
-  return before;
-};
-
-/**
- * Back on the catalog, the buyer is where they left: focus on the card's
- * button, the card on screen, and the page scrolled about as far as before
- * (focus scrolls only as much as it needs, so not to the exact pixel).
- */
-const expectBackAtCard = async (
-  page: Page,
-  name: string,
-  before: number,
-): Promise<void> => {
-  const button = cardButton(page, name);
-  await expect(button).toBeFocused();
-  await expect(button).toBeInViewport();
-  const after = await scrollY(page);
-  expect(Math.abs(after - before)).toBeLessThan(
-    page.viewportSize()?.height ?? 0,
-  );
-};
-
-test("a card opens its product, with the title and focus on Kembali", async ({
+test("a card opens its product at /produk/<slug>, with its title", async ({
   page,
 }) => {
   const problems = await watchBrowser(page);
@@ -76,11 +40,12 @@ test("a card opens its product, with the title and focus on Kembali", async ({
 
   await page.goto("/");
   await openProduct(page, product.name);
+  await expect(page).toHaveURL(`/produk/${product.slug}`);
 
   const article = detail(page, product.name);
   await expect(article).toBeVisible();
   await expect(
-    article.getByRole("heading", { level: 2, name: product.name }),
+    article.getByRole("heading", { level: 1, name: product.name }),
   ).toBeVisible();
   await expect(article.getByText(product.category.name)).toBeVisible();
   await expect(article.getByText(product.description)).toBeVisible();
@@ -88,10 +53,10 @@ test("a card opens its product, with the title and focus on Kembali", async ({
     rupiah(first?.price.amount ?? 0),
   );
   await expect(page).toHaveTitle(`${product.name} — GoShop`);
-  // The card the keyboard was on is gone; focus moves to the way back.
-  await expect(backButton(page)).toBeFocused();
-  // The catalog is hidden, not shown below the product.
-  await expect(productSection(page)).toBeHidden();
+  // A new page: the focus leaves the card for the page itself.
+  await expect(page.locator("main")).toBeFocused();
+  // The catalog is gone, not hidden below the product.
+  await expect(productSection(page)).toHaveCount(0);
 
   // The product was fetched by its slug, once.
   expect(calls.get(`/v1/products/${product.slug}`)).toEqual([
@@ -100,7 +65,7 @@ test("a card opens its product, with the title and focus on Kembali", async ({
   expectNoProblems(problems);
 });
 
-test("Kembali returns to the catalog with every loaded page still there", async ({
+test("Kembali returns to the catalog, which loads its first page again", async ({
   page,
 }) => {
   const problems = await watchBrowser(page);
@@ -114,47 +79,34 @@ test("Kembali returns to the catalog with every loaded page still there", async 
   await expect(productCards(page)).toHaveCount(all.length);
   const listCalls = calls.get("/v1/products")?.length ?? 0;
 
-  // The last card is only there because of "Muat lebih banyak".
-  const before = await openFarDown(page, last?.name ?? "");
-  await backButton(page).click();
-  await expectBackAtCard(page, last?.name ?? "", before);
+  await openProduct(page, last?.name ?? "");
+  await expect(detail(page, last?.name ?? "")).toBeVisible();
+  await backLink(page).click();
 
+  await expect(page).toHaveURL("/");
   await expect(page).toHaveTitle("Katalog — GoShop");
-  await expect(productSection(page)).toBeVisible();
-  await expect(productCards(page)).toHaveCount(all.length);
-  await expect(
-    productSection(page).getByText("Semua produk sudah ditampilkan."),
-  ).toBeVisible();
+  await expect(catalogHeading(page)).toBeFocused();
   await expect(detail(page, last?.name ?? "")).toHaveCount(0);
-  // Nothing was fetched again: not page 1, not the categories.
-  expect(calls.get("/v1/products")).toHaveLength(listCalls);
-  expect(calls.get("/v1/categories")).toHaveLength(1);
+  // The catalog was unmounted with the route: it starts again at page 1.
+  await expect(productCards(page)).toHaveCount(PAGE_SIZE);
+  expect(calls.get("/v1/products")).toHaveLength(listCalls + 1);
   expectNoProblems(problems);
 });
 
-test("the GoShop brand also returns to the catalog, at the opened card", async ({
-  page,
-}) => {
+test("the GoShop brand also returns to the catalog", async ({ page }) => {
   const problems = await watchBrowser(page);
-  const all = (await fetchAllProducts()).flat();
-  // Second to last: far down, and not the card the Kembali test uses.
-  const product = all.at(-2);
-  expect(product, "the catalog has products").toBeDefined();
-  const name = product?.name ?? "";
+  const product = await fetchProduct("teh-hijau-melati-50-kantong");
 
   await page.goto("/");
-  await loadEverything(page);
-  const cards = await productCards(page).count();
-  const before = await openFarDown(page, name);
+  await openProduct(page, product.name);
+  await expect(detail(page, product.name)).toBeVisible();
 
-  await page
-    .getByRole("banner")
-    .getByRole("button", { name: "GoShop", exact: true })
-    .click();
+  await brandLink(page).click();
+  await expect(page).toHaveURL("/");
   await expect(page).toHaveTitle("Katalog — GoShop");
-  await expect(productCards(page)).toHaveCount(cards);
-  await expect(detail(page, name)).toHaveCount(0);
-  await expectBackAtCard(page, name, before);
+  await expect(catalogHeading(page)).toBeFocused();
+  await expect(productCards(page)).toHaveCount(PAGE_SIZE);
+  await expect(detail(page, product.name)).toHaveCount(0);
   expectNoProblems(problems);
 });
 
@@ -170,7 +122,7 @@ test("a second product opens fresh, without the first one's choices", async ({
   const stepper = page.getByRole("group", { name: "Jumlah" });
   await stepper.getByRole("button", { name: "Tambah jumlah" }).click();
   await expect(stepper.locator("output")).toHaveText("2");
-  await backButton(page).click();
+  await backLink(page).click();
 
   await openProduct(page, polos.name);
   await expect(detail(page, polos.name)).toBeVisible();

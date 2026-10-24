@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -7,34 +7,49 @@ import {
   fetchMock,
   product,
   productResponse,
+  requestUrl,
 } from "@/test/fake-api.ts";
+import { currentLocation, renderWithProviders } from "@/test/render.tsx";
 import { ProductDetailPage } from "./ProductDetailPage.tsx";
 
 vi.mock("@/lib/api.ts", () => import("@/test/fake-api.ts"));
 
-const back = () => screen.getByRole("button", { name: "← Kembali ke katalog" });
+const back = () => screen.getByRole("link", { name: "← Kembali ke katalog" });
+
+const renderPage = (slug: string) =>
+  renderWithProviders(<ProductDetailPage />, {
+    path: "/produk/:slug",
+    url: `/produk/${encodeURIComponent(slug)}`,
+  });
 
 beforeEach(() => {
   fetchMock.mockReset();
 });
 
 describe("ProductDetailPage", () => {
-  it("puts the focus on the back button, which calls onBack", async () => {
-    const user = userEvent.setup();
-    const onBack = vi.fn();
+  it("loads the product named by the URL's slug", () => {
     fetchMock.mockReturnValue(new Promise(() => undefined));
-    render(<ProductDetailPage slug="kaos" onBack={onBack} />);
+    renderPage("kaos-polos");
 
-    expect(document.activeElement).toBe(back());
+    const input = fetchMock.mock.calls[0]?.[0];
+    expect(input && requestUrl(input).pathname).toBe("/v1/products/kaos-polos");
+  });
+
+  it("links back to the catalog", async () => {
+    const user = userEvent.setup();
+    fetchMock.mockReturnValue(new Promise(() => undefined));
+    renderPage("kaos");
+
+    expect(back().getAttribute("href")).toBe("/");
     await user.click(back());
 
-    expect(onBack).toHaveBeenCalledTimes(1);
+    expect(currentLocation()).toBe("/");
   });
 
   it("says Memuat produk… while loading, then shows the product", async () => {
     const answer = deferred<Response>();
     fetchMock.mockReturnValue(answer.promise);
-    render(<ProductDetailPage slug="kaos-polos" onBack={vi.fn()} />);
+    renderPage("kaos-polos");
 
     expect(screen.getByRole("status").textContent).toBe("Memuat produk…");
     answer.resolve(
@@ -42,14 +57,14 @@ describe("ProductDetailPage", () => {
     );
 
     expect(
-      await screen.findByRole("heading", { level: 2, name: "Kaos Polos" }),
+      await screen.findByRole("heading", { level: 1, name: "Kaos Polos" }),
     ).toBeTruthy();
     expect(screen.queryByText("Memuat produk…")).toBeNull();
   });
 
   it("says Produk tidak ditemukan. for an unknown slug, with no retry", async () => {
     fetchMock.mockResolvedValue(errorResponse(404, "NOT_FOUND", "req-404"));
-    render(<ProductDetailPage slug="nope" onBack={vi.fn()} />);
+    renderPage("nope");
 
     expect(await screen.findByText("Produk tidak ditemukan.")).toBeTruthy();
     expect(screen.queryByRole("alert")).toBeNull();
@@ -64,7 +79,7 @@ describe("ProductDetailPage", () => {
       .mockResolvedValueOnce(
         productResponse(product("kaos", { name: "Kaos" })),
       );
-    render(<ProductDetailPage slug="kaos" onBack={vi.fn()} />);
+    renderPage("kaos");
 
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("Kode permintaan: req-1");
@@ -72,7 +87,7 @@ describe("ProductDetailPage", () => {
     await user.click(within(alert).getByRole("button", { name: "Coba lagi" }));
 
     expect(
-      await screen.findByRole("heading", { level: 2, name: "Kaos" }),
+      await screen.findByRole("heading", { level: 1, name: "Kaos" }),
     ).toBeTruthy();
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });

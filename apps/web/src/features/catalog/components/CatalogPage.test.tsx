@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -11,6 +11,7 @@ import {
   productsResponse,
   requestUrl,
 } from "@/test/fake-api.ts";
+import { currentLocation, renderWithProviders } from "@/test/render.tsx";
 import { CatalogPage } from "./CatalogPage.tsx";
 
 vi.mock("@/lib/api.ts", () => import("@/test/fake-api.ts"));
@@ -47,7 +48,7 @@ beforeEach(() => {
 describe("CatalogPage", () => {
   it("names the tab Katalog — GoShop and shows categories beside products", async () => {
     serveCatalog();
-    render(<CatalogPage onSelectProduct={vi.fn()} />);
+    renderWithProviders(<CatalogPage />, { path: "/" });
 
     expect(document.title).toBe("Katalog — GoShop");
     expect(screen.getByRole("region", { name: "Kategori" })).toBeTruthy();
@@ -56,7 +57,7 @@ describe("CatalogPage", () => {
 
   it("asks for 12 products and says Memuat produk… while the first page loads", () => {
     const { pages } = serveCatalog();
-    render(<CatalogPage onSelectProduct={vi.fn()} />);
+    renderWithProviders(<CatalogPage />, { path: "/" });
 
     expect(pages[0]?.query).toBe("?limit=12");
     expect(within(productsSection()).getByRole("status").textContent).toBe(
@@ -68,7 +69,7 @@ describe("CatalogPage", () => {
   it("loads more pages until all products are shown", async () => {
     const user = userEvent.setup();
     const { pages, answer } = serveCatalog();
-    render(<CatalogPage onSelectProduct={vi.fn()} />);
+    renderWithProviders(<CatalogPage />, { path: "/" });
 
     answer(0, productsResponse([product("a"), product("b")], "c2"));
     const more = await screen.findByRole("button", {
@@ -100,7 +101,7 @@ describe("CatalogPage", () => {
 
   it("says Belum ada produk. for an empty catalog", async () => {
     const { answer } = serveCatalog();
-    render(<CatalogPage onSelectProduct={vi.fn()} />);
+    renderWithProviders(<CatalogPage />, { path: "/" });
 
     answer(0, productsResponse([], null));
 
@@ -111,7 +112,7 @@ describe("CatalogPage", () => {
 
   it("offers Muat lebih banyak, not Belum ada produk., for an empty page with a cursor", async () => {
     const { answer } = serveCatalog();
-    render(<CatalogPage onSelectProduct={vi.fn()} />);
+    renderWithProviders(<CatalogPage />, { path: "/" });
 
     answer(0, productsResponse([], "c2"));
 
@@ -124,7 +125,7 @@ describe("CatalogPage", () => {
   it("shows an error with Coba lagi, which loads the page again", async () => {
     const user = userEvent.setup();
     const { pages, answer } = serveCatalog();
-    render(<CatalogPage onSelectProduct={vi.fn()} />);
+    renderWithProviders(<CatalogPage />, { path: "/" });
 
     answer(0, errorResponse(500, "INTERNAL_ERROR", "req-5"));
     const alert = await within(productsSection()).findByRole("alert");
@@ -146,7 +147,7 @@ describe("CatalogPage", () => {
   it("keeps the shown products above an error on a later page", async () => {
     const user = userEvent.setup();
     const { answer } = serveCatalog();
-    render(<CatalogPage onSelectProduct={vi.fn()} />);
+    renderWithProviders(<CatalogPage />, { path: "/" });
     answer(0, productsResponse([product("a")], "c2"));
     await user.click(
       await screen.findByRole("button", { name: "Muat lebih banyak" }),
@@ -161,19 +162,25 @@ describe("CatalogPage", () => {
     ).toBeNull();
   });
 
-  it("opens a product with its slug", async () => {
+  it("opens a product at /produk/:slug", async () => {
     const user = userEvent.setup();
-    const onSelectProduct = vi.fn();
     const { answer } = serveCatalog();
-    render(<CatalogPage onSelectProduct={onSelectProduct} />);
+    renderWithProviders(<CatalogPage />, { path: "/" });
     answer(0, productsResponse([product("kaos-polos")], null));
 
     await user.click(
       await screen.findByRole("button", { name: "Produk kaos-polos" }),
     );
 
-    await waitFor(() => {
-      expect(onSelectProduct).toHaveBeenCalledExactlyOnceWith("kaos-polos");
-    });
+    expect(currentLocation()).toBe("/produk/kaos-polos");
+  });
+
+  it("has the page heading Katalog", () => {
+    serveCatalog();
+    renderWithProviders(<CatalogPage />, { path: "/" });
+
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Katalog" }).tabIndex,
+    ).toBe(-1);
   });
 });

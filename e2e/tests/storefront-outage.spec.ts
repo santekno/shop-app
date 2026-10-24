@@ -216,10 +216,12 @@ test("a product that cannot be loaded shows the error, and Coba lagi loads it", 
     await expect(productPage.getByRole("alert")).toContainText(
       "Tidak dapat terhubung ke server GoShop",
     );
-    // The way back still works while the product does not load.
+    // The way back is there while the product does not load, and the
+    // focus is on the new page.
     await expect(
-      page.getByRole("button", { name: "← Kembali ke katalog" }),
-    ).toBeFocused();
+      page.getByRole("link", { name: "← Kembali ke katalog" }),
+    ).toBeVisible();
+    await expect(page.locator("main")).toBeFocused();
 
     const productFailures = [...failures.entries()].filter(([p]) =>
       p.startsWith("/v1/products/"),

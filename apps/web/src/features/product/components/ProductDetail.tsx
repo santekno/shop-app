@@ -50,7 +50,9 @@ export function ProductDetail({ product }: ProductDetailProps) {
       <ProductImage name={product.name} />
       <div className="product-detail__info">
         <p className="muted">{product.category.name}</p>
-        <h2 id={headingId}>{product.name}</h2>
+        <h1 id={headingId} tabIndex={-1}>
+          {product.name}
+        </h1>
         {variant !== undefined && (
           <p className="price price--large">{formatRupiah(variant.price)}</p>
         )}

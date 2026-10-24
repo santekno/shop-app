@@ -45,7 +45,7 @@ describe("ProductDetail", () => {
 
     const article = screen.getByRole("article", { name: "Kaos Polos" });
     expect(
-      screen.getByRole("heading", { level: 2, name: "Kaos Polos" }),
+      screen.getByRole("heading", { level: 1, name: "Kaos Polos" }),
     ).toBeTruthy();
     expect(article.textContent).toContain("Kaos");
     expect(screen.getByText("Katun 100%.")).toBeTruthy();
@@ -88,7 +88,7 @@ describe("ProductDetail", () => {
 
     expect(checkedVariant()).toBe("XL");
     expect(price()).toBe(rupiah(99_000));
-    expect(screen.getByRole("heading", { level: 2 }).textContent).toBe(
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(
       "Kaos Polos",
     );
   });

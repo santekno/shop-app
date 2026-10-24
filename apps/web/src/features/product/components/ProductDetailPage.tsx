@@ -1,3 +1,4 @@
+import { Link, useParams } from "react-router";
 import { isApiError } from "@goshop/shared";
 import {
   EmptyState,
@@ -7,22 +8,17 @@ import {
 import { useProduct } from "../hooks/useProduct.ts";
 import { ProductDetail } from "./ProductDetail.tsx";
 
-interface ProductDetailPageProps {
-  slug: string;
-  onBack: () => void;
-}
-
-/** One product, loaded by its slug, with a way back to the catalog. */
-export function ProductDetailPage({ slug, onBack }: ProductDetailPageProps) {
+/** /produk/:slug: one product, loaded by the slug in the URL. */
+export function ProductDetailPage() {
+  // The route is "produk/:slug", so the router always fills `slug` here;
+  // the type says string | undefined because useParams cannot know which
+  // route a component is rendered by.
+  const { slug = "" } = useParams<"slug">();
   const { state, retry } = useProduct(slug);
 
   return (
     <div className="product-page">
-      {/* autoFocus moves the keyboard focus here when the page opens, so a
-          keyboard user is not left on the card that just disappeared. */}
-      <button type="button" className="link-button" onClick={onBack} autoFocus>
-        ← Kembali ke katalog
-      </button>
+      <Link to="/">← Kembali ke katalog</Link>
 
       {state.status === "loading" && (
         <LoadingState>Memuat produk…</LoadingState>
