@@ -133,6 +133,7 @@ type ImageRepository interface {
 	ConfirmImage(ctx context.Context, img Image, status string) error
 	DeleteImage(ctx context.Context, productID, imageID string) error
 	ProcessingImages(ctx context.Context, limit int32) ([]Image, error)
+	DeleteStalePendingImages(ctx context.Context, before time.Time, limit int32) ([]string, error)
 	FinishImage(ctx context.Context, id, status string, variants []ImageVariant) error
 }
 
@@ -358,4 +359,34 @@ func (s *ImageService) resize(ctx context.Context, img Image) ([]ImageVariant, e
 		variants = append(variants, ImageVariant{Width: int32(v.Width), Height: int32(v.Height), Key: key}) // #nosec G115 -- at most MaxImageSide
 	}
 	return variants, nil
+}
+
+// PendingUploadTTL is how long an upload that was signed but never
+// confirmed is kept; its URL stopped working after UploadTTL.
+const PendingUploadTTL = 24 * time.Hour
+
+// CleanupPending deletes the uploads signed more than PendingUploadTTL
+// before now and never confirmed: the rows, then their files. A file that
+// cannot be deleted is logged and left behind, linked from nowhere. The
+// worker runs it hourly.
+func (s *ImageService) CleanupPending(ctx context.Context, now time.Time) (int, error) {
+	if s.store == nil {
+		return 0, nil
+	}
+	deleted := 0
+	for {
+		keys, err := s.repo.DeleteStalePendingImages(ctx, now.Add(-PendingUploadTTL), ProcessBatchSize*10)
+		if err != nil {
+			return deleted, err
+		}
+		deleted += len(keys)
+		for _, key := range keys {
+			if err := s.store.Delete(ctx, key); err != nil {
+				logx.FromContext(ctx).Warn("delete abandoned upload", "key", key, "error", err.Error())
+			}
+		}
+		if len(keys) < ProcessBatchSize*10 {
+			return deleted, nil
+		}
+	}
 }

@@ -78,6 +78,10 @@ const (
 	// APP_CHECKOUT_LIMIT_PER_MINUTE is not set (order.DefaultLimitPerMinute).
 	DefaultCheckoutLimitPerMinute = 30
 
+	// DefaultWorkerConcurrency is used when APP_WORKER_CONCURRENCY is not
+	// set: enough for emails and messages, few enough that the worker's
+	// database connections stay within APP_DB_MAX_OPEN_CONNS.
+	DefaultWorkerConcurrency = 5
 	// DefaultPaymentTimeout is used when APP_PAYMENT_TIMEOUT is not set:
 	// how long a call to the payment gateway may take.
 	DefaultPaymentTimeout = 10 * time.Second
@@ -140,6 +144,9 @@ type Config struct {
 	Payment Payment
 	// Storage is the S3 bucket for product images (ADR 0007).
 	Storage Storage
+	// WorkerConcurrency is APP_WORKER_CONCURRENCY (1-50, default 5): how
+	// many tasks one worker process runs at once.
+	WorkerConcurrency int
 }
 
 // Storage configures the S3 bucket. An empty Endpoint turns image uploads
@@ -336,6 +343,10 @@ func Load() (Config, error) {
 	errs = append(errs, err)
 
 	cfg.Storage, err = parseStorage(cfg.Env)
+	errs = append(errs, err)
+
+	cfg.WorkerConcurrency, err = parseInt("APP_WORKER_CONCURRENCY", src.String("worker.concurrency"),
+		DefaultWorkerConcurrency, 1, 50)
 	errs = append(errs, err)
 
 	if err := errors.Join(errs...); err != nil {

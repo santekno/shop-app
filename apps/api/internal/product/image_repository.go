@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/santekno/sdk/uuidx"
 
@@ -166,4 +167,14 @@ func fromImageRow(row sqlc.ProductImage) Image {
 	// The worker wrote it; a row that does not decode simply has none.
 	_ = json.Unmarshal(row.Variants, &img.Variants)
 	return img
+}
+
+// DeleteStalePendingImages deletes up to limit pending uploads created
+// before before, and returns their files' keys.
+func (r *PostgresRepository) DeleteStalePendingImages(ctx context.Context, before time.Time, limit int32) ([]string, error) {
+	keys, err := r.q.DeleteStalePendingImages(ctx, sqlc.DeleteStalePendingImagesParams{Before: before, BatchSize: limit})
+	if err != nil {
+		return nil, fmt.Errorf("delete stale pending images: %w", err)
+	}
+	return keys, nil
 }

@@ -10,7 +10,7 @@ cp .env.example .env   # .env is gitignored; never commit it
 
 ## Variables
 
-"Reads it" names the service that uses the variable. The worker (Bab 6) shares the API's Go module and reads the same database, Redis and storage settings. The web, admin and mobile apps never see these values; their own public settings (such as the API URL) arrive with each app.
+"Reads it" names the service that uses the variable. The worker (Bab 6, `apps/api/cmd/worker`) shares the API's Go module and **loads the same configuration**: it validates every variable the API does (so `JWT_SECRET`, `GOOGLE_CLIENT_ID` and `APP_TRUSTED_PROXY_HOPS` are required for it too outside development, though it uses none of them), and listens on `PORT`/`APP_PORT` for its health checks only. The web, admin and mobile apps never see these values; their own public settings (such as the API URL) arrive with each app.
 
 | Variable | Reads it | Secret | Purpose | Used from |
 |---|---|---|---|---|
@@ -36,6 +36,7 @@ cp .env.example .env   # .env is gitignored; never commit it
 | `APP_SHIPPING_TIMEOUT` | api | no | How long checkout waits for the rates API (Go duration, `1s`–`15s`, default `5s`). Past it the request answers 503 `UPSTREAM_UNAVAILABLE`; the call is never retried, and it is made before the checkout transaction, so a slow courier API never holds a row lock. | Bab 5 |
 | `APP_PAYMENT_TTL` | api | no | How long a buyer has to pay an order (Go duration, `5m`–`72h`, default `24h`, Midtrans' default expiry; at least 5 minutes, because Snap stops taking payment a minute before the deadline and counts whole minutes). Stock is taken at checkout and returned when an unpaid order passes this deadline (`api expire-orders`). | Bab 5 |
 | `APP_CHECKOUT_LIMIT_PER_MINUTE` | api | no | How many checkout previews, shipping quotes and checkouts one buyer may ask for per minute, each (`1`–`100000`, default `30`); past it the API answers 429 `RATE_LIMITED`. Raise it only for a load test (the k6 test in `e2e/k6` needs `100000`: `e2e/k6/run.sh` refuses to run below it, `APP_CHECKOUT_LIMIT_PER_MINUTE=100000 make up`), never in production. | Bab 5 |
+| `APP_WORKER_CONCURRENCY` | worker | no | How many tasks one worker process runs at once (`1`–`50`, default `5`). Each running task may hold a database connection, so keep it at or below `APP_DB_MAX_OPEN_CONNS`. | Bab 6 |
 | `S3_ENDPOINT` | api, worker | no | How the API and the worker reach the S3 API: SeaweedFS locally (`http://localhost:8333`, `http://storage:8333` inside Compose), the provider's endpoint in production (Cloudflare R2: `https://<account>.r2.cloudflarestorage.com`). **Empty turns image uploads off** (503 `STORAGE_DISABLED`). `api migrate` creates the bucket when it is missing ([ADR 0007](adr/0007-payments-uploads-worker.md)). | Bab 6 |
 | `S3_PRESIGN_ENDPOINT` | api | no | The endpoint presigned upload URLs are signed for, when clients reach S3 by another address than the API does (Compose: `http://localhost:8333`). Empty means `S3_ENDPOINT`. | Bab 6 |
 | `S3_PUBLIC_URL` | api, worker | no | Base URL the public reads images from, without a trailing slash: a CDN or the bucket's public domain (R2: `https://pub-….r2.dev`). Empty means `<S3_PRESIGN_ENDPOINT>/<S3_BUCKET>`, which needs the bucket to allow anonymous reads (the local SeaweedFS does, `deploy/seaweedfs/s3.json`). | Bab 6 |

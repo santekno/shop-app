@@ -107,7 +107,7 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 		OriginPostalCode: cfg.Shipping.OriginPostalCode, PaymentTTL: cfg.PaymentTTL,
 	})
 	if o.gateway == nil {
-		o.gateway = paymentGateway(cfg.Payment, logger)
+		o.gateway = PaymentGateway(cfg.Payment, logger)
 	}
 	if o.gateway == nil {
 		logger.Warn("payments are off: MIDTRANS_SERVER_KEY is not set")
@@ -134,7 +134,7 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 	categoryHandler := category.NewHandler(categoryService)
 	productHandler := product.NewHandler(productService, productService, validator)
 	if o.store == nil {
-		store, err := objectStore(cfg.Storage)
+		store, err := ObjectStore(cfg.Storage)
 		if err != nil {
 			// The configuration was validated already; a client that
 			// cannot be built is logged and uploads stay off.
@@ -222,17 +222,17 @@ func shippingProvider(cfg config.Shipping) shipping.Provider {
 	return shipping.NewBiteship(cfg.BiteshipAPIKey, shipping.BiteshipURL, cfg.Timeout)
 }
 
-// paymentGateway is Midtrans when MIDTRANS_SERVER_KEY is set, and nil
+// PaymentGateway is Midtrans when MIDTRANS_SERVER_KEY is set, and nil
 // (payments off) otherwise (ADR 0007).
-func paymentGateway(cfg config.Payment, logger logx.Logger) payment.Gateway {
+func PaymentGateway(cfg config.Payment, logger logx.Logger) payment.Gateway {
 	if cfg.MidtransServerKey == "" {
 		return nil
 	}
 	return midtrans.New(cfg.MidtransServerKey, cfg.MidtransClientKey, cfg.Timeout, midtrans.WithLogger(logger))
 }
 
-// objectStore is the S3 bucket of cfg, or nil when S3_ENDPOINT is empty.
-func objectStore(cfg config.Storage) (*storage.S3, error) {
+// ObjectStore is the S3 bucket of cfg, or nil when S3_ENDPOINT is empty.
+func ObjectStore(cfg config.Storage) (*storage.S3, error) {
 	if cfg.Endpoint == "" {
 		return nil, nil
 	}
@@ -454,7 +454,7 @@ func publishEvents(ctx context.Context, db *sql.DB, logger logx.Logger) error {
 // for a lost notification. With payments off it does nothing.
 func reconcilePayments(cfg config.Payment) func(context.Context, *sql.DB, logx.Logger) error {
 	return func(ctx context.Context, db *sql.DB, logger logx.Logger) error {
-		gateway := paymentGateway(cfg, logger)
+		gateway := PaymentGateway(cfg, logger)
 		if gateway == nil {
 			logger.Warn("payments are off: MIDTRANS_SERVER_KEY is not set; nothing to reconcile")
 			return nil
@@ -471,7 +471,7 @@ func reconcilePayments(cfg config.Payment) func(context.Context, *sql.DB, logx.L
 // nothing.
 func processImages(cfg config.Storage) func(context.Context, *sql.DB, logx.Logger) error {
 	return func(ctx context.Context, db *sql.DB, logger logx.Logger) error {
-		store, err := objectStore(cfg)
+		store, err := ObjectStore(cfg)
 		if err != nil {
 			return err
 		}
@@ -503,7 +503,7 @@ func runMigrations(ctx context.Context, cfg config.Config, logger logx.Logger) e
 	logger.Info("database migrated", "version", version)
 	// The image bucket is part of the environment the API needs, so the
 	// same setup step creates it when it is missing (ADR 0007).
-	store, err := objectStore(cfg.Storage)
+	store, err := ObjectStore(cfg.Storage)
 	if err != nil || store == nil {
 		return err
 	}

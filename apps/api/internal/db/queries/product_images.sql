@@ -56,3 +56,18 @@ LIMIT @batch_size;
 -- it was listed is left alone.
 UPDATE product_images SET status = @status, variants = @variants, updated_at = now()
 WHERE id = @id AND status = 'processing';
+
+-- name: DeleteStalePendingImages :many
+-- The worker's cleanup (ADR 0007): uploads signed before @before and never
+-- confirmed. Their URLs expired long ago. The rows go first, so a confirm
+-- racing the cleanup either wins (the row is no longer pending) or finds
+-- no image; the caller then deletes the returned keys' files. Served by
+-- product_images_pending_idx.
+DELETE FROM product_images
+WHERE id IN (
+    SELECT pi.id FROM product_images pi
+    WHERE pi.status = 'pending_upload' AND pi.created_at < @before
+    ORDER BY pi.created_at
+    LIMIT @batch_size
+    FOR UPDATE SKIP LOCKED)
+RETURNING original_key;

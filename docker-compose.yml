@@ -4,6 +4,54 @@
 # each built from its own Dockerfile with the repo root as context, the same
 # way Railway builds them.
 
+# The api and the worker are two binaries of one Go module and read the
+# same configuration (docs/configuration.md); each adds its own port.
+# Values below are local defaults; a .env file next to this one overrides
+# them.
+x-app-environment: &app-environment
+  APP_ENV: ${APP_ENV:-development}
+  APP_LOG_LEVEL: ${APP_LOG_LEVEL:-info}
+  APP_CORS_ALLOWED_ORIGINS: ${APP_CORS_ALLOWED_ORIGINS:-http://localhost:5173}
+  APP_REQUEST_TIMEOUT: ${APP_REQUEST_TIMEOUT:-15s}
+  APP_DRAIN_DELAY: ${APP_DRAIN_DELAY:-0s}
+  APP_SHUTDOWN_TIMEOUT: ${APP_SHUTDOWN_TIMEOUT:-10s}
+  # Inside the Compose network the database host is "postgres", so this
+  # is not taken from .env, whose DATABASE_URL is for tools on the host.
+  DATABASE_URL: postgres://goshop:goshop@postgres:5432/goshop?sslmode=disable
+  APP_DB_MAX_OPEN_CONNS: ${APP_DB_MAX_OPEN_CONNS:-10}
+  APP_DB_MAX_IDLE_CONNS: ${APP_DB_MAX_IDLE_CONNS:-5}
+  APP_DB_CONN_MAX_LIFETIME: ${APP_DB_CONN_MAX_LIFETIME:-30m}
+  # Inside the Compose network Redis is "redis", like postgres above.
+  REDIS_URL: redis://redis:6379/0
+  APP_TRUSTED_PROXY_HOPS: ${APP_TRUSTED_PROXY_HOPS:-0}
+  # The .env.example placeholder, which the API accepts only when
+  # APP_ENV=development; set a real JWT_SECRET in .env for anything else.
+  JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-string}
+  APP_ACCESS_TOKEN_TTL: ${APP_ACCESS_TOKEN_TTL:-15m}
+  APP_REFRESH_TOKEN_TTL: ${APP_REFRESH_TOKEN_TTL:-720h}
+  # Empty: Google sign-in is off (allowed in development only).
+  GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+  # Empty: shipping is priced from the fixed table, no network.
+  BITESHIP_API_KEY: ${BITESHIP_API_KEY:-}
+  APP_SHIPPING_ORIGIN_POSTAL_CODE: ${APP_SHIPPING_ORIGIN_POSTAL_CODE:-40111}
+  APP_SHIPPING_TIMEOUT: ${APP_SHIPPING_TIMEOUT:-5s}
+  APP_PAYMENT_TTL: ${APP_PAYMENT_TTL:-24h}
+  # Raised only for the k6 load test (e2e/k6): APP_CHECKOUT_LIMIT_PER_MINUTE=100000 make up
+  APP_CHECKOUT_LIMIT_PER_MINUTE: ${APP_CHECKOUT_LIMIT_PER_MINUTE:-30}
+  # Midtrans sandbox keys from .env; empty turns payments off.
+  MIDTRANS_SERVER_KEY: ${MIDTRANS_SERVER_KEY:-}
+  MIDTRANS_CLIENT_KEY: ${MIDTRANS_CLIENT_KEY:-}
+  MIDTRANS_IS_PRODUCTION: "false"
+  APP_PAYMENT_TIMEOUT: ${APP_PAYMENT_TIMEOUT:-10s}
+  # Image storage (ADR 0007). The API reaches SeaweedFS as "storage";
+  # browsers upload to, and read images from, localhost:8333, so the
+  # presigned URLs are signed for that host.
+  S3_ENDPOINT: http://storage:8333
+  S3_PRESIGN_ENDPOINT: http://localhost:8333
+  S3_BUCKET: ${S3_BUCKET:-goshop}
+  S3_ACCESS_KEY: ${S3_ACCESS_KEY:-goshop}
+  S3_SECRET_KEY: ${S3_SECRET_KEY:-goshop-secret}
+
 services:
   postgres:
     image: pgvector/pgvector:pg17
@@ -101,49 +149,8 @@ services:
       migrate:
         condition: service_completed_successfully
     environment:
-      APP_ENV: ${APP_ENV:-development}
+      <<: *app-environment
       APP_PORT: "8080"
-      APP_LOG_LEVEL: ${APP_LOG_LEVEL:-info}
-      APP_CORS_ALLOWED_ORIGINS: ${APP_CORS_ALLOWED_ORIGINS:-http://localhost:5173}
-      APP_REQUEST_TIMEOUT: ${APP_REQUEST_TIMEOUT:-15s}
-      APP_DRAIN_DELAY: ${APP_DRAIN_DELAY:-0s}
-      APP_SHUTDOWN_TIMEOUT: ${APP_SHUTDOWN_TIMEOUT:-10s}
-      # Inside the Compose network the database host is "postgres", so this
-      # is not taken from .env, whose DATABASE_URL is for tools on the host.
-      DATABASE_URL: postgres://goshop:goshop@postgres:5432/goshop?sslmode=disable
-      APP_DB_MAX_OPEN_CONNS: ${APP_DB_MAX_OPEN_CONNS:-10}
-      APP_DB_MAX_IDLE_CONNS: ${APP_DB_MAX_IDLE_CONNS:-5}
-      APP_DB_CONN_MAX_LIFETIME: ${APP_DB_CONN_MAX_LIFETIME:-30m}
-      # Inside the Compose network Redis is "redis", like postgres above.
-      REDIS_URL: redis://redis:6379/0
-      APP_TRUSTED_PROXY_HOPS: ${APP_TRUSTED_PROXY_HOPS:-0}
-      # The .env.example placeholder, which the API accepts only when
-      # APP_ENV=development; set a real JWT_SECRET in .env for anything else.
-      JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-string}
-      APP_ACCESS_TOKEN_TTL: ${APP_ACCESS_TOKEN_TTL:-15m}
-      APP_REFRESH_TOKEN_TTL: ${APP_REFRESH_TOKEN_TTL:-720h}
-      # Empty: Google sign-in is off (allowed in development only).
-      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
-      # Empty: shipping is priced from the fixed table, no network.
-      BITESHIP_API_KEY: ${BITESHIP_API_KEY:-}
-      APP_SHIPPING_ORIGIN_POSTAL_CODE: ${APP_SHIPPING_ORIGIN_POSTAL_CODE:-40111}
-      APP_SHIPPING_TIMEOUT: ${APP_SHIPPING_TIMEOUT:-5s}
-      APP_PAYMENT_TTL: ${APP_PAYMENT_TTL:-24h}
-      # Raised only for the k6 load test (e2e/k6): APP_CHECKOUT_LIMIT_PER_MINUTE=100000 make up
-      APP_CHECKOUT_LIMIT_PER_MINUTE: ${APP_CHECKOUT_LIMIT_PER_MINUTE:-30}
-      # Midtrans sandbox keys from .env; empty turns payments off.
-      MIDTRANS_SERVER_KEY: ${MIDTRANS_SERVER_KEY:-}
-      MIDTRANS_CLIENT_KEY: ${MIDTRANS_CLIENT_KEY:-}
-      MIDTRANS_IS_PRODUCTION: "false"
-      APP_PAYMENT_TIMEOUT: ${APP_PAYMENT_TIMEOUT:-10s}
-      # Image storage (ADR 0007). The API reaches SeaweedFS as "storage";
-      # browsers upload to, and read images from, localhost:8333, so the
-      # presigned URLs are signed for that host.
-      S3_ENDPOINT: http://storage:8333
-      S3_PRESIGN_ENDPOINT: http://localhost:8333
-      S3_BUCKET: ${S3_BUCKET:-goshop}
-      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-goshop}
-      S3_SECRET_KEY: ${S3_SECRET_KEY:-goshop-secret}
     ports:
       - "127.0.0.1:8080:8080"
     healthcheck:
@@ -154,6 +161,36 @@ services:
       retries: 20
       start_period: 5s
     # Room for drain delay + shutdown timeout before Docker sends SIGKILL.
+    stop_grace_period: 30s
+
+  # GoShop worker (Bab 6, ADR 0007): Asynq tasks from Redis, the scheduled
+  # jobs and the outbox's emails and messages. Built from its own
+  # Dockerfile, like Railway. No published port: only its health check
+  # talks to it.
+  worker:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile.worker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      storage:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      <<: *app-environment
+      APP_PORT: "8081"
+      APP_WORKER_CONCURRENCY: ${APP_WORKER_CONCURRENCY:-5}
+    healthcheck:
+      test: ["CMD", "/worker", "healthcheck"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+    # Room for running tasks to finish (APP_SHUTDOWN_TIMEOUT).
     stop_grace_period: 30s
 
 volumes:

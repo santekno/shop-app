@@ -9,6 +9,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"time"
 
 	"github.com/lib/pq"
 )
@@ -79,6 +80,50 @@ func (q *Queries) DeleteProductImage(ctx context.Context, arg DeleteProductImage
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const deleteStalePendingImages = `-- name: DeleteStalePendingImages :many
+DELETE FROM product_images
+WHERE id IN (
+    SELECT pi.id FROM product_images pi
+    WHERE pi.status = 'pending_upload' AND pi.created_at < $1
+    ORDER BY pi.created_at
+    LIMIT $2
+    FOR UPDATE SKIP LOCKED)
+RETURNING original_key
+`
+
+type DeleteStalePendingImagesParams struct {
+	Before    time.Time
+	BatchSize int32
+}
+
+// The worker's cleanup (ADR 0007): uploads signed before @before and never
+// confirmed. Their URLs expired long ago. The rows go first, so a confirm
+// racing the cleanup either wins (the row is no longer pending) or finds
+// no image; the caller then deletes the returned keys' files. Served by
+// product_images_pending_idx.
+func (q *Queries) DeleteStalePendingImages(ctx context.Context, arg DeleteStalePendingImagesParams) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, deleteStalePendingImages, arg.Before, arg.BatchSize)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var original_key string
+		if err := rows.Scan(&original_key); err != nil {
+			return nil, err
+		}
+		items = append(items, original_key)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const finishProductImage = `-- name: FinishProductImage :execrows
