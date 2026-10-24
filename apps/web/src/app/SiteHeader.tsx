@@ -1,4 +1,5 @@
-import { Link, NavLink } from "react-router";
+import { Link } from "react-router";
+import { AccountNav } from "@/features/auth/components/AccountNav.tsx";
 import { CartNavLink } from "@/features/cart/components/CartNavLink.tsx";
 
 /**
@@ -28,12 +29,7 @@ export function SiteHeader() {
             <li>
               <CartNavLink />
             </li>
-            <li>
-              <NavLink to="/masuk">Masuk</NavLink>
-            </li>
-            <li>
-              <NavLink to="/daftar">Daftar</NavLink>
-            </li>
+            <AccountNav />
           </ul>
         </nav>
       </div>

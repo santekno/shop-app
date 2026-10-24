@@ -43,6 +43,8 @@ export type {
 export { getProduct, listCategories, listProducts } from "./api/catalog.ts";
 export type { EndpointOptions } from "./api/catalog.ts";
 
+export { login, register } from "./api/auth.ts";
+
 export { EMPTY_CART, addCartItem, getCart } from "./api/cart.ts";
 export type { AddCartItemResult, CartRequestOptions } from "./api/cart.ts";
 
@@ -56,11 +58,17 @@ export type {
   CategoryList,
   ErrorBody,
   ListProductsQuery,
+  LoginRequest,
   Money,
   Product,
   ProductDetail,
   ProductList,
   ProductVariant,
+  RegisterRequest,
+  TokenPair,
+  TokenPairDetail,
+  User,
+  UserDetail,
   components,
   operations,
   paths,

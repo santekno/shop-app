@@ -17,6 +17,16 @@ export type Product = Schemas["Product"];
 export type ProductList = Schemas["ProductList"];
 export type ProductDetail = Schemas["ProductDetail"];
 export type ProductVariant = Schemas["ProductVariant"];
+/** An account as its owner sees it (Bab 4). */
+export type User = Schemas["User"];
+export type UserDetail = Schemas["UserDetail"];
+/** The body of POST /v1/auth/register. */
+export type RegisterRequest = Schemas["RegisterRequest"];
+/** The body of POST /v1/auth/login. */
+export type LoginRequest = Schemas["LoginRequest"];
+/** A session's tokens and the account they belong to. */
+export type TokenPair = Schemas["TokenPair"];
+export type TokenPairDetail = Schemas["TokenPairDetail"];
 /** A cart (Bab 5): its lines, the number of units and the subtotal. */
 export type Cart = Schemas["Cart"];
 export type CartLine = Schemas["CartLine"];

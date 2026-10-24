@@ -1,14 +1,83 @@
-import { Link } from "react-router";
+import { useForm } from "react-hook-form";
+import { Link, useLocation, useNavigate } from "react-router";
+import type { LoginRequest } from "@goshop/shared";
 import { Card } from "@/components/ui/Card.tsx";
+import { TextField } from "@/components/ui/TextField.tsx";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle.ts";
+import { authErrorMessage } from "../auth-errors.ts";
+import { useLogin } from "../hooks/useLogin.ts";
+import { registeredEmailFrom } from "../navigation-state.ts";
 
-/** /masuk: logging in. The form arrives in artikel 09. */
+/**
+ * /masuk: logging in with email and password.
+ *
+ * React Hook Form keeps the inputs uncontrolled: register("email") hands
+ * the input a ref and change handlers, and the form reads the values from
+ * the DOM when it is submitted. Typing re-renders nothing, unlike a
+ * useState per field. handleSubmit checks the rules first; onSubmit runs
+ * only with valid values, and otherwise the first invalid field gets the
+ * focus.
+ */
 export function LoginPage() {
   useDocumentTitle("Masuk — GoShop");
+  const location = useLocation();
+  const navigate = useNavigate();
+  const registeredEmail = registeredEmailFrom(location.state);
+  const loginMutation = useLogin();
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+  } = useForm<LoginRequest>({
+    defaultValues: { email: registeredEmail ?? "", password: "" },
+  });
+
+  const onSubmit = (credentials: LoginRequest) => {
+    loginMutation.mutate(credentials, {
+      // replace: Back from the catalog should not reopen the login form.
+      onSuccess: () => {
+        void navigate("/", { replace: true });
+      },
+    });
+  };
+
   return (
     <Card>
       <h1 tabIndex={-1}>Masuk</h1>
-      <p className="muted">Formulir masuk menyusul.</p>
+      {registeredEmail !== undefined && (
+        <p role="status">Akun Anda sudah dibuat. Silakan masuk.</p>
+      )}
+      {/* noValidate: the browser's own bubbles would show first, in the
+          browser's language and style; the form shows its own messages,
+          linked to each field. */}
+      <form
+        className="form"
+        noValidate
+        onSubmit={(event) => void handleSubmit(onSubmit)(event)}
+      >
+        <TextField
+          label="Email"
+          type="email"
+          autoComplete="email"
+          error={errors.email?.message}
+          {...register("email", { required: "Masukkan email Anda." })}
+        />
+        <TextField
+          label="Kata sandi"
+          type="password"
+          autoComplete="current-password"
+          error={errors.password?.message}
+          {...register("password", { required: "Masukkan kata sandi Anda." })}
+        />
+        {loginMutation.isError && (
+          <p role="alert" className="error-text">
+            {authErrorMessage(loginMutation.error)}
+          </p>
+        )}
+        <button type="submit" disabled={loginMutation.isPending}>
+          {loginMutation.isPending ? "Memproses…" : "Masuk"}
+        </button>
+      </form>
       <p>
         Belum punya akun? <Link to="/daftar">Daftar</Link>
       </p>

@@ -463,3 +463,47 @@ h1[tabindex="-1"]:focus {
 .cart-subtotal {
   text-align: right;
 }
+
+/* --- Forms (Bab 9) ----------------------------------------------------- */
+
+.form {
+  display: grid;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  justify-items: start;
+}
+
+.field {
+  display: grid;
+  gap: 0.25rem;
+  width: 100%;
+}
+
+.field label {
+  font-weight: 600;
+}
+
+.field p {
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+.field__hint {
+  color: var(--muted);
+}
+
+.field__error {
+  color: var(--error);
+}
+
+.field input[aria-invalid="true"] {
+  border-color: var(--error);
+}
+
+.text-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  text-decoration: underline;
+}
