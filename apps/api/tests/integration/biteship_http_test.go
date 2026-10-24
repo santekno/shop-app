@@ -5,6 +5,7 @@ package integration_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -29,8 +30,10 @@ type fakeBiteship struct {
 	status atomic.Int64
 	delay  atomic.Int64
 	hijack atomic.Bool
-	// done counts the requests it finished answering.
-	done atomic.Int64
+	// done counts the requests it finished answering; entered gets a
+	// value as each request arrives.
+	done    atomic.Int64
+	entered chan struct{}
 
 	mu   sync.Mutex
 	last map[string]any
@@ -41,7 +44,7 @@ const fakeBiteshipKey = "biteship_test.fake-key"
 
 func newFakeBiteship(t *testing.T) *fakeBiteship {
 	t.Helper()
-	f := &fakeBiteship{}
+	f := &fakeBiteship{entered: make(chan struct{}, 64)}
 	f.status.Store(http.StatusOK)
 	f.Server = httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(f.Close)
@@ -50,6 +53,10 @@ func newFakeBiteship(t *testing.T) *fakeBiteship {
 
 func (f *fakeBiteship) serve(w http.ResponseWriter, r *http.Request) {
 	defer f.done.Add(1)
+	select {
+	case f.entered <- struct{}{}:
+	default:
+	}
 	var body map[string]any
 	raw, _ := io.ReadAll(r.Body)
 	_ = json.Unmarshal(raw, &body)
@@ -189,35 +196,50 @@ func TestBiteship_Errors(t *testing.T) {
 }
 
 // TestBiteship_ClientHangUpKeepsBreakerClosed is the B1 regression on the
-// real server: eight buyers hang up while Biteship is still answering. The
-// courier call goes on without them (context.WithoutCancel) and succeeds,
-// so the circuit breaker, which opens after five failures in a row, stays
-// closed: the next buyer is priced normally instead of getting 503.
+// real server: eight buyers hang up while Biteship is still answering
+// (each one cancels once its call has reached Biteship). The courier call
+// goes on without them (context.WithoutCancel) and succeeds, so the
+// circuit breaker, which opens after five failures in a row, stays closed:
+// the next buyer is priced normally instead of getting 503.
 func TestBiteship_ClientHangUpKeepsBreakerClosed(t *testing.T) {
 	f := newFakeBiteship(t)
 	sh, b := biteshipShop(t, f)
 	f.delay.Store(int64(300 * time.Millisecond))
 	const hangUps = 8
 	for i := range hangUps {
-		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		ctx, cancel := context.WithCancel(context.Background())
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, sh.URL+"/v1/checkout/shipping-quotes?address_id="+b.AddressID, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 		req.Header.Set("Authorization", "Bearer "+b.Token)
-		resp, err := sh.client.Do(req)
+		answered := make(chan error, 1)
+		go func() {
+			resp, err := sh.client.Do(req)
+			if err == nil {
+				_ = resp.Body.Close()
+				err = fmt.Errorf("got %d before hanging up", resp.StatusCode)
+			} else {
+				err = nil
+			}
+			answered <- err
+		}()
+		select {
+		case <-f.entered: // the API is talking to Biteship now
+		case <-time.After(10 * time.Second):
+			t.Fatalf("hang-up %d: the API never called Biteship (an open breaker answers 503 without calling)", i)
+		}
 		cancel()
-		if err == nil {
-			_ = resp.Body.Close()
-			t.Fatalf("hang-up %d: got %d; the client should have given up first", i, resp.StatusCode)
+		if err := <-answered; err != nil {
+			t.Fatalf("hang-up %d: %v; the breaker opened or the call ended with the client", i, err)
 		}
 	}
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(15 * time.Second)
 	for f.done.Load() < hangUps && time.Now().Before(deadline) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	if n := f.done.Load(); n != hangUps {
-		t.Fatalf("Biteship finished %d of %d calls: the API gave up on them with the client", n, hangUps)
+		t.Fatalf("Biteship finished %d of %d calls", n, hangUps)
 	}
 	f.delay.Store(0)
 	q := assertQuotes(t, sh.call(t, http.MethodGet, "/v1/checkout/shipping-quotes?address_id="+b.AddressID, nil, b.Token))
