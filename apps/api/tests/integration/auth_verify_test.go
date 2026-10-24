@@ -40,7 +40,8 @@ func TestVerifyEmail(t *testing.T) {
 	}
 	id, hash := splitOpaque(t, token)
 	if n := s.count(t, `SELECT count(*) FROM user_tokens WHERE id = $1 AND token_hash = $2
-		AND expires_at BETWEEN now() + interval '23 hours 59 minutes' AND now() + interval '24 hours'`, id, hash); n != 1 {
+		AND expires_at BETWEEN now() + interval '23 hours 59 minutes' - $3::interval AND now() + interval '24 hours' + $3::interval`,
+		id, hash, clockSkew); n != 1 {
 		t.Error("the verification token is not stored as its SHA-256 with a 24-hour expiry")
 	}
 

@@ -340,6 +340,12 @@ func (c *testClock) now() time.Time { return time.Now().Add(time.Duration(c.offs
 // advance moves the clock forward by d.
 func (c *testClock) advance(d time.Duration) { c.offset.Add(int64(d)) }
 
+// clockSkew is how far apart the host's clock (the API's, in-process) and
+// PostgreSQL's now() (inside the Docker VM) may be. A time the API wrote is
+// compared with now() inside this margin, never exactly: a VM clock a
+// second behind made TestResetPassword fail now and then.
+const clockSkew = "5 seconds"
+
 // raceIterations is how many times each race test repeats its race. Each
 // iteration is a fresh account, released at a barrier, and judged on the
 // state PostgreSQL and Redis end in, never on timing.
