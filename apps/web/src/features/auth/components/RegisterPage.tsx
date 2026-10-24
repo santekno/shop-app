@@ -1,5 +1,11 @@
+import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { Link, useNavigate } from "react-router";
+import {
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+  registerSchema,
+} from "@goshop/shared";
 import type { RegisterRequest } from "@goshop/shared";
 import { Card } from "@/components/ui/Card.tsx";
 import { TextField } from "@/components/ui/TextField.tsx";
@@ -12,9 +18,13 @@ import { registeredState } from "../navigation-state.ts";
  * /daftar: creating a buyer account. The API does not log the new account
  * in, so a successful registration goes to /masuk with the email filled in.
  *
- * The rules are React Hook Form's own (required, minLength, pattern …),
- * written next to each field. They are a convenience for the buyer: the
- * API checks everything again, and its answer is what counts.
+ * The rules are registerSchema from @goshop/shared, the API's own rules
+ * written once in Zod (email format, password length counted in
+ * characters as Go counts them, a trimmed name) and checked against the
+ * contract's RegisterRequest type. In artikel 09 they were React Hook
+ * Form's built-in rules, written next to each field, in this one form
+ * only. They are a convenience for the buyer: the API checks everything
+ * again, and its answer is what counts.
  */
 export function RegisterPage() {
   useDocumentTitle("Daftar — GoShop");
@@ -24,7 +34,8 @@ export function RegisterPage() {
     register,
     handleSubmit,
     formState: { errors },
-  } = useForm<RegisterRequest>({
+  } = useForm({
+    resolver: zodResolver(registerSchema),
     defaultValues: { name: "", email: "", password: "" },
   });
 
@@ -48,42 +59,22 @@ export function RegisterPage() {
           label="Nama"
           autoComplete="name"
           error={errors.name?.message}
-          {...register("name", {
-            required: "Masukkan nama Anda.",
-            maxLength: {
-              value: 100,
-              message: "Nama paling panjang 100 karakter.",
-            },
-          })}
+          {...register("name")}
         />
         <TextField
           label="Email"
           type="email"
           autoComplete="email"
           error={errors.email?.message}
-          {...register("email", {
-            required: "Masukkan email Anda.",
-            pattern: {
-              value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
-              message:
-                "Masukkan alamat email yang benar, misalnya budi@example.com.",
-            },
-          })}
+          {...register("email")}
         />
         <TextField
           label="Kata sandi"
           type="password"
           autoComplete="new-password"
-          hint="8 sampai 128 karakter. Hindari kata sandi yang umum dipakai."
+          hint={`${PASSWORD_MIN_LENGTH} sampai ${PASSWORD_MAX_LENGTH} karakter. Hindari kata sandi yang umum dipakai.`}
           error={errors.password?.message}
-          {...register("password", {
-            required: "Buat kata sandi.",
-            minLength: { value: 8, message: "Kata sandi minimal 8 karakter." },
-            maxLength: {
-              value: 128,
-              message: "Kata sandi paling panjang 128 karakter.",
-            },
-          })}
+          {...register("password")}
         />
         {registerMutation.isError && (
           <p role="alert" className="error-text">

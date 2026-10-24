@@ -1,5 +1,7 @@
+import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { Link, useLocation, useNavigate } from "react-router";
+import { loginSchema } from "@goshop/shared";
 import type { LoginRequest } from "@goshop/shared";
 import { Card } from "@/components/ui/Card.tsx";
 import { TextField } from "@/components/ui/TextField.tsx";
@@ -14,9 +16,14 @@ import { registeredEmailFrom } from "../navigation-state.ts";
  * React Hook Form keeps the inputs uncontrolled: register("email") hands
  * the input a ref and change handlers, and the form reads the values from
  * the DOM when it is submitted. Typing re-renders nothing, unlike a
- * useState per field. handleSubmit checks the rules first; onSubmit runs
+ * useState per field. handleSubmit checks the values first; onSubmit runs
  * only with valid values, and otherwise the first invalid field gets the
  * focus.
+ *
+ * The rules come from loginSchema in @goshop/shared, through zodResolver:
+ * the same schema the mobile app uses, checked against the contract's
+ * LoginRequest type. onSubmit receives the schema's output (the email
+ * already trimmed), which is what is sent.
  */
 export function LoginPage() {
   useDocumentTitle("Masuk — GoShop");
@@ -28,7 +35,8 @@ export function LoginPage() {
     register,
     handleSubmit,
     formState: { errors },
-  } = useForm<LoginRequest>({
+  } = useForm({
+    resolver: zodResolver(loginSchema),
     defaultValues: { email: registeredEmail ?? "", password: "" },
   });
 
@@ -60,14 +68,14 @@ export function LoginPage() {
           type="email"
           autoComplete="email"
           error={errors.email?.message}
-          {...register("email", { required: "Masukkan email Anda." })}
+          {...register("email")}
         />
         <TextField
           label="Kata sandi"
           type="password"
           autoComplete="current-password"
           error={errors.password?.message}
-          {...register("password", { required: "Masukkan kata sandi Anda." })}
+          {...register("password")}
         />
         {loginMutation.isError && (
           <p role="alert" className="error-text">
