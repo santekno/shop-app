@@ -51,6 +51,12 @@ x-app-environment: &app-environment
   S3_BUCKET: ${S3_BUCKET:-goshop}
   S3_ACCESS_KEY: ${S3_ACCESS_KEY:-goshop}
   S3_SECRET_KEY: ${S3_SECRET_KEY:-goshop-secret}
+  # Empty: emails go to the log (docs/configuration.md shows Mailpit).
+  SMTP_HOST: ${SMTP_HOST:-}
+  SMTP_PORT: ${SMTP_PORT:-587}
+  SMTP_USERNAME: ${SMTP_USERNAME:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  SMTP_FROM: ${SMTP_FROM:-GoShop <no-reply@goshop.local>}
 
 services:
   postgres:

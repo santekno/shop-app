@@ -8,6 +8,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/mail"
 	"net/url"
 	"os"
 	"regexp"
@@ -144,6 +145,8 @@ type Config struct {
 	Payment Payment
 	// Storage is the S3 bucket for product images (ADR 0007).
 	Storage Storage
+	// SMTP is the mail server; an empty Host keeps the log mailer.
+	SMTP SMTP
 	// WorkerConcurrency is APP_WORKER_CONCURRENCY (1-50, default 5): how
 	// many tasks one worker process runs at once.
 	WorkerConcurrency int
@@ -170,6 +173,21 @@ type Storage struct {
 	// secret key is never logged.
 	AccessKey string
 	SecretKey string
+}
+
+// SMTP configures sending email (ADR 0007).
+type SMTP struct {
+	// Host is SMTP_HOST. Empty: emails are written to the log (bodies in
+	// development only) instead of sent.
+	Host string
+	// Port is SMTP_PORT (default 587: STARTTLS; 465: TLS).
+	Port int
+	// Username and Password are SMTP_USERNAME and SMTP_PASSWORD, both or
+	// neither; the password is a secret.
+	Username string
+	Password string
+	// From is SMTP_FROM, the sender, e.g. GoShop <no-reply@shop.example>.
+	From string
 }
 
 // SeaweedFSSecretPlaceholder is the local SeaweedFS secret key of
@@ -343,6 +361,9 @@ func Load() (Config, error) {
 	errs = append(errs, err)
 
 	cfg.Storage, err = parseStorage(cfg.Env)
+	errs = append(errs, err)
+
+	cfg.SMTP, err = parseSMTP()
 	errs = append(errs, err)
 
 	cfg.WorkerConcurrency, err = parseInt("APP_WORKER_CONCURRENCY", src.String("worker.concurrency"),
@@ -519,6 +540,31 @@ func parseStorage(env string) (Storage, error) {
 		errs = append(errs, errors.New("S3_SECRET_KEY: is the local SeaweedFS placeholder, which is allowed in development only"))
 	}
 	return st, errors.Join(errs...)
+}
+
+// parseSMTP reads the SMTP_* variables. Only SMTP_HOST turns SMTP on; then
+// SMTP_FROM is required. No error repeats the password.
+func parseSMTP() (SMTP, error) {
+	sm := SMTP{
+		Host:     strings.TrimSpace(os.Getenv("SMTP_HOST")),
+		Username: strings.TrimSpace(os.Getenv("SMTP_USERNAME")),
+		Password: os.Getenv("SMTP_PASSWORD"),
+		From:     strings.TrimSpace(os.Getenv("SMTP_FROM")),
+	}
+	if sm.Host == "" {
+		return SMTP{}, nil
+	}
+	var errs []error
+	var err error
+	sm.Port, err = parseInt("SMTP_PORT", strings.TrimSpace(os.Getenv("SMTP_PORT")), 587, 1, 65535)
+	errs = append(errs, err)
+	if addr, err := mail.ParseAddress(sm.From); err != nil || strings.ContainsAny(sm.From, "\r\n") || addr.Address == "" {
+		errs = append(errs, errors.New("SMTP_FROM: is required with SMTP_HOST, e.g. GoShop <no-reply@shop.example>"))
+	}
+	if (sm.Username == "") != (sm.Password == "") {
+		errs = append(errs, errors.New("SMTP_USERNAME, SMTP_PASSWORD: set both or neither"))
+	}
+	return sm, errors.Join(errs...)
 }
 
 // bucketName is an S3 bucket name.

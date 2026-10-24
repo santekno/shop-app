@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/hibiken/asynq"
 	"github.com/redis/go-redis/v9"
 	"github.com/santekno/sdk/logx"
 
@@ -29,6 +30,7 @@ import (
 	"github.com/santekno/shop-app/apps/api/internal/httpserver"
 	"github.com/santekno/shop-app/apps/api/internal/logging"
 	"github.com/santekno/shop-app/apps/api/internal/mail"
+	"github.com/santekno/shop-app/apps/api/internal/notify"
 	"github.com/santekno/shop-app/apps/api/internal/order"
 	"github.com/santekno/shop-app/apps/api/internal/outbox"
 	"github.com/santekno/shop-app/apps/api/internal/payment"
@@ -54,10 +56,8 @@ type App struct {
 // closes neither: whoever opened them does, after the server has stopped.
 func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalClient, opts ...Option) *App {
 	o := options{
-		clock: time.Now,
-		// Development logs every email with its token, so a developer can
-		// copy it; elsewhere the body (and the token) is never logged.
-		mailer:  mail.NewLogMailer(logger, cfg.IsDevelopment()),
+		clock:   time.Now,
+		mailer:  apiMailer(cfg, logger, rdb),
 		limiter: auth.NewRedisRateLimiter(redisconn.NewCounter(rdb), rateLimits(cfg)),
 		// Revoked sessions live in Redis as long as an access token
 		// (ADR 0005).
@@ -220,6 +220,30 @@ func shippingProvider(cfg config.Shipping) shipping.Provider {
 		return shipping.Static{}
 	}
 	return shipping.NewBiteship(cfg.BiteshipAPIKey, shipping.BiteshipURL, cfg.Timeout)
+}
+
+// apiMailer is how the API sends its emails (verify, reset). With
+// SMTP_HOST set they are queued for the worker, which sends them (ADR
+// 0007). Without it they go to the log: development logs every email with
+// its token, so a developer can copy it; elsewhere the body (and the
+// token) is never logged.
+func apiMailer(cfg config.Config, logger logx.Logger, rdb redis.UniversalClient) mail.Mailer {
+	if cfg.SMTP.Host != "" {
+		return notify.NewQueueMailer(asynq.NewClientFromRedisClient(rdb))
+	}
+	return mail.NewLogMailer(logger, cfg.IsDevelopment())
+}
+
+// WorkerMailer is how the worker sends email: SMTP when SMTP_HOST is set,
+// otherwise the log, like the API.
+func WorkerMailer(cfg config.Config, logger logx.Logger) mail.Mailer {
+	if cfg.SMTP.Host == "" {
+		return mail.NewLogMailer(logger, cfg.IsDevelopment())
+	}
+	return mail.NewSMTPMailer(mail.SMTPConfig{
+		Host: cfg.SMTP.Host, Port: cfg.SMTP.Port, Username: cfg.SMTP.Username,
+		Password: cfg.SMTP.Password, From: cfg.SMTP.From,
+	})
 }
 
 // PaymentGateway is Midtrans when MIDTRANS_SERVER_KEY is set, and nil

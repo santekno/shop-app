@@ -1,6 +1,6 @@
-// Package mail sends email. Bab 4 only needs the Mailer interface and a
-// development implementation that writes messages to the log; real SMTP
-// (and sending from the worker) arrives in Bab 6 behind the same interface.
+// Package mail sends email: the Mailer interface, LogMailer (the log, when
+// SMTP_HOST is not set) and SMTPMailer (Bab 6, ADR 0007). With SMTP on,
+// the API queues its messages to the worker, which sends them.
 package mail
 
 import (
@@ -41,7 +41,7 @@ func NewLogMailer(logger logx.Logger, showBody bool) *LogMailer {
 func (m *LogMailer) Send(ctx context.Context, msg Message) error {
 	log := m.logger.WithContext(ctx)
 	if !m.showBody {
-		log.Warn("email not sent: no mail provider is configured until Bab 6", "subject", msg.Subject)
+		log.Warn("email not sent: SMTP_HOST is not set", "subject", msg.Subject)
 		return nil
 	}
 	log.Info("email (development: logged, not sent)", "to", msg.To, "subject", msg.Subject, "body", msg.Body)

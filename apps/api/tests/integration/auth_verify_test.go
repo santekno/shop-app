@@ -157,7 +157,7 @@ func TestLogMailer(t *testing.T) {
 		}
 		var subjects []string
 		for _, line := range s.logs.jsonLines() {
-			if line["msg"] == "email not sent: no mail provider is configured until Bab 6" {
+			if line["msg"] == "email not sent: SMTP_HOST is not set" {
 				subjects = append(subjects, fmt.Sprint(line["subject"]))
 			}
 		}

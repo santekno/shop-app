@@ -26,8 +26,11 @@ import (
 	"github.com/santekno/shop-app/apps/api/internal/health"
 	"github.com/santekno/shop-app/apps/api/internal/httpserver"
 	"github.com/santekno/shop-app/apps/api/internal/logging"
+	"github.com/santekno/shop-app/apps/api/internal/notify"
+	"github.com/santekno/shop-app/apps/api/internal/order"
 	"github.com/santekno/shop-app/apps/api/internal/outbox"
 	"github.com/santekno/shop-app/apps/api/internal/redisconn"
+	"github.com/santekno/shop-app/apps/api/internal/user"
 )
 
 // Queue is the one queue GoShop's tasks use.
@@ -79,6 +82,8 @@ func serve(ctx context.Context, cfg config.Config, logger logx.Logger, db *sql.D
 	}
 	mux := asynq.NewServeMux()
 	NewJobs(deps).Register(mux)
+	emails := notify.NewEmails(app.WorkerMailer(cfg, logger), order.NewPostgresRepository(db), user.NewPostgresRepository(db))
+	RegisterNotifications(mux, emails)
 
 	srv := asynq.NewServerFromRedisClient(rdb, asynq.Config{
 		Concurrency: cfg.WorkerConcurrency,
@@ -124,6 +129,16 @@ func enqueued(logger logx.Logger) func(*asynq.TaskInfo, error) {
 			logger.Error("could not enqueue a scheduled task", "error", err.Error())
 		}
 	}
+}
+
+// RegisterNotifications adds the email tasks' handlers to mux. The API
+// queues TypeSendEmail; the outbox publishes the order emails (Bab 6
+// artikel 11).
+func RegisterNotifications(mux *asynq.ServeMux, emails *notify.Emails) {
+	mux.HandleFunc(notify.TypeSendEmail, emails.SendQueued)
+	mux.HandleFunc(notify.TypeOrderConfirmationEmail, emails.OrderConfirmation)
+	mux.HandleFunc(notify.TypePaymentReceivedEmail, emails.PaymentReceived)
+	mux.HandleFunc(notify.TypeOrderShippedEmail, emails.OrderShipped)
 }
 
 // register schedules every job of Schedule. Unique: when two worker
