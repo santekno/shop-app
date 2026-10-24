@@ -205,8 +205,19 @@ type Telegram struct {
 // deploy/seaweedfs/s3.json and .env.example, accepted in development only.
 const SeaweedFSSecretPlaceholder = "goshop-secret"
 
-// Payment configures Midtrans, in the sandbox only.
+// The payment providers APP_PAYMENT_PROVIDER accepts.
+const (
+	PaymentMidtrans = "midtrans"
+	// PaymentFake is internal/payment/fake, refused in production.
+	PaymentFake = "fake"
+)
+
+// Payment configures the payment gateway: Midtrans in the sandbox only, or
+// the fake.
 type Payment struct {
+	// Provider is APP_PAYMENT_PROVIDER: midtrans (default) or fake, the
+	// test double, which production refuses.
+	Provider string
 	// MidtransServerKey is MIDTRANS_SERVER_KEY, a sandbox server key
 	// (SB-Mid-server-…): it authenticates GoShop at Midtrans and signs
 	// notifications. Empty turns payments off (503 PAYMENTS_DISABLED). A
@@ -368,7 +379,7 @@ func Load() (Config, error) {
 		DefaultCheckoutLimitPerMinute, 1, 100_000)
 	errs = append(errs, err)
 
-	cfg.Payment, err = parsePayment(src)
+	cfg.Payment, err = parsePayment(src, cfg.Env)
 	errs = append(errs, err)
 
 	cfg.Storage, err = parseStorage(cfg.Env)
@@ -488,17 +499,24 @@ func parseShipping(src *configx.Config) (Shipping, error) {
 	return sh, errors.Join(errs...)
 }
 
-// parsePayment reads MIDTRANS_SERVER_KEY, MIDTRANS_CLIENT_KEY and
-// MIDTRANS_IS_PRODUCTION (no APP_ prefix: Midtrans' own names) and
-// APP_PAYMENT_TIMEOUT. The course takes money in the sandbox only, so
+// parsePayment reads APP_PAYMENT_PROVIDER, MIDTRANS_SERVER_KEY,
+// MIDTRANS_CLIENT_KEY and MIDTRANS_IS_PRODUCTION (no APP_ prefix:
+// Midtrans' own names) and APP_PAYMENT_TIMEOUT. The course takes money in the sandbox only, so
 // MIDTRANS_IS_PRODUCTION must be false and the keys must be sandbox keys.
 // No error repeats a key.
-func parsePayment(src *configx.Config) (Payment, error) {
+func parsePayment(src *configx.Config, env string) (Payment, error) {
 	p := Payment{
+		Provider:          src.StringDefault("payment.provider", PaymentMidtrans),
 		MidtransServerKey: strings.TrimSpace(os.Getenv("MIDTRANS_SERVER_KEY")),
 		MidtransClientKey: strings.TrimSpace(os.Getenv("MIDTRANS_CLIENT_KEY")),
 	}
 	var errs []error
+	switch {
+	case p.Provider == PaymentFake && env == EnvProduction:
+		errs = append(errs, errors.New("APP_PAYMENT_PROVIDER: fake is a test double and is refused in production"))
+	case p.Provider != PaymentMidtrans && p.Provider != PaymentFake:
+		errs = append(errs, fmt.Errorf("APP_PAYMENT_PROVIDER: must be %s or %s, got %q", PaymentMidtrans, PaymentFake, p.Provider))
+	}
 	switch strings.TrimSpace(os.Getenv("MIDTRANS_IS_PRODUCTION")) {
 	case "", "false":
 	case "true":

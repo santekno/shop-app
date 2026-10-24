@@ -102,6 +102,22 @@ func (q *Queries) GetOpenPayment(ctx context.Context, orderID string) (GetOpenPa
 	return i, err
 }
 
+const getOpenPaymentByOrderCode = `-- name: GetOpenPaymentByOrderCode :one
+SELECT p.provider_order_id
+FROM payments p
+JOIN orders o ON o.id = p.order_id
+WHERE o.code = $1 AND p.status IN ('pending', 'challenge')
+`
+
+// For `api fake-pay <order code>`: the order's open payment. Served by
+// orders_code_key and payments_order_open_key.
+func (q *Queries) GetOpenPaymentByOrderCode(ctx context.Context, code string) (string, error) {
+	row := q.db.QueryRowContext(ctx, getOpenPaymentByOrderCode, code)
+	var provider_order_id string
+	err := row.Scan(&provider_order_id)
+	return provider_order_id, err
+}
+
 const getPaymentByProviderOrderID = `-- name: GetPaymentByProviderOrderID :one
 SELECT id, order_id, provider, provider_order_id, amount, status, snap_token, redirect_url,
        expires_at, paid_at, refund_required_at, created_at, updated_at

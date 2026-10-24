@@ -141,3 +141,10 @@ SET checked_at       = @now::timestamptz,
                             ELSE final_checked_at END
 WHERE id = @id;
 
+-- name: GetOpenPaymentByOrderCode :one
+-- For `api fake-pay <order code>`: the order's open payment. Served by
+-- orders_code_key and payments_order_open_key.
+SELECT p.provider_order_id
+FROM payments p
+JOIN orders o ON o.id = p.order_id
+WHERE o.code = @code AND p.status IN ('pending', 'challenge');

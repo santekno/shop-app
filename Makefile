@@ -75,7 +75,7 @@ IT_ENV := POSTGRES_DSN='postgres://goshop:goshop@localhost:5432/goshop?sslmode=d
 	GOSHOP_API_URL=http://127.0.0.1:8080
 
 .PHONY: help doctor build lint lint-openapi test-unit test-integration test-mobile-e2e docker-build scan verify up down dev-api docs-api \
-	migrate-up migrate-down migrate-new seed seed-large seed-admin seed-loadtest loadtest sqlc sqlc-check expire-orders cleanup-idempotency-keys publish-events reconcile-payments process-images dead-tasks requeue-task requeue-dead-tasks
+	migrate-up migrate-down migrate-new seed seed-large seed-admin seed-loadtest loadtest sqlc sqlc-check expire-orders cleanup-idempotency-keys publish-events reconcile-payments process-images fake-pay dead-tasks requeue-task requeue-dead-tasks
 
 help: ## List targets
 	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -224,6 +224,11 @@ reconcile-payments: ## Ask Midtrans about every open payment and apply its answe
 
 process-images: ## Resize the confirmed product images into their storefront variants, once
 	$(COMPOSE) run --rm --no-deps api process-images
+
+fake-pay: ## Pay an order with the fake gateway (APP_PAYMENT_PROVIDER=fake): make fake-pay order=GS-… [status=settlement]
+	@[[ "$(order)" =~ ^GS-[0-9]{8}-[0-9A-Z]{6}(-[0-9A-Z]{6})?$$ ]] || { echo "usage: make fake-pay order=GS-20261101-7KQ2M9 [status=settlement|expire|deny|...]" >&2; exit 1; }
+	@[[ "$(status)" =~ ^[a-z_]*$$ ]] || { echo "fake-pay: status is a Midtrans transaction_status such as settlement" >&2; exit 1; }
+	$(COMPOSE) exec api /api fake-pay '$(order)' $(if $(status),'$(status)')
 
 dead-tasks: ## List the worker tasks that ran out of retries (the dead-letter queue)
 	$(COMPOSE) run --rm --no-deps worker dead-tasks list

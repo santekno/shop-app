@@ -10,6 +10,7 @@
 //	api publish-events  publish the outbox's pending domain events once and exit
 //	api reconcile-payments  ask Midtrans about open payments once and exit
 //	api process-images  resize confirmed product images once and exit
+//	api fake-pay <order code> [status]  pay with the fake gateway (development)
 package main
 
 import (

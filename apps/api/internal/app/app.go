@@ -34,6 +34,7 @@ import (
 	"github.com/santekno/shop-app/apps/api/internal/order"
 	"github.com/santekno/shop-app/apps/api/internal/outbox"
 	"github.com/santekno/shop-app/apps/api/internal/payment"
+	"github.com/santekno/shop-app/apps/api/internal/payment/fake"
 	"github.com/santekno/shop-app/apps/api/internal/payment/midtrans"
 	"github.com/santekno/shop-app/apps/api/internal/product"
 	"github.com/santekno/shop-app/apps/api/internal/redisconn"
@@ -108,7 +109,7 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 		OriginPostalCode: cfg.Shipping.OriginPostalCode, PaymentTTL: cfg.PaymentTTL,
 	})
 	if o.gateway == nil {
-		o.gateway = PaymentGateway(cfg.Payment, logger)
+		o.gateway = PaymentGateway(cfg.Payment, logger, rdb)
 	}
 	if o.gateway == nil {
 		logger.Warn("payments are off: MIDTRANS_SERVER_KEY is not set")
@@ -249,9 +250,15 @@ func WorkerMailer(cfg config.Config, logger logx.Logger) mail.Mailer {
 	})
 }
 
-// PaymentGateway is Midtrans when MIDTRANS_SERVER_KEY is set, and nil
-// (payments off) otherwise (ADR 0007).
-func PaymentGateway(cfg config.Payment, logger logx.Logger) payment.Gateway {
+// PaymentGateway is the fake when APP_PAYMENT_PROVIDER=fake (its
+// transactions in rdb, shared by the API, the worker and api fake-pay),
+// Midtrans when MIDTRANS_SERVER_KEY is set, and nil (payments off)
+// otherwise (ADR 0007).
+func PaymentGateway(cfg config.Payment, logger logx.Logger, rdb redis.UniversalClient) payment.Gateway {
+	if cfg.Provider == config.PaymentFake {
+		logger.Warn("payments go to the fake gateway (APP_PAYMENT_PROVIDER=fake): no money moves")
+		return fake.New(fake.NewRedisStore(rdb))
+	}
 	if cfg.MidtransServerKey == "" {
 		return nil
 	}
@@ -379,11 +386,13 @@ func Run(ctx context.Context, args []string, stdout io.Writer) error {
 	case len(args) == 1 && args[0] == "publish-events":
 		return runPublishEvents(ctx, cfg, logger)
 	case len(args) == 1 && args[0] == "reconcile-payments":
-		return runJob(ctx, cfg, logger, "reconcile-payments", reconcilePayments(cfg.Payment))
+		return runJob(ctx, cfg, logger, "reconcile-payments", reconcilePayments(cfg))
 	case len(args) == 1 && args[0] == "process-images":
 		return runJob(ctx, cfg, logger, "process-images", processImages(cfg.Storage))
+	case len(args) >= 1 && args[0] == "fake-pay":
+		return runFakePay(ctx, cfg, logger, args[1:])
 	default:
-		return fmt.Errorf("unknown arguments %q (usage: api [healthcheck|migrate|expire-orders|cleanup-idempotency-keys|publish-events|reconcile-payments|process-images])", args)
+		return fmt.Errorf("unknown arguments %q (usage: api [healthcheck|migrate|expire-orders|cleanup-idempotency-keys|publish-events|reconcile-payments|process-images|fake-pay])", args)
 	}
 
 	db, err := database.Open(ctx, cfg.Database, logger)
@@ -502,9 +511,19 @@ func runPublishEvents(ctx context.Context, cfg config.Config, logger logx.Logger
 // reconcilePayments asks the payment gateway about the open payments and
 // applies what it says (payment.Service.Reconcile), once: the safety net
 // for a lost notification. With payments off it does nothing.
-func reconcilePayments(cfg config.Payment) func(context.Context, *sql.DB, logx.Logger) error {
+func reconcilePayments(cfg config.Config) func(context.Context, *sql.DB, logx.Logger) error {
 	return func(ctx context.Context, db *sql.DB, logger logx.Logger) error {
-		gateway := PaymentGateway(cfg, logger)
+		// Only the fake gateway needs Redis (its transactions live there).
+		var rdb redis.UniversalClient
+		if cfg.Payment.Provider == config.PaymentFake {
+			c, err := redisconn.Open(ctx, cfg.RedisURL)
+			if err != nil {
+				return err
+			}
+			defer closeRedis(c, logger)
+			rdb = c
+		}
+		gateway := PaymentGateway(cfg.Payment, logger, rdb)
 		if gateway == nil {
 			logger.Warn("payments are off: MIDTRANS_SERVER_KEY is not set; nothing to reconcile")
 			return nil
