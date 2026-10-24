@@ -14,6 +14,7 @@ import {
   renderApp,
   renderWithProviders,
 } from "@/test/render.tsx";
+import { FROM_CATALOG } from "../paths.ts";
 import { ProductDetailPage } from "./ProductDetailPage.tsx";
 
 vi.mock("@/lib/api.ts", () => import("@/test/fake-api.ts"));
@@ -108,5 +109,56 @@ describe("ProductDetailPage", () => {
       await screen.findByRole("heading", { level: 1, name: "Kaos" }),
     ).toBeTruthy();
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("goes back in history to the list it came from, filters and all", async () => {
+    const user = userEvent.setup();
+    fetchMock.mockReturnValue(new Promise(() => undefined));
+    const { router } = renderWithProviders(<ProductDetailPage />, {
+      path: "/produk/:slug",
+      url: [
+        "/?kategori=kaos&urut=termurah",
+        { pathname: "/produk/kaos", state: FROM_CATALOG },
+      ],
+    });
+
+    await user.click(back());
+
+    expect(currentLocation()).toBe("/?kategori=kaos&urut=termurah");
+    expect(router.state.historyAction).toBe("POP");
+  });
+
+  it("follows its link to / when the product was opened some other way", async () => {
+    const user = userEvent.setup();
+    fetchMock.mockReturnValue(new Promise(() => undefined));
+    const { router } = renderWithProviders(<ProductDetailPage />, {
+      path: "/produk/:slug",
+      url: ["/?kategori=kaos", "/produk/kaos"],
+    });
+
+    await user.click(back());
+
+    expect(currentLocation()).toBe("/");
+    expect(router.state.historyAction).toBe("PUSH");
+  });
+
+  it("leaves a modified click (new tab) to the browser", async () => {
+    const user = userEvent.setup();
+    fetchMock.mockReturnValue(new Promise(() => undefined));
+    renderWithProviders(<ProductDetailPage />, {
+      path: "/produk/:slug",
+      url: [
+        "/?kategori=kaos",
+        { pathname: "/produk/kaos", state: FROM_CATALOG },
+      ],
+    });
+
+    await user.keyboard("{Control>}");
+    await user.click(back());
+    await user.keyboard("{/Control}");
+
+    // Not taken as "back": the browser opens the link's href in a new tab,
+    // so this page stays where it is.
+    expect(currentLocation()).toBe("/produk/kaos");
   });
 });

@@ -164,3 +164,81 @@ describe("CatalogPage", () => {
     ).toBe(-1);
   });
 });
+
+describe("CatalogPage's filters in the URL", () => {
+  const renderAt = (url: string) =>
+    renderWithProviders(<CatalogPage />, { path: "/", url });
+
+  it("asks the API for the URL's category, search and sort", () => {
+    const { pages } = serveCatalog();
+    renderAt("/?kategori=kaos&q=polos&urut=termurah");
+
+    expect(pages[0]?.query).toBe(
+      "?category=kaos&q=polos&sort=price_asc&limit=12",
+    );
+    expect(screen.getByText("Hasil pencarian untuk “polos”.")).toBeTruthy();
+  });
+
+  it("ignores a malformed category instead of sending it", () => {
+    const { pages } = serveCatalog();
+    renderAt("/?kategori=Kaos%20Polos");
+
+    expect(pages[0]?.query).toBe("?sort=newest&limit=12");
+  });
+
+  it("puts a search into the URL, keeping the category", async () => {
+    const user = userEvent.setup();
+    const { pages, answer } = serveCatalog();
+    renderAt("/?kategori=kaos");
+    answer(0, productsResponse([product("a")], null));
+
+    await user.type(
+      screen.getByRole("searchbox", { name: "Cari produk" }),
+      " hitam {Enter}",
+    );
+
+    expect(currentLocation()).toBe("/?kategori=kaos&q=hitam");
+    expect(pages.at(-1)?.query).toBe(
+      "?category=kaos&q=hitam&sort=newest&limit=12",
+    );
+  });
+
+  it("puts the sort into the URL", async () => {
+    const user = userEvent.setup();
+    serveCatalog();
+    renderAt("/");
+
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Urutkan" }),
+      "Harga terendah",
+    );
+
+    expect(currentLocation()).toBe("/?urut=termurah");
+  });
+
+  it("says no product matches a filtered list that is empty", async () => {
+    const { answer } = serveCatalog();
+    renderAt("/?q=zzz");
+
+    answer(0, productsResponse([], null));
+
+    expect(
+      await screen.findByText("Tidak ada produk yang cocok."),
+    ).toBeTruthy();
+    expect(screen.queryByText("Belum ada produk.")).toBeNull();
+  });
+
+  it("says a category does not exist (UNKNOWN_CATEGORY), linking to all products with the search kept", async () => {
+    const user = userEvent.setup();
+    const { answer } = serveCatalog();
+    renderAt("/?kategori=tidak-ada&q=polos");
+
+    answer(0, errorResponse(400, "UNKNOWN_CATEGORY"));
+
+    expect(await screen.findByText(/Kategori ini tidak ada\./)).toBeTruthy();
+    expect(within(productsSection()).queryByRole("alert")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Coba lagi" })).toBeNull();
+    await user.click(screen.getByRole("link", { name: "Lihat semua produk" }));
+    expect(currentLocation()).toBe("/?q=polos");
+  });
+});
