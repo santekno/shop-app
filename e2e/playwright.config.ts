@@ -6,6 +6,8 @@ import { WEB_URL } from "./support/stack.ts";
 
 export default defineConfig({
   testDir: "tests",
+  // Fresh rate-limit counters and the verified buyer, once per run.
+  globalSetup: "./support/global-setup.ts",
   // One worker, files in order: tests/storefront-outage.spec.ts stops the
   // api container, which no other test may see.
   workers: 1,
