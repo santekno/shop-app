@@ -5,6 +5,12 @@ export interface CartTokenValue {
   /** The X-Cart-Token of the guest cart, or null before the first add. */
   cartToken: string | null;
   setCartToken: (token: string | null) => void;
+  /**
+   * The token as it is right now, for code that runs later than the
+   * render it was created in (a queued mutation): `cartToken` is the
+   * value of that render, which a newer setCartToken may have replaced.
+   */
+  getCartToken: () => string | null;
 }
 
 /** null outside <CartTokenProvider>: useCartToken turns that into an error. */

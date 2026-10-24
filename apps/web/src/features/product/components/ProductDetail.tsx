@@ -94,7 +94,11 @@ export function ProductDetail({ product }: ProductDetailProps) {
                   })}
                 </strong>
               </p>
-              <AddToCart variantId={variant.id} quantity={quantity} />
+              <AddToCart
+                variantId={variant.id}
+                unitPrice={variant.price}
+                quantity={quantity}
+              />
             </>
           ) : (
             <p className="badge">Stok habis</p>

@@ -1,16 +1,19 @@
 import { Link } from "react-router";
+import type { Money } from "@goshop/shared";
 import { cartErrorMessage } from "../cart-errors.ts";
 import { useAddToCart } from "../hooks/useAddToCart.ts";
 
 interface AddToCartProps {
   /** The variant to add. */
   variantId: string;
+  /** Its price, for the cart's optimistic subtotal. */
+  unitPrice: Money;
   /** How many units, at least 1 (ProductDetail keeps it within stock). */
   quantity: number;
 }
 
 /** "Tambah ke keranjang", with what happened announced below it. */
-export function AddToCart({ variantId, quantity }: AddToCartProps) {
+export function AddToCart({ variantId, unitPrice, quantity }: AddToCartProps) {
   const addToCart = useAddToCart();
 
   return (
@@ -21,7 +24,10 @@ export function AddToCart({ variantId, quantity }: AddToCartProps) {
         // could, for a guest without a cart, create two carts.
         disabled={addToCart.isPending}
         onClick={() => {
-          addToCart.mutate({ variant_id: variantId, quantity });
+          addToCart.mutate({
+            item: { variant_id: variantId, quantity },
+            unitPrice,
+          });
         }}
       >
         {addToCart.isPending ? "Menambahkan…" : "Tambah ke keranjang"}
@@ -36,6 +42,8 @@ export function AddToCart({ variantId, quantity }: AddToCartProps) {
           </>
         )}
       </p>
+      {/* After the rollback: the count is back where it was, and this
+          says why. */}
       {addToCart.isError && (
         <p role="alert" className="error-text">
           {cartErrorMessage(addToCart.error)}

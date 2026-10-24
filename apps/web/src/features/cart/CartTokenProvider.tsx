@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { CartTokenContext } from "./cart-token-context.ts";
 
@@ -9,9 +9,21 @@ import { CartTokenContext } from "./cart-token-context.ts";
  * through every layer as props would touch components that never use it.
  */
 export function CartTokenProvider({ children }: { children: ReactNode }) {
-  const [cartToken, setCartToken] = useState<string | null>(null);
+  const [cartToken, setToken] = useState<string | null>(null);
+  // A copy of the latest token that code running after a render can read
+  // (getCartToken). setCartToken updates it at once, where the state only
+  // changes with the next render.
+  const latest = useRef<string | null>(null);
+  const setCartToken = useCallback((token: string | null) => {
+    latest.current = token;
+    setToken(token);
+  }, []);
+  const getCartToken = useCallback(() => latest.current, []);
   // One object per token, so components reading the context render again
   // only when the token changes, not whenever this provider renders.
-  const value = useMemo(() => ({ cartToken, setCartToken }), [cartToken]);
+  const value = useMemo(
+    () => ({ cartToken, setCartToken, getCartToken }),
+    [cartToken, setCartToken, getCartToken],
+  );
   return <CartTokenContext value={value}>{children}</CartTokenContext>;
 }
