@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import { Outlet, ScrollRestoration } from "react-router";
+import { NavigationProgress } from "./NavigationProgress.tsx";
 import { SiteHeader } from "./SiteHeader.tsx";
 import { useRouteFocus } from "./useRouteFocus.ts";
 
@@ -14,6 +15,7 @@ export function RootLayout() {
 
   return (
     <>
+      <NavigationProgress />
       <SiteHeader />
       {/* tabIndex={-1}: the page can give <main> the focus from code
           (useRouteFocus), but Tab never stops on it. */}

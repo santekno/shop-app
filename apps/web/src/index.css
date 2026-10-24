@@ -514,3 +514,36 @@ h1[tabindex="-1"]:focus {
   align-items: center;
   gap: 0.75rem 1rem;
 }
+
+/* The bar NavigationProgress shows while a lazy page downloads. */
+.navigation-progress {
+  position: fixed;
+  inset: 0 0 auto;
+  height: 3px;
+  background: var(--accent);
+  transform-origin: left;
+  animation: navigation-progress 1.5s ease-out forwards;
+}
+
+@keyframes navigation-progress {
+  from {
+    transform: scaleX(0.1);
+  }
+  to {
+    transform: scaleX(0.9);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .navigation-progress {
+    animation: none;
+    transform: scaleX(0.5);
+  }
+}
+
+.app-loading {
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: 1.5rem 1rem;
+  color: var(--muted);
+}
