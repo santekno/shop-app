@@ -25,7 +25,7 @@ Every column is `NOT NULL` unless the diagram says `nullable`.
 | Bab 6 | `000015_create_product_images` | `product_images`: a pending upload until confirmed, content type, size (≤ 5 MiB) and dimension CHECKs, `original_key` unique; `product_images_product_idx (product_id, position, id)`, `product_images_pending_idx` (partial, for the cleanup) |
 | Bab 6 | `000016_add_product_image_variants` | `product_images.variants` (jsonb array of `{width, height, key}`), statuses `processing` and `failed`, a ready image has variants; `product_images_processing_idx` (partial) for the worker |
 | Bab 6 | `000017_index_guest_carts` | `carts_guest_updated_idx (updated_at) WHERE user_id IS NULL`, for the guest-cart cleanup |
-| Bab 6 | `000018_index_refresh_tokens_expires_at` | `refresh_tokens_expires_at_idx`, built `CONCURRENTLY` (ADR 0005), for the expired-token cleanup |
+| Bab 6 | `000018_index_refresh_tokens_expires_at` | `refresh_tokens_expires_at_idx`, for the expired-token cleanup. Not `CONCURRENTLY` as ADR 0005 asked: it deadlocks with a second `api migrate` waiting on golang-migrate's advisory lock (the migration says how to build it by hand on a big table) |
 | Bab 6 | `000019_create_event_deliveries` | `event_deliveries (event_id, consumer)`: which consumer handled which outbox event; `outbox_events_published_idx` (partial) for deleting published events after 7 days |
 | Bab 6 | `000020_index_orders_paid_at` | `orders_paid_at_idx (paid_at) INCLUDE (id, total) WHERE status IN ('paid', 'processing', 'shipped', 'completed')`, for the sales report |
 

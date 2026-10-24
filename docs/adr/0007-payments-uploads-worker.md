@@ -193,4 +193,5 @@ Partial refunds are left to the reader, but the data has room for them: `payment
 - Images are visible on the storefront only after the worker has processed them (normally within 30 seconds of confirm), and only as JPEG.
 - Uploads that are signed but never confirmed leave an object behind; the hourly cleanup deletes `pending_upload` rows older than a day and their objects.
 - New tables: `payments`, `payment_events`, `product_images`, `event_deliveries`; new indexes for the reconciler, the guest-cart and refresh-token cleanups, the outbox cleanup and the sales report.
+- The refresh-token index is built **without** `CONCURRENTLY`, unlike what ADR 0005 asked: golang-migrate holds a session advisory lock while it migrates, a second `api migrate` waits for it inside a statement, and `CREATE INDEX CONCURRENTLY` waits for that statement in turn, a deadlock PostgreSQL resolves by failing the second deploy. Nothing is deployed before Bab 19, so the table is small; the migration says how to build the index by hand on a big table first.
 - New direct dependencies: `github.com/hibiken/asynq`, `github.com/minio/minio-go/v7`, `golang.org/x/image`.
