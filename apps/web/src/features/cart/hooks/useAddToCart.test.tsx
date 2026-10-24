@@ -1,0 +1,468 @@
+import { EMPTY_CART } from "@goshop/shared";
+import type { Cart } from "@goshop/shared";
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  cartLine,
+  cartOf,
+  cartResponse,
+  deferred,
+  detailedErrorResponse,
+  errorResponse,
+  fetchMock,
+  requestUrl,
+} from "@/test/fake-api.ts";
+import { createTestQueryClient, hookWrapper } from "@/test/render.tsx";
+import { useCartToken } from "../cart-token-context.ts";
+import { useAddToCart } from "./useAddToCart.ts";
+import { useCart } from "./useCart.ts";
+
+vi.mock("@/lib/api.ts", () => import("@/test/fake-api.ts"));
+
+const PRICE = { amount: 89_000, currency: "IDR" } as const;
+const add = (quantity = 1, variantId = "m") => ({
+  item: { variant_id: variantId, quantity },
+  unitPrice: PRICE,
+});
+
+/**
+ * The hook under test, with the token it shares the provider with and the
+ * cart the header shows (useCart), as on the product page.
+ */
+const setup = () => {
+  const queryClient = createTestQueryClient();
+  // Every count the header showed, render by render.
+  const seen: (number | undefined)[] = [];
+  const hook = renderHook(
+    () => {
+      const cart = useCart();
+      seen.push(cart.data?.item_count);
+      return { add: useAddToCart(), token: useCartToken(), cart };
+    },
+    { wrapper: hookWrapper(queryClient) },
+  );
+  const cartAt = (token: string | null) =>
+    queryClient.getQueryData<Cart>(["cart", token]);
+  return { ...hook, queryClient, cartAt, seen };
+};
+
+/** POST answers `posted` (with `newToken`), GET answers `fetched`. */
+const serveCart = (posted: Cart, fetched: Cart, newToken?: string) => {
+  fetchMock.mockImplementation((_input, init) =>
+    Promise.resolve(
+      init?.method === "POST"
+        ? cartResponse(posted, newToken, newToken === undefined ? 200 : 201)
+        : cartResponse(fetched),
+    ),
+  );
+};
+
+/** The requests sent, as "METHOD /path". */
+const requests = () =>
+  fetchMock.mock.calls.map(
+    ([input, init]) => `${init?.method ?? "GET"} ${requestUrl(input).pathname}`,
+  );
+
+/** Every request waits for the test to answer it, in order. */
+const answerLater = () => {
+  const answers: ReturnType<typeof deferred<Response>>[] = [];
+  fetchMock.mockImplementation(() => {
+    const answer = deferred<Response>();
+    answers.push(answer);
+    return answer.promise;
+  });
+  return (n: number, response: Response) => {
+    const answer = answers[n];
+    if (!answer) throw new Error(`request ${n} was not sent`);
+    answer.resolve(response);
+  };
+};
+
+beforeEach(() => {
+  fetchMock.mockReset();
+});
+
+describe("useAddToCart", () => {
+  it("sends the item as it is, with no token for a guest without a cart", async () => {
+    const cart = cartOf([cartLine("m", { quantity: 2 })]);
+    serveCart(cart, cart, "tok");
+    const { result } = setup();
+
+    act(() => {
+      result.current.add.mutate(add(2));
+    });
+    await waitFor(() => {
+      expect(result.current.add.isSuccess).toBe(true);
+    });
+
+    const [, init] = fetchMock.mock.calls[0] ?? [];
+    expect(init?.body).toBe('{"variant_id":"m","quantity":2}');
+    expect(new Headers(init?.headers).has("X-Cart-Token")).toBe(false);
+  });
+
+  it("shows the guess at once: the count and the subtotal go up before the answer", async () => {
+    const answer = answerLater();
+    const { result, cartAt } = setup();
+
+    act(() => {
+      result.current.add.mutate(add(3));
+    });
+
+    await waitFor(() => {
+      expect(cartAt(null)).toMatchObject({
+        item_count: 3,
+        subtotal: { amount: 3 * 89_000 },
+      });
+    });
+    expect(result.current.add.isPending).toBe(true);
+    answer(
+      0,
+      cartResponse(cartOf([cartLine("m", { quantity: 3 })]), "tok", 201),
+    );
+    await waitFor(() => {
+      expect(result.current.add.isSuccess).toBe(true);
+    });
+  });
+
+  it("keeps a new cart's token, storing its cart under the new key first", async () => {
+    const serverCart = cartOf([cartLine("m", { quantity: 2 })]);
+    serveCart(serverCart, serverCart, "tok-new");
+    const { result, cartAt, seen } = setup();
+    expect(result.current.token.cartToken).toBeNull();
+
+    act(() => {
+      result.current.add.mutate(add(2));
+    });
+    await waitFor(() => {
+      expect(result.current.token.cartToken).toBe("tok-new");
+    });
+
+    expect(result.current.cart.data).toEqual(serverCart);
+    expect(cartAt("tok-new")).toEqual(serverCart);
+    expect(cartAt(null)).toEqual(EMPTY_CART);
+    // The cart under the new key was there when the header switched to it:
+    // from the guess on, the count never went back to nothing.
+    const fromGuess = seen.slice(seen.indexOf(2));
+    expect(fromGuess.every((count) => count === 2)).toBe(true);
+    // The last add of the burst refetches the cart in the background.
+    await waitFor(() => {
+      expect(requests()).toEqual(["POST /v1/cart/items", "GET /v1/cart"]);
+    });
+    expect(
+      new Headers(fetchMock.mock.calls[1]?.[1]?.headers).get("X-Cart-Token"),
+    ).toBe("tok-new");
+  });
+
+  it("replaces the guess with the server's cart for an existing cart", async () => {
+    const before = cartOf([cartLine("m", { quantity: 1 })]);
+    const after = cartOf([cartLine("m", { quantity: 3 })]);
+    serveCart(after, after);
+    const { result, cartAt, queryClient } = setup();
+    // Already loaded, so setting the token fetches nothing.
+    queryClient.setQueryData(["cart", "tok"], before);
+    act(() => {
+      result.current.token.setCartToken("tok");
+    });
+
+    act(() => {
+      result.current.add.mutate(add(2));
+    });
+    await waitFor(() => {
+      expect(result.current.add.isSuccess).toBe(true);
+    });
+
+    expect(cartAt("tok")).toEqual(after);
+    expect(result.current.token.cartToken).toBe("tok");
+    expect(
+      new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get("X-Cart-Token"),
+    ).toBe("tok");
+    await waitFor(() => {
+      expect(requests()).toEqual(["POST /v1/cart/items", "GET /v1/cart"]);
+    });
+    expect(result.current.cart.data).toEqual(after);
+  });
+
+  it("cancels a cart request in flight, so its older answer cannot replace the guess", async () => {
+    const before = cartOf([cartLine("m", { quantity: 1 })]);
+    const answer = answerLater();
+    const { result, cartAt, queryClient } = setup();
+    queryClient.setQueryData(["cart", "tok"], before);
+    act(() => {
+      result.current.token.setCartToken("tok");
+    });
+    // A refetch of the cart is on its way (request 0)…
+    act(() => {
+      void queryClient.refetchQueries({ queryKey: ["cart", "tok"] });
+    });
+    await waitFor(() => {
+      expect(requests()).toEqual(["GET /v1/cart"]);
+    });
+
+    // …when the buyer adds (request 1).
+    act(() => {
+      result.current.add.mutate(add(2));
+    });
+    await waitFor(() => {
+      expect(cartAt("tok")?.item_count).toBe(3);
+    });
+    answer(0, cartResponse(before));
+    await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+
+    expect(cartAt("tok")?.item_count).toBe(3);
+    answer(1, cartResponse(cartOf([cartLine("m", { quantity: 3 })])));
+    await waitFor(() => {
+      expect(result.current.add.isSuccess).toBe(true);
+    });
+  });
+
+  it("rolls the guess back on a 409, then fetches the cart again", async () => {
+    const before = cartOf([cartLine("m", { quantity: 1 })]);
+    const answer = answerLater();
+    const { result, cartAt, queryClient } = setup();
+    // Already loaded, so setting the token fetches nothing.
+    queryClient.setQueryData(["cart", "tok"], before);
+    act(() => {
+      result.current.token.setCartToken("tok");
+    });
+
+    act(() => {
+      result.current.add.mutate(add(5));
+    });
+    await waitFor(() => {
+      expect(cartAt("tok")?.item_count).toBe(6);
+    });
+    answer(
+      0,
+      detailedErrorResponse(409, "INSUFFICIENT_STOCK", { available: 2 }),
+    );
+
+    // The snapshot goes back and the error shows at once, before the cart
+    // is fetched again…
+    await waitFor(() => {
+      expect(result.current.add.isError).toBe(true);
+    });
+    expect(cartAt("tok")).toEqual(before);
+    expect(result.current.cart.data).toEqual(before);
+    expect(result.current.add.error).toMatchObject({
+      code: "INSUFFICIENT_STOCK",
+    });
+    // …since the error says the cart differs from what we thought, it is
+    // fetched again in the background.
+    await waitFor(() => {
+      expect(requests()).toEqual(["POST /v1/cart/items", "GET /v1/cart"]);
+    });
+    const fresh = cartOf([cartLine("m", { quantity: 2 })]);
+    answer(1, cartResponse(fresh));
+    await waitFor(() => {
+      expect(result.current.cart.data).toEqual(fresh);
+    });
+    expect(result.current.token.cartToken).toBe("tok");
+  });
+
+  it("puts the empty cart back on screen when the first add fails", async () => {
+    fetchMock.mockResolvedValue(errorResponse(500, "INTERNAL_ERROR"));
+    const { result } = setup();
+    await waitFor(() => {
+      expect(result.current.cart.data).toEqual(EMPTY_CART);
+    });
+
+    act(() => {
+      result.current.add.mutate(add(2));
+    });
+    await waitFor(() => {
+      expect(result.current.add.isError).toBe(true);
+    });
+
+    await waitFor(() => {
+      expect(result.current.cart.data?.item_count).toBe(0);
+    });
+    expect(result.current.token.cartToken).toBeNull();
+  });
+
+  it("forgets a token the API no longer knows (CART_NOT_FOUND), without refetching", async () => {
+    const before = cartOf([cartLine("m")]);
+    fetchMock.mockResolvedValue(errorResponse(404, "CART_NOT_FOUND"));
+    const { result, cartAt, queryClient } = setup();
+    // Already loaded, so setting the token fetches nothing.
+    queryClient.setQueryData(["cart", "old"], before);
+    act(() => {
+      result.current.token.setCartToken("old");
+    });
+
+    act(() => {
+      result.current.add.mutate(add(1));
+    });
+    await waitFor(() => {
+      expect(result.current.add.isError).toBe(true);
+    });
+
+    expect(result.current.token.cartToken).toBeNull();
+    expect(cartAt("old")).toEqual(before);
+    expect(queryClient.getQueryState(["cart", "old"])?.isInvalidated).toBe(
+      false,
+    );
+    expect(requests()).toEqual(["POST /v1/cart/items"]);
+  });
+
+  it("never retries the POST", async () => {
+    fetchMock.mockResolvedValue(errorResponse(503, "INTERNAL_ERROR"));
+    const { result } = setup();
+
+    act(() => {
+      result.current.add.mutate(add(1));
+    });
+    await waitFor(() => {
+      expect(result.current.add.isError).toBe(true);
+    });
+
+    expect(requests()).toEqual(["POST /v1/cart/items"]);
+  });
+});
+
+describe("useAddToCart's queue", () => {
+  /** Two add buttons (two hook instances) sharing one provider and cache. */
+  const setupTwo = () => {
+    const queryClient = createTestQueryClient();
+    const hook = renderHook(
+      () => ({
+        first: useAddToCart(),
+        second: useAddToCart(),
+        token: useCartToken(),
+        cart: useCart(),
+      }),
+      { wrapper: hookWrapper(queryClient) },
+    );
+    return { ...hook, queryClient };
+  };
+
+  const tokenOf = (n: number) =>
+    new Headers(fetchMock.mock.calls[n]?.[1]?.headers).get("X-Cart-Token");
+
+  it("runs two adds one after the other, the second with the token the first created", async () => {
+    const answer = answerLater();
+    const { result } = setupTwo();
+
+    act(() => {
+      result.current.first.mutate(add(1, "m"));
+      result.current.second.mutate(add(2, "l"));
+    });
+    await waitFor(() => {
+      expect(requests()).toEqual(["POST /v1/cart/items"]);
+    });
+    await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+    // The second waits for the first.
+    expect(requests()).toEqual(["POST /v1/cart/items"]);
+    expect(tokenOf(0)).toBeNull();
+
+    answer(0, cartResponse(cartOf([cartLine("m")]), "t1", 201));
+    await waitFor(() => {
+      expect(requests()).toEqual([
+        "POST /v1/cart/items",
+        "POST /v1/cart/items",
+      ]);
+    });
+    // One guest cart: the second add went to the cart the first created.
+    expect(tokenOf(1)).toBe("t1");
+
+    const both = cartOf([cartLine("m"), cartLine("l", { quantity: 2 })]);
+    answer(1, cartResponse(both));
+    // Refetched once, after the last add of the burst.
+    await waitFor(() => {
+      expect(requests()).toEqual([
+        "POST /v1/cart/items",
+        "POST /v1/cart/items",
+        "GET /v1/cart",
+      ]);
+    });
+    expect(tokenOf(2)).toBe("t1");
+    answer(2, cartResponse(both));
+    await waitFor(() => {
+      expect(result.current.cart.data).toEqual(both);
+    });
+    expect(result.current.token.cartToken).toBe("t1");
+  });
+
+  it("rolls a failed add back mid-burst, and the final refetch corrects the cart", async () => {
+    const before = cartOf([cartLine("m", { quantity: 1 })]);
+    const answer = answerLater();
+    const { result, queryClient } = setupTwo();
+    queryClient.setQueryData(["cart", "tok"], before);
+    act(() => {
+      result.current.token.setCartToken("tok");
+    });
+
+    act(() => {
+      result.current.first.mutate(add(5, "m"));
+      result.current.second.mutate(add(1, "l"));
+    });
+    // Both guesses show at once: 1 + 5 + 1.
+    await waitFor(() => {
+      expect(result.current.cart.data?.item_count).toBe(7);
+    });
+    await waitFor(() => {
+      expect(requests()).toEqual(["POST /v1/cart/items"]);
+    });
+    answer(
+      0,
+      detailedErrorResponse(409, "INSUFFICIENT_STOCK", { available: 2 }),
+    );
+
+    // The failed add puts its snapshot back at once…
+    await waitFor(() => {
+      expect(result.current.first.isError).toBe(true);
+    });
+    expect(result.current.cart.data).toEqual(before);
+    // …and the queue moves on to the second add, with no refetch between.
+    await waitFor(() => {
+      expect(requests()).toEqual([
+        "POST /v1/cart/items",
+        "POST /v1/cart/items",
+      ]);
+    });
+
+    const afterSecond = cartOf([
+      cartLine("m", { quantity: 1 }),
+      cartLine("l", { quantity: 1 }),
+    ]);
+    answer(1, cartResponse(afterSecond));
+    await waitFor(() => {
+      expect(requests()).toEqual([
+        "POST /v1/cart/items",
+        "POST /v1/cart/items",
+        "GET /v1/cart",
+      ]);
+    });
+    const fresh = cartOf([
+      cartLine("m", { quantity: 2 }),
+      cartLine("l", { quantity: 1 }),
+    ]);
+    answer(2, cartResponse(fresh));
+    await waitFor(() => {
+      expect(result.current.cart.data).toEqual(fresh);
+    });
+  });
+
+  it("does not refetch after an add that found the cart gone", async () => {
+    const answer = answerLater();
+    const { result, queryClient } = setupTwo();
+    queryClient.setQueryData(["cart", "old"], cartOf([cartLine("m")]));
+    act(() => {
+      result.current.token.setCartToken("old");
+    });
+
+    act(() => {
+      result.current.first.mutate(add(1));
+    });
+    await waitFor(() => {
+      expect(requests()).toEqual(["POST /v1/cart/items"]);
+    });
+    answer(0, errorResponse(404, "CART_NOT_FOUND"));
+    await waitFor(() => {
+      expect(result.current.first.isError).toBe(true);
+    });
+    await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+
+    expect(requests()).toEqual(["POST /v1/cart/items"]);
+    expect(result.current.token.cartToken).toBeNull();
+  });
+});

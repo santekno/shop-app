@@ -44,4 +44,29 @@ describe("CartTokenProvider and useCartToken", () => {
       "useCartToken must be used inside <CartTokenProvider>",
     );
   });
+
+  it("make getCartToken return a new token at once, before any render", () => {
+    const { result } = renderHook(() => useCartToken(), { wrapper });
+    const seen: (string | null)[] = [];
+
+    act(() => {
+      result.current.setCartToken("t1");
+      seen.push(result.current.getCartToken(), result.current.cartToken);
+    });
+
+    // The ref has the new token; the rendered value catches up after.
+    expect(seen).toEqual(["t1", null]);
+    expect(result.current.cartToken).toBe("t1");
+  });
+
+  it("keep getCartToken the same function across tokens", () => {
+    const { result } = renderHook(() => useCartToken(), { wrapper });
+    const first = result.current.getCartToken;
+
+    act(() => {
+      result.current.setCartToken("t1");
+    });
+
+    expect(result.current.getCartToken).toBe(first);
+  });
 });
