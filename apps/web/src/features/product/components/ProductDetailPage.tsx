@@ -2,11 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
 import type { MouseEvent } from "react";
 import { isApiError } from "@goshop/shared";
-import {
-  EmptyState,
-  ErrorState,
-  LoadingState,
-} from "@/components/ui/StatusMessage.tsx";
+import { ErrorState, LoadingState } from "@/components/ui/StatusMessage.tsx";
 import { productQuery } from "../api/queries.ts";
 import { cameFromCatalog } from "../paths.ts";
 import { ProductDetail } from "./ProductDetail.tsx";
@@ -28,13 +24,20 @@ export function ProductDetailPage() {
   // A product opened before comes from the cache at once (and is fetched
   // again in the background once it is older than the stale time); a new
   // slug is a new key, so the previous product never shows under it.
+  //
+  // throwOnError: a NOT_FOUND is thrown during render instead of returned,
+  // so the route's error boundary (RouteErrorPage) shows the 404 page, the
+  // same one an unknown URL gets. Other errors stay here, with a retry.
   const {
     data: product,
     status,
     error,
     isFetching,
     refetch,
-  } = useQuery(productQuery(slug));
+  } = useQuery({
+    ...productQuery(slug),
+    throwOnError: (queryError) => isApiError(queryError, "NOT_FOUND"),
+  });
 
   // Opened from a catalog card: the entry before this one is that list,
   // with the buyer's filters, so going back is better than a fresh "/".
@@ -59,18 +62,14 @@ export function ProductDetailPage() {
       {(status === "pending" || (status === "error" && isFetching)) && (
         <LoadingState>Memuat produk…</LoadingState>
       )}
-      {status === "error" &&
-        !isFetching &&
-        (isApiError(error, "NOT_FOUND") ? (
-          <EmptyState>Produk tidak ditemukan.</EmptyState>
-        ) : (
-          <ErrorState
-            error={error}
-            onRetry={() => {
-              void refetch();
-            }}
-          />
-        ))}
+      {status === "error" && !isFetching && (
+        <ErrorState
+          error={error}
+          onRetry={() => {
+            void refetch();
+          }}
+        />
+      )}
       {/* key: another product is another component, so the variant and
           quantity it keeps start again from the new product. */}
       {status === "success" && (

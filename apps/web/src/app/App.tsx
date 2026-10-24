@@ -5,6 +5,7 @@ import { RouterProvider } from "react-router/dom";
 import { SessionProvider } from "@/features/auth/SessionProvider.tsx";
 import { CartTokenProvider } from "@/features/cart/CartTokenProvider.tsx";
 import { queryClient } from "@/lib/query-client.ts";
+import { reportCaughtError } from "@/lib/report-error.ts";
 import { routes } from "./routes.tsx";
 
 // Created once, when the module loads, never inside a component: a new
@@ -24,7 +25,11 @@ export function App() {
     <QueryClientProvider client={queryClient}>
       <SessionProvider>
         <CartTokenProvider>
-          <RouterProvider router={router} />
+          {/* onError: every error a route's ErrorBoundary catches comes
+              here, once (main.tsx leaves React's onCaughtError silent so
+              it is not reported twice). Without it React Router logs each
+              one itself, the expected 404 of a missing product included. */}
+          <RouterProvider router={router} onError={reportCaughtError} />
         </CartTokenProvider>
       </SessionProvider>
       {/* A panel to inspect the cache (the flower button, bottom corner).

@@ -1,6 +1,6 @@
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   deferred,
   errorResponse,
@@ -9,7 +9,11 @@ import {
   productResponse,
   requestUrl,
 } from "@/test/fake-api.ts";
-import { currentLocation, renderWithProviders } from "@/test/render.tsx";
+import {
+  currentLocation,
+  renderApp,
+  renderWithProviders,
+} from "@/test/render.tsx";
 import { ProductDetailPage } from "./ProductDetailPage.tsx";
 
 vi.mock("@/lib/api.ts", () => import("@/test/fake-api.ts"));
@@ -24,6 +28,10 @@ const renderPage = (slug: string) =>
 
 beforeEach(() => {
   fetchMock.mockReset();
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe("ProductDetailPage", () => {
@@ -62,14 +70,24 @@ describe("ProductDetailPage", () => {
     expect(screen.queryByText("Memuat produk…")).toBeNull();
   });
 
-  it("says Produk tidak ditemukan. for an unknown slug, with no retry", async () => {
+  it("hands NOT_FOUND to the route's error boundary: the 404 page, with no retry", async () => {
+    // React logs every error a boundary catches; this one is expected.
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
     fetchMock.mockResolvedValue(errorResponse(404, "NOT_FOUND", "req-404"));
-    renderPage("nope");
+    renderApp("/produk/nope");
 
-    expect(await screen.findByText("Produk tidak ditemukan.")).toBeTruthy();
+    expect(
+      await screen.findByRole("heading", {
+        level: 1,
+        name: "Halaman tidak ditemukan",
+      }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("Produk ini tidak ada atau sudah tidak dijual."),
+    ).toBeTruthy();
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.queryByRole("button", { name: "Coba lagi" })).toBeNull();
-    expect(back()).toBeTruthy();
+    expect(screen.getByRole("banner")).toBeTruthy();
   });
 
   it("shows any other error with Coba lagi, which loads it again", async () => {
