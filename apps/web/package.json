@@ -15,12 +15,14 @@
   },
   "dependencies": {
     "@goshop/shared": "workspace:*",
+    "@tanstack/react-query": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
     "react-router": "catalog:"
   },
   "devDependencies": {
     "@eslint/js": "catalog:",
+    "@tanstack/react-query-devtools": "catalog:",
     "@testing-library/dom": "catalog:",
     "@testing-library/react": "catalog:",
     "@testing-library/user-event": "catalog:",

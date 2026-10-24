@@ -1,5 +1,8 @@
+import { QueryClientProvider } from "@tanstack/react-query";
+import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { createBrowserRouter } from "react-router";
 import { RouterProvider } from "react-router/dom";
+import { queryClient } from "@/lib/query-client.ts";
 import { routes } from "./routes.tsx";
 
 // Created once, when the module loads, never inside a component: a new
@@ -11,5 +14,15 @@ import { routes } from "./routes.tsx";
 const router = createBrowserRouter(routes);
 
 export function App() {
-  return <RouterProvider router={router} />;
+  // The provider puts the QueryClient in React context, so every page
+  // (inside the router) reads and fills the same cache.
+  return (
+    <QueryClientProvider client={queryClient}>
+      <RouterProvider router={router} />
+      {/* A panel to inspect the cache (the flower button, bottom corner).
+          The package renders nothing in a production build, and Vite
+          drops its code from the bundle. */}
+      <ReactQueryDevtools buttonPosition="bottom-left" />
+    </QueryClientProvider>
+  );
 }
