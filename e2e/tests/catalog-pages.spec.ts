@@ -5,6 +5,7 @@ import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { watchBrowser } from "../support/browser.ts";
 import {
+  FIRST_PAGE_QUERY,
   PAGE_SIZE,
   SEEDED_SLUGS,
   countApiRequests,
@@ -68,10 +69,10 @@ test("shows the first page, then loads more until every product is there", async
   // the cursor of the page before it.
   const productCalls = calls.get("/v1/products") ?? [];
   expect(productCalls).toHaveLength(pages.length);
-  expect(productCalls[0]).toBe(`GET /v1/products?limit=${PAGE_SIZE}`);
+  expect(productCalls[0]).toBe(`GET /v1/products?${FIRST_PAGE_QUERY}`);
   for (const call of productCalls.slice(1)) {
     expect(call).toMatch(
-      new RegExp(`^GET /v1/products\\?limit=${PAGE_SIZE}&cursor=[^&]+$`),
+      new RegExp(`^GET /v1/products\\?${FIRST_PAGE_QUERY}&cursor=[^&]+$`),
     );
   }
   expect(new Set(productCalls).size).toBe(productCalls.length);

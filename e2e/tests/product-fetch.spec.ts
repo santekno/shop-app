@@ -7,7 +7,7 @@ import { expect, test } from "@playwright/test";
 import { watchBrowser } from "../support/browser.ts";
 import type { ProductRow } from "../support/catalog.ts";
 import {
-  PAGE_SIZE,
+  FIRST_PAGE_QUERY,
   countApiRequests,
   expectNoProblems,
   openProduct,
@@ -26,7 +26,7 @@ test("a slug that needs encoding is encoded, and a 404 shows Produk tidak ditemu
   let renamed: ProductRow | undefined;
 
   // Only the first catalog page is rewritten; everything else is real.
-  const firstPage = `${BROWSER_API_URL}/v1/products?limit=${PAGE_SIZE}`;
+  const firstPage = `${BROWSER_API_URL}/v1/products?${FIRST_PAGE_QUERY}`;
   await page.route(
     (url) => url.href === firstPage,
     async (route) => {

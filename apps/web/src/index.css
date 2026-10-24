@@ -78,6 +78,48 @@ body {
   margin: 0.25rem 0;
 }
 
+.category-tree a,
+.category-all a {
+  text-decoration: none;
+}
+
+/* The category the catalog is filtered by (aria-current="true"). */
+.category-tree a[aria-current="true"],
+.category-all a[aria-current="true"] {
+  font-weight: 700;
+  text-decoration: underline;
+}
+
+.category-all {
+  margin: 0 0 0.5rem;
+}
+
+.catalog-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.75rem 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.catalog-search,
+.catalog-sort {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+input,
+select {
+  font: inherit;
+  padding: 0.375rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  background: var(--surface);
+  color: var(--text);
+}
+
 .error p:first-child {
   color: var(--error);
 }

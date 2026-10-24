@@ -59,7 +59,7 @@ describe("CatalogPage", () => {
     const { pages } = serveCatalog();
     renderWithProviders(<CatalogPage />, { path: "/" });
 
-    expect(pages[0]?.query).toBe("?limit=12");
+    expect(pages[0]?.query).toBe("?sort=newest&limit=12");
     expect(within(productsSection()).getByRole("status").textContent).toBe(
       "Memuat produk…",
     );
@@ -87,7 +87,7 @@ describe("CatalogPage", () => {
       screen.queryByRole("button", { name: "Muat lebih banyak" }),
     ).toBeNull();
     expect(within(productsSection()).getAllByRole("listitem")).toHaveLength(2);
-    expect(pages[1]?.query).toBe("?limit=12&cursor=c2");
+    expect(pages[1]?.query).toBe("?sort=newest&limit=12&cursor=c2");
 
     answer(1, productsResponse([product("c")], null));
     expect(

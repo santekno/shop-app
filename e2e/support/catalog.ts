@@ -56,6 +56,12 @@ export interface ProductRow {
 export const PAGE_SIZE = 12;
 
 /**
+ * The query of the catalog's first page with no filter in the URL: the
+ * default sort is sent explicitly, then the page size.
+ */
+export const FIRST_PAGE_QUERY = `sort=newest&limit=${PAGE_SIZE}`;
+
+/**
  * Every product slug make seed writes (apps/api/cmd/seed/catalog.go). The
  * Compose database may hold more, so specs check that these are there, and
  * compare everything else with what the API returns.

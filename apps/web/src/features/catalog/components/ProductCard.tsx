@@ -3,7 +3,7 @@ import { Link } from "react-router";
 import { formatRupiah } from "@goshop/shared";
 import type { Product } from "@goshop/shared";
 import { Card } from "@/components/ui/Card.tsx";
-import { productPath } from "@/features/product/paths.ts";
+import { FROM_CATALOG, productPath } from "@/features/product/paths.ts";
 import { ProductImage } from "./ProductImage.tsx";
 
 /**
@@ -46,6 +46,7 @@ export const ProductCard = memo(function ProductCard({
             plain click and renders the product route without a reload. */}
         <Link
           to={productPath(product.slug)}
+          state={FROM_CATALOG}
           // useRouteFocus looks the link up by this attribute to give it
           // the focus back when the buyer returns from the product page.
           data-product-slug={product.slug}

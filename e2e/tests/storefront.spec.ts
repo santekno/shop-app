@@ -5,6 +5,7 @@ import { expect, test } from "@playwright/test";
 import type { Locator } from "@playwright/test";
 import { watchBrowser } from "../support/browser.ts";
 import {
+  FIRST_PAGE_QUERY,
   PAGE_SIZE,
   countApiRequests,
   expectNoProblems,
@@ -97,10 +98,11 @@ test("loads each endpoint with one request and no retries", async ({
 
   // One GET per endpoint: the production build runs each effect once
   // (StrictMode doubles them in dev only), a successful answer is never
-  // retried, and the catalog asks for one page of PAGE_SIZE.
+  // retried, and the catalog asks for one page of PAGE_SIZE in the
+  // default order.
   expect(Object.fromEntries(calls)).toEqual({
     "/v1/categories": ["GET /v1/categories"],
-    "/v1/products": [`GET /v1/products?limit=${PAGE_SIZE}`],
+    "/v1/products": [`GET /v1/products?${FIRST_PAGE_QUERY}`],
   });
   expectNoProblems(problems);
 });

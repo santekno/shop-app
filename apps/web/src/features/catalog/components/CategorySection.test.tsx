@@ -8,7 +8,15 @@ import {
   errorResponse,
   fetchMock,
 } from "@/test/fake-api.ts";
+import { inRouter } from "@/test/render.tsx";
+import type { CatalogFilters } from "../catalog-filters.ts";
 import { CategorySection } from "./CategorySection.tsx";
+
+const ALL: CatalogFilters = {
+  category: undefined,
+  q: undefined,
+  sort: "newest",
+};
 
 vi.mock("@/lib/api.ts", () => import("@/test/fake-api.ts"));
 
@@ -20,7 +28,7 @@ describe("CategorySection", () => {
   it("shows a loading status while the request runs", () => {
     fetchMock.mockReturnValue(new Promise(() => undefined));
 
-    render(<CategorySection />);
+    render(inRouter(<CategorySection filters={ALL} />));
 
     expect(
       screen.getByRole("heading", { level: 2, name: "Kategori" }),
@@ -37,7 +45,7 @@ describe("CategorySection", () => {
       ]),
     );
 
-    render(<CategorySection />);
+    render(inRouter(<CategorySection filters={ALL} />));
 
     expect(await screen.findByText("Kaos")).toBeTruthy();
     expect(screen.getByText("Pakaian")).toBeTruthy();
@@ -48,7 +56,7 @@ describe("CategorySection", () => {
   it("says so when there are no categories", async () => {
     fetchMock.mockResolvedValue(categoriesResponse([]));
 
-    render(<CategorySection />);
+    render(inRouter(<CategorySection filters={ALL} />));
 
     expect(await screen.findByText("Belum ada kategori.")).toBeTruthy();
     expect(screen.queryByRole("list")).toBeNull();
@@ -57,7 +65,7 @@ describe("CategorySection", () => {
   it("shows the error message and the request ID in an alert", async () => {
     fetchMock.mockResolvedValue(errorResponse(500, "INTERNAL_ERROR", "req-42"));
 
-    render(<CategorySection />);
+    render(inRouter(<CategorySection filters={ALL} />));
 
     const alert = await screen.findByRole("alert");
     expect(
@@ -74,7 +82,7 @@ describe("CategorySection", () => {
   it("leaves the request ID out when there is none", async () => {
     fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
 
-    render(<CategorySection />);
+    render(inRouter(<CategorySection filters={ALL} />));
 
     const alert = await screen.findByRole("alert");
     expect(
@@ -93,7 +101,7 @@ describe("CategorySection", () => {
       .mockResolvedValueOnce(errorResponse(503, "INTERNAL_ERROR"))
       .mockImplementationOnce(() => answer.promise);
 
-    render(<CategorySection />);
+    render(inRouter(<CategorySection filters={ALL} />));
     await user.click(await screen.findByRole("button", { name: "Coba lagi" }));
 
     expect(screen.getByRole("status")).toBeTruthy();
@@ -102,5 +110,40 @@ describe("CategorySection", () => {
 
     answer.resolve(categoriesResponse([category("1", "Pakaian")]));
     expect(await screen.findByText("Pakaian")).toBeTruthy();
+  });
+
+  it("links each category to the catalog, keeping the search and the sort", async () => {
+    fetchMock.mockResolvedValue(
+      categoriesResponse([
+        category("1", "Pakaian"),
+        category("2", "Kaos", "1"),
+      ]),
+    );
+    const filters: CatalogFilters = {
+      category: "kaos",
+      q: "polos",
+      sort: "price_asc",
+    };
+
+    render(inRouter(<CategorySection filters={filters} />));
+
+    const kaos = await screen.findByRole("link", { name: "Kaos" });
+    expect(kaos.getAttribute("href")).toBe(
+      "/?kategori=kaos&q=polos&urut=termurah",
+    );
+    expect(kaos.getAttribute("aria-current")).toBe("true");
+    const all = screen.getByRole("link", { name: "Semua produk" });
+    expect(all.getAttribute("href")).toBe("/?q=polos&urut=termurah");
+    expect(all.hasAttribute("aria-current")).toBe(false);
+  });
+
+  it("marks Semua produk as current when no category is chosen", async () => {
+    fetchMock.mockResolvedValue(categoriesResponse([category("1", "Pakaian")]));
+
+    render(inRouter(<CategorySection filters={ALL} />));
+
+    const all = await screen.findByRole("link", { name: "Semua produk" });
+    expect(all.getAttribute("href")).toBe("/");
+    expect(all.getAttribute("aria-current")).toBe("true");
   });
 });
