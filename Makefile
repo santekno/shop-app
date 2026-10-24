@@ -72,7 +72,7 @@ IT_ENV := POSTGRES_DSN='postgres://goshop:goshop@localhost:5432/goshop?sslmode=d
 	GOSHOP_API_URL=http://127.0.0.1:8080
 
 .PHONY: help doctor build lint lint-openapi test-unit test-integration test-mobile-e2e docker-build scan verify up down dev-api docs-api \
-	migrate-up migrate-down migrate-new seed seed-large seed-admin seed-loadtest loadtest sqlc sqlc-check expire-orders cleanup-idempotency-keys publish-events
+	migrate-up migrate-down migrate-new seed seed-large seed-admin seed-loadtest loadtest sqlc sqlc-check expire-orders cleanup-idempotency-keys publish-events reconcile-payments
 
 help: ## List targets
 	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -215,6 +215,9 @@ cleanup-idempotency-keys: ## Delete checkout idempotency keys past their 24 hour
 
 publish-events: ## Publish the outbox's pending domain events (to the log until Bab 6), once
 	$(COMPOSE) run --rm --no-deps api publish-events
+
+reconcile-payments: ## Ask Midtrans about every open payment and apply its answer, once
+	$(COMPOSE) run --rm --no-deps api reconcile-payments
 
 up: ## Start the full stack locally
 	$(COMPOSE) up -d --build

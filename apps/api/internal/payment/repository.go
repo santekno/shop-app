@@ -192,3 +192,39 @@ func insertEvent(ctx context.Context, q *sqlc.Queries, in ApplyInput, outcome Ou
 }
 
 func nullString(s string) sql.NullString { return sql.NullString{String: s, Valid: s != ""} }
+
+// ToReconcile returns the payments created before createdBefore to ask
+// the gateway about: up to limit open ones, the least recently checked
+// first, then up to limit/closedShare ones GoShop closed (cancelled) that
+// have not yet had a final answer, the closest to the end of its window
+// first, each at most every closedRecheck except for the first check after
+// its window ended (closedWindow).
+func (r *PostgresRepository) ToReconcile(ctx context.Context, createdBefore time.Time, limit int32) ([]Payment, error) {
+	rows, err := r.q.ListPaymentsToReconcile(ctx, sqlc.ListPaymentsToReconcileParams{
+		CreatedBefore: createdBefore, WindowEndedBefore: createdBefore.Add(-closedWindow),
+		ClosedRecheckBefore: createdBefore.Add(-closedRecheck), BatchSize: limit,
+		ClosedBatchSize: max(1, limit/closedShare),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("query payments to reconcile: %w", err)
+	}
+	out := make([]Payment, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, Payment{
+			ID: row.ID, OrderID: row.OrderID, Provider: row.Provider, ProviderOrderID: row.ProviderOrderID,
+			Amount: row.Amount, Status: Status(row.Status), Token: row.SnapToken, RedirectURL: row.RedirectUrl,
+			ExpiresAt: row.ExpiresAt, PaidAt: nullTime(row.PaidAt), RefundRequiredAt: nullTime(row.RefundRequiredAt),
+			CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
+		})
+	}
+	return out, nil
+}
+
+// MarkChecked records that the reconciler asked about payment id at now,
+// and, when the answer was final, that it needs no more asking.
+func (r *PostgresRepository) MarkChecked(ctx context.Context, id string, now time.Time, final bool) error {
+	if err := r.q.MarkPaymentChecked(ctx, sqlc.MarkPaymentCheckedParams{ID: id, Now: now, Final: final}); err != nil {
+		return fmt.Errorf("mark payment checked: %w", err)
+	}
+	return nil
+}

@@ -8,6 +8,7 @@
 //	api expire-orders  cancel unpaid orders past their deadline once and exit
 //	api cleanup-idempotency-keys  delete expired checkout idempotency keys and exit
 //	api publish-events  publish the outbox's pending domain events once and exit
+//	api reconcile-payments  ask Midtrans about open payments once and exit
 package main
 
 import (

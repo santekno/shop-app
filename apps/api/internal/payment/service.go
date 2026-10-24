@@ -24,6 +24,8 @@ type Repository interface {
 	Insert(ctx context.Context, p Payment) (bool, error)
 	ByProviderOrderID(ctx context.Context, providerOrderID string) (Payment, error)
 	Apply(ctx context.Context, in ApplyInput) (Outcome, error)
+	ToReconcile(ctx context.Context, createdBefore time.Time, limit int32) ([]Payment, error)
+	MarkChecked(ctx context.Context, id string, now time.Time, final bool) error
 }
 
 // Deps is what the service needs.

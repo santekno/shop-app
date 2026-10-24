@@ -14,7 +14,7 @@ import (
 )
 
 const cancelOpenPaymentsOfOrders = `-- name: CancelOpenPaymentsOfOrders :exec
-UPDATE payments SET status = 'cancelled', updated_at = $1::timestamptz
+UPDATE payments SET status = 'cancelled', final_checked_at = NULL, updated_at = $1::timestamptz
 WHERE order_id = ANY($2::uuid[]) AND status IN ('pending', 'challenge')
 `
 
@@ -29,6 +29,9 @@ type CancelOpenPaymentsOfOrdersParams struct {
 // money any more. A buyer who pays it anyway is flagged for a refund (the
 // payment may still move cancelled -> paid). One statement for many
 // orders, as account deletion needs. Served by payments_order_open_key.
+// final_checked_at goes back to NULL: the close starts a new window for
+// the reconciler to watch (its closed queue), whatever it had concluded
+// about the payment while it was open.
 func (q *Queries) CancelOpenPaymentsOfOrders(ctx context.Context, arg CancelOpenPaymentsOfOrdersParams) error {
 	_, err := q.db.ExecContext(ctx, cancelOpenPaymentsOfOrders, arg.Now, pq.Array(arg.OrderIds))
 	return err
@@ -246,6 +249,119 @@ func (q *Queries) InsertPaymentEvent(ctx context.Context, arg InsertPaymentEvent
 	return result.RowsAffected()
 }
 
+const listPaymentsToReconcile = `-- name: ListPaymentsToReconcile :many
+(SELECT o.id, o.order_id, o.provider, o.provider_order_id, o.amount, o.status, o.snap_token, o.redirect_url,
+        o.expires_at, o.paid_at, o.refund_required_at, o.created_at, o.updated_at, o.checked_at,
+        false AS closed
+ FROM payments o
+ WHERE o.status IN ('pending', 'challenge') AND o.created_at < $1
+ ORDER BY o.checked_at NULLS FIRST, o.created_at
+ LIMIT $2)
+UNION ALL
+(SELECT c.id, c.order_id, c.provider, c.provider_order_id, c.amount, c.status, c.snap_token, c.redirect_url,
+        c.expires_at, c.paid_at, c.refund_required_at, c.created_at, c.updated_at, c.checked_at,
+        true AS closed
+ FROM payments c
+ WHERE c.status = 'cancelled' AND c.final_checked_at IS NULL
+   AND c.created_at < $1
+   AND (c.checked_at IS NULL OR c.checked_at < $3::timestamptz
+        OR (c.expires_at < $4::timestamptz
+            AND c.checked_at - c.expires_at < interval '10 minutes'))
+ ORDER BY c.expires_at
+ LIMIT $5)
+ORDER BY closed, expires_at
+`
+
+type ListPaymentsToReconcileParams struct {
+	CreatedBefore       time.Time
+	BatchSize           int32
+	ClosedRecheckBefore time.Time
+	WindowEndedBefore   time.Time
+	ClosedBatchSize     int32
+}
+
+type ListPaymentsToReconcileRow struct {
+	ID               string
+	OrderID          string
+	Provider         string
+	ProviderOrderID  string
+	Amount           int64
+	Status           string
+	SnapToken        string
+	RedirectUrl      string
+	ExpiresAt        time.Time
+	PaidAt           sql.NullTime
+	RefundRequiredAt sql.NullTime
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+	CheckedAt        sql.NullTime
+	Closed           bool
+}
+
+// What the reconciler asks Midtrans about (ADR 0007), created before
+// @created_before (a fresh payment may still be waiting for its first
+// notification), from two queues, each with its own budget per run:
+//   - up to @batch_size open payments (pending, challenge), the least
+//     recently checked first; served by payments_reconcile_idx;
+//   - up to @closed_batch_size payments GoShop closed itself when their
+//     order closed (cancelled). Midtrans was never told, so it takes money
+//     until expires_at. Such a payment stays in this queue until a check
+//     gets a final answer (final_checked_at): a backlog is delayed, never
+//     dropped, and a Midtrans that still says pending after the window
+//     keeps it queued. The ones closest to the end of their window first.
+//     It is asked about again at most every 30 minutes
+//     (@closed_recheck_before), except once its window has ended
+//     (@window_ended_before) and it has not been checked since: then it is
+//     due at once. Served by payments_closed_window_idx, whose predicate
+//     is the first line of the WHERE.
+//
+// The open payments are listed first (closed: false sorts before true; a
+// UNION can only be ordered by its output columns).
+func (q *Queries) ListPaymentsToReconcile(ctx context.Context, arg ListPaymentsToReconcileParams) ([]ListPaymentsToReconcileRow, error) {
+	rows, err := q.db.QueryContext(ctx, listPaymentsToReconcile,
+		arg.CreatedBefore,
+		arg.BatchSize,
+		arg.ClosedRecheckBefore,
+		arg.WindowEndedBefore,
+		arg.ClosedBatchSize,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPaymentsToReconcileRow
+	for rows.Next() {
+		var i ListPaymentsToReconcileRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrderID,
+			&i.Provider,
+			&i.ProviderOrderID,
+			&i.Amount,
+			&i.Status,
+			&i.SnapToken,
+			&i.RedirectUrl,
+			&i.ExpiresAt,
+			&i.PaidAt,
+			&i.RefundRequiredAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CheckedAt,
+			&i.Closed,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockPaymentOrder = `-- name: LockPaymentOrder :one
 SELECT status FROM orders WHERE id = $1 FOR NO KEY UPDATE
 `
@@ -259,6 +375,29 @@ func (q *Queries) LockPaymentOrder(ctx context.Context, id string) (string, erro
 	var status string
 	err := row.Scan(&status)
 	return status, err
+}
+
+const markPaymentChecked = `-- name: MarkPaymentChecked :exec
+UPDATE payments
+SET checked_at       = $1::timestamptz,
+    final_checked_at = CASE WHEN $2::boolean THEN COALESCE(final_checked_at, $1::timestamptz)
+                            ELSE final_checked_at END
+WHERE id = $3
+`
+
+type MarkPaymentCheckedParams struct {
+	Now   time.Time
+	Final bool
+	ID    string
+}
+
+// Bookkeeping for the reconciler, not a change of the payment, so
+// updated_at stays: every check that got an answer sets checked_at; one
+// that got a final answer (@final) also sets final_checked_at, once, which
+// takes a closed payment out of the reconciler's closed queue.
+func (q *Queries) MarkPaymentChecked(ctx context.Context, arg MarkPaymentCheckedParams) error {
+	_, err := q.db.ExecContext(ctx, markPaymentChecked, arg.Now, arg.Final, arg.ID)
+	return err
 }
 
 const updatePaymentStatus = `-- name: UpdatePaymentStatus :execrows

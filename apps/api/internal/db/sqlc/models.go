@@ -137,6 +137,8 @@ type Payment struct {
 	RefundedAmount        int64
 	CreatedAt             time.Time
 	UpdatedAt             time.Time
+	CheckedAt             sql.NullTime
+	FinalCheckedAt        sql.NullTime
 }
 
 type PaymentEvent struct {

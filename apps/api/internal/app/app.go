@@ -314,8 +314,10 @@ func Run(ctx context.Context, args []string, stdout io.Writer) error {
 		return runJob(ctx, cfg, logger, "cleanup-idempotency-keys", cleanupIdempotencyKeys)
 	case len(args) == 1 && args[0] == "publish-events":
 		return runJob(ctx, cfg, logger, "publish-events", publishEvents)
+	case len(args) == 1 && args[0] == "reconcile-payments":
+		return runJob(ctx, cfg, logger, "reconcile-payments", reconcilePayments(cfg.Payment))
 	default:
-		return fmt.Errorf("unknown arguments %q (usage: api [healthcheck|migrate|expire-orders|cleanup-idempotency-keys|publish-events])", args)
+		return fmt.Errorf("unknown arguments %q (usage: api [healthcheck|migrate|expire-orders|cleanup-idempotency-keys|publish-events|reconcile-payments])", args)
 	}
 
 	db, err := database.Open(ctx, cfg.Database, logger)
@@ -406,6 +408,23 @@ func publishEvents(ctx context.Context, db *sql.DB, logger logx.Logger) error {
 	n, err := outbox.NewDispatcher(db, outbox.LogPublisher{Logger: logger}).PublishPending(ctx)
 	logger.Info("published domain events", "published", n)
 	return err
+}
+
+// reconcilePayments asks the payment gateway about the open payments and
+// applies what it says (payment.Service.Reconcile), once: the safety net
+// for a lost notification. With payments off it does nothing.
+func reconcilePayments(cfg config.Payment) func(context.Context, *sql.DB, logx.Logger) error {
+	return func(ctx context.Context, db *sql.DB, logger logx.Logger) error {
+		gateway := paymentGateway(cfg, logger)
+		if gateway == nil {
+			logger.Warn("payments are off: MIDTRANS_SERVER_KEY is not set; nothing to reconcile")
+			return nil
+		}
+		svc := payment.NewService(payment.Deps{Repo: payment.NewPostgresRepository(db), Gateway: gateway})
+		res, err := svc.Reconcile(logx.WithContextLogger(ctx, logger))
+		logger.Info("reconciled payments", "checked", res.Checked, "changed", res.Changed, "failed", res.Failed)
+		return err
+	}
 }
 
 // runMigrations is `api migrate`: the one way a deployed database gets its

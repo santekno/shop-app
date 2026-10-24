@@ -36,7 +36,10 @@ ON CONFLICT (order_id) WHERE status IN ('pending', 'challenge') DO NOTHING;
 -- money any more. A buyer who pays it anyway is flagged for a refund (the
 -- payment may still move cancelled -> paid). One statement for many
 -- orders, as account deletion needs. Served by payments_order_open_key.
-UPDATE payments SET status = 'cancelled', updated_at = @now::timestamptz
+-- final_checked_at goes back to NULL: the close starts a new window for
+-- the reconciler to watch (its closed queue), whatever it had concluded
+-- about the payment while it was open.
+UPDATE payments SET status = 'cancelled', final_checked_at = NULL, updated_at = @now::timestamptz
 WHERE order_id = ANY(@order_ids::uuid[]) AND status IN ('pending', 'challenge');
 
 -- name: GetPaymentByProviderOrderID :one
@@ -86,3 +89,55 @@ ON CONFLICT (payment_id, dedupe_key) DO NOTHING;
 -- the seller returns the money (ADR 0007). Keeps the first flag time.
 UPDATE payments SET refund_required_at = COALESCE(refund_required_at, @now::timestamptz), updated_at = @now::timestamptz
 WHERE id = @id AND paid_at IS NOT NULL;
+
+-- name: ListPaymentsToReconcile :many
+-- What the reconciler asks Midtrans about (ADR 0007), created before
+-- @created_before (a fresh payment may still be waiting for its first
+-- notification), from two queues, each with its own budget per run:
+--   * up to @batch_size open payments (pending, challenge), the least
+--     recently checked first; served by payments_reconcile_idx;
+--   * up to @closed_batch_size payments GoShop closed itself when their
+--     order closed (cancelled). Midtrans was never told, so it takes money
+--     until expires_at. Such a payment stays in this queue until a check
+--     gets a final answer (final_checked_at): a backlog is delayed, never
+--     dropped, and a Midtrans that still says pending after the window
+--     keeps it queued. The ones closest to the end of their window first.
+--     It is asked about again at most every 30 minutes
+--     (@closed_recheck_before), except once its window has ended
+--     (@window_ended_before) and it has not been checked since: then it is
+--     due at once. Served by payments_closed_window_idx, whose predicate
+--     is the first line of the WHERE.
+-- The open payments are listed first (closed: false sorts before true; a
+-- UNION can only be ordered by its output columns).
+(SELECT o.id, o.order_id, o.provider, o.provider_order_id, o.amount, o.status, o.snap_token, o.redirect_url,
+        o.expires_at, o.paid_at, o.refund_required_at, o.created_at, o.updated_at, o.checked_at,
+        false AS closed
+ FROM payments o
+ WHERE o.status IN ('pending', 'challenge') AND o.created_at < @created_before
+ ORDER BY o.checked_at NULLS FIRST, o.created_at
+ LIMIT @batch_size)
+UNION ALL
+(SELECT c.id, c.order_id, c.provider, c.provider_order_id, c.amount, c.status, c.snap_token, c.redirect_url,
+        c.expires_at, c.paid_at, c.refund_required_at, c.created_at, c.updated_at, c.checked_at,
+        true AS closed
+ FROM payments c
+ WHERE c.status = 'cancelled' AND c.final_checked_at IS NULL
+   AND c.created_at < @created_before
+   AND (c.checked_at IS NULL OR c.checked_at < @closed_recheck_before::timestamptz
+        OR (c.expires_at < @window_ended_before::timestamptz
+            AND c.checked_at - c.expires_at < interval '10 minutes'))
+ ORDER BY c.expires_at
+ LIMIT @closed_batch_size)
+ORDER BY closed, expires_at;
+
+-- name: MarkPaymentChecked :exec
+-- Bookkeeping for the reconciler, not a change of the payment, so
+-- updated_at stays: every check that got an answer sets checked_at; one
+-- that got a final answer (@final) also sets final_checked_at, once, which
+-- takes a closed payment out of the reconciler's closed queue.
+UPDATE payments
+SET checked_at       = @now::timestamptz,
+    final_checked_at = CASE WHEN @final::boolean THEN COALESCE(final_checked_at, @now::timestamptz)
+                            ELSE final_checked_at END
+WHERE id = @id;
+
