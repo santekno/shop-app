@@ -1496,6 +1496,56 @@ paths:
         "503":
           $ref: "#/components/responses/PaymentUnavailable"
 
+  /v1/payments/midtrans/notification:
+    post:
+      tags: [Payments]
+      operationId: midtransNotification
+      summary: Midtrans payment notification (webhook)
+      description: |
+        Called by Midtrans (Settings → Configuration → Payment Notification
+        URL), not by clients. No GoShop token: the notification's
+        `signature_key` (SHA-512 of `order_id`, `status_code`,
+        `gross_amount` and the server key) is its authentication, compared
+        in constant time. The body is only a hint: GoShop then asks
+        Midtrans' status API for the transaction's current status and acts
+        on that answer, so a replayed, late or out-of-order notification
+        cannot move a payment or an order backwards. Each distinct status is
+        recorded once; repeats are no-ops (`outcome: duplicate`).
+
+        What a status does: `settlement` (or a card `capture` accepted by
+        the fraud check) marks the order paid; `expire` cancels an unpaid
+        order and returns its stock; money for an order that can no longer
+        be paid is recorded for a refund and never revives the order; an
+        amount that is not the order's total changes nothing.
+
+        The body is read up to 64 KiB, unknown fields are ignored, and each
+        client IP may call it 120 times a minute.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MidtransNotification"
+      responses:
+        "200":
+          description: Handled; Midtrans stops sending this notification.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationResultDetail"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "403":
+          $ref: "#/components/responses/InvalidSignature"
+        "404":
+          $ref: "#/components/responses/PaymentNotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/PaymentUnavailable"
+
   /v1/admin/orders:
     get:
       tags: [Admin]
@@ -2898,6 +2948,48 @@ components:
         data:
           $ref: "#/components/schemas/PaymentSession"
 
+    MidtransNotification:
+      type: object
+      description: The fields of a Midtrans HTTP notification that GoShop reads. Midtrans sends more (transaction_status, payment_type, …); they are ignored, because the status comes from Midtrans' status API.
+      required: [order_id, status_code, gross_amount, signature_key]
+      additionalProperties: true
+      properties:
+        order_id:
+          type: string
+          maxLength: 256
+          description: The payment's Midtrans order_id, `<order code>-<6 characters>`.
+          example: GS-20261101-7KQ2M9-K3D9QX
+        status_code:
+          type: string
+          maxLength: 256
+          example: "200"
+        gross_amount:
+          type: string
+          maxLength: 256
+          example: "117000.00"
+        signature_key:
+          type: string
+          maxLength: 256
+          description: Lower-case hex SHA-512 of order_id + status_code + gross_amount + server key.
+
+    NotificationResult:
+      type: object
+      required: [outcome]
+      additionalProperties: false
+      properties:
+        outcome:
+          type: string
+          enum: [paid, order_cancelled, refund_required, amount_mismatch, recorded, duplicate]
+          description: What GoShop did with the transaction's current status.
+
+    NotificationResultDetail:
+      type: object
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          $ref: "#/components/schemas/NotificationResult"
+
     ShipRequest:
       type: object
       required: [tracking_number]
@@ -3505,7 +3597,8 @@ components:
         `MIDTRANS_SERVER_KEY` is empty), or Midtrans did not answer in time
         (`APP_PAYMENT_TIMEOUT`), answered with an error, or has failed so
         often that the API stopped asking it for a while
-        (`UPSTREAM_UNAVAILABLE`). Retry the second one shortly.
+        (`UPSTREAM_UNAVAILABLE`). Retry the second one shortly; Midtrans
+        sends a notification again by itself.
       content:
         application/json:
           schema:
@@ -3521,3 +3614,23 @@ components:
                 error:
                   code: UPSTREAM_UNAVAILABLE
                   message: the payment service is not answering; try again shortly
+    InvalidSignature:
+      description: The notification's `signature_key` is not Midtrans' signature with this server's key (`INVALID_SIGNATURE`). Nothing is read or changed.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: INVALID_SIGNATURE
+              message: the notification signature is not valid
+    PaymentNotFound:
+      description: A correctly signed notification about an `order_id` this server never created.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: NOT_FOUND
+              message: payment not found

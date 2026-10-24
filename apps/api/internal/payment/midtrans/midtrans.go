@@ -6,14 +6,19 @@ package midtrans
 import (
 	"bytes"
 	"context"
+	"crypto/sha512"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
+	"github.com/santekno/sdk/hashx"
 	"github.com/santekno/sdk/httpx"
 	"github.com/santekno/sdk/logx"
 
@@ -127,6 +132,11 @@ func (c *Client) CreateTransaction(ctx context.Context, req payment.TransactionR
 	return payment.Transaction{Token: out.Token, RedirectURL: out.RedirectURL}, nil
 }
 
+// statusError is an answer with an unexpected HTTP status.
+type statusError struct{ status int }
+
+func (e *statusError) Error() string { return fmt.Sprintf("midtrans answered %d", e.status) }
+
 // post sends body as JSON and decodes a want answer into out.
 func (c *Client) post(ctx context.Context, url string, body, out any, want int) error {
 	raw, err := json.Marshal(body)
@@ -162,10 +172,79 @@ func (c *Client) do(req *http.Request, want int, out any) error {
 			// operator must notice. Status only: never the key or the body.
 			c.logger.Warn("midtrans refused a request", "status", resp.StatusCode, "path", req.URL.Path)
 		}
-		return fmt.Errorf("%w: midtrans answered %d", payment.ErrGatewayUnavailable, resp.StatusCode)
+		return fmt.Errorf("%w: %w", payment.ErrGatewayUnavailable, &statusError{status: resp.StatusCode})
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponse)).Decode(out); err != nil {
 		return fmt.Errorf("%w: midtrans: decode answer: %w", payment.ErrGatewayUnavailable, err)
 	}
 	return nil
+}
+
+// statusResponse is the answer of GET /v2/{order_id}/status.
+type statusResponse struct {
+	StatusCode        string `json:"status_code"`
+	OrderID           string `json:"order_id"`
+	TransactionID     string `json:"transaction_id"`
+	TransactionStatus string `json:"transaction_status"`
+	FraudStatus       string `json:"fraud_status"`
+	PaymentType       string `json:"payment_type"`
+	GrossAmount       string `json:"gross_amount"`
+	SignatureKey      string `json:"signature_key"`
+}
+
+// Status implements payment.Gateway with Midtrans' status API. Midtrans
+// signs this answer like a notification, and Status checks that
+// signature too: an answer that does not carry the merchant's signature is
+// not Midtrans'.
+func (c *Client) Status(ctx context.Context, orderID string) (payment.TransactionStatus, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		c.apiURL+"/v2/"+url.PathEscape(orderID)+"/status", http.NoBody)
+	if err != nil {
+		return payment.TransactionStatus{}, fmt.Errorf("midtrans: build request: %w", err)
+	}
+	var out statusResponse
+	// An unknown order_id is answered 404, in the HTTP status or only in
+	// the body's status_code depending on the endpoint's version: both
+	// mean "no such transaction".
+	if err := c.do(req, http.StatusOK, &out); err != nil {
+		var se *statusError
+		if errors.As(err, &se) && se.status == http.StatusNotFound {
+			return payment.TransactionStatus{}, payment.ErrTransactionNotFound
+		}
+		return payment.TransactionStatus{}, err
+	}
+	if out.StatusCode == "404" {
+		return payment.TransactionStatus{}, payment.ErrTransactionNotFound
+	}
+	if out.OrderID != orderID || !c.VerifySignature(out.OrderID, out.StatusCode, out.GrossAmount, out.SignatureKey) {
+		return payment.TransactionStatus{}, fmt.Errorf("%w: midtrans status answer is not signed for %s",
+			payment.ErrGatewayUnavailable, orderID)
+	}
+	return payment.TransactionStatus{
+		OrderID: out.OrderID, StatusCode: out.StatusCode, TransactionID: out.TransactionID,
+		TransactionStatus: out.TransactionStatus, FraudStatus: out.FraudStatus,
+		PaymentType: out.PaymentType, GrossAmount: out.GrossAmount,
+	}, nil
+}
+
+// VerifySignature implements payment.Gateway: Midtrans' signature_key is
+// the hex SHA-512 of order_id, status_code, gross_amount and the server
+// key, in that order. Only a holder of the server key can make it.
+func (c *Client) VerifySignature(orderID, statusCode, grossAmount, signature string) bool {
+	return CheckSignature(c.serverKey, orderID, statusCode, grossAmount, signature)
+}
+
+// Signature is Midtrans' signature_key of a notification or status
+// answer, signed with serverKey.
+func Signature(serverKey, orderID, statusCode, grossAmount string) string {
+	sum := sha512.Sum512([]byte(orderID + statusCode + grossAmount + serverKey))
+	return hex.EncodeToString(sum[:])
+}
+
+// CheckSignature reports whether signature is Signature of the fields,
+// compared in constant time (sdk hashx), so the time it takes says nothing
+// about how many characters were right. Case does not matter.
+func CheckSignature(serverKey, orderID, statusCode, grossAmount, signature string) bool {
+	want := Signature(serverKey, orderID, statusCode, grossAmount)
+	return hashx.ConstantTimeEqual([]byte(want), []byte(strings.ToLower(signature)))
 }

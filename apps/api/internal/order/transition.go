@@ -39,17 +39,61 @@ func (r *PostgresRepository) Transition(ctx context.Context, c Change) error {
 		if n == 0 {
 			return whyUnchanged(ctx, q, c)
 		}
-		if c.To == StatusCancelled {
-			if err := giveBack(ctx, q, c.OrderID); err != nil {
-				return err
-			}
-		}
-		row, err := q.GetOrder(ctx, c.OrderID)
-		if err != nil {
-			return fmt.Errorf("read changed order: %w", err)
-		}
-		return recordEvent(ctx, q, fromOrderRow(orderRow(row)))
+		return afterChange(ctx, q, c)
 	})
+}
+
+// afterChange finishes a status change that moved the order, in its
+// transaction: a cancel gives back the stock and the voucher use, and
+// every change records its event in the outbox.
+func afterChange(ctx context.Context, q *sqlc.Queries, c Change) error {
+	if c.To == StatusCancelled {
+		if err := giveBack(ctx, q, c.OrderID); err != nil {
+			return err
+		}
+		if err := closePayments(ctx, q, []string{c.OrderID}, c.Now); err != nil {
+			return err
+		}
+	}
+	row, err := q.GetOrder(ctx, c.OrderID)
+	if err != nil {
+		return fmt.Errorf("read changed order: %w", err)
+	}
+	return recordEvent(ctx, q, fromOrderRow(orderRow(row)))
+}
+
+// MarkPaidIn moves order id from pending_payment to paid inside the
+// caller's transaction q, with its order.paid event, and reports whether
+// it moved. The payment notification calls it (ADR 0007) after locking
+// its payment row; false means the order was not waiting for payment
+// (paid by another payment, cancelled or expired), and it was not changed.
+func MarkPaidIn(ctx context.Context, q *sqlc.Queries, id string, now time.Time) (bool, error) {
+	c := Change{OrderID: id, To: StatusPaid, Now: now}
+	n, err := applyChange(ctx, q, c)
+	if err != nil || n == 0 {
+		return false, err
+	}
+	return true, afterChange(ctx, q, c)
+}
+
+// ExpireUnpaidIn cancels the unpaid order id with payment_expired inside
+// the caller's transaction q, returns its stock and voucher use, records
+// its order.cancelled event, and reports whether it moved. The payment
+// notification calls it when the gateway expired the order's payment.
+// Unlike the expiry job it does not wait for payment_expires_at: the
+// gateway stops taking money a minute before it (ADR 0007), so the stock
+// goes back as soon as nobody can pay any more.
+func ExpireUnpaidIn(ctx context.Context, q *sqlc.Queries, id string, now time.Time) (bool, error) {
+	n, err := q.CancelOrder(ctx, sqlc.CancelOrderParams{
+		ID: id, Now: now, CancelReason: CancelPaymentExpired, FromStatuses: buyerCancellable,
+	})
+	if err != nil {
+		return false, fmt.Errorf("expire unpaid order: %w", err)
+	}
+	if n == 0 {
+		return false, nil
+	}
+	return true, afterChange(ctx, q, Change{OrderID: id, To: StatusCancelled, Now: now, CancelReason: CancelPaymentExpired})
 }
 
 // applyChange runs the status change's UPDATE and returns how many rows it
@@ -94,6 +138,18 @@ func whyUnchanged(ctx context.Context, q *sqlc.Queries, c Change) error {
 		return fmt.Errorf("query order status: %w", err)
 	}
 	return &TransitionError{Current: Status(current), To: c.To}
+}
+
+// closePayments closes the open payments of orders that were just
+// cancelled, in their transaction, after the order rows (ADR 0007): a
+// cancelled order's Snap page must not take money. The notification locks
+// the order before the payment too, so the two cannot wait on each other
+// in a circle.
+func closePayments(ctx context.Context, q *sqlc.Queries, orderIDs []string, now time.Time) error {
+	if err := q.CancelOpenPaymentsOfOrders(ctx, sqlc.CancelOpenPaymentsOfOrdersParams{OrderIds: orderIDs, Now: now}); err != nil {
+		return fmt.Errorf("close open payments: %w", err)
+	}
+	return nil
 }
 
 // giveBack returns a cancelled order's stock and voucher use, in the same

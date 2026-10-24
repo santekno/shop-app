@@ -9,7 +9,30 @@ import (
 	"context"
 	"database/sql"
 	"time"
+
+	"github.com/lib/pq"
 )
+
+const cancelOpenPaymentsOfOrders = `-- name: CancelOpenPaymentsOfOrders :exec
+UPDATE payments SET status = 'cancelled', updated_at = $1::timestamptz
+WHERE order_id = ANY($2::uuid[]) AND status IN ('pending', 'challenge')
+`
+
+type CancelOpenPaymentsOfOrdersParams struct {
+	Now      time.Time
+	OrderIds []string
+}
+
+// An order that closes (cancelled by the buyer, the seller, the expiry
+// job or an account deletion) closes its open payment in the same
+// transaction, after the order row (ADR 0007): its Snap page must not take
+// money any more. A buyer who pays it anyway is flagged for a refund (the
+// payment may still move cancelled -> paid). One statement for many
+// orders, as account deletion needs. Served by payments_order_open_key.
+func (q *Queries) CancelOpenPaymentsOfOrders(ctx context.Context, arg CancelOpenPaymentsOfOrdersParams) error {
+	_, err := q.db.ExecContext(ctx, cancelOpenPaymentsOfOrders, arg.Now, pq.Array(arg.OrderIds))
+	return err
+}
 
 const getOpenPayment = `-- name: GetOpenPayment :one
 
@@ -40,6 +63,52 @@ type GetOpenPaymentRow struct {
 func (q *Queries) GetOpenPayment(ctx context.Context, orderID string) (GetOpenPaymentRow, error) {
 	row := q.db.QueryRowContext(ctx, getOpenPayment, orderID)
 	var i GetOpenPaymentRow
+	err := row.Scan(
+		&i.ID,
+		&i.OrderID,
+		&i.Provider,
+		&i.ProviderOrderID,
+		&i.Amount,
+		&i.Status,
+		&i.SnapToken,
+		&i.RedirectUrl,
+		&i.ExpiresAt,
+		&i.PaidAt,
+		&i.RefundRequiredAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getPaymentByProviderOrderID = `-- name: GetPaymentByProviderOrderID :one
+SELECT id, order_id, provider, provider_order_id, amount, status, snap_token, redirect_url,
+       expires_at, paid_at, refund_required_at, created_at, updated_at
+FROM payments
+WHERE provider_order_id = $1
+`
+
+type GetPaymentByProviderOrderIDRow struct {
+	ID               string
+	OrderID          string
+	Provider         string
+	ProviderOrderID  string
+	Amount           int64
+	Status           string
+	SnapToken        string
+	RedirectUrl      string
+	ExpiresAt        time.Time
+	PaidAt           sql.NullTime
+	RefundRequiredAt sql.NullTime
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+}
+
+// The payment a notification is about. Served by
+// payments_provider_order_id_key.
+func (q *Queries) GetPaymentByProviderOrderID(ctx context.Context, providerOrderID string) (GetPaymentByProviderOrderIDRow, error) {
+	row := q.db.QueryRowContext(ctx, getPaymentByProviderOrderID, providerOrderID)
+	var i GetPaymentByProviderOrderIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrderID,
@@ -104,6 +173,113 @@ func (q *Queries) InsertPayment(ctx context.Context, arg InsertPaymentParams) (i
 		arg.Now,
 		arg.OrderID,
 		arg.Amount,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const insertPaymentEvent = `-- name: InsertPaymentEvent :execrows
+INSERT INTO payment_events (
+    id, payment_id, dedupe_key, source, transaction_status, fraud_status, status_code,
+    transaction_id, payment_type, gross_amount, outcome, received_at)
+VALUES (
+    $1, $2, $3, $4, $5, $6, $7,
+    $8, $9, $10, $11, $12)
+ON CONFLICT (payment_id, dedupe_key) DO NOTHING
+`
+
+type InsertPaymentEventParams struct {
+	ID                string
+	PaymentID         string
+	DedupeKey         string
+	Source            string
+	TransactionStatus string
+	FraudStatus       sql.NullString
+	StatusCode        string
+	TransactionID     sql.NullString
+	PaymentType       sql.NullString
+	GrossAmount       sql.NullInt64
+	Outcome           string
+	ReceivedAt        time.Time
+}
+
+// Zero rows: this status of this transaction was recorded already, a
+// repeat (payment_events_dedupe_key).
+func (q *Queries) InsertPaymentEvent(ctx context.Context, arg InsertPaymentEventParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, insertPaymentEvent,
+		arg.ID,
+		arg.PaymentID,
+		arg.DedupeKey,
+		arg.Source,
+		arg.TransactionStatus,
+		arg.FraudStatus,
+		arg.StatusCode,
+		arg.TransactionID,
+		arg.PaymentType,
+		arg.GrossAmount,
+		arg.Outcome,
+		arg.ReceivedAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const lockPaymentOrder = `-- name: LockPaymentOrder :one
+SELECT status FROM orders WHERE id = $1 FOR NO KEY UPDATE
+`
+
+// The notification's first lock (ADR 0007, "Lock order"): the payment's
+// order, before the payment row, the order every path that closes an
+// order takes too (order, then its open payment). FOR NO KEY UPDATE: the
+// same strength as the order's own status UPDATEs, which it queues with.
+func (q *Queries) LockPaymentOrder(ctx context.Context, id string) (string, error) {
+	row := q.db.QueryRowContext(ctx, lockPaymentOrder, id)
+	var status string
+	err := row.Scan(&status)
+	return status, err
+}
+
+const updatePaymentStatus = `-- name: UpdatePaymentStatus :execrows
+UPDATE payments
+SET status                  = $1,
+    provider_status         = $2,
+    provider_transaction_id = COALESCE($3, provider_transaction_id),
+    payment_type            = COALESCE($4, payment_type),
+    paid_at                 = COALESCE(paid_at, $5),
+    updated_at              = $6
+WHERE id = $7 AND status = ANY($8::text[])
+`
+
+type UpdatePaymentStatusParams struct {
+	Status                string
+	ProviderStatus        sql.NullString
+	ProviderTransactionID sql.NullString
+	PaymentType           sql.NullString
+	PaidAt                sql.NullTime
+	Now                   time.Time
+	ID                    string
+	FromStatuses          []string
+}
+
+// A guarded status change, like orders' (ADR 0007): @from_statuses comes
+// from the Go table payment.From, so a late or replayed status never moves
+// a payment backwards. It runs after LockPaymentOrder: the order, then the
+// payment row. Zero rows: not a move the payment may make now, and nothing
+// else is changed. paid_at keeps its first value.
+func (q *Queries) UpdatePaymentStatus(ctx context.Context, arg UpdatePaymentStatusParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updatePaymentStatus,
+		arg.Status,
+		arg.ProviderStatus,
+		arg.ProviderTransactionID,
+		arg.PaymentType,
+		arg.PaidAt,
+		arg.Now,
+		arg.ID,
+		pq.Array(arg.FromStatuses),
 	)
 	if err != nil {
 		return 0, err

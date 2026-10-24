@@ -32,9 +32,14 @@ const (
 // payment may move to from it. A notification can never move a payment
 // backwards (paid → pending), whatever order notifications arrive in.
 var transitions = map[Status][]Status{
-	StatusPending:           {StatusChallenge, StatusPaid, StatusDenied, StatusCancelled, StatusExpired, StatusFailed},
-	StatusChallenge:         {StatusPaid, StatusDenied, StatusCancelled, StatusExpired, StatusFailed},
-	StatusPaid:              {StatusPartiallyRefunded, StatusRefunded},
+	StatusPending:   {StatusChallenge, StatusPaid, StatusDenied, StatusCancelled, StatusExpired, StatusFailed},
+	StatusChallenge: {StatusPaid, StatusDenied, StatusCancelled, StatusExpired, StatusFailed},
+	StatusPaid:      {StatusPartiallyRefunded, StatusRefunded},
+	// GoShop closes a payment when its order closes, without telling
+	// Midtrans; money that still arrives for it is recorded (and the order
+	// flagged for a refund), never lost.
+	StatusCancelled:         {StatusPaid},
+	StatusExpired:           {StatusPaid},
 	StatusPartiallyRefunded: {StatusPartiallyRefunded, StatusRefunded},
 }
 
@@ -95,6 +100,12 @@ var (
 	// ErrGatewayUnavailable: the gateway did not answer, or refused the
 	// request; try again shortly.
 	ErrGatewayUnavailable = errors.New("payment gateway unavailable")
+	// ErrInvalidSignature: a notification whose signature_key is not the
+	// gateway's signature.
+	ErrInvalidSignature = errors.New("invalid notification signature")
+	// ErrPaymentNotFound: a notification about an order_id GoShop never
+	// created.
+	ErrPaymentNotFound = errors.New("payment not found")
 )
 
 // NotPayableError means the order is not waiting for payment.

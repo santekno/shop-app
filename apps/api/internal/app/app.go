@@ -141,7 +141,9 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 	})
 	orderHandler := order.NewHandler(orderService, orderService, orderService, validator).
 		LimitPerBuyer(o.limiter, order.NewLimits(cfg.CheckoutLimitPerMinute))
-	paymentHandler := payment.NewHandler(payment.HandlerDeps{Payer: paymentService, Limiter: o.limiter})
+	paymentHandler := payment.NewHandler(payment.HandlerDeps{
+		Payer: paymentService, Limiter: o.limiter, TrustedProxyHops: cfg.TrustedProxyHops,
+	})
 	userHandler := user.NewHandler(userService, validator)
 	addressHandler := address.NewHandler(addressService, validator)
 	cartHandler := cart.NewHandler(cart.HandlerDeps{
@@ -162,6 +164,9 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 			categoryHandler.Routes(r)
 			productHandler.Routes(r)
 			authHandler.Routes(r)
+			// Called by Midtrans, which has no GoShop token: the
+			// notification's signature is its authentication.
+			paymentHandler.Routes(r)
 			// Guests and logged-in users alike: a token, when sent, must
 			// be valid.
 			r.Group(func(r chi.Router) {

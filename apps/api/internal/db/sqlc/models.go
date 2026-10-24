@@ -139,6 +139,21 @@ type Payment struct {
 	UpdatedAt             time.Time
 }
 
+type PaymentEvent struct {
+	ID                string
+	PaymentID         string
+	DedupeKey         string
+	Source            string
+	TransactionStatus string
+	FraudStatus       sql.NullString
+	StatusCode        string
+	TransactionID     sql.NullString
+	PaymentType       sql.NullString
+	GrossAmount       sql.NullInt64
+	Outcome           string
+	ReceivedAt        time.Time
+}
+
 type Product struct {
 	ID          string
 	CategoryID  string

@@ -22,6 +22,8 @@ type Orders interface {
 type Repository interface {
 	OpenPayment(ctx context.Context, orderID string) (Payment, bool, error)
 	Insert(ctx context.Context, p Payment) (bool, error)
+	ByProviderOrderID(ctx context.Context, providerOrderID string) (Payment, error)
+	Apply(ctx context.Context, in ApplyInput) (Outcome, error)
 }
 
 // Deps is what the service needs.

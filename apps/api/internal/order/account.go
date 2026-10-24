@@ -43,7 +43,8 @@ func AccountCloser(now func() time.Time) func(ctx context.Context, q *sqlc.Queri
 // the stock and voucher uses of all of them go back in one statement each,
 // so no row is written twice: a second write of a variant in the same
 // transaction would make PostgreSQL lock its product, and deadlock with an
-// admin save. Each order then records its order.cancelled event.
+// admin save. Each order then records its order.cancelled event, and their
+// open payments close in one statement (Bab 6).
 func cancelForDeletion(ctx context.Context, q *sqlc.Queries, userID string, ids []string, now time.Time) error {
 	if err := q.LockOrdersVariants(ctx, ids); err != nil {
 		return fmt.Errorf("lock unpaid orders' variants: %w", err)
@@ -77,5 +78,6 @@ func cancelForDeletion(ctx context.Context, q *sqlc.Queries, userID string, ids 
 			return err
 		}
 	}
-	return nil
+	// After every order row, in one statement (ADR 0007).
+	return closePayments(ctx, q, ids, now)
 }

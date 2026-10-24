@@ -55,7 +55,7 @@ func TestAccountCloser_CancelsEveryUnpaidOrder(t *testing.T) {
 	perOrder := "CancelOrder,GetOrder,InsertOutboxEvent"
 	testx.AssertEqual(t, strings.Join(db.names(), ","),
 		"LockPendingOrdersOfUser,LockOrdersVariants,LockOrdersVouchers,RestoreOrdersStock,ReleaseOrdersVouchers,"+
-			perOrder+","+perOrder+",DeleteUserCart,DeleteUserIdempotencyKeys")
+			perOrder+","+perOrder+",CancelOpenPaymentsOfOrders,DeleteUserCart,DeleteUserIdempotencyKeys")
 	for _, name := range []string{"RestoreOrderStock", "ReleaseVoucher", "LockOrderVariants"} {
 		testx.AssertFalse(t, db.ran(name), "%s: the per-order give-back would write a row twice", name)
 	}
@@ -66,6 +66,11 @@ func TestAccountCloser_CancelsEveryUnpaidOrder(t *testing.T) {
 		c, _ := db.call(name)
 		assertArgs(t, c.args, both, name)
 	}
+	// Bab 6 (ADR 0007): their open payments close in one statement, after
+	// every order row.
+	testx.AssertEqual(t, len(db.calledAll("CancelOpenPaymentsOfOrders")), 1, "one statement for all the orders")
+	closed, _ := db.call("CancelOpenPaymentsOfOrders")
+	assertArgs(t, closed.args, []driver.Value{testTime, pqArray(orderID1, orderID2)}, "CancelOpenPaymentsOfOrders")
 	assertSQL(t, db, "LockPendingOrdersOfUser", "status = 'pending_payment' ORDER BY id FOR UPDATE")
 	assertSQL(t, db, "LockOrdersVariants", "ORDER BY v.id FOR NO KEY UPDATE OF v")
 	assertSQL(t, db, "LockOrdersVouchers", "ORDER BY vo.id FOR NO KEY UPDATE OF vo")
@@ -110,6 +115,7 @@ func TestAccountCloser_Errors(t *testing.T) {
 		{"CancelOrder", "cancel order " + orderID1 + ": boom"},
 		{"GetOrder", "read cancelled order: boom"},
 		{"InsertOutboxEvent", "record order.cancelled event: boom"},
+		{"CancelOpenPaymentsOfOrders", "close open payments: boom"},
 		{"DeleteUserCart", "delete cart: boom"},
 		{"DeleteUserIdempotencyKeys", "delete idempotency keys: boom"},
 	}

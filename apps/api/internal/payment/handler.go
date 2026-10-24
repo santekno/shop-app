@@ -2,6 +2,7 @@ package payment
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
@@ -19,27 +20,39 @@ import (
 
 // The codes this feature adds (see api/openapi.yaml).
 const (
-	CodeDisabled     = "PAYMENTS_DISABLED"
-	CodeWindowClosed = "PAYMENT_WINDOW_CLOSED"
+	CodeDisabled         = "PAYMENTS_DISABLED"
+	CodeWindowClosed     = "PAYMENT_WINDOW_CLOSED"
+	CodeInvalidSignature = "INVALID_SIGNATURE"
 )
+
+// MaxNotificationBytes bounds a notification body: Midtrans sends about
+// 1 KiB.
+const MaxNotificationBytes = 64 << 10
 
 // LimitPayPerBuyer bounds how often one buyer may ask for a payment page:
 // every new one is a call to Midtrans (OWASP API4).
 var LimitPayPerBuyer = auth.Limit{Name: "pay-user", Max: 10, Window: time.Minute}
 
-// Limits lists the payment limits, for auth.NewRedisRateLimiter.
-var Limits = []auth.Limit{LimitPayPerBuyer}
+// LimitNotificationPerIP bounds the public notification route per client
+// IP: Midtrans sends a few per payment, and each costs a status call to
+// Midtrans (OWASP API4).
+var LimitNotificationPerIP = auth.Limit{Name: "payment-notification-ip", Max: 120, Window: time.Minute}
 
-// Payer is what the buyer's payment handler needs from the service.
+// Limits lists the payment limits, for auth.NewRedisRateLimiter.
+var Limits = []auth.Limit{LimitPayPerBuyer, LimitNotificationPerIP}
+
+// Payer is what the payment handlers need from the service.
 type Payer interface {
 	Pay(ctx context.Context, buyerID, orderID string) (Payment, bool, error)
 	ClientKey() string
+	HandleNotification(ctx context.Context, n Notification) (Outcome, error)
 }
 
 // Handler serves the payment endpoints.
 type Handler struct {
-	payer   Payer
-	limiter auth.RateLimiter
+	payer       Payer
+	limiter     auth.RateLimiter
+	trustedHops int
 }
 
 // HandlerDeps is what the handler needs.
@@ -48,11 +61,69 @@ type HandlerDeps struct {
 	// Limiter counts the per-buyer and per-IP limits; nil counts nothing
 	// (a seam for handler tests; internal/app always sets it).
 	Limiter auth.RateLimiter
+	// TrustedProxyHops is APP_TRUSTED_PROXY_HOPS, for the client IP.
+	TrustedProxyHops int
 }
 
 // NewHandler returns a Handler.
 func NewHandler(deps HandlerDeps) *Handler {
-	return &Handler{payer: deps.Payer, limiter: deps.Limiter}
+	return &Handler{payer: deps.Payer, limiter: deps.Limiter, trustedHops: deps.TrustedProxyHops}
+}
+
+// Routes registers the public routes on r (under /v1): the gateway's
+// notification, which Midtrans calls without a GoShop token.
+func (h *Handler) Routes(r chi.Router) {
+	r.Post("/payments/midtrans/notification", h.Notify)
+}
+
+// notifyResponse is NotificationResult in api/openapi.yaml.
+type notifyResponse struct {
+	Outcome string `json:"outcome"`
+}
+
+// Notify serves POST /v1/payments/midtrans/notification (ADR 0007). The
+// body is only a hint: its signature must check, and then the status
+// comes from Midtrans' status API. 200 whatever GoShop did with it, so
+// Midtrans stops sending it; 403 for a bad signature, 503 when Midtrans'
+// status API did not answer (Midtrans sends the notification again).
+func (h *Handler) Notify(w http.ResponseWriter, r *http.Request) {
+	ip := httpapi.RateLimitKey(httpapi.ClientIP(r, h.trustedHops))
+	if h.limiter != nil && !auth.Allow(w, r, h.limiter, LimitNotificationPerIP, ip) {
+		return
+	}
+	var n Notification
+	if err := decodeNotification(w, r, &n); err != nil {
+		httpapi.Error(w, r, err)
+		return
+	}
+	outcome, err := h.payer.HandleNotification(r.Context(), n)
+	if err != nil {
+		httpapi.Error(w, r, toHTTPError(err))
+		return
+	}
+	httpapi.JSON(w, r, http.StatusOK, dataResponse{Data: notifyResponse{Outcome: string(outcome)}})
+}
+
+// decodeNotification reads a notification body: at most
+// MaxNotificationBytes, one JSON object. Unknown fields are allowed (unlike
+// GoShop's own bodies): Midtrans sends many, and adds new ones.
+func decodeNotification(w http.ResponseWriter, r *http.Request, n *Notification) error {
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, MaxNotificationBytes))
+	if err := dec.Decode(n); err != nil {
+		return httpapi.ValidationError("invalid notification", map[string]any{"body": "must be a JSON object of at most 64 KiB"})
+	}
+	missing := map[string]any{}
+	for field, value := range map[string]string{
+		"order_id": n.OrderID, "status_code": n.StatusCode, "gross_amount": n.GrossAmount, "signature_key": n.SignatureKey,
+	} {
+		if value == "" || len(value) > 256 || !httpapi.ValidText(value) {
+			missing[field] = "is required: 1 to 256 characters of text"
+		}
+	}
+	if len(missing) > 0 {
+		return httpapi.ValidationError("invalid notification", missing)
+	}
+	return nil
 }
 
 // ProtectedRoutes registers the buyer's routes on r (under /v1, behind
@@ -104,6 +175,11 @@ func toHTTPError(err error) error {
 	case errors.Is(err, ErrWindowClosed):
 		return errx.New(CodeWindowClosed, "the payment deadline of this order is too close to start a payment").
 			WithHTTPStatus(http.StatusConflict)
+	case errors.Is(err, ErrInvalidSignature):
+		return errx.New(CodeInvalidSignature, "the notification signature is not valid").
+			WithHTTPStatus(http.StatusForbidden)
+	case errors.Is(err, ErrPaymentNotFound):
+		return httpapi.NotFoundError("payment not found")
 	case errors.Is(err, ErrGatewayUnavailable):
 		return httpapi.UpstreamUnavailableError("the payment service is not answering; try again shortly")
 	default:
