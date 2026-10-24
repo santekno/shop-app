@@ -85,20 +85,44 @@ func TestLoad_ShippingReportsEveryProblem(t *testing.T) {
 	testx.AssertContains(t, err.Error(), "APP_SHIPPING_TIMEOUT:")
 }
 
+// APP_PAYMENT_TTL takes 5m..72h, both included: Snap stops taking money a
+// minute before the deadline and counts whole minutes, so a shorter TTL
+// would close every pay with 409 PAYMENT_WINDOW_CLOSED.
 func TestLoad_PaymentTTL(t *testing.T) {
 	cfg, err := loadWith(t, "production", map[string]string{"BITESHIP_API_KEY": ""})
 	testx.AssertNoError(t, err)
 	testx.AssertEqual(t, cfg.PaymentTTL, 24*time.Hour, "Midtrans' default")
 	testx.AssertEqual(t, config.DefaultPaymentTTL, 24*time.Hour)
 
-	for value, want := range map[string]time.Duration{"1m": time.Minute, "72h": 72 * time.Hour, "30m": 30 * time.Minute} {
-		cfg, err := loadWith(t, "production", map[string]string{"BITESHIP_API_KEY": "", "APP_PAYMENT_TTL": value})
-		testx.AssertNoError(t, err)
-		testx.AssertEqual(t, cfg.PaymentTTL, want, "APP_PAYMENT_TTL=%s", value)
+	tests := []struct {
+		value string
+		want  time.Duration
+		ok    bool
+	}{
+		{value: "5m", want: 5 * time.Minute, ok: true},
+		{value: "300s", want: 5 * time.Minute, ok: true},
+		{value: "30m", want: 30 * time.Minute, ok: true},
+		{value: "72h", want: 72 * time.Hour, ok: true},
+		{value: "4m59s"},
+		{value: "1m"},
+		{value: "59s"},
+		{value: "72h1s"},
+		{value: "73h"},
+		{value: "1d"},
+		{value: "-1h"},
 	}
-	for _, bad := range []string{"59s", "73h", "1d", "-1h"} {
-		_, err := loadWith(t, "production", map[string]string{"BITESHIP_API_KEY": "", "APP_PAYMENT_TTL": bad})
-		testx.AssertError(t, err, "%q", bad)
-		testx.AssertContains(t, err.Error(), `APP_PAYMENT_TTL: must be a duration between 1m0s and 72h0m0s, such as "15s", got "`+bad+`"`)
+	for _, tt := range tests {
+		t.Run(tt.value, func(t *testing.T) {
+			cfg, err := loadWith(t, "production", map[string]string{"BITESHIP_API_KEY": "", "APP_PAYMENT_TTL": tt.value})
+			if tt.ok {
+				testx.AssertNoError(t, err)
+				testx.AssertEqual(t, cfg.PaymentTTL, tt.want, "APP_PAYMENT_TTL=%s", tt.value)
+				return
+			}
+			if err == nil {
+				t.Fatalf("APP_PAYMENT_TTL=%s: expected an error, got PaymentTTL %v", tt.value, cfg.PaymentTTL)
+			}
+			testx.AssertContains(t, err.Error(), `APP_PAYMENT_TTL: must be a duration between 5m0s and 72h0m0s, such as "15s", got "`+tt.value+`"`)
+		})
 	}
 }

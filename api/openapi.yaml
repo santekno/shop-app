@@ -84,6 +84,12 @@ tags:
       (name, variant, SKU, price) and where it ships, so later catalog or
       address changes never alter it. Every operation is scoped to the
       caller: another user's order answers 404 like a missing one.
+  - name: Payments
+    description: |
+      Paying an order with Midtrans Snap, sandbox only (Bab 6, ADR 0007).
+      The amount is always the order's total from the server; GoShop
+      learns that a payment arrived from Midtrans' signed notification,
+      confirmed with Midtrans' status API, never from a client.
 
 paths:
   /healthz:
@@ -1441,6 +1447,55 @@ paths:
           $ref: "#/components/responses/InternalError"
 
 
+  /v1/orders/{id}/pay:
+    parameters:
+      - $ref: "#/components/parameters/OrderID"
+    post:
+      tags: [Payments]
+      operationId: payMyOrder
+      summary: Start paying my unpaid order
+      description: |
+        Creates a Midtrans Snap transaction for the caller's
+        `pending_payment` order and answers its `token` (for Snap.js, with
+        `client_key`) and `redirect_url` (Midtrans' hosted page). The
+        request has no body: the amount is the order's `total`.
+
+        Idempotent per order: while the order has an open payment
+        (`pending` or `challenge`), every call answers it again (200).
+        After a payment ends without money (`denied`, `cancelled`,
+        `failed`), a call creates a new one (201) until the order's
+        deadline. Snap stops taking money at `expires_at`, at least one
+        minute before the order's `payment_expires_at`.
+
+        At most 10 calls per buyer per minute.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The order's open payment, created earlier.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentSessionDetail"
+        "201":
+          description: A new payment.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentSessionDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/OrderNotFound"
+        "409":
+          $ref: "#/components/responses/PaymentConflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/PaymentUnavailable"
+
   /v1/admin/orders:
     get:
       tags: [Admin]
@@ -2795,6 +2850,54 @@ components:
         page:
           $ref: "#/components/schemas/PageInfo"
 
+    PaymentSession:
+      type: object
+      description: A Midtrans Snap transaction for an order.
+      required: [id, order_id, provider, status, amount, token, redirect_url, client_key, expires_at, created_at]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        order_id:
+          type: string
+          format: uuid
+        provider:
+          type: string
+          enum: [midtrans, fake]
+          description: "`fake` only where the server runs the test gateway (`APP_PAYMENT_PROVIDER=fake`, never in production)."
+        status:
+          type: string
+          enum: [pending, challenge]
+          description: An open payment is always `pending` or `challenge`.
+        amount:
+          $ref: "#/components/schemas/Money"
+        token:
+          type: string
+          description: The Snap token, for `snap.pay(token)` in Snap.js.
+        redirect_url:
+          type: string
+          format: uri
+          description: Midtrans' hosted payment page, for a client without Snap.js.
+        client_key:
+          type: string
+          description: Midtrans' public client key, the `data-client-key` of Snap.js.
+        expires_at:
+          type: string
+          format: date-time
+          description: When Snap stops taking money for this payment.
+        created_at:
+          type: string
+          format: date-time
+
+    PaymentSessionDetail:
+      type: object
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          $ref: "#/components/schemas/PaymentSession"
+
     ShipRequest:
       type: object
       required: [tracking_number]
@@ -3371,3 +3474,50 @@ components:
               message: invalid request
               details:
                 tracking_number: "must be the courier's airway bill: 6 to 40 letters, digits or hyphens"
+
+    PaymentConflict:
+      description: |
+        The order is not waiting for payment (`INVALID_TRANSITION` with
+        `details.status` and `details.to: paid`), or its payment deadline is
+        less than two minutes away, too close to start a payment
+        (`PAYMENT_WINDOW_CLOSED`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            notPayable:
+              value:
+                error:
+                  code: INVALID_TRANSITION
+                  message: the order cannot make this change in its current status
+                  details:
+                    status: cancelled
+                    to: paid
+            windowClosed:
+              value:
+                error:
+                  code: PAYMENT_WINDOW_CLOSED
+                  message: the payment deadline of this order is too close to start a payment
+    PaymentUnavailable:
+      description: |
+        Payments are not configured on this server (`PAYMENTS_DISABLED`:
+        `MIDTRANS_SERVER_KEY` is empty), or Midtrans did not answer in time
+        (`APP_PAYMENT_TIMEOUT`), answered with an error, or has failed so
+        often that the API stopped asking it for a while
+        (`UPSTREAM_UNAVAILABLE`). Retry the second one shortly.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            disabled:
+              value:
+                error:
+                  code: PAYMENTS_DISABLED
+                  message: payments are not configured on this server
+            upstream:
+              value:
+                error:
+                  code: UPSTREAM_UNAVAILABLE
+                  message: the payment service is not answering; try again shortly

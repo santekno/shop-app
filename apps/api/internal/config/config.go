@@ -77,6 +77,14 @@ const (
 	// DefaultCheckoutLimitPerMinute is used when
 	// APP_CHECKOUT_LIMIT_PER_MINUTE is not set (order.DefaultLimitPerMinute).
 	DefaultCheckoutLimitPerMinute = 30
+
+	// DefaultPaymentTimeout is used when APP_PAYMENT_TIMEOUT is not set:
+	// how long a call to the payment gateway may take.
+	DefaultPaymentTimeout = 10 * time.Second
+	// Midtrans sandbox keys start with these; GoShop takes no other
+	// (ADR 0007: sandbox only).
+	midtransServerKeyPrefix = "SB-Mid-server-"
+	midtransClientKeyPrefix = "SB-Mid-client-"
 )
 
 // Config is the validated configuration of the API.
@@ -118,13 +126,32 @@ type Config struct {
 	TrustedProxyHops int
 	// Shipping configures the courier rates (ADR 0006).
 	Shipping Shipping
-	// PaymentTTL is APP_PAYMENT_TTL (1m-72h, default 24h): how long a buyer
+	// PaymentTTL is APP_PAYMENT_TTL (5m-72h, default 24h): how long a buyer
 	// has to pay an order before it is cancelled and its stock returned.
+	// At least 5 minutes, because Snap stops taking money a minute before
+	// the deadline and counts whole minutes (Bab 6): a shorter TTL leaves
+	// the buyer no time to pay.
 	PaymentTTL time.Duration
 	// CheckoutLimitPerMinute is APP_CHECKOUT_LIMIT_PER_MINUTE (1-100000,
 	// default 30): how many previews, shipping quotes and checkouts one
 	// buyer may ask for per minute, each.
 	CheckoutLimitPerMinute int
+	// Payment configures the payment gateway (ADR 0007).
+	Payment Payment
+}
+
+// Payment configures Midtrans, in the sandbox only.
+type Payment struct {
+	// MidtransServerKey is MIDTRANS_SERVER_KEY, a sandbox server key
+	// (SB-Mid-server-…): it authenticates GoShop at Midtrans and signs
+	// notifications. Empty turns payments off (503 PAYMENTS_DISABLED). A
+	// secret, never logged.
+	MidtransServerKey string
+	// MidtransClientKey is MIDTRANS_CLIENT_KEY (SB-Mid-client-…), public by
+	// design: clients hand it to Snap.js. Required with the server key.
+	MidtransClientKey string
+	// Timeout is APP_PAYMENT_TIMEOUT (1s-30s, default 10s).
+	Timeout time.Duration
 }
 
 // Shipping configures where shipping fees come from.
@@ -269,11 +296,14 @@ func Load() (Config, error) {
 	errs = append(errs, err)
 
 	cfg.PaymentTTL, err = parseDuration("APP_PAYMENT_TTL", src.String("payment.ttl"),
-		DefaultPaymentTTL, time.Minute, 72*time.Hour)
+		DefaultPaymentTTL, 5*time.Minute, 72*time.Hour)
 	errs = append(errs, err)
 
 	cfg.CheckoutLimitPerMinute, err = parseInt("APP_CHECKOUT_LIMIT_PER_MINUTE", src.String("checkout.limit.per.minute"),
 		DefaultCheckoutLimitPerMinute, 1, 100_000)
+	errs = append(errs, err)
+
+	cfg.Payment, err = parsePayment(src)
 	errs = append(errs, err)
 
 	if err := errors.Join(errs...); err != nil {
@@ -373,6 +403,39 @@ func parseShipping(src *configx.Config) (Shipping, error) {
 		DefaultShippingTimeout, time.Second, 15*time.Second)
 	errs = append(errs, err)
 	return sh, errors.Join(errs...)
+}
+
+// parsePayment reads MIDTRANS_SERVER_KEY, MIDTRANS_CLIENT_KEY and
+// MIDTRANS_IS_PRODUCTION (no APP_ prefix: Midtrans' own names) and
+// APP_PAYMENT_TIMEOUT. The course takes money in the sandbox only, so
+// MIDTRANS_IS_PRODUCTION must be false and the keys must be sandbox keys.
+// No error repeats a key.
+func parsePayment(src *configx.Config) (Payment, error) {
+	p := Payment{
+		MidtransServerKey: strings.TrimSpace(os.Getenv("MIDTRANS_SERVER_KEY")),
+		MidtransClientKey: strings.TrimSpace(os.Getenv("MIDTRANS_CLIENT_KEY")),
+	}
+	var errs []error
+	switch strings.TrimSpace(os.Getenv("MIDTRANS_IS_PRODUCTION")) {
+	case "", "false":
+	case "true":
+		errs = append(errs, errors.New("MIDTRANS_IS_PRODUCTION: must be false: GoShop uses the Midtrans sandbox only"))
+	default:
+		errs = append(errs, errors.New("MIDTRANS_IS_PRODUCTION: must be false or empty"))
+	}
+	switch {
+	case p.MidtransServerKey == "" && p.MidtransClientKey != "":
+		errs = append(errs, errors.New("MIDTRANS_SERVER_KEY: is required when MIDTRANS_CLIENT_KEY is set"))
+	case p.MidtransServerKey != "" && !strings.HasPrefix(p.MidtransServerKey, midtransServerKeyPrefix):
+		errs = append(errs, errors.New("MIDTRANS_SERVER_KEY: must be a sandbox server key ("+midtransServerKeyPrefix+"…): GoShop uses the Midtrans sandbox only"))
+	case p.MidtransServerKey != "" && !strings.HasPrefix(p.MidtransClientKey, midtransClientKeyPrefix):
+		errs = append(errs, errors.New("MIDTRANS_CLIENT_KEY: is required with MIDTRANS_SERVER_KEY and must be a sandbox client key ("+midtransClientKeyPrefix+"…)"))
+	}
+	var err error
+	p.Timeout, err = parseDuration("APP_PAYMENT_TIMEOUT", src.String("payment.timeout"),
+		DefaultPaymentTimeout, time.Second, 30*time.Second)
+	errs = append(errs, err)
+	return p, errors.Join(errs...)
 }
 
 // postalCode is an Indonesian postal code: five digits, never starting

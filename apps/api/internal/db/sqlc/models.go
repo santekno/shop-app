@@ -119,6 +119,26 @@ type OutboxEvent struct {
 	PublishedAt   sql.NullTime
 }
 
+type Payment struct {
+	ID                    string
+	OrderID               string
+	Provider              string
+	ProviderOrderID       string
+	Amount                int64
+	Status                string
+	SnapToken             string
+	RedirectUrl           string
+	ExpiresAt             time.Time
+	ProviderStatus        sql.NullString
+	ProviderTransactionID sql.NullString
+	PaymentType           sql.NullString
+	PaidAt                sql.NullTime
+	RefundRequiredAt      sql.NullTime
+	RefundedAmount        int64
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+}
+
 type Product struct {
 	ID          string
 	CategoryID  string

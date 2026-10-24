@@ -31,6 +31,8 @@ import (
 	"github.com/santekno/shop-app/apps/api/internal/mail"
 	"github.com/santekno/shop-app/apps/api/internal/order"
 	"github.com/santekno/shop-app/apps/api/internal/outbox"
+	"github.com/santekno/shop-app/apps/api/internal/payment"
+	"github.com/santekno/shop-app/apps/api/internal/payment/midtrans"
 	"github.com/santekno/shop-app/apps/api/internal/product"
 	"github.com/santekno/shop-app/apps/api/internal/redisconn"
 	"github.com/santekno/shop-app/apps/api/internal/shipping"
@@ -103,6 +105,17 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 		Repo: orderRepo, Clock: o.clock, Carts: cartService, Addresses: addressService, Shipping: o.shipping,
 		OriginPostalCode: cfg.Shipping.OriginPostalCode, PaymentTTL: cfg.PaymentTTL,
 	})
+	if o.gateway == nil {
+		o.gateway = paymentGateway(cfg.Payment, logger)
+	}
+	if o.gateway == nil {
+		logger.Warn("payments are off: MIDTRANS_SERVER_KEY is not set")
+	} else {
+		logger.Info("payments", "provider", o.gateway.Name())
+	}
+	paymentService := payment.NewService(payment.Deps{
+		Repo: payment.NewPostgresRepository(db), Orders: orderService, Gateway: o.gateway, Clock: o.clock,
+	})
 	accessTokens := auth.NewAccessTokens(cfg.Auth.JWTSecret, cfg.Auth.AccessTokenTTL, o.clock)
 	authService := auth.NewService(auth.Deps{
 		Repo:        authRepo,
@@ -128,6 +141,7 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 	})
 	orderHandler := order.NewHandler(orderService, orderService, orderService, validator).
 		LimitPerBuyer(o.limiter, order.NewLimits(cfg.CheckoutLimitPerMinute))
+	paymentHandler := payment.NewHandler(payment.HandlerDeps{Payer: paymentService, Limiter: o.limiter})
 	userHandler := user.NewHandler(userService, validator)
 	addressHandler := address.NewHandler(addressService, validator)
 	cartHandler := cart.NewHandler(cart.HandlerDeps{
@@ -161,6 +175,7 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 				addressHandler.Routes(r)
 				cartHandler.ProtectedRoutes(r)
 				orderHandler.Routes(r)
+				paymentHandler.ProtectedRoutes(r)
 				authHandler.ProtectedRoutes(r)
 				// Store staff only: sellers manage the catalog, and admins
 				// can do everything a seller can (docs/prd.md).
@@ -185,10 +200,20 @@ func shippingProvider(cfg config.Shipping) shipping.Provider {
 	return shipping.NewBiteship(cfg.BiteshipAPIKey, shipping.BiteshipURL, cfg.Timeout)
 }
 
+// paymentGateway is Midtrans when MIDTRANS_SERVER_KEY is set, and nil
+// (payments off) otherwise (ADR 0007).
+func paymentGateway(cfg config.Payment, logger logx.Logger) payment.Gateway {
+	if cfg.MidtransServerKey == "" {
+		return nil
+	}
+	return midtrans.New(cfg.MidtransServerKey, cfg.MidtransClientKey, cfg.Timeout, midtrans.WithLogger(logger))
+}
+
 // rateLimits is every limit the API counts in Redis.
 func rateLimits(cfg config.Config) []auth.Limit {
 	limits := append(slices.Clone(auth.Limits), cart.LimitGuestCartPerIP)
-	return append(limits, order.NewLimits(cfg.CheckoutLimitPerMinute).All()...)
+	limits = append(limits, order.NewLimits(cfg.CheckoutLimitPerMinute).All()...)
+	return append(limits, payment.Limits...)
 }
 
 // Option replaces one of the real dependencies New would build, for tests.
@@ -204,6 +229,7 @@ type options struct {
 	limiter     auth.RateLimiter
 	revocations auth.SessionRevocations
 	shipping    shipping.Provider
+	gateway     payment.Gateway
 }
 
 // WithClock makes the auth flows read the time from now: token expiry,
@@ -232,6 +258,10 @@ func WithGoogleVerifier(v auth.GoogleVerifier) Option { return func(o *options) 
 // WithShippingProvider prices parcels with p instead of the provider the
 // configuration picks, for tests that need a failing or fixed provider.
 func WithShippingProvider(p shipping.Provider) Option { return func(o *options) { o.shipping = p } }
+
+// WithPaymentGateway takes payments through g instead of the gateway the
+// configuration picks, for tests that steer the gateway's answers.
+func WithPaymentGateway(g payment.Gateway) Option { return func(o *options) { o.gateway = g } }
 
 // Handler is the API's router with all middleware, for httptest.
 func (a *App) Handler() http.Handler { return a.handler }
