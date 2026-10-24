@@ -75,7 +75,7 @@ IT_ENV := POSTGRES_DSN='postgres://goshop:goshop@localhost:5432/goshop?sslmode=d
 	GOSHOP_API_URL=http://127.0.0.1:8080
 
 .PHONY: help doctor build lint lint-openapi test-unit test-integration test-mobile-e2e docker-build scan verify up down dev-api docs-api \
-	migrate-up migrate-down migrate-new seed seed-large seed-admin seed-loadtest loadtest sqlc sqlc-check expire-orders cleanup-idempotency-keys publish-events reconcile-payments process-images
+	migrate-up migrate-down migrate-new seed seed-large seed-admin seed-loadtest loadtest sqlc sqlc-check expire-orders cleanup-idempotency-keys publish-events reconcile-payments process-images dead-tasks requeue-task requeue-dead-tasks
 
 help: ## List targets
 	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -224,6 +224,16 @@ reconcile-payments: ## Ask Midtrans about every open payment and apply its answe
 
 process-images: ## Resize the confirmed product images into their storefront variants, once
 	$(COMPOSE) run --rm --no-deps api process-images
+
+dead-tasks: ## List the worker tasks that ran out of retries (the dead-letter queue)
+	$(COMPOSE) run --rm --no-deps worker dead-tasks list
+
+requeue-task: ## Run one dead task again: make requeue-task id=<task id>
+	@[[ "$(id)" =~ ^[A-Za-z0-9:._-]+$$ ]] || { echo "usage: make requeue-task id=<task id from make dead-tasks>" >&2; exit 1; }
+	$(COMPOSE) run --rm --no-deps worker dead-tasks requeue '$(id)'
+
+requeue-dead-tasks: ## Run every dead task again
+	$(COMPOSE) run --rm --no-deps worker dead-tasks requeue-all
 
 up: ## Start the full stack locally
 	$(COMPOSE) up -d --build

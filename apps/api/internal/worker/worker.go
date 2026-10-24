@@ -39,7 +39,8 @@ const Queue = "default"
 // Run is the whole worker program. With no arguments it loads the config
 // from the environment and runs until ctx is cancelled; with
 // "healthcheck" it probes a running worker on the same port (the Docker
-// health check). cmd/worker/main.go only adds signal handling.
+// health check); with "dead-tasks …" it lists or requeues the tasks that
+// ran out of retries. cmd/worker/main.go only adds signal handling.
 func Run(ctx context.Context, args []string, stdout io.Writer) error {
 	cfg, err := config.Load()
 	if err != nil {
@@ -50,8 +51,15 @@ func Run(ctx context.Context, args []string, stdout io.Writer) error {
 	case len(args) == 0:
 	case len(args) == 1 && args[0] == "healthcheck":
 		return app.Probe(ctx, cfg.Port)
+	case len(args) >= 1 && args[0] == "dead-tasks":
+		rdb, err := redisconn.Open(ctx, cfg.RedisURL)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = rdb.Close() }()
+		return deadTasks(rdb, args[1:], stdout)
 	default:
-		return fmt.Errorf("unknown arguments %q (usage: worker [healthcheck])", args)
+		return fmt.Errorf("unknown arguments %q (usage: worker [healthcheck|dead-tasks …])", args)
 	}
 
 	db, err := database.Open(ctx, cfg.Database, logger)
@@ -100,6 +108,8 @@ func serve(ctx context.Context, cfg config.Config, logger logx.Logger, db *sql.D
 		Logger:          asynqLogger{logger},
 		LogLevel:        asynq.InfoLevel,
 		ShutdownTimeout: cfg.ShutdownTimeout,
+		RetryDelayFunc:  RetryDelay,
+		ErrorHandler:    asynq.ErrorHandlerFunc(logFailure),
 	})
 	scheduler := asynq.NewSchedulerFromRedisClient(rdb, &asynq.SchedulerOpts{
 		Logger: asynqLogger{logger}, LogLevel: asynq.WarnLevel, Location: time.UTC,
@@ -153,7 +163,7 @@ func RegisterNotifications(mux *asynq.ServeMux, emails *notify.Emails) {
 func register(scheduler *asynq.Scheduler) error {
 	for _, p := range Schedule {
 		_, err := scheduler.Register(p.Spec(), asynq.NewTask(p.Type, nil),
-			asynq.Queue(Queue), asynq.Timeout(p.Timeout), asynq.Unique(p.Every))
+			asynq.Queue(Queue), asynq.Timeout(p.Timeout), asynq.Unique(p.Every), notify.MaxRetry(p.Type))
 		if err != nil {
 			return fmt.Errorf("schedule %s: %w", p.Type, err)
 		}

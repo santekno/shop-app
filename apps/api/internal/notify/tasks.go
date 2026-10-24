@@ -77,7 +77,7 @@ func (q *QueueMailer) Send(ctx context.Context, m mail.Message) error {
 		return fmt.Errorf("encode email: %w", err)
 	}
 	if _, err := q.client.EnqueueContext(ctx, asynq.NewTask(TypeSendEmail, body),
-		asynq.MaxRetry(5), asynq.Timeout(time.Minute)); err != nil {
+		MaxRetry(TypeSendEmail), asynq.Timeout(time.Minute)); err != nil {
 		return fmt.Errorf("queue email: %w", err)
 	}
 	return nil

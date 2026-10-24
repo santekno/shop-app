@@ -5,6 +5,9 @@
 //
 //	worker              run until SIGTERM
 //	worker healthcheck  exit 0 when the worker on this machine answers /healthz
+//	worker dead-tasks list           the tasks that ran out of retries
+//	worker dead-tasks requeue <id>   run one of them again
+//	worker dead-tasks requeue-all    run all of them again
 package main
 
 import (
