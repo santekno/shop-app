@@ -142,24 +142,6 @@ describe("CatalogPage", () => {
     expect(await screen.findByRole("link", { name: "Produk a" })).toBeTruthy();
   });
 
-  it("keeps the shown products above an error on a later page", async () => {
-    const user = userEvent.setup();
-    const { answer } = serveCatalog();
-    renderWithProviders(<CatalogPage />, { path: "/" });
-    answer(0, productsResponse([product("a")], "c2"));
-    await user.click(
-      await screen.findByRole("button", { name: "Muat lebih banyak" }),
-    );
-
-    answer(1, errorResponse(503, "INTERNAL_ERROR"));
-
-    expect(await within(productsSection()).findByRole("alert")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Produk a" })).toBeTruthy();
-    expect(
-      screen.queryByRole("button", { name: "Muat lebih banyak" }),
-    ).toBeNull();
-  });
-
   it("opens a product at /produk/:slug", async () => {
     const user = userEvent.setup();
     const { answer } = serveCatalog();

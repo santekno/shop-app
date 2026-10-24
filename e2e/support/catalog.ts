@@ -153,18 +153,48 @@ export const cardOpener = (page: Page, name: string): Locator =>
         .getByRole("button", { name, exact: true }),
     );
 
-/** Clicks "Muat lebih banyak" until the end message shows. */
+/**
+ * Loads every page until "Semua produk sudah ditampilkan." shows. The list
+ * may load the next page by itself when its sentinel scrolls into view, so
+ * the "Muat lebih banyak" button can disappear just before a click; each
+ * round therefore clicks it when it is there, or scrolls the last card into
+ * view, and then only waits for more cards or the end.
+ */
 export const loadEverything = async (page: Page): Promise<void> => {
   const section = productSection(page);
   const more = section.getByRole("button", { name: "Muat lebih banyak" });
   const done = section.getByText("Semua produk sudah ditampilkan.");
-  await expect(more.or(done)).toBeVisible();
-  while (await more.isVisible()) {
+  await expect(productCards(page).first()).toBeVisible();
+  while (!(await done.isVisible())) {
     const before = await productCards(page).count();
-    await more.click();
-    await expect(productCards(page)).not.toHaveCount(before);
-    await expect(more.or(done)).toBeVisible();
+    if (await more.isVisible()) {
+      // The button is disabled while the list refetches in the background;
+      // click() waits for it to be enabled. It may also vanish because the
+      // sentinel loaded the page first, which the poll below accepts.
+      await more.click({ timeout: 5000 }).catch(() => undefined);
+    } else {
+      await productCards(page).last().scrollIntoViewIfNeeded();
+    }
+    await expect
+      .poll(
+        async () =>
+          (await done.isVisible()) ||
+          (await productCards(page).count()) > before,
+      )
+      .toBe(true);
   }
+};
+
+/**
+ * Turns the catalog's automatic loading off for the page: without an
+ * IntersectionObserver the sentinel does nothing, and "Muat lebih banyak"
+ * is the only way to the next page (the fallback the storefront keeps for
+ * browsers that lack the observer). Call it before page.goto.
+ */
+export const disableAutoLoad = async (page: Page): Promise<void> => {
+  await page.addInitScript(() => {
+    Reflect.deleteProperty(window, "IntersectionObserver");
+  });
 };
 
 /**

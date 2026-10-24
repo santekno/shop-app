@@ -8,6 +8,7 @@ import { watchBrowser } from "../support/browser.ts";
 import type { BrowserProblems } from "../support/browser.ts";
 import {
   PAGE_SIZE,
+  disableAutoLoad,
   openProduct,
   productCards,
   productSection,
@@ -130,6 +131,10 @@ test("the catalog's two sections fail on their own and each Coba lagi recovers i
   const retryProducts = products.getByRole("button", { name: "Coba lagi" });
   const attempts = RETRIES + 1;
 
+  // No automatic loading, so "Muat lebih banyak" stays on screen once
+  // the first page is back.
+  await disableAutoLoad(page);
+
   await withApiDown(async () => {
     // The error state comes after the backoff, never before it.
     const firstLoad = await timeToError(() => page.goto("/"), retryCategories);
@@ -179,7 +184,7 @@ test("the catalog's two sections fail on their own and each Coba lagi recovers i
   await expect(productCards(page)).toHaveCount(PAGE_SIZE);
   await expect(
     products.getByRole("button", { name: "Muat lebih banyak" }),
-  ).toBeVisible();
+  ).toBeEnabled();
   await expect(products.getByRole("alert")).toHaveCount(0);
   await expect(categories.getByRole("alert")).toBeVisible();
 

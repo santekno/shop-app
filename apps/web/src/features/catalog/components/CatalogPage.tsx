@@ -13,10 +13,11 @@ import {
   readCatalogFilters,
 } from "../catalog-filters.ts";
 import type { CatalogFilters } from "../catalog-filters.ts";
-import { useProducts } from "../hooks/useProducts.ts";
+import { useProductList } from "../hooks/useProductList.ts";
 import { CatalogToolbar } from "./CatalogToolbar.tsx";
 import { CategorySection } from "./CategorySection.tsx";
 import { ProductGrid } from "./ProductGrid.tsx";
+import { ProductListFooter } from "./ProductListFooter.tsx";
 
 /** Products per page: a grid of 3 or 4 columns fills evenly. */
 const PAGE_SIZE = 12;
@@ -33,20 +34,35 @@ const PAGE_SIZE = 12;
  * The page cursor is the one piece of list state kept out of the URL. It
  * is opaque, valid only with the filters it came from, and names one page,
  * while the screen shows every page loaded so far; so the URL holds the
- * filters, and a change of filters starts the list again from page one.
+ * filters, and a change of filters starts another list from page one.
  */
 export function CatalogPage() {
   useDocumentTitle("Katalog — GoShop");
   const [searchParams, setSearchParams] = useSearchParams();
   const filters = readCatalogFilters(searchParams);
-  const { products, phase, error, hasMore, loadMore, retry } = useProducts({
-    ...filters,
-    limit: PAGE_SIZE,
-  });
+  const {
+    data,
+    products,
+    status,
+    error,
+    isFetching,
+    isFetchingNextPage,
+    isFetchNextPageError,
+    hasNextPage,
+    fetchNextPage,
+    refetch,
+  } = useProductList({ ...filters, limit: PAGE_SIZE });
 
   const setFilters = (next: CatalogFilters) => {
     setSearchParams(catalogSearchParams(next));
   };
+
+  // Whether any page has arrived. It decides what this page shows, not
+  // `status`: when a *later* page fails, status becomes "error" too, yet
+  // `data` keeps every page loaded before it (isFetchNextPageError is
+  // true). Those products stay on screen, and the footer offers to retry
+  // that one page. Only without any data is the error the whole list's.
+  const hasPages = data !== undefined;
 
   return (
     <div className="page">
@@ -61,46 +77,53 @@ export function CatalogPage() {
             <p className="muted">Hasil pencarian untuk “{filters.q}”.</p>
           )}
 
-          {products.length > 0 && <ProductGrid products={products} />}
-
-          <div className="catalog__footer">
-            {phase === "loading" && (
-              <LoadingState>
-                {products.length === 0
-                  ? "Memuat produk…"
-                  : "Memuat produk berikutnya…"}
-              </LoadingState>
-            )}
-            {phase === "error" &&
-              // A slug that looks right but names no category: say so,
-              // instead of offering a retry that would fail the same way.
-              (isApiError(error, "UNKNOWN_CATEGORY") ? (
-                <EmptyState>
-                  Kategori ini tidak ada.{" "}
-                  <Link
-                    to={`/${catalogSearch({ ...filters, category: undefined })}`}
-                  >
-                    Lihat semua produk
-                  </Link>
-                </EmptyState>
-              ) : (
-                <ErrorState error={error} onRetry={retry} />
-              ))}
-            {phase === "ready" && hasMore && (
-              <button type="button" onClick={loadMore}>
-                Muat lebih banyak
-              </button>
-            )}
-            {phase === "ready" && !hasMore && (
+          {!hasPages && (status === "pending" || isFetching) && (
+            <div className="catalog__footer">
+              <LoadingState>Memuat produk…</LoadingState>
+            </div>
+          )}
+          {!hasPages &&
+            status === "error" &&
+            !isFetching &&
+            // A slug that looks right but names no category: say so,
+            // instead of offering a retry that would fail the same way.
+            (isApiError(error, "UNKNOWN_CATEGORY") ? (
               <EmptyState>
-                {products.length === 0
-                  ? filters.q !== undefined || filters.category !== undefined
-                    ? "Tidak ada produk yang cocok."
-                    : "Belum ada produk."
-                  : "Semua produk sudah ditampilkan."}
+                Kategori ini tidak ada.{" "}
+                <Link
+                  to={`/${catalogSearch({ ...filters, category: undefined })}`}
+                >
+                  Lihat semua produk
+                </Link>
               </EmptyState>
-            )}
-          </div>
+            ) : (
+              <ErrorState
+                error={error}
+                onRetry={() => {
+                  void refetch();
+                }}
+              />
+            ))}
+
+          {hasPages && (
+            <>
+              {products.length > 0 && <ProductGrid products={products} />}
+              <ProductListFooter
+                count={products.length}
+                filtered={
+                  filters.q !== undefined || filters.category !== undefined
+                }
+                hasNextPage={hasNextPage}
+                isFetching={isFetching}
+                isFetchingNextPage={isFetchingNextPage}
+                isFetchNextPageError={isFetchNextPageError}
+                error={error}
+                fetchNextPage={() => {
+                  void fetchNextPage();
+                }}
+              />
+            </>
+          )}
         </Section>
       </div>
     </div>
