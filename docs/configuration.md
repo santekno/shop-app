@@ -36,10 +36,13 @@ cp .env.example .env   # .env is gitignored; never commit it
 | `APP_SHIPPING_TIMEOUT` | api | no | How long checkout waits for the rates API (Go duration, `1s`–`15s`, default `5s`). Past it the request answers 503 `UPSTREAM_UNAVAILABLE`; the call is never retried, and it is made before the checkout transaction, so a slow courier API never holds a row lock. | Bab 5 |
 | `APP_PAYMENT_TTL` | api | no | How long a buyer has to pay an order (Go duration, `5m`–`72h`, default `24h`, Midtrans' default expiry; at least 5 minutes, because Snap stops taking payment a minute before the deadline and counts whole minutes). Stock is taken at checkout and returned when an unpaid order passes this deadline (`api expire-orders`). | Bab 5 |
 | `APP_CHECKOUT_LIMIT_PER_MINUTE` | api | no | How many checkout previews, shipping quotes and checkouts one buyer may ask for per minute, each (`1`–`100000`, default `30`); past it the API answers 429 `RATE_LIMITED`. Raise it only for a load test (the k6 test in `e2e/k6` needs `100000`: `e2e/k6/run.sh` refuses to run below it, `APP_CHECKOUT_LIMIT_PER_MINUTE=100000 make up`), never in production. | Bab 5 |
-| `S3_ENDPOINT` | api, worker | no | S3 API endpoint. SeaweedFS locally (`http://localhost:8333`), the provider's endpoint in production. | Bab 6 |
-| `S3_BUCKET` | api, worker | no | Bucket for product and review images. | Bab 6 |
-| `S3_ACCESS_KEY` | api, worker | **yes** | S3 access key. | Bab 6 |
-| `S3_SECRET_KEY` | api, worker | **yes** | S3 secret key. | Bab 6 |
+| `S3_ENDPOINT` | api, worker | no | How the API and the worker reach the S3 API: SeaweedFS locally (`http://localhost:8333`, `http://storage:8333` inside Compose), the provider's endpoint in production (Cloudflare R2: `https://<account>.r2.cloudflarestorage.com`). **Empty turns image uploads off** (503 `STORAGE_DISABLED`). `api migrate` creates the bucket when it is missing ([ADR 0007](adr/0007-payments-uploads-worker.md)). | Bab 6 |
+| `S3_PRESIGN_ENDPOINT` | api | no | The endpoint presigned upload URLs are signed for, when clients reach S3 by another address than the API does (Compose: `http://localhost:8333`). Empty means `S3_ENDPOINT`. | Bab 6 |
+| `S3_PUBLIC_URL` | api, worker | no | Base URL the public reads images from, without a trailing slash: a CDN or the bucket's public domain (R2: `https://pub-….r2.dev`). Empty means `<S3_PRESIGN_ENDPOINT>/<S3_BUCKET>`, which needs the bucket to allow anonymous reads (the local SeaweedFS does, `deploy/seaweedfs/s3.json`). | Bab 6 |
+| `S3_REGION` | api, worker | no | Region of the bucket (default `us-east-1`; `auto` for R2). | Bab 6 |
+| `S3_BUCKET` | api, worker | no | Bucket for product images. Required with `S3_ENDPOINT`. | Bab 6 |
+| `S3_ACCESS_KEY` | api, worker | **yes** | S3 access key. Required with `S3_ENDPOINT`. | Bab 6 |
+| `S3_SECRET_KEY` | api, worker | **yes** | S3 secret key. Required with `S3_ENDPOINT`; the local SeaweedFS value `goshop-secret` is refused outside development. | Bab 6 |
 | `MIDTRANS_SERVER_KEY` | api, worker | **yes** | Midtrans **sandbox** server key (`SB-Mid-server-…`, from dashboard.sandbox.midtrans.com → Settings → Access keys). It authenticates every call to Midtrans and is the key notifications are signed with ([ADR 0007](adr/0007-payments-uploads-worker.md)). **Empty turns payments off**: `POST /v1/orders/{id}/pay` and the notification route answer 503 `PAYMENTS_DISABLED`, and the API logs a warning at start. A key that is not a sandbox key stops the API at start. | Bab 6 |
 | `MIDTRANS_CLIENT_KEY` | api | no | Midtrans sandbox client key (`SB-Mid-client-…`), returned to clients as `client_key` for Snap.js. Public by design, but per environment. Required with the server key. | Bab 6 |
 | `MIDTRANS_IS_PRODUCTION` | api, worker | no | Must be `false` (or empty): GoShop talks to the Midtrans sandbox only, and refuses to start with `true`. | Bab 6 |
@@ -60,7 +63,7 @@ A variable that a chapter does not use yet may stay empty. When a chapter starts
 | `REDIS_ADDR` | `localhost:6379` | `testx.RedisContainer` only. **Test-only**: the services read `REDIS_URL`. |
 | `REDIS_URL` | `redis://localhost:6379/0` | the API when an integration test starts it in-process with `config.Load` |
 | `JWT_SECRET` | a key for tests only | the same |
-| `S3_ENDPOINT` | `http://localhost:8333` | storage integration tests, and the api/worker at runtime (see the table above) |
+| `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` | `http://localhost:8333`, `goshop`, the local SeaweedFS keys | storage integration tests, and the API started in-process |
 
 When `POSTGRES_DSN` or `REDIS_ADDR` is missing, testx skips the test, and the gate fails on any skipped test.
 

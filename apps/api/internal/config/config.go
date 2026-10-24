@@ -138,7 +138,36 @@ type Config struct {
 	CheckoutLimitPerMinute int
 	// Payment configures the payment gateway (ADR 0007).
 	Payment Payment
+	// Storage is the S3 bucket for product images (ADR 0007).
+	Storage Storage
 }
+
+// Storage configures the S3 bucket. An empty Endpoint turns image uploads
+// off (503 STORAGE_DISABLED).
+type Storage struct {
+	// Endpoint is S3_ENDPOINT: how the API and worker reach S3.
+	Endpoint string
+	// PresignEndpoint is S3_PRESIGN_ENDPOINT: the endpoint clients upload
+	// to, when it differs from S3_ENDPOINT (Docker Compose:
+	// http://localhost:8333 for the browser, http://storage:8333 inside).
+	PresignEndpoint string
+	// PublicURL is S3_PUBLIC_URL: the base URL the public reads images
+	// from (a CDN, the bucket's public domain). Empty means
+	// <presign endpoint>/<bucket>.
+	PublicURL string
+	// Region is S3_REGION (default us-east-1; auto for Cloudflare R2).
+	Region string
+	// Bucket is S3_BUCKET.
+	Bucket string
+	// AccessKey and SecretKey are S3_ACCESS_KEY and S3_SECRET_KEY; the
+	// secret key is never logged.
+	AccessKey string
+	SecretKey string
+}
+
+// SeaweedFSSecretPlaceholder is the local SeaweedFS secret key of
+// deploy/seaweedfs/s3.json and .env.example, accepted in development only.
+const SeaweedFSSecretPlaceholder = "goshop-secret"
 
 // Payment configures Midtrans, in the sandbox only.
 type Payment struct {
@@ -306,6 +335,9 @@ func Load() (Config, error) {
 	cfg.Payment, err = parsePayment(src)
 	errs = append(errs, err)
 
+	cfg.Storage, err = parseStorage(cfg.Env)
+	errs = append(errs, err)
+
 	if err := errors.Join(errs...); err != nil {
 		return Config{}, fmt.Errorf("config: %w", err)
 	}
@@ -436,6 +468,60 @@ func parsePayment(src *configx.Config) (Payment, error) {
 		DefaultPaymentTimeout, time.Second, 30*time.Second)
 	errs = append(errs, err)
 	return p, errors.Join(errs...)
+}
+
+// parseStorage reads the S3_* variables (no APP_ prefix: the usual names
+// of S3 tools). Only S3_ENDPOINT turns storage on; then the bucket and
+// both keys are required. No error repeats a key.
+func parseStorage(env string) (Storage, error) {
+	st := Storage{
+		Endpoint:        strings.TrimSpace(os.Getenv("S3_ENDPOINT")),
+		PresignEndpoint: strings.TrimSpace(os.Getenv("S3_PRESIGN_ENDPOINT")),
+		PublicURL:       strings.TrimRight(strings.TrimSpace(os.Getenv("S3_PUBLIC_URL")), "/"),
+		Region:          strings.TrimSpace(os.Getenv("S3_REGION")),
+		Bucket:          strings.TrimSpace(os.Getenv("S3_BUCKET")),
+		AccessKey:       strings.TrimSpace(os.Getenv("S3_ACCESS_KEY")),
+		SecretKey:       strings.TrimSpace(os.Getenv("S3_SECRET_KEY")),
+	}
+	if st.Endpoint == "" {
+		return Storage{}, nil
+	}
+	if st.Region == "" {
+		st.Region = "us-east-1"
+	}
+	var errs []error
+	for name, value := range map[string]string{"S3_ENDPOINT": st.Endpoint, "S3_PRESIGN_ENDPOINT": st.PresignEndpoint} {
+		if value != "" && !isEndpoint(value) {
+			errs = append(errs, fmt.Errorf("%s: must be an endpoint like http://localhost:8333 (scheme and host, no path)", name))
+		}
+	}
+	if st.PublicURL != "" && !isHTTPURL(st.PublicURL) {
+		errs = append(errs, errors.New("S3_PUBLIC_URL: must be an http(s) URL like https://images.example.com"))
+	}
+	if !bucketName.MatchString(st.Bucket) {
+		errs = append(errs, fmt.Errorf("S3_BUCKET: is required with S3_ENDPOINT and must be a bucket name (3-63 lower-case letters, digits, dots, hyphens), got %q", st.Bucket))
+	}
+	if st.AccessKey == "" || st.SecretKey == "" {
+		errs = append(errs, errors.New("S3_ACCESS_KEY, S3_SECRET_KEY: are required with S3_ENDPOINT"))
+	}
+	if env != EnvDevelopment && st.SecretKey == SeaweedFSSecretPlaceholder {
+		errs = append(errs, errors.New("S3_SECRET_KEY: is the local SeaweedFS placeholder, which is allowed in development only"))
+	}
+	return st, errors.Join(errs...)
+}
+
+// bucketName is an S3 bucket name.
+var bucketName = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$`)
+
+func isEndpoint(value string) bool {
+	u, err := url.Parse(value)
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != "" &&
+		u.User == nil && (u.Path == "" || u.Path == "/") && u.RawQuery == ""
+}
+
+func isHTTPURL(value string) bool {
+	u, err := url.Parse(value)
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != "" && u.User == nil
 }
 
 // postalCode is an Indonesian postal code: five digits, never starting

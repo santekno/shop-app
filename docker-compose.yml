@@ -73,8 +73,15 @@ services:
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       BITESHIP_API_KEY: ${BITESHIP_API_KEY:-}
       APP_SHIPPING_ORIGIN_POSTAL_CODE: ${APP_SHIPPING_ORIGIN_POSTAL_CODE:-40111}
+      # `api migrate` also creates the image bucket when it is missing.
+      S3_ENDPOINT: http://storage:8333
+      S3_BUCKET: ${S3_BUCKET:-goshop}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-goshop}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-goshop-secret}
     depends_on:
       postgres:
+        condition: service_healthy
+      storage:
         condition: service_healthy
     restart: "no"
 
@@ -129,6 +136,14 @@ services:
       MIDTRANS_CLIENT_KEY: ${MIDTRANS_CLIENT_KEY:-}
       MIDTRANS_IS_PRODUCTION: "false"
       APP_PAYMENT_TIMEOUT: ${APP_PAYMENT_TIMEOUT:-10s}
+      # Image storage (ADR 0007). The API reaches SeaweedFS as "storage";
+      # browsers upload to, and read images from, localhost:8333, so the
+      # presigned URLs are signed for that host.
+      S3_ENDPOINT: http://storage:8333
+      S3_PRESIGN_ENDPOINT: http://localhost:8333
+      S3_BUCKET: ${S3_BUCKET:-goshop}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-goshop}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-goshop-secret}
     ports:
       - "127.0.0.1:8080:8080"
     healthcheck:

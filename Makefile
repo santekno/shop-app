@@ -69,6 +69,9 @@ IT_ENV := POSTGRES_DSN='postgres://goshop:goshop@localhost:5432/goshop?sslmode=d
 	REDIS_URL=redis://localhost:6379/0 \
 	JWT_SECRET=integration-tests-only-signing-key-0123456789 \
 	S3_ENDPOINT=http://localhost:8333 \
+	S3_BUCKET=goshop \
+	S3_ACCESS_KEY=goshop \
+	S3_SECRET_KEY=goshop-secret \
 	GOSHOP_API_URL=http://127.0.0.1:8080
 
 .PHONY: help doctor build lint lint-openapi test-unit test-integration test-mobile-e2e docker-build scan verify up down dev-api docs-api \

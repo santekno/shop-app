@@ -249,6 +249,12 @@ paths:
                         name: XL
                         price: { amount: 99000, currency: IDR }
                         stock: 0
+                    images:
+                      - id: 0192f3b2-0a1b-7c2d-8e3f-4a5b6c7d8e9f
+                        url: http://localhost:8333/goshop/products/0192f3a1-5e6f-7a8b-9c0d-1e2f3a4b5c6d/0192f3b2-0a1b-7c2d-8e3f-4a5b6c7d8e9f/original
+                        alt: Kaos polos hitam, tampak depan
+                        width: 1600
+                        height: 1600
                     created_at: "2026-11-01T08:00:00Z"
                 page:
                   next_cursor: eyJjIjoiMjAyNi0xMS0wMVQwODowMDowMFoiLCJpZCI6IjAxOTJmM2ExIn0
@@ -299,6 +305,7 @@ paths:
                       name: M
                       price: { amount: 89000, currency: IDR }
                       stock: 12
+                  images: []
                   created_at: "2026-11-01T08:00:00Z"
         "404":
           $ref: "#/components/responses/NotFound"
@@ -446,6 +453,122 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/InternalError"
+
+  /v1/admin/products/{id}/images/uploads:
+    parameters:
+      - $ref: "#/components/parameters/ProductID"
+    post:
+      tags: [Admin]
+      operationId: startProductImageUpload
+      summary: Start uploading a product photo
+      description: |
+        Records a pending photo and answers a presigned `PUT` to the image
+        bucket (ADR 0007): the client sends the file straight to S3, never
+        through the API. The URL works for 15 minutes, only for exactly the
+        declared `content_type` and `size_bytes` (at most 5 MiB). Then call
+        `POST …/images/{image_id}/confirm`. At most 10 photos per product,
+        pending ones included.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImageUploadRequest"
+      responses:
+        "201":
+          description: The pending photo and where to upload its file.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImageUploadDetail"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/ImageConflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/StorageUnavailable"
+
+  /v1/admin/products/{id}/images/{image_id}/confirm:
+    parameters:
+      - $ref: "#/components/parameters/ProductID"
+      - $ref: "#/components/parameters/ImageID"
+    post:
+      tags: [Admin]
+      operationId: confirmProductImage
+      summary: Confirm an uploaded product photo
+      description: |
+        Checks the uploaded file before the storefront shows it: its size
+        and type must be the declared ones, its first bytes must really be
+        that format, and it must be at most 6000 pixels a side and 24
+        megapixels. A file that fails is deleted with its pending photo
+        (422); start a new upload. Confirming a confirmed photo answers it
+        again.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImageConfirmRequest"
+      responses:
+        "200":
+          description: The photo.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminProductImageDetail"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/ImageNotFound"
+        "409":
+          $ref: "#/components/responses/ImageConflict"
+        "422":
+          $ref: "#/components/responses/UploadInvalid"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/StorageUnavailable"
+
+  /v1/admin/products/{id}/images/{image_id}:
+    parameters:
+      - $ref: "#/components/parameters/ProductID"
+      - $ref: "#/components/parameters/ImageID"
+    delete:
+      tags: [Admin]
+      operationId: deleteProductImage
+      summary: Delete a product photo
+      description: Deletes the photo and its files.
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: Deleted.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/ImageNotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/StorageUnavailable"
 
   /v1/auth/register:
     post:
@@ -1760,6 +1883,22 @@ components:
         expires.
 
   parameters:
+    ProductID:
+      name: id
+      in: path
+      required: true
+      description: Product ID. One that is not a UUID returns 404 `NOT_FOUND`.
+      schema:
+        type: string
+        format: uuid
+    ImageID:
+      name: image_id
+      in: path
+      required: true
+      description: Image ID. One that is not a UUID returns 404 `NOT_FOUND`.
+      schema:
+        type: string
+        format: uuid
     CartToken:
       name: X-Cart-Token
       in: header
@@ -1845,7 +1984,7 @@ components:
 
     Product:
       type: object
-      required: [id, slug, name, description, category, price_from, in_stock, variants, created_at]
+      required: [id, slug, name, description, category, price_from, in_stock, variants, images, created_at]
       additionalProperties: false
       properties:
         id:
@@ -1875,9 +2014,158 @@ components:
           minItems: 1
           items:
             $ref: "#/components/schemas/ProductVariant"
+        images:
+          type: array
+          description: The product's photos in order, the first being its main photo; empty while it has none. Only photos the server has checked are listed (Bab 6).
+          maxItems: 10
+          items:
+            $ref: "#/components/schemas/ProductImage"
         created_at:
           type: string
           format: date-time
+
+    ProductImage:
+      type: object
+      description: A product photo as the storefront shows it.
+      required: [id, url, alt, width, height]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        url:
+          type: string
+          format: uri
+          description: Where the photo is read from (the bucket's public URL or a CDN). Never changes for one image id, so it may be cached.
+        alt:
+          type: string
+          maxLength: 200
+          description: The photo's text for screen readers; may be empty (then use the product's name).
+        width:
+          type: integer
+          minimum: 1
+        height:
+          type: integer
+          minimum: 1
+
+    AdminProductImage:
+      type: object
+      description: A product photo as the admin sees it, pending uploads included.
+      required: [id, status, position, alt, content_type, size_bytes, url, width, height, created_at, updated_at]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending_upload, ready]
+          description: "`pending_upload`: signed but not confirmed; `ready`: on the storefront."
+        position:
+          type: integer
+          minimum: 0
+        alt:
+          type: string
+          maxLength: 200
+        content_type:
+          type: string
+          enum: [image/jpeg, image/png, image/webp]
+        size_bytes:
+          type: integer
+          minimum: 1
+          maximum: 5242880
+        url:
+          description: The photo's public URL, `null` until confirmed.
+          oneOf:
+            - type: string
+              format: uri
+            - type: "null"
+        width:
+          oneOf:
+            - type: integer
+              minimum: 1
+            - type: "null"
+        height:
+          oneOf:
+            - type: integer
+              minimum: 1
+            - type: "null"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ImageUploadRequest:
+      type: object
+      required: [content_type, size_bytes]
+      additionalProperties: false
+      properties:
+        content_type:
+          type: string
+          enum: [image/jpeg, image/png, image/webp]
+        size_bytes:
+          type: integer
+          minimum: 1
+          maximum: 5242880
+          description: The file's exact size; the upload must have exactly this many bytes.
+
+    ImageUpload:
+      type: object
+      required: [image, upload]
+      additionalProperties: false
+      properties:
+        image:
+          $ref: "#/components/schemas/AdminProductImage"
+        upload:
+          type: object
+          description: Send the file as the body of one request with exactly this method, URL and headers; Content-Type and Content-Length are part of the signature.
+          required: [method, url, headers, expires_at]
+          additionalProperties: false
+          properties:
+            method:
+              type: string
+              const: PUT
+            url:
+              type: string
+              format: uri
+            headers:
+              type: object
+              additionalProperties:
+                type: string
+              example:
+                Content-Type: image/jpeg
+                Content-Length: "348112"
+            expires_at:
+              type: string
+              format: date-time
+              description: The URL stops working 15 minutes after it was signed.
+
+    ImageUploadDetail:
+      type: object
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          $ref: "#/components/schemas/ImageUpload"
+
+    ImageConfirmRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        alt:
+          type: string
+          maxLength: 200
+          default: ""
+
+    AdminProductImageDetail:
+      type: object
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          $ref: "#/components/schemas/AdminProductImage"
 
     ProductWrite:
       type: object
@@ -1981,7 +2269,7 @@ components:
     AdminProduct:
       type: object
       description: A product as the admin sees it, in any status.
-      required: [id, category_id, slug, name, description, status, price_from, variants, created_at, updated_at]
+      required: [id, category_id, slug, name, description, status, price_from, variants, images, created_at, updated_at]
       additionalProperties: false
       properties:
         id:
@@ -2009,6 +2297,12 @@ components:
           description: The sellable (non-archived) variants, cheapest first.
           items:
             $ref: "#/components/schemas/AdminVariant"
+        images:
+          type: array
+          description: Every photo in order, pending uploads included (at most 10).
+          maxItems: 10
+          items:
+            $ref: "#/components/schemas/AdminProductImage"
         created_at:
           type: string
           format: date-time
@@ -3634,3 +3928,59 @@ components:
             error:
               code: NOT_FOUND
               message: payment not found
+    StorageUnavailable:
+      description: Image storage is not configured on this server (`STORAGE_DISABLED`, `S3_ENDPOINT` is empty).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: STORAGE_DISABLED
+              message: image storage is not configured on this server
+    ImageConflict:
+      description: The product has 10 photos already (`IMAGE_LIMIT_REACHED`, `details.max`), or confirm was called before the file was uploaded (`UPLOAD_MISSING`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            limit:
+              value:
+                error:
+                  code: IMAGE_LIMIT_REACHED
+                  message: this product has the most images it may have; delete one first
+                  details:
+                    max: 10
+            missing:
+              value:
+                error:
+                  code: UPLOAD_MISSING
+                  message: upload the file to the presigned URL before confirming
+    UploadInvalid:
+      description: |
+        The uploaded file is not what was declared, or not an acceptable
+        image (`UPLOAD_INVALID`, `details.reason` one of `size_mismatch`,
+        `content_type_mismatch`, `not_an_image_of_the_declared_type`,
+        `unreadable_image`, `too_many_pixels`). The file and the pending
+        photo were deleted.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: UPLOAD_INVALID
+              message: the uploaded file is not the declared image; start a new upload
+              details:
+                reason: too_many_pixels
+    ImageNotFound:
+      description: No such photo of this product, or an id that is not a UUID.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: NOT_FOUND
+              message: image not found

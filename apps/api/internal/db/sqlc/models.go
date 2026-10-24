@@ -169,6 +169,21 @@ type Product struct {
 	UpdatedAt   time.Time
 }
 
+type ProductImage struct {
+	ID          string
+	ProductID   string
+	Position    int16
+	Alt         string
+	Status      string
+	ContentType string
+	SizeBytes   int32
+	OriginalKey string
+	Width       sql.NullInt32
+	Height      sql.NullInt32
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
 type ProductVariant struct {
 	ID          string
 	ProductID   string

@@ -36,6 +36,7 @@ import (
 	"github.com/santekno/shop-app/apps/api/internal/product"
 	"github.com/santekno/shop-app/apps/api/internal/redisconn"
 	"github.com/santekno/shop-app/apps/api/internal/shipping"
+	"github.com/santekno/shop-app/apps/api/internal/storage"
 	"github.com/santekno/shop-app/apps/api/internal/user"
 )
 
@@ -132,6 +133,22 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 	validator := httpapi.NewValidator()
 	categoryHandler := category.NewHandler(categoryService)
 	productHandler := product.NewHandler(productService, productService, validator)
+	if o.store == nil {
+		store, err := objectStore(cfg.Storage)
+		if err != nil {
+			// The configuration was validated already; a client that
+			// cannot be built is logged and uploads stay off.
+			logger.Error("image storage is off", "error", err.Error())
+		} else if store != nil {
+			o.store = store
+		}
+	}
+	if o.store == nil {
+		logger.Warn("image uploads are off: S3_ENDPOINT is not set")
+		productHandler.WithImages(nil, nil)
+	} else {
+		productHandler.WithImages(product.NewImageService(productRepo, o.store), o.store.PublicURL)
+	}
 	authHandler := auth.NewHandler(auth.HandlerDeps{
 		Service:          authService,
 		Validator:        validator,
@@ -214,6 +231,21 @@ func paymentGateway(cfg config.Payment, logger logx.Logger) payment.Gateway {
 	return midtrans.New(cfg.MidtransServerKey, cfg.MidtransClientKey, cfg.Timeout, midtrans.WithLogger(logger))
 }
 
+// objectStore is the S3 bucket of cfg, or nil when S3_ENDPOINT is empty.
+func objectStore(cfg config.Storage) (*storage.S3, error) {
+	if cfg.Endpoint == "" {
+		return nil, nil
+	}
+	s, err := storage.New(storage.Config{
+		Endpoint: cfg.Endpoint, PresignEndpoint: cfg.PresignEndpoint, PublicURL: cfg.PublicURL,
+		Region: cfg.Region, Bucket: cfg.Bucket, AccessKey: cfg.AccessKey, SecretKey: cfg.SecretKey,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("image storage: %w", err)
+	}
+	return s, nil
+}
+
 // rateLimits is every limit the API counts in Redis.
 func rateLimits(cfg config.Config) []auth.Limit {
 	limits := append(slices.Clone(auth.Limits), cart.LimitGuestCartPerIP)
@@ -235,6 +267,7 @@ type options struct {
 	revocations auth.SessionRevocations
 	shipping    shipping.Provider
 	gateway     payment.Gateway
+	store       product.ObjectStore
 }
 
 // WithClock makes the auth flows read the time from now: token expiry,
@@ -267,6 +300,10 @@ func WithShippingProvider(p shipping.Provider) Option { return func(o *options) 
 // WithPaymentGateway takes payments through g instead of the gateway the
 // configuration picks, for tests that steer the gateway's answers.
 func WithPaymentGateway(g payment.Gateway) Option { return func(o *options) { o.gateway = g } }
+
+// WithObjectStore stores images in s instead of the S3 bucket the
+// configuration names, for tests.
+func WithObjectStore(s product.ObjectStore) Option { return func(o *options) { o.store = s } }
 
 // Handler is the API's router with all middleware, for httptest.
 func (a *App) Handler() http.Handler { return a.handler }
@@ -442,5 +479,15 @@ func runMigrations(ctx context.Context, cfg config.Config, logger logx.Logger) e
 		return err
 	}
 	logger.Info("database migrated", "version", version)
+	// The image bucket is part of the environment the API needs, so the
+	// same setup step creates it when it is missing (ADR 0007).
+	store, err := objectStore(cfg.Storage)
+	if err != nil || store == nil {
+		return err
+	}
+	if err := store.EnsureBucket(ctx); err != nil {
+		return err
+	}
+	logger.Info("image bucket ready", "bucket", cfg.Storage.Bucket)
 	return nil
 }

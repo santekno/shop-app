@@ -22,6 +22,7 @@ func (h *Handler) AdminRoutes(r chi.Router) {
 	r.Get("/products/{id}", h.GetProduct)
 	r.Put("/products/{id}", h.UpdateProduct)
 	r.Delete("/products/{id}", h.ArchiveProduct)
+	h.imageRoutes(r)
 }
 
 // productBody is the request body of POST and PUT /v1/admin/products.
@@ -59,7 +60,7 @@ func (h *Handler) GetProduct(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, r, toHTTPError(err))
 		return
 	}
-	httpapi.JSON(w, r, http.StatusOK, dataResponse{Data: toAdminJSON(p)})
+	httpapi.JSON(w, r, http.StatusOK, dataResponse{Data: h.adminJSON(p)})
 }
 
 // CreateProduct serves POST /v1/admin/products: 201 with the new product
@@ -76,7 +77,7 @@ func (h *Handler) CreateProduct(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Location", "/v1/admin/products/"+p.ID)
-	httpapi.JSON(w, r, http.StatusCreated, dataResponse{Data: toAdminJSON(p)})
+	httpapi.JSON(w, r, http.StatusCreated, dataResponse{Data: h.adminJSON(p)})
 }
 
 // UpdateProduct serves PUT /v1/admin/products/{id}. The body is the whole
@@ -98,7 +99,7 @@ func (h *Handler) UpdateProduct(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, r, toHTTPError(err))
 		return
 	}
-	httpapi.JSON(w, r, http.StatusOK, dataResponse{Data: toAdminJSON(p)})
+	httpapi.JSON(w, r, http.StatusOK, dataResponse{Data: h.adminJSON(p)})
 }
 
 // ArchiveProduct serves DELETE /v1/admin/products/{id}: 204, and the product
@@ -209,8 +210,17 @@ type adminProductJSON struct {
 	Status      string             `json:"status"`
 	PriceFrom   *moneyJSON         `json:"price_from"` // null without a sellable variant
 	Variants    []adminVariantJSON `json:"variants"`
-	CreatedAt   time.Time          `json:"created_at"`
-	UpdatedAt   time.Time          `json:"updated_at"`
+	// Images is filled by the handler, which knows the public URLs.
+	Images    []adminImageJSON `json:"images"`
+	CreatedAt time.Time        `json:"created_at"`
+	UpdatedAt time.Time        `json:"updated_at"`
+}
+
+// adminJSON is toAdminJSON with the images, which need the public URLs.
+func (h *Handler) adminJSON(p AdminProduct) adminProductJSON {
+	out := toAdminJSON(p)
+	out.Images = h.toAdminImagesJSON(p.Images)
+	return out
 }
 
 func toAdminJSON(p AdminProduct) adminProductJSON {
@@ -218,6 +228,7 @@ func toAdminJSON(p AdminProduct) adminProductJSON {
 		ID: p.ID, CategoryID: p.CategoryID, Slug: p.Slug, Name: p.Name,
 		Description: p.Description, Status: p.Status,
 		Variants:  make([]adminVariantJSON, 0, len(p.Variants)),
+		Images:    []adminImageJSON{},
 		CreatedAt: p.CreatedAt.UTC(), UpdatedAt: p.UpdatedAt.UTC(),
 	}
 	if p.PriceFrom != nil {
