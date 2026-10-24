@@ -57,6 +57,9 @@ x-app-environment: &app-environment
   SMTP_USERNAME: ${SMTP_USERNAME:-}
   SMTP_PASSWORD: ${SMTP_PASSWORD:-}
   SMTP_FROM: ${SMTP_FROM:-GoShop <no-reply@goshop.local>}
+  # Empty: no Telegram message to the seller.
+  TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+  TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
 
 services:
   postgres:

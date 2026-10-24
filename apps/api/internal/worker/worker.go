@@ -82,8 +82,14 @@ func serve(ctx context.Context, cfg config.Config, logger logx.Logger, db *sql.D
 	}
 	mux := asynq.NewServeMux()
 	NewJobs(deps).Register(mux)
-	emails := notify.NewEmails(app.WorkerMailer(cfg, logger), order.NewPostgresRepository(db), user.NewPostgresRepository(db))
-	RegisterNotifications(mux, emails)
+	orders := order.NewPostgresRepository(db)
+	RegisterNotifications(mux, notify.NewEmails(app.WorkerMailer(cfg, logger), orders, user.NewPostgresRepository(db)))
+	if cfg.Telegram.BotToken != "" {
+		mux.HandleFunc(notify.TypeSellerPaidOrder,
+			notify.NewTelegramSeller(cfg.Telegram.BotToken, cfg.Telegram.ChatID, orders).PaidOrder)
+	} else {
+		logger.Info("seller notifications are off: TELEGRAM_BOT_TOKEN is not set")
+	}
 
 	srv := asynq.NewServerFromRedisClient(rdb, asynq.Config{
 		Concurrency: cfg.WorkerConcurrency,

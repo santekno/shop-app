@@ -147,6 +147,8 @@ type Config struct {
 	Storage Storage
 	// SMTP is the mail server; an empty Host keeps the log mailer.
 	SMTP SMTP
+	// Telegram is the seller's chat for new paid orders; empty is off.
+	Telegram Telegram
 	// WorkerConcurrency is APP_WORKER_CONCURRENCY (1-50, default 5): how
 	// many tasks one worker process runs at once.
 	WorkerConcurrency int
@@ -188,6 +190,15 @@ type SMTP struct {
 	Password string
 	// From is SMTP_FROM, the sender, e.g. GoShop <no-reply@shop.example>.
 	From string
+}
+
+// Telegram configures the seller's chat notifications (ADR 0007).
+type Telegram struct {
+	// BotToken is TELEGRAM_BOT_TOKEN, from @BotFather; a secret, never
+	// logged (it is part of every Bot API URL).
+	BotToken string
+	// ChatID is TELEGRAM_CHAT_ID: the seller's group or chat.
+	ChatID string
 }
 
 // SeaweedFSSecretPlaceholder is the local SeaweedFS secret key of
@@ -365,6 +376,14 @@ func Load() (Config, error) {
 
 	cfg.SMTP, err = parseSMTP()
 	errs = append(errs, err)
+
+	cfg.Telegram = Telegram{
+		BotToken: strings.TrimSpace(os.Getenv("TELEGRAM_BOT_TOKEN")),
+		ChatID:   strings.TrimSpace(os.Getenv("TELEGRAM_CHAT_ID")),
+	}
+	if (cfg.Telegram.BotToken == "") != (cfg.Telegram.ChatID == "") {
+		errs = append(errs, errors.New("TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID: set both (seller notifications on) or neither (off)"))
+	}
 
 	cfg.WorkerConcurrency, err = parseInt("APP_WORKER_CONCURRENCY", src.String("worker.concurrency"),
 		DefaultWorkerConcurrency, 1, 50)

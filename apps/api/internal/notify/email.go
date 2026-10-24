@@ -129,20 +129,22 @@ func render(tmpl *template.Template, buyer user.User, o order.Order) (mail.Messa
 var wib = time.FixedZone("WIB", 7*60*60)
 
 var funcs = template.FuncMap{
-	// rupiah writes 117000 as Rp117.000.
-	"rupiah": func(amount int64) string {
-		s := strconv.FormatInt(amount, 10)
-		var b strings.Builder
-		for i, r := range s {
-			if i > 0 && (len(s)-i)%3 == 0 {
-				b.WriteByte('.')
-			}
-			b.WriteRune(r)
+	"rupiah": rupiah,
+	"wib":    func(t time.Time) string { return t.In(wib).Format("02-01-2006 15:04") + " WIB" },
+	"upper":  strings.ToUpper,
+}
+
+// rupiah writes 117000 as Rp117.000.
+func rupiah(amount int64) string {
+	s := strconv.FormatInt(amount, 10)
+	var b strings.Builder
+	for i, r := range s {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			b.WriteByte('.')
 		}
-		return "Rp" + b.String()
-	},
-	"wib":   func(t time.Time) string { return t.In(wib).Format("02-01-2006 15:04") + " WIB" },
-	"upper": strings.ToUpper,
+		b.WriteRune(r)
+	}
+	return "Rp" + b.String()
 }
 
 // The templates, in Indonesian like the storefront.
