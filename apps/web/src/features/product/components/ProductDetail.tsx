@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { formatRupiah } from "@goshop/shared";
 import type { Product } from "@goshop/shared";
 import { Card } from "@/components/ui/Card.tsx";
@@ -22,6 +22,18 @@ interface ProductDetailProps {
 export function ProductDetail({ product }: ProductDetailProps) {
   useDocumentTitle(`${product.name} — GoShop`);
   const headingId = useId();
+
+  // After a navigation useRouteFocus focuses the page's <h1>, but a
+  // product that was still loading had none yet, so <main> got the focus.
+  // Now that the heading is here, hand the focus on to it. Only from
+  // <main>: a buyer who already moved on (or a fresh page load, where the
+  // focus is on <body>) keeps it where it is.
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    if (document.activeElement?.tagName === "MAIN") {
+      headingRef.current?.focus({ preventScroll: true });
+    }
+  }, []);
   const { variants } = product;
   // The first variant in stock, or the first one when all are sold out.
   // The contract promises at least one variant (minItems: 1).
@@ -50,7 +62,7 @@ export function ProductDetail({ product }: ProductDetailProps) {
       <ProductImage name={product.name} />
       <div className="product-detail__info">
         <p className="muted">{product.category.name}</p>
-        <h1 id={headingId} tabIndex={-1}>
+        <h1 ref={headingRef} id={headingId} tabIndex={-1}>
           {product.name}
         </h1>
         {variant !== undefined && (

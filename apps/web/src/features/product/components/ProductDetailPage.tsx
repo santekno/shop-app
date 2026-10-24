@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
 import type { MouseEvent } from "react";
 import { isApiError } from "@goshop/shared";
@@ -6,7 +7,7 @@ import {
   ErrorState,
   LoadingState,
 } from "@/components/ui/StatusMessage.tsx";
-import { useProduct } from "../hooks/useProduct.ts";
+import { productQuery } from "../api/queries.ts";
 import { cameFromCatalog } from "../paths.ts";
 import { ProductDetail } from "./ProductDetail.tsx";
 
@@ -24,7 +25,16 @@ export function ProductDetailPage() {
   // component is rendered by; this one is only rendered by PRODUCT_ROUTE,
   // so `slug` is always there.
   const { slug = "" } = useParams<"slug">();
-  const { state, retry } = useProduct(slug);
+  // A product opened before comes from the cache at once (and is fetched
+  // again in the background once it is older than the stale time); a new
+  // slug is a new key, so the previous product never shows under it.
+  const {
+    data: product,
+    status,
+    error,
+    isFetching,
+    refetch,
+  } = useQuery(productQuery(slug));
 
   // Opened from a catalog card: the entry before this one is that list,
   // with the buyer's filters, so going back is better than a fresh "/".
@@ -46,19 +56,25 @@ export function ProductDetailPage() {
         ← Kembali ke katalog
       </Link>
 
-      {state.status === "loading" && (
+      {(status === "pending" || (status === "error" && isFetching)) && (
         <LoadingState>Memuat produk…</LoadingState>
       )}
-      {state.status === "error" &&
-        (isApiError(state.error, "NOT_FOUND") ? (
+      {status === "error" &&
+        !isFetching &&
+        (isApiError(error, "NOT_FOUND") ? (
           <EmptyState>Produk tidak ditemukan.</EmptyState>
         ) : (
-          <ErrorState error={state.error} onRetry={retry} />
+          <ErrorState
+            error={error}
+            onRetry={() => {
+              void refetch();
+            }}
+          />
         ))}
       {/* key: another product is another component, so the variant and
           quantity it keeps start again from the new product. */}
-      {state.status === "success" && (
-        <ProductDetail key={state.data.id} product={state.data} />
+      {status === "success" && (
+        <ProductDetail key={product.id} product={product} />
       )}
     </div>
   );

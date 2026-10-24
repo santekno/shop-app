@@ -1,49 +1,19 @@
-import { useCallback, useEffect, useState } from "react";
-import { buildCategoryTree, isApiError, listCategories } from "@goshop/shared";
-import type { CategoryNode } from "@goshop/shared";
-import { api } from "@/lib/api.ts";
-import type { AsyncState } from "@/lib/async-state.ts";
-
-export type { AsyncState } from "@/lib/async-state.ts";
+import { useQuery } from "@tanstack/react-query";
+import { buildCategoryTree } from "@goshop/shared";
+import { categoriesQuery } from "../api/queries.ts";
 
 /**
- * Loads GET /v1/categories once and returns it as a tree, plus `reload` to
- * try again after an error.
+ * The categories as a tree, from the cached GET /v1/categories.
  *
- * Leaving the page aborts the request, like cancelling a Go context: the
- * effect's cleanup calls `controller.abort()`. A request that was aborted
- * never updates the state, so an old answer cannot overwrite a newer one.
+ * Bab 8 wrote this hook by hand: an effect, an AbortController, a state
+ * union and an `attempt` counter for retrying. useQuery does all of it,
+ * and more: every component that calls this hook shares one request and
+ * one cache entry, and the result survives leaving the page.
+ *
+ * `select` turns the cached list into what this hook's callers need; the
+ * cache keeps the API's list, so another caller can select something
+ * else from it. buildCategoryTree is a function defined once, so the
+ * tree is rebuilt only when the data changes, not on every render.
  */
-export const useCategoryTree = () => {
-  const [state, setState] = useState<AsyncState<CategoryNode[]>>({
-    status: "loading",
-  });
-  const [attempt, setAttempt] = useState(0);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    const load = async () => {
-      try {
-        const categories = await listCategories(api, {
-          signal: controller.signal,
-        });
-        if (controller.signal.aborted) return;
-        setState({ status: "success", data: buildCategoryTree(categories) });
-      } catch (error) {
-        if (controller.signal.aborted || isApiError(error, "ABORTED")) return;
-        setState({ status: "error", error });
-      }
-    };
-    void load();
-    return () => {
-      controller.abort();
-    };
-  }, [attempt]);
-
-  const reload = useCallback(() => {
-    setState({ status: "loading" });
-    setAttempt((n) => n + 1);
-  }, []);
-
-  return { state, reload };
-};
+export const useCategoryTree = () =>
+  useQuery({ ...categoriesQuery(), select: buildCategoryTree });

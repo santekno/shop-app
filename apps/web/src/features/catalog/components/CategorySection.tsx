@@ -17,23 +17,31 @@ interface CategorySectionProps {
 
 /** The category list, with its loading, error and empty states. */
 export function CategorySection({ filters }: CategorySectionProps) {
-  const { state, reload } = useCategoryTree();
+  // `status` is about the data: "pending" (none yet), "error" or
+  // "success". `isFetching` is about the network: a request is running,
+  // which also happens while old data or an old error is on screen.
+  const { data: tree, status, error, isFetching, refetch } = useCategoryTree();
   // Choosing a category keeps the search text and the sort order.
   const hrefFor = (slug: string | undefined) =>
     `/${catalogSearch({ ...filters, category: slug })}`;
 
   return (
     <Section title="Kategori">
-      {state.status === "loading" && (
+      {(status === "pending" || (status === "error" && isFetching)) && (
         <LoadingState>Memuat kategori…</LoadingState>
       )}
 
-      {state.status === "error" && (
-        <ErrorState error={state.error} onRetry={reload} />
+      {status === "error" && !isFetching && (
+        <ErrorState
+          error={error}
+          onRetry={() => {
+            void refetch();
+          }}
+        />
       )}
 
-      {state.status === "success" &&
-        (state.data.length === 0 ? (
+      {status === "success" &&
+        (tree.length === 0 ? (
           <EmptyState>Belum ada kategori.</EmptyState>
         ) : (
           <>
@@ -48,7 +56,7 @@ export function CategorySection({ filters }: CategorySectionProps) {
               </Link>
             </p>
             <CategoryTree
-              nodes={state.data}
+              nodes={tree}
               activeSlug={filters.category}
               hrefFor={hrefFor}
             />

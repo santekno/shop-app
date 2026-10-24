@@ -58,8 +58,11 @@ test("a card opens its product at /produk/<slug>, with its title", async ({
     rupiah(first?.price.amount ?? 0),
   );
   await expect(page).toHaveTitle(`${product.name} — GoShop`);
-  // A new page: the focus leaves the card for the page itself.
-  await expect(page.locator("main")).toBeFocused();
+  // A new page: the focus leaves the card for the page's heading, which
+  // takes it over from <main> once the product has loaded.
+  await expect(
+    article.getByRole("heading", { level: 1, name: product.name }),
+  ).toBeFocused();
   // The catalog is gone, not hidden below the product.
   await expect(productSection(page)).toHaveCount(0);
 
