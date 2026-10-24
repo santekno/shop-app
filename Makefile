@@ -121,7 +121,7 @@ endif
 test-integration: ## Integration and e2e tests against the Compose stack; fails on any skipped test
 	./scripts/no-skips.sh --self-test
 ifneq ($(HAS_API),)
-	$(COMPOSE) up -d --wait --build postgres redis storage api
+	$(COMPOSE) up -d --wait --build postgres redis storage api worker
 	cd $(API) && $(IT_ENV) ../../scripts/no-skips.sh go test -tags=integration -count=1 -json ./...
 endif
 ifneq ($(HAS_PNPM),)
