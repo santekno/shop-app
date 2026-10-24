@@ -370,7 +370,7 @@ func withOrientation(jpg []byte, orientation uint16) []byte {
 	var out bytes.Buffer
 	out.Write(jpg[:2])
 	out.Write([]byte{0xFF, 0xE1})
-	_ = binary.Write(&out, binary.BigEndian, uint16(len(segment)+2))
+	_ = binary.Write(&out, binary.BigEndian, uint16(len(segment)+2)) //nolint:gosec // a few dozen bytes
 	out.Write(segment)
 	out.Write(jpg[2:])
 	return out.Bytes()
@@ -387,7 +387,7 @@ func pngHeaderOnly(w, h uint32) []byte {
 	ihdr.Write([]byte{8, 6, 0, 0, 0}) // 8-bit RGBA
 	var out bytes.Buffer
 	out.WriteString("\x89PNG\r\n\x1a\n")
-	_ = binary.Write(&out, binary.BigEndian, uint32(ihdr.Len()-4))
+	_ = binary.Write(&out, binary.BigEndian, uint32(ihdr.Len()-4)) //nolint:gosec // 13 bytes
 	out.Write(ihdr.Bytes())
 	_ = binary.Write(&out, binary.BigEndian, crc32.ChecksumIEEE(ihdr.Bytes()))
 	return out.Bytes()

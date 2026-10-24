@@ -46,18 +46,11 @@ func TestOutboxQueue_TasksPerEvent(t *testing.T) {
 
 	type event struct{ id, typ, aggregate string }
 	var events []event
-	rows, err := ps.db.QueryContext(t.Context(), `SELECT id::text, event_type, aggregate_id::text FROM outbox_events ORDER BY created_at, id`)
-	if err != nil {
-		t.Fatal(err)
+	for _, row := range queryStrings(t, ps.db, `SELECT id::text || ' ' || event_type || ' ' || aggregate_id::text
+		FROM outbox_events ORDER BY created_at, id`) {
+		f := strings.Fields(row)
+		events = append(events, event{id: f[0], typ: f[1], aggregate: f[2]})
 	}
-	for rows.Next() {
-		var e event
-		if err := rows.Scan(&e.id, &e.typ, &e.aggregate); err != nil {
-			t.Fatal(err)
-		}
-		events = append(events, e)
-	}
-	_ = rows.Close()
 	want := map[string]string{} // task id → aggregate
 	for _, e := range events {
 		for _, task := range notify.NewRoutes(true)[e.typ] {

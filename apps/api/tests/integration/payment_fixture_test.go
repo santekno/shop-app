@@ -241,7 +241,7 @@ func assertLogged(t *testing.T, s *server, parts ...string) {
 // (the configuration accepts only the SB-Mid- prefixes); fakeMidtrans
 // signs with the first.
 const (
-	sandboxServerKey = "SB-Mid-server-integration-tests-only" //nolint:gosec // a made-up test key
+	sandboxServerKey = "SB-Mid-server-integration-tests-only"
 	sandboxClientKey = "SB-Mid-client-integration-tests-only"
 )
 

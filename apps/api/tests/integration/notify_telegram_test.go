@@ -22,7 +22,7 @@ import (
 
 // testBotToken is a made-up bot token; the tests check it never reaches a
 // log line or a dead task's error.
-const testBotToken = "123456789:AAH-integration-tests-only-bot-token" //nolint:gosec // a made-up test token
+const testBotToken = "123456789:AAH-integration-tests-only-bot-token"
 
 // fakeTelegram is the Bot API's sendMessage at the HTTP boundary.
 type fakeTelegram struct {

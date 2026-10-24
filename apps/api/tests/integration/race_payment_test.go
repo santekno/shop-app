@@ -407,7 +407,7 @@ func expireAt(ctx context.Context, sh *shop, svc interface {
 }, orderID string,
 ) (int, error) {
 	if _, err := sh.db.ExecContext(ctx, `UPDATE orders SET payment_expires_at = now() - interval '1 second' WHERE id = $1`, orderID); err != nil {
-		return 0, err
+		return 0, fmt.Errorf("move the deadline: %w", err)
 	}
 	return svc.ExpireDue(ctx)
 }

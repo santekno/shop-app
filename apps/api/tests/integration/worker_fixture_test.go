@@ -105,11 +105,15 @@ func startWorker(t *testing.T, sh *shop, o workerOpts) *taskWorker {
 // buffer.
 type quietAsynq struct{ logs *syncBuffer }
 
-func (q quietAsynq) Debug(args ...any) {}
-func (q quietAsynq) Info(args ...any)  {}
-func (q quietAsynq) Warn(args ...any)  { _, _ = q.logs.Write([]byte(fmt.Sprintln(append([]any{"asynq WARN"}, args...)...))) }
-func (q quietAsynq) Error(args ...any) { _, _ = q.logs.Write([]byte(fmt.Sprintln(append([]any{"asynq ERROR"}, args...)...))) }
-func (q quietAsynq) Fatal(args ...any) { _, _ = q.logs.Write([]byte(fmt.Sprintln(append([]any{"asynq FATAL"}, args...)...))) }
+func (q quietAsynq) Debug(...any)      {}
+func (q quietAsynq) Info(...any)       {}
+func (q quietAsynq) Warn(args ...any)  { q.line("asynq WARN", args) }
+func (q quietAsynq) Error(args ...any) { q.line("asynq ERROR", args) }
+func (q quietAsynq) Fatal(args ...any) { q.line("asynq FATAL", args) }
+
+func (q quietAsynq) line(level string, args []any) {
+	_, _ = fmt.Fprintln(q.logs, append([]any{level}, args...)...)
+}
 
 // enqueue puts a task of taskType (no payload, like the scheduler's) on
 // the queue with the production retry limit and keeps it an hour after
