@@ -5,6 +5,14 @@ import { expect, test } from "@playwright/test";
 import type { Locator } from "@playwright/test";
 import { watchBrowser } from "../support/browser.ts";
 import {
+  PAGE_SIZE,
+  countApiRequests,
+  expectNoProblems,
+  productCards,
+  productSection,
+} from "../support/catalog.ts";
+import {
+  BROWSER_API_URL,
   SEEDED_TREE,
   WEB_URL,
   fetchCategories,
@@ -39,7 +47,7 @@ test("renders the seeded category tree from the API", async ({ page }) => {
     (response) => new URL(response.url()).pathname === "/v1/categories",
   );
   await page.goto("/");
-  await expect(page).toHaveTitle("GoShop");
+  await expect(page).toHaveTitle("Katalog — GoShop");
   await expect(page.locator("html")).toHaveAttribute("lang", "id");
 
   const section = page.getByRole("region", { name: "Kategori" });
@@ -72,25 +80,27 @@ test("renders the seeded category tree from the API", async ({ page }) => {
   expect(problems.cspViolations).toEqual([]);
 });
 
-test("loads the categories with one request and no retries", async ({
+test("loads each endpoint with one request and no retries", async ({
   page,
 }) => {
   const problems = await watchBrowser(page);
-  const calls: string[] = [];
-  page.on("request", (request) => {
-    if (new URL(request.url()).pathname === "/v1/categories") {
-      calls.push(request.method());
-    }
-  });
+  const calls = countApiRequests(page, BROWSER_API_URL);
 
   await page.goto("/");
   await expect(
     page.getByRole("region", { name: "Kategori" }).getByRole("list").first(),
   ).toBeVisible();
+  await expect(productCards(page)).toHaveCount(PAGE_SIZE);
+  await expect(
+    productSection(page).getByRole("button", { name: "Muat lebih banyak" }),
+  ).toBeVisible();
 
-  // One GET: the production build runs the effect once (StrictMode doubles
-  // it in dev only), and a successful answer is never retried.
-  expect(calls).toEqual(["GET"]);
-  expect(problems.consoleErrors).toEqual([]);
-  expect(problems.cspViolations).toEqual([]);
+  // One GET per endpoint: the production build runs each effect once
+  // (StrictMode doubles them in dev only), a successful answer is never
+  // retried, and the catalog asks for one page of PAGE_SIZE.
+  expect(Object.fromEntries(calls)).toEqual({
+    "/v1/categories": ["GET /v1/categories"],
+    "/v1/products": [`GET /v1/products?limit=${PAGE_SIZE}`],
+  });
+  expectNoProblems(problems);
 });
