@@ -2,17 +2,25 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import * as shared from "@goshop/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { product, rupiah, variant } from "@/test/fake-api.ts";
-import { currentLocation, inRouter } from "@/test/render.tsx";
+import { fetchMock, product, rupiah, variant } from "@/test/fake-api.ts";
+import {
+  createTestQueryClient,
+  currentLocation,
+  inRouter,
+} from "@/test/render.tsx";
 import { ProductCard } from "./ProductCard.tsx";
 
 // Every export keeps its real behaviour; formatRupiah's calls are counted
 // to tell whether a card rendered again.
 vi.mock("@goshop/shared", { spy: true });
+// Focusing a card prefetches its product: no request may leave the test.
+vi.mock("@/lib/api.ts", () => import("@/test/fake-api.ts"));
 const formatRupiah = vi.mocked(shared.formatRupiah);
 
 beforeEach(() => {
   formatRupiah.mockClear();
+  fetchMock.mockReset();
+  fetchMock.mockReturnValue(new Promise(() => undefined));
 });
 
 describe("ProductCard", () => {
@@ -115,13 +123,16 @@ describe("ProductCard", () => {
 
   it("skips rendering again when its props are the same objects", () => {
     const item = product("kaos");
-    const { rerender } = render(inRouter(<ProductCard product={item} />));
+    const client = createTestQueryClient();
+    const { rerender } = render(
+      inRouter(<ProductCard product={item} />, client),
+    );
     expect(formatRupiah).toHaveBeenCalledTimes(1);
 
-    rerender(inRouter(<ProductCard product={item} />));
+    rerender(inRouter(<ProductCard product={item} />, client));
     expect(formatRupiah).toHaveBeenCalledTimes(1);
 
-    rerender(inRouter(<ProductCard product={{ ...item }} />));
+    rerender(inRouter(<ProductCard product={{ ...item }} />, client));
     expect(formatRupiah).toHaveBeenCalledTimes(2);
   });
 });

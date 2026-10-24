@@ -1,9 +1,17 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
-import { product } from "@/test/fake-api.ts";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { fetchMock, product } from "@/test/fake-api.ts";
 import { currentLocation, inRouter } from "@/test/render.tsx";
 import { ProductGrid } from "./ProductGrid.tsx";
+
+// A card that gets the focus prefetches its product: no real request.
+vi.mock("@/lib/api.ts", () => import("@/test/fake-api.ts"));
+
+beforeEach(() => {
+  fetchMock.mockReset();
+  fetchMock.mockReturnValue(new Promise(() => undefined));
+});
 
 const itemOf = (name: string) => {
   const item = screen.getByText(name).closest("li");

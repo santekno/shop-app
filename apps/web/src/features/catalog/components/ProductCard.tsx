@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import { formatRupiah } from "@goshop/shared";
 import type { Product } from "@goshop/shared";
 import { Card } from "@/components/ui/Card.tsx";
+import { usePrefetchProduct } from "@/features/product/hooks/usePrefetchProduct.ts";
 import { FROM_CATALOG, productPath } from "@/features/product/paths.ts";
 import { ProductImage } from "./ProductImage.tsx";
 
@@ -35,6 +36,8 @@ export const ProductCard = memo(function ProductCard({
   const hasPriceRange = variants.some(
     (variant) => variant.price.amount !== priceFrom.amount,
   );
+  // Hover (with a mouse) or focus starts loading the product page.
+  const prefetchHandlers = usePrefetchProduct(product.slug);
 
   return (
     <Card as="article" className="product-card">
@@ -47,6 +50,7 @@ export const ProductCard = memo(function ProductCard({
         <Link
           to={productPath(product.slug)}
           state={FROM_CATALOG}
+          {...prefetchHandlers}
           // useRouteFocus looks the link up by this attribute to give it
           // the focus back when the buyer returns from the product page.
           data-product-slug={product.slug}
