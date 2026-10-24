@@ -201,10 +201,6 @@ type Telegram struct {
 	ChatID string
 }
 
-// SeaweedFSSecretPlaceholder is the local SeaweedFS secret key of
-// deploy/seaweedfs/s3.json and .env.example, accepted in development only.
-const SeaweedFSSecretPlaceholder = "goshop-secret"
-
 // The payment providers APP_PAYMENT_PROVIDER accepts.
 const (
 	PaymentMidtrans = "midtrans"
@@ -382,7 +378,7 @@ func Load() (Config, error) {
 	cfg.Payment, err = parsePayment(src, cfg.Env)
 	errs = append(errs, err)
 
-	cfg.Storage, err = parseStorage(cfg.Env)
+	cfg.Storage, err = parseStorage()
 	errs = append(errs, err)
 
 	cfg.SMTP, err = parseSMTP()
@@ -542,7 +538,7 @@ func parsePayment(src *configx.Config, env string) (Payment, error) {
 // parseStorage reads the S3_* variables (no APP_ prefix: the usual names
 // of S3 tools). Only S3_ENDPOINT turns storage on; then the bucket and
 // both keys are required. No error repeats a key.
-func parseStorage(env string) (Storage, error) {
+func parseStorage() (Storage, error) {
 	st := Storage{
 		Endpoint:        strings.TrimSpace(os.Getenv("S3_ENDPOINT")),
 		PresignEndpoint: strings.TrimSpace(os.Getenv("S3_PRESIGN_ENDPOINT")),
@@ -572,9 +568,6 @@ func parseStorage(env string) (Storage, error) {
 	}
 	if st.AccessKey == "" || st.SecretKey == "" {
 		errs = append(errs, errors.New("S3_ACCESS_KEY, S3_SECRET_KEY: are required with S3_ENDPOINT"))
-	}
-	if env != EnvDevelopment && st.SecretKey == SeaweedFSSecretPlaceholder {
-		errs = append(errs, errors.New("S3_SECRET_KEY: is the local SeaweedFS placeholder, which is allowed in development only"))
 	}
 	return st, errors.Join(errs...)
 }
