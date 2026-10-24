@@ -127,7 +127,7 @@ func TestNotification_Signature(t *testing.T) {
 		{OrderID: good.OrderID, StatusCode: good.StatusCode, GrossAmount: "1.00", SignatureKey: good.SignatureKey},
 		{OrderID: good.OrderID, StatusCode: "201", GrossAmount: good.GrossAmount, SignatureKey: good.SignatureKey},
 		{OrderID: good.OrderID, StatusCode: good.StatusCode, GrossAmount: good.GrossAmount,
-			SignatureKey: midtrans.Signature("SB-Mid-server-someone-else", good.OrderID, good.StatusCode, good.GrossAmount)},
+			SignatureKey: midtrans.Signature("SB-Mid-server-other", good.OrderID, good.StatusCode, good.GrossAmount)},
 		{OrderID: good.OrderID, StatusCode: good.StatusCode, GrossAmount: good.GrossAmount, SignatureKey: strings.Repeat("0", 128)},
 		{OrderID: good.OrderID, StatusCode: good.StatusCode, GrossAmount: good.GrossAmount, SignatureKey: "x"},
 	}

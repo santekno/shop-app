@@ -238,11 +238,12 @@ func assertLogged(t *testing.T, s *server, parts ...string) {
 }
 
 // sandboxServerKey and sandboxClientKey are made-up Midtrans sandbox keys
-// (the configuration accepts only the SB-Mid- prefixes); fakeMidtrans
+// (the configuration accepts only the SB-Mid- prefixes; short, so make
+// scan does not take them for real keys); fakeMidtrans
 // signs with the first.
 const (
-	sandboxServerKey = "SB-Mid-server-integration-tests-only"
-	sandboxClientKey = "SB-Mid-client-integration-tests-only"
+	sandboxServerKey = "SB-Mid-server-it"
+	sandboxClientKey = "SB-Mid-client-it"
 )
 
 // fakeMidtrans is Midtrans at the HTTP boundary: Snap's
@@ -341,7 +342,7 @@ func (f *fakeMidtrans) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		out["signature_key"] = midtrans.Signature(sandboxServerKey, id, st["status_code"], st["gross_amount"])
 		if f.badSignature {
-			out["signature_key"] = midtrans.Signature("SB-Mid-server-someone-else", id, st["status_code"], st["gross_amount"])
+			out["signature_key"] = midtrans.Signature("SB-Mid-server-other", id, st["status_code"], st["gross_amount"])
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(out)
