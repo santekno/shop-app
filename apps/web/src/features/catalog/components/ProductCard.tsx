@@ -40,9 +40,11 @@ export const ProductCard = memo(function ProductCard({
   const prefetchHandlers = usePrefetchProduct(product.slug);
 
   return (
-    <Card as="article" className="product-card">
+    <Card as="article" className="flex flex-1 flex-col gap-1 p-3 sm:p-4">
       <ProductImage name={name} />
-      <h3 className="product-card__name">
+      {/* product-card__name, like a few other names below, styles
+          nothing: it stays as a stable hook for the end-to-end tests. */}
+      <h3 className="product-card__name mt-2 text-sm font-semibold sm:text-base">
         {/* A link, because opening a product is going to another page:
             it has a real href, so it opens in a new tab, can be copied
             and shared, and is announced as a link. The router catches a
@@ -58,7 +60,7 @@ export const ProductCard = memo(function ProductCard({
           {name}
         </Link>
       </h3>
-      <p className="muted">{category.name}</p>
+      <p className="muted text-sm">{category.name}</p>
       <p className="price">
         {hasPriceRange && <span className="price__from">Mulai </span>}
         {formatRupiah(priceFrom)}

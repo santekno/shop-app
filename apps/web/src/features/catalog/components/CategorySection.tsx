@@ -1,3 +1,4 @@
+import { useId, useState } from "react";
 import { Link } from "react-router";
 import { Section } from "@/components/ui/Section.tsx";
 import {
@@ -25,6 +26,12 @@ export function CategorySection({ filters }: CategorySectionProps) {
   const hrefFor = (slug: string | undefined) =>
     `/${catalogSearch({ ...filters, category: slug })}`;
 
+  // On a phone the whole tree would push the products a screen down, so
+  // it folds behind a button there. From md up it is always shown and the
+  // button is hidden: `hidden md:block` beats the toggle at that width.
+  const [open, setOpen] = useState(false);
+  const listId = useId();
+
   return (
     <Section title="Kategori">
       {(status === "pending" || (status === "error" && isFetching)) && (
@@ -45,21 +52,34 @@ export function CategorySection({ filters }: CategorySectionProps) {
           <EmptyState>Belum ada kategori.</EmptyState>
         ) : (
           <>
-            <p className="category-all">
-              <Link
-                to={hrefFor(undefined)}
-                aria-current={
-                  filters.category === undefined ? "true" : undefined
-                }
-              >
-                Semua produk
-              </Link>
-            </p>
-            <CategoryTree
-              nodes={tree}
-              activeSlug={filters.category}
-              hrefFor={hrefFor}
-            />
+            <button
+              type="button"
+              className="mb-2 md:hidden"
+              aria-expanded={open}
+              aria-controls={listId}
+              onClick={() => {
+                setOpen((value) => !value);
+              }}
+            >
+              {open ? "Sembunyikan kategori" : "Tampilkan kategori"}
+            </button>
+            <div id={listId} className={open ? "block" : "hidden md:block"}>
+              <p className="category-all">
+                <Link
+                  to={hrefFor(undefined)}
+                  aria-current={
+                    filters.category === undefined ? "true" : undefined
+                  }
+                >
+                  Semua produk
+                </Link>
+              </p>
+              <CategoryTree
+                nodes={tree}
+                activeSlug={filters.category}
+                hrefFor={hrefFor}
+              />
+            </div>
           </>
         ))}
     </Section>

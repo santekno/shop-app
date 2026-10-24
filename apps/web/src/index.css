@@ -141,38 +141,11 @@
     margin: 0 0 0.5rem;
   }
 
-  .catalog-toolbar {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: end;
-    gap: 0.75rem 1.5rem;
-    margin-bottom: 1rem;
-  }
-
-  .catalog-search,
-  .catalog-sort {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.5rem;
-  }
-
   .error p:first-child {
     color: var(--error);
   }
 
   /* --- Products ------------------------------------------------------- */
-
-  .product-card {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-  }
-
-  .product-card__name {
-    margin: 0.5rem 0 0;
-    font-size: 1rem;
-  }
 
   .product-card__name a {
     text-decoration: none;
@@ -180,10 +153,6 @@
 
   .product-card__name a:hover {
     text-decoration: underline;
-  }
-
-  .product-card p {
-    margin: 0;
   }
 
   .product-image {
@@ -271,85 +240,13 @@
     font-weight: 600;
   }
 
-  .product-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
-    gap: 1rem;
-    margin: 0;
-    padding: 0;
-    list-style: none;
-  }
-
-  .product-grid > li {
-    display: flex;
-  }
-
-  .product-grid .product-card {
-    flex: 1;
-  }
-
   /* --- Pages ------------------------------------------------------------ */
-
-  .catalog {
-    display: grid;
-    gap: 1rem;
-  }
-
-  @media (min-width: 48rem) {
-    .catalog {
-      grid-template-columns: 14rem 1fr;
-      align-items: start;
-    }
-  }
-
-  .product-page {
-    display: grid;
-    gap: 1rem;
-    justify-items: start;
-  }
-
-  .product-detail {
-    display: grid;
-    gap: 1.5rem;
-    width: 100%;
-  }
-
-  @media (min-width: 48rem) {
-    .product-detail {
-      grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
-    }
-  }
-
-  .product-detail__info {
-    display: grid;
-    gap: 0.75rem;
-    align-content: start;
-  }
-
-  .product-detail__info > * {
-    margin: 0;
-  }
 
   .price--large {
     font-size: 1.5rem;
   }
 
-  .catalog__footer {
-    display: flex;
-    justify-content: center;
-    margin-top: 1rem;
-  }
-
-  .catalog__footer:empty {
-    display: none;
-  }
-
   /* --- Header and navigation (Bab 9) ------------------------------------ */
-
-  .auth-layout {
-    max-width: 28rem;
-    margin: 0 auto;
-  }
 
   /* --- Cart (Bab 9) ------------------------------------------------------ */
 
@@ -396,28 +293,8 @@
     color: var(--error);
   }
 
-  .cart-lines {
-    display: grid;
-    gap: 0.75rem;
-    margin: 0 0 1rem;
-    padding: 0;
-    list-style: none;
-  }
-
-  .cart-line {
-    display: flex;
-    justify-content: space-between;
-    gap: 1rem;
-    padding-bottom: 0.75rem;
-    border-bottom: 1px solid var(--border);
-  }
-
   .cart-line p {
     margin: 0.125rem 0 0;
-  }
-
-  .cart-subtotal {
-    text-align: right;
   }
 
   /* --- Forms (Bab 9) ----------------------------------------------------- */

@@ -54,7 +54,7 @@ export function ProductDetailPage() {
   };
 
   return (
-    <div className="product-page">
+    <div className="product-page grid justify-items-start gap-4">
       <Link to="/" onClick={backToList}>
         ← Kembali ke katalog
       </Link>

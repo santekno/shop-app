@@ -44,14 +44,20 @@ export function CatalogToolbar({ filters, onChange }: CatalogToolbarProps) {
   };
 
   return (
-    <div className="catalog-toolbar">
+    // A column on a phone, a row (wrapping) from sm up.
+    <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-6">
       {/* role="search" makes the form a landmark screen readers list. */}
-      <form role="search" className="catalog-search" onSubmit={handleSearch}>
+      <form
+        role="search"
+        className="flex flex-wrap items-center gap-2"
+        onSubmit={handleSearch}
+      >
         <label htmlFor={searchId}>Cari produk</label>
         {/* Uncontrolled: the browser keeps what is typed; the effect
             above updates it when the URL's q changes. */}
         <input
           ref={searchRef}
+          className="min-w-0 flex-1 sm:w-56 sm:flex-none"
           id={searchId}
           name="q"
           type="search"
@@ -60,7 +66,7 @@ export function CatalogToolbar({ filters, onChange }: CatalogToolbarProps) {
         />
         <button type="submit">Cari</button>
       </form>
-      <div className="catalog-sort">
+      <div className="flex flex-wrap items-center gap-2">
         <label htmlFor={sortId}>Urutkan</label>
         <select id={sortId} value={filters.sort} onChange={handleSort}>
           {SORT_OPTIONS.map((option) => (

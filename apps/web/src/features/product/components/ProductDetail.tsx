@@ -51,9 +51,14 @@ export function ProductDetail({ product }: ProductDetailProps) {
   };
 
   return (
-    <Card as="article" className="product-detail" labelledBy={headingId}>
+    // Stacked on a phone; photo and details side by side from md up.
+    <Card
+      as="article"
+      className="grid w-full gap-6 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]"
+      labelledBy={headingId}
+    >
       <ProductImage name={product.name} />
-      <div className="product-detail__info">
+      <div className="grid content-start gap-3">
         <p className="muted">{product.category.name}</p>
         <h1 ref={headingRef} id={headingId} tabIndex={-1}>
           {product.name}

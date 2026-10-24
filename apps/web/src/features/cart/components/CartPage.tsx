@@ -50,9 +50,13 @@ export function CartPage() {
           </>
         ) : (
           <>
-            <ul className="cart-lines">
+            <ul className="mb-4 grid gap-3">
               {cart.lines.map((line) => (
-                <li key={line.variant_id} className="cart-line">
+                // Name above the total on a phone, side by side from sm.
+                <li
+                  key={line.variant_id}
+                  className="cart-line flex flex-col gap-1 border-b border-[var(--border)] pb-3 sm:flex-row sm:justify-between sm:gap-4"
+                >
                   <div>
                     <Link to={productPath(line.product_slug)}>
                       {line.product_name}
@@ -69,7 +73,7 @@ export function CartPage() {
                 </li>
               ))}
             </ul>
-            <p className="cart-subtotal">
+            <p className="cart-subtotal text-right">
               Subtotal ({cart.item_count} barang):{" "}
               <strong>{formatRupiah(cart.subtotal)}</strong>
             </p>

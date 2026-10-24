@@ -48,7 +48,7 @@ export function ProductListFooter({
   });
 
   return (
-    <div className="catalog__footer">
+    <div className="mt-4 flex justify-center empty:hidden">
       {hasNextPage && <div ref={sentinelRef} aria-hidden="true" />}
       {isFetchingNextPage && (
         <LoadingState>Memuat produk berikutnya…</LoadingState>

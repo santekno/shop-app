@@ -27,7 +27,10 @@ export function SiteHeader() {
   return (
     <header className="mx-auto max-w-6xl px-4 pt-6">
       <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
-        <Link to="/" className="text-3xl font-bold text-inherit no-underline">
+        <Link
+          to="/"
+          className="text-2xl font-bold text-inherit no-underline sm:text-3xl"
+        >
           GoShop
         </Link>
         <nav aria-label="Utama">
@@ -41,7 +44,7 @@ export function SiteHeader() {
           </ul>
         </nav>
       </div>
-      <p className="muted mt-1">
+      <p className="muted mt-1 text-sm sm:text-base">
         Toko online contoh dari kursus Fullstack Santekno.
       </p>
     </header>
