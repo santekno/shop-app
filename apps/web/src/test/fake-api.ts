@@ -7,7 +7,14 @@
 // the client's injectable `fetch`. No retries, so a failure shows at once
 // (src/lib/api.test.ts covers the storefront's retry settings).
 import { createApiClient } from "@goshop/shared";
-import type { Category, Product, ProductVariant } from "@goshop/shared";
+import type {
+  Cart,
+  CartLine,
+  Category,
+  Product,
+  ProductVariant,
+  User,
+} from "@goshop/shared";
 import { vi } from "vitest";
 
 export const API_URL = "http://api.test";
@@ -137,3 +144,87 @@ export const serve = (
     return response ?? errorResponse(404, "NOT_FOUND");
   });
 };
+
+/** A cart line: 1 unit of `variantId` at Rp 89.000 unless told otherwise. */
+export const cartLine = (
+  variantId: string,
+  overrides: Partial<CartLine> = {},
+): CartLine => {
+  const quantity = overrides.quantity ?? 1;
+  const unitPrice = overrides.unit_price ?? { amount: 89_000, currency: "IDR" };
+  return {
+    variant_id: variantId,
+    product_id: `p-${variantId}`,
+    product_slug: `produk-${variantId}`,
+    product_name: `Produk ${variantId}`,
+    variant_name: variantId.toUpperCase(),
+    sku: `SKU-${variantId.toUpperCase()}`,
+    quantity,
+    unit_price: unitPrice,
+    price_when_added: unitPrice,
+    line_total: { amount: unitPrice.amount * quantity, currency: "IDR" },
+    stock: 10,
+    weight_grams: 200,
+    problem: null,
+    ...overrides,
+  };
+};
+
+/** A cart whose count and subtotal add up from its lines. */
+export const cartOf = (lines: CartLine[]): Cart => ({
+  lines,
+  item_count: lines.reduce((sum, line) => sum + line.quantity, 0),
+  subtotal: {
+    amount: lines.reduce((sum, line) => sum + line.line_total.amount, 0),
+    currency: "IDR",
+  },
+});
+
+/** The body of GET /v1/cart, or of POST /v1/cart/items with a new token. */
+export const cartResponse = (cart: Cart, cartToken?: string, status = 200) =>
+  Response.json(
+    cartToken === undefined
+      ? { data: cart }
+      : { data: cart, cart_token: cartToken },
+    { status },
+  );
+
+/** An API error with details, such as 409 INSUFFICIENT_STOCK. */
+export const detailedErrorResponse = (
+  status: number,
+  code: string,
+  details: Record<string, unknown>,
+) => Response.json({ error: { code, message: "boom", details } }, { status });
+
+/** An account as the API returns it. */
+export const user = (overrides: Partial<User> = {}): User => ({
+  id: "u1",
+  email: "budi@example.com",
+  name: "Budi",
+  phone: null,
+  role: "buyer",
+  email_verified: false,
+  created_at: "2026-10-01T00:00:00Z",
+  ...overrides,
+});
+
+/** The body of POST /v1/auth/login. */
+export const tokensResponse = (account: User = user()) =>
+  Response.json({
+    data: {
+      access_token: "access-token",
+      token_type: "Bearer",
+      expires_in: 900,
+      refresh_token: "refresh-token",
+      refresh_expires_in: 2_592_000,
+      user: account,
+    },
+  });
+
+/** The body of POST /v1/auth/register. */
+export const userResponse = (account: User = user()) =>
+  Response.json({ data: account }, { status: 201 });
+
+/** 400 VALIDATION_FAILED with one message per field. */
+export const validationResponse = (details: Record<string, string>) =>
+  detailedErrorResponse(400, "VALIDATION_FAILED", details);

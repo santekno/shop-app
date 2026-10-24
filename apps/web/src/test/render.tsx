@@ -32,6 +32,21 @@ export const providers = (queryClient: QueryClient, children: ReactNode) => (
   </QueryClientProvider>
 );
 
+/**
+ * A renderHook wrapper with the app-wide providers (and a memory router,
+ * for hooks that read the location): `renderHook(useX, { wrapper })`.
+ */
+export const hookWrapper =
+  (
+    queryClient: QueryClient = createTestQueryClient(),
+    url: InitialEntry = "/",
+  ) =>
+  ({ children }: { children: ReactNode }) =>
+    providers(
+      queryClient,
+      <MemoryRouter initialEntries={[url]}>{children}</MemoryRouter>,
+    );
+
 interface RenderOptions {
   /** The route pattern `ui` is rendered at. Default: every path. */
   path?: string;
