@@ -127,3 +127,83 @@ The API already filters: `GET /v1/products?category=kaos` returns products of th
 5. Mind the focus on the way back from a product. `App` gives it to the card that was opened, but once the list can change, that card may be gone: the buyer picked another category before returning. Then nothing matches the selector and focus stays on `<body>`. Fall back to the "Produk" heading (give it `tabIndex={-1}` so it can take focus).
 
 Bab 9 moves the chosen category into the URL, so that a filtered catalog can be bookmarked and shared.
+
+# Bab 9: routing, server state and forms
+
+Bab 9 turns the one-page catalog into a storefront with many pages. The URL decides which page shows (React Router), the data from the API lives in a cache that every page shares (TanStack Query), and the login and registration forms check their input with the same rules as the API (React Hook Form and Zod).
+
+The Bab 7 and Bab 8 tables above describe the code as those chapters left it (branches `bab-7` and `bab-8`). The sections below say what Bab 9 replaced.
+
+## The mental model
+
+| Idea | What it means | Go comparison |
+|---|---|---|
+| **The URL is state** | Which page, which product, which filter: all of it is in the address (`/produk/kaos-polos-hitam`, `/?kategori=kaos&urut=termurah`). It survives a reload, can be shared, and moves with Back and Forward | A `chi` router: the path picks the handler, `chi.URLParam` and `r.URL.Query()` read the inputs |
+| **Nested routes and layouts** | A route renders its children through `<Outlet />`: `RootLayout` (the header) wraps every page, `AuthLayout` wraps `/masuk` and `/daftar` | `r.Route("/v1", …)` with middleware that wraps every handler inside it |
+| **Server state is a cache** | Data from the API is a copy that can go out of date. TanStack Query keeps one entry per query key, shares it between components, refetches stale entries, and forgets unused ones | A read-through cache in front of a service, with eviction (`gcTime`). `staleTime` is not a TTL: stale data is still served at once, while a refetch runs in the background (stale-while-revalidate); it only decides when that refetch happens |
+| **Mutations invalidate or update the cache** | After a POST, the cached copies of what it changed are out of date: mark them stale (`invalidateQueries`) or write the answer in (`setQueryData`) | Deleting or updating the cache key after a write |
+| **A form is checked twice** | The browser checks first (Zod, fast and in Indonesian), the API checks again and has the last word; its answer lands on the same fields | The handler's validation is the real one; a client check only saves a round trip |
+
+## Decisions
+
+- **React Router v7 in data mode, without the framework.** `createBrowserRouter(routes)` in `app/App.tsx`, the routes as an array in `app/routes.tsx`, rendered by `<RouterProvider>` from `react-router/dom`. Data mode gives the APIs the chapter uses (`lazy`, `ErrorBoundary`, `HydrateFallback`, `useNavigation`, `ScrollRestoration`) without the framework mode's build plugin and file conventions: Bab 11 moves the storefront to Next.js, which has its own. Loaders are not used: TanStack Query owns server data, and a second place to fetch it would only blur that.
+- **One layer retries.** The API client (`lib/api.ts`) already retries a GET twice when retrying can help (network failure, timeout, 502/503/504). TanStack Query would retry every failed query 3 more times on top, up to 12 requests and about a minute of "Memuat…" against an API that is down, and it would also retry errors that never pass (404, 400). So `retry: false` for queries in `lib/query-client.ts`. Mutations are never retried (a POST sent twice adds twice). `staleTime` is 30 seconds (5 minutes for categories), instead of TanStack's 0.
+- **The abort signal still reaches `fetch`.** Every `queryFn` passes TanStack Query's `signal` to the shared client, as Bab 8's effects passed their `AbortController`'s: a request nobody waits for is aborted.
+- **Tokens stay in memory in Bab 9.** The guest cart token lives in React state (`features/cart/CartTokenProvider.tsx`), the session (account and access token) too (`features/auth/SessionProvider.tsx`). A reload forgets both: the buyer starts with an empty cart and logged out. The refresh token from `POST /v1/auth/login` is not kept at all (`useLogin` drops it inside `mutationFn`, so not even the mutation's cached `data` holds it, and `gcTime: 0` drops the finished login and register mutations, whose variables hold the password), nothing refreshes the access token, and no request sends it yet. Never `localStorage` for tokens (ADR 0005). **Bab 10** builds the real thing: a Zustand store that keeps the cart token across reloads, the access token on the requests that need it, one refresh at a time before it expires, logout through `POST /v1/auth/logout`, the guest cart merged into the user's after login (`POST /v1/cart/merge`), and pages that need a login.
+- **The optimistic update changes only what is on screen.** Adding to the cart raises the header's count, the subtotal and an existing line's quantity at the click (`features/cart/optimistic-cart.ts`). A variant that is not in the cart yet gets no guessed line: a line needs data only the server has, and no page that lists lines is on screen while adding. The API answers with the whole cart, which replaces the guess. On an error the snapshot is put back and the message says why (409 `INSUFFICIENT_STOCK`, `QUANTITY_LIMIT`, `CART_FULL`, `VARIANT_UNAVAILABLE`). Every add runs in one queue (`scope: { id: "cart" }`), so two adds never overlap, even from two mounts of the product page: the second reads the guest token the first created instead of creating a second cart. After the last add of a burst settles, the cart is fetched once more, so the cache ends with the server's word. A `GET /v1/cart` that answers `CART_NOT_FOUND` forgets the token, and the buyer sees an empty cart instead of a retry that can never succeed.
+- **Zod schemas live in `packages/shared`** (`src/schemas/auth.ts`), beside the API client, so the web and mobile apps check the same rules. They follow what the API really checks (`apps/api/internal/auth/handler.go` and `password.go`): a trimmed ASCII email up to 254 characters, a password of 8 to 128 characters counted as Go counts them (code points, not UTF-16 units) and not only spaces, a trimmed name up to 100 characters. The list of common passwords stays on the server; its refusal arrives as a field error (artikel 11). `satisfies z.ZodType<RegisterRequest>` ties each schema to the type generated from the contract.
+
+## What replaced Bab 8's hand-written code
+
+| Bab 8 | Bab 9 | Why |
+|---|---|---|
+| `selectedSlug` state in `App`, `onSelect` callbacks, `useCallback` | routes and `<Link>`s; `useParams` in `ProductDetailPage` | a product has a URL: it can be reloaded, shared, opened in a new tab, and reached with Back |
+| the catalog kept mounted but `hidden`, to keep its pages | `useInfiniteQuery`'s cache | the loaded pages survive leaving the catalog, without keeping a hidden page alive |
+| `App`'s `returnFocusTo` ref and effect | `app/useRouteFocus.ts` | focus is handled for every navigation, Back and Forward included, not only for "Kembali" |
+| `useCategoryTree` (effect, `AbortController`, `AsyncState`, `attempt`) | `useQuery(categoriesQuery())` with `select: buildCategoryTree` | one shared request and cache entry; retry is `refetch` |
+| `useProduct` | `useQuery(productQuery(slug))` in `ProductDetailPage` | a product opened before shows at once; the same options serve the prefetch |
+| `useProducts` (pages, cursor, phase, key compared while rendering) | `useProductList` → `useInfiniteQuery(productListQuery(filters))` | the filters are the key; `getNextPageParam` reads `next_cursor`; the same-cursor guard moved there |
+| `lib/async-state.ts` | TanStack Query's `status` and `fetchStatus` | the union now comes from the library |
+| "Muat lebih banyak" only | an IntersectionObserver sentinel, with the button kept | the list grows by scrolling; the button stays for keyboards and where the observer is missing |
+
+## Where each article's ideas live
+
+Paths are relative to `apps/web/src` unless they start with `packages/`.
+
+| Article | Concept | Where to read it |
+|---|---|---|
+| 01 | Routes, layouts, nested routes | `app/routes.tsx` (the route tree, the pathless `AuthLayout`, `*`), `app/App.tsx` (`createBrowserRouter`, `RouterProvider`), `app/RootLayout.tsx` (`<Outlet />`, `ScrollRestoration`), `app/SiteHeader.tsx` (`Link`, `NavLink` and `aria-current`), `app/useRouteFocus.ts`, `features/auth/components/AuthLayout.tsx` |
+| 02 | A page from a URL parameter | `features/product/components/ProductDetailPage.tsx` (`useParams`, the back link that returns to the list it came from), `features/product/paths.ts` (`PRODUCT_ROUTE`, `productPath`, `FROM_CATALOG`), the card link in `features/catalog/components/ProductCard.tsx`, the card focus in `app/useRouteFocus.ts` |
+| 03 | Search params for filters | `features/catalog/catalog-filters.ts` (reading the URL as untrusted input, writing it back), `CatalogPage.tsx` (`useSearchParams`, `UNKNOWN_CATEGORY`), `CatalogToolbar.tsx` (search and sort), `CategorySection.tsx` and `CategoryTree.tsx` (category links). The cursor stays out of the URL: see `CatalogPage`'s comment |
+| 04 | Server state, the QueryClient | `lib/query-client.ts` (defaults and why), the provider and devtools in `app/App.tsx` |
+| 05 | `useQuery`: cache, stale time, refetch | `features/catalog/api/queries.ts` (query keys, `queryOptions`, the signal), `features/catalog/hooks/useCategoryTree.ts` (`select`), `features/catalog/components/CategorySection.tsx` (`status` vs `isFetching`), `features/product/api/queries.ts`, `ProductDetailPage.tsx` |
+| 06 | `useMutation` and invalidation | `packages/shared/src/api/cart.ts`, `features/cart/` (`cart-token-context.ts`, `CartTokenProvider.tsx`, `api/queries.ts`, `hooks/useCart.ts`, `components/AddToCart.tsx`, `components/CartNavLink.tsx`, `components/CartPage.tsx`, `cart-errors.ts`); the artikel-06 commit of `hooks/useAddToCart.ts` invalidates |
+| 07 | Infinite scroll | `productListQuery` in `features/catalog/api/queries.ts` (`initialPageParam`, `getNextPageParam`), `features/catalog/hooks/useProductList.ts`, `hooks/useOnVisible.ts` (IntersectionObserver, `useEffectEvent`), `features/catalog/components/ProductListFooter.tsx` |
+| 08 | Optimistic update | `features/cart/hooks/useAddToCart.ts` (`onMutate` snapshot and guess, `onError` rollback, `onSuccess` with the server's cart and a new token, `onSettled` refetch, `scope` queue and `getCartToken` from `CartTokenProvider`), `features/cart/optimistic-cart.ts` |
+| 09 | React Hook Form | `features/auth/components/LoginPage.tsx` and `RegisterPage.tsx`, `components/ui/TextField.tsx` (label, `aria-describedby`, `aria-invalid`, `ref` as a prop), `features/auth/hooks/`, `session-context.ts`, `SessionProvider.tsx`, `components/AccountNav.tsx`, `navigation-state.ts`; `packages/shared/src/api/auth.ts`. The artikel-09 commit uses React Hook Form's built-in rules |
+| 10 | Zod, shared with the API types | `packages/shared/src/schemas/auth.ts` (`satisfies`, characters counted as Go counts them), `zodResolver` in both pages |
+| 11 | The API's errors on the form | `lib/api-form-errors.ts` (`setApiFieldErrors`, the Indonesian wording), `onError` in `LoginPage` and `RegisterPage` (`EMAIL_TAKEN`, `INVALID_CREDENTIALS` as a `root` error), `features/auth/auth-errors.ts` |
+| 12 | Error boundary and 404 | `app/RouteErrorPage.tsx` (`useRouteError`, `isRouteErrorResponse`), `ErrorBoundary` in `app/routes.tsx`, `app/NotFoundPage.tsx`, `throwOnError` in `ProductDetailPage.tsx`, `hooks/useLateHeadingFocus.ts`; `lib/report-error.ts` as `RouterProvider`'s `onError` (`app/App.tsx`), with React's `onCaughtError` left silent (`main.tsx`): each caught error is reported once, and the expected NOT_FOUND not at all |
+| 13 | Lazy routes, code splitting | `lazy` in `app/routes.tsx`, `features/product/lazy.ts`, `features/auth/lazy.ts`, `app/NavigationProgress.tsx`, `app/AppLoading.tsx` (`HydrateFallback`). `pnpm --filter @goshop/web build` lists one file per lazy page plus a shared chunk with React Hook Form and Zod (Rollup names a shared chunk after one of its modules, here `navigation-state`) |
+| 14 | Prefetch on hover | `features/product/hooks/usePrefetchProduct.ts` (mouse only, after 100 ms; keyboard focus; never touch), used by `ProductCard`. It calls `queryClient.query`, the newer name of `prefetchQuery`, which TanStack Query 5.10x marks deprecated |
+| 15 | Recap | this section, and the challenge below |
+
+## Accessibility notes
+
+- After a navigation the focus moves to the new page's `<h1>` (every page has one, `tabIndex={-1}`), or back to the card of the product the buyer came from; a page whose heading arrives with its data takes it over from `<main>` (`useLateHeadingFocus`). A change of query string (a filter, the sort) leaves the focus on the control in use.
+- Form errors are linked to their inputs with `aria-describedby` and mark them `aria-invalid`; the first invalid field gets the focus, whether the error came from Zod or from the API.
+- Live regions are rendered before their text changes: "Ditambahkan ke keranjang", "Memuat halaman…".
+
+## The Bab 8 challenge, answered
+
+Bab 8 ended with a challenge: filter the catalog by category. Bab 9 ships one, and moves the choice into the URL as promised: each category in the sidebar is a link to `/?kategori=<slug>` (`CategorySection` and `CategoryTree`), "Semua produk" removes it, and `aria-current="true"` marks the active one. The focus problem from step 5 of the challenge is solved by `useRouteFocus`: when the card is gone, the page heading takes the focus.
+
+## Challenge: a product search page
+
+The API already searches: `GET /v1/products?q=…` matches names and descriptions with PostgreSQL full-text search (Indonesian stemming), and combines with `category` and `sort`. The catalog accepts `?q=`, but a search deserves its own page.
+
+1. Add a route `/cari` to `app/routes.tsx`, lazy like the product page (artikel 01 and 13).
+2. Put a search box in `SiteHeader`, a `<form role="search">` that navigates to `/cari?q=…` on submit (artikel 03). Keep the text when the page reloads.
+3. On the page, read `q` with `useSearchParams` and list the results with `useProductList({ q, limit })`. A different `q` is a different query key, so earlier searches come back from the cache (artikel 05 and 07).
+4. Without `q`, show a hint instead of the whole catalog; with no results, say so and suggest removing a word (artikel 08 of Bab 8).
+5. Prefetch on hover works on the results for free, since they are `ProductCard`s (artikel 14). Check the focus: after a search the page heading should say what was searched, and get the focus.
