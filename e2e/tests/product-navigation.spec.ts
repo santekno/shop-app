@@ -11,7 +11,9 @@ import {
   expectNoProblems,
   fetchAllProducts,
   fetchProduct,
+  PAGE_SIZE,
   cardOpener,
+  disableAutoLoad,
   loadEverything,
   openProduct,
   productCards,
@@ -192,5 +194,36 @@ test("a second product opens fresh, without the first one's choices", async ({
   await expect(
     page.getByRole("group", { name: "Jumlah" }).locator("output"),
   ).toHaveText("1");
+  expectNoProblems(problems);
+});
+
+test("after the 30 s stale time the catalog still shows at once, and refreshes in the background", async ({
+  page,
+}) => {
+  const problems = await watchBrowser(page);
+  const calls = countApiRequests(page, BROWSER_API_URL);
+  const product = await fetchProduct("kopi-arabika-gayo-250g");
+  // A clock the test can move: TanStack Query compares Date.now() with
+  // when the data arrived.
+  await page.clock.install();
+  await disableAutoLoad(page);
+
+  await page.goto("/");
+  await expect(productCards(page)).toHaveCount(PAGE_SIZE);
+  await openProduct(page, product.name);
+  await expect(detail(page, product.name)).toBeVisible();
+  const lists = calls.get("/v1/products")?.length ?? 0;
+  const categories = calls.get("/v1/categories")?.length ?? 0;
+
+  await page.clock.fastForward("00:31");
+  await backLink(page).click();
+  // The cached list is on screen at once, with no loading state …
+  await expect(productCards(page)).toHaveCount(PAGE_SIZE);
+  await expect(productSection(page).getByText("Memuat produk…")).toHaveCount(0);
+  // … while the stale list is fetched again behind it. The categories
+  // (5 minutes) are still fresh.
+  await expect.poll(() => calls.get("/v1/products")?.length).toBe(lists + 1);
+  expect(calls.get("/v1/categories")).toHaveLength(categories);
+  await expect(cardOpener(page, product.name)).toBeFocused();
   expectNoProblems(problems);
 });
