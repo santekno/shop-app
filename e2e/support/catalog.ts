@@ -97,12 +97,20 @@ export const SEEDED_SLUGS: readonly string[] = [
   "rengginang-terasi-250g",
 ];
 
-/** Every page of GET /v1/products?limit=12, in order, following next_cursor. */
-export const fetchAllProducts = async (): Promise<ProductRow[][]> => {
+/**
+ * Every page of GET /v1/products?limit=12, in order, following
+ * next_cursor; filters (category, q, sort) are added to every request.
+ */
+export const fetchAllProducts = async (
+  filters: Readonly<Record<string, string>> = {},
+): Promise<ProductRow[][]> => {
   const pages: ProductRow[][] = [];
   let cursor: string | null = null;
   do {
     const url = new URL(`${API_URL}/v1/products`);
+    for (const [name, value] of Object.entries(filters)) {
+      url.searchParams.set(name, value);
+    }
     url.searchParams.set("limit", String(PAGE_SIZE));
     if (cursor !== null) url.searchParams.set("cursor", cursor);
     const response = await fetch(url);
