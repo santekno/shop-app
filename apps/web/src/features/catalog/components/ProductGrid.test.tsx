@@ -1,7 +1,8 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { product } from "@/test/fake-api.ts";
+import { currentLocation, inRouter } from "@/test/render.tsx";
 import { ProductGrid } from "./ProductGrid.tsx";
 
 const itemOf = (name: string) => {
@@ -13,10 +14,9 @@ const itemOf = (name: string) => {
 describe("ProductGrid", () => {
   it("renders one list item with a card per product, in order", () => {
     render(
-      <ProductGrid
-        products={[product("a"), product("b"), product("c")]}
-        onSelectProduct={vi.fn()}
-      />,
+      inRouter(
+        <ProductGrid products={[product("a"), product("b"), product("c")]} />,
+      ),
     );
 
     const items = within(screen.getByRole("list")).getAllByRole("listitem");
@@ -32,41 +32,28 @@ describe("ProductGrid", () => {
   it("keys items by product id, so a product keeps its element when the list changes", () => {
     const a = product("a");
     const b = product("b");
-    const { rerender } = render(
-      <ProductGrid products={[a, b]} onSelectProduct={vi.fn()} />,
-    );
+    const { rerender } = render(inRouter(<ProductGrid products={[a, b]} />));
     const itemA = itemOf("Produk a");
     const itemB = itemOf("Produk b");
 
-    rerender(
-      <ProductGrid
-        products={[product("new"), b, a]}
-        onSelectProduct={vi.fn()}
-      />,
-    );
+    rerender(inRouter(<ProductGrid products={[product("new"), b, a]} />));
 
     expect(itemOf("Produk a")).toBe(itemA);
     expect(itemOf("Produk b")).toBe(itemB);
     expect(screen.getAllByRole("listitem")[0]).not.toBe(itemA);
   });
 
-  it("passes onSelectProduct to every card", async () => {
+  it("links every card to its product", async () => {
     const user = userEvent.setup();
-    const onSelectProduct = vi.fn();
-    render(
-      <ProductGrid
-        products={[product("a"), product("b")]}
-        onSelectProduct={onSelectProduct}
-      />,
-    );
+    render(inRouter(<ProductGrid products={[product("a"), product("b")]} />));
 
-    await user.click(screen.getByRole("button", { name: "Produk b" }));
+    await user.click(screen.getByRole("link", { name: "Produk b" }));
 
-    expect(onSelectProduct).toHaveBeenCalledExactlyOnceWith("b");
+    expect(currentLocation()).toBe("/produk/b");
   });
 
   it("renders an empty list for no products", () => {
-    render(<ProductGrid products={[]} onSelectProduct={vi.fn()} />);
+    render(inRouter(<ProductGrid products={[]} />));
 
     expect(screen.getByRole("list").children).toHaveLength(0);
   });

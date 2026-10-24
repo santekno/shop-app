@@ -6,7 +6,7 @@
 //   renderApp("/produk/kaos-polos")
 import { render, screen } from "@testing-library/react";
 import type { ReactElement } from "react";
-import { createMemoryRouter, RouterProvider } from "react-router";
+import { createMemoryRouter, MemoryRouter, RouterProvider } from "react-router";
 import type { InitialEntry, RouteObject } from "react-router";
 import { routes } from "@/app/routes.tsx";
 import { LocationProbe } from "./LocationProbe.tsx";
@@ -59,6 +59,18 @@ export const renderWithProviders = (
     ],
     url,
   );
+
+/**
+ * `ui` inside a declarative <MemoryRouter>, with the location probe: for a
+ * component test that re-renders with new props (`rerender(inRouter(…))`
+ * keeps the same router and the same component state).
+ */
+export const inRouter = (ui: ReactElement, url: InitialEntry = "/") => (
+  <MemoryRouter initialEntries={[url]}>
+    {ui}
+    <LocationProbe />
+  </MemoryRouter>
+);
 
 /** Renders the storefront's own route tree (app/routes.tsx) at `url`. */
 export const renderApp = (url: InitialEntry | InitialEntry[] = "/") =>

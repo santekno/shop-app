@@ -39,6 +39,11 @@ test("a card opens its product at /produk/<slug>, with its title", async ({
   const first = product.variants.find((v) => v.stock > 0);
 
   await page.goto("/");
+  // The card's name is a real link to the product's URL: it can be opened
+  // in a new tab, copied and shared.
+  await expect(
+    productSection(page).getByRole("link", { name: product.name, exact: true }),
+  ).toHaveAttribute("href", `/produk/${product.slug}`);
   await openProduct(page, product.name);
   await expect(page).toHaveURL(`/produk/${product.slug}`);
 

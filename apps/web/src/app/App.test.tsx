@@ -109,7 +109,7 @@ describe("the storefront's routes", () => {
     });
     renderApp("/");
 
-    await user.click(await screen.findByRole("button", { name: "Kaos Polos" }));
+    await user.click(await screen.findByRole("link", { name: "Kaos Polos" }));
 
     expect(await screen.findByText("Memuat produk…")).toBeTruthy();
     expect(document.activeElement).toBe(screen.getByRole("main"));
@@ -130,7 +130,7 @@ describe("the storefront's routes", () => {
   it("goes back to the catalog from a product with Kembali", async () => {
     const user = userEvent.setup();
     renderApp("/");
-    await user.click(await screen.findByRole("button", { name: "Kaos Polos" }));
+    await user.click(await screen.findByRole("link", { name: "Kaos Polos" }));
     await pageHeading("Kaos Polos");
 
     await user.click(

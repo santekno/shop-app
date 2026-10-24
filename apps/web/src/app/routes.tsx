@@ -5,6 +5,7 @@ import { AuthLayout } from "@/features/auth/components/AuthLayout.tsx";
 import { CartPage } from "@/features/cart/components/CartPage.tsx";
 import { CatalogPage } from "@/features/catalog/components/CatalogPage.tsx";
 import { ProductDetailPage } from "@/features/product/components/ProductDetailPage.tsx";
+import { PRODUCT_ROUTE } from "@/features/product/paths.ts";
 import { NotFoundPage } from "./NotFoundPage.tsx";
 import { RootLayout } from "./RootLayout.tsx";
 
@@ -30,8 +31,11 @@ export const routes: RouteObject[] = [
     children: [
       // `index`: what the parent shows at its own URL, "/".
       { index: true, Component: CatalogPage },
-      // `:slug` is a URL parameter: useParams() reads it as a string.
-      { path: "produk/:slug", Component: ProductDetailPage },
+      // "/produk/:slug": `:slug` is a URL parameter, read with useParams().
+      // A child's path may be written in full when it starts with the
+      // parent's ("/"); the constant is shared with productPath and
+      // useRouteFocus, so the pattern is written once.
+      { path: PRODUCT_ROUTE, Component: ProductDetailPage },
       { path: "keranjang", Component: CartPage },
       // A layout route without a path: it adds no URL segment, only a
       // shared frame around both auth pages.

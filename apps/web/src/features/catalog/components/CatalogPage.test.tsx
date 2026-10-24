@@ -139,9 +139,7 @@ describe("CatalogPage", () => {
     );
     expect(pages).toHaveLength(2);
     answer(1, productsResponse([product("a")], null));
-    expect(
-      await screen.findByRole("button", { name: "Produk a" }),
-    ).toBeTruthy();
+    expect(await screen.findByRole("link", { name: "Produk a" })).toBeTruthy();
   });
 
   it("keeps the shown products above an error on a later page", async () => {
@@ -156,7 +154,7 @@ describe("CatalogPage", () => {
     answer(1, errorResponse(503, "INTERNAL_ERROR"));
 
     expect(await within(productsSection()).findByRole("alert")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Produk a" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Produk a" })).toBeTruthy();
     expect(
       screen.queryByRole("button", { name: "Muat lebih banyak" }),
     ).toBeNull();
@@ -169,7 +167,7 @@ describe("CatalogPage", () => {
     answer(0, productsResponse([product("kaos-polos")], null));
 
     await user.click(
-      await screen.findByRole("button", { name: "Produk kaos-polos" }),
+      await screen.findByRole("link", { name: "Produk kaos-polos" }),
     );
 
     expect(currentLocation()).toBe("/produk/kaos-polos");

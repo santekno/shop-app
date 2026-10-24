@@ -1,5 +1,3 @@
-import { useCallback } from "react";
-import { useNavigate } from "react-router";
 import { Section } from "@/components/ui/Section.tsx";
 import {
   EmptyState,
@@ -21,18 +19,6 @@ export function CatalogPage() {
     limit: PAGE_SIZE,
   });
 
-  // Opening a product is now a navigation: the URL changes, the router
-  // renders the product route, and Back returns here. useNavigate gives
-  // the same function on every render, so the memoised cards still skip
-  // re-rendering.
-  const navigate = useNavigate();
-  const showProduct = useCallback(
-    (slug: string) => {
-      void navigate(`/produk/${encodeURIComponent(slug)}`);
-    },
-    [navigate],
-  );
-
   return (
     <div className="page">
       <h1 tabIndex={-1}>Katalog</h1>
@@ -41,9 +27,7 @@ export function CatalogPage() {
           <CategorySection />
         </aside>
         <Section title="Produk" className="catalog__products">
-          {products.length > 0 && (
-            <ProductGrid products={products} onSelectProduct={showProduct} />
-          )}
+          {products.length > 0 && <ProductGrid products={products} />}
 
           <div className="catalog__footer">
             {phase === "loading" && (

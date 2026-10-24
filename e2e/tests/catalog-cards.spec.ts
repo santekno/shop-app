@@ -65,7 +65,7 @@ test("the seed's known cases render as the data says", async ({ page }) => {
   await loadEverything(page);
   const card = (name: string) =>
     productCards(page).filter({
-      has: page.getByRole("button", { name, exact: true }),
+      has: page.getByRole("link", { name, exact: true }),
     });
 
   // All variants 89 000 except XL at 99 000; the archived XXL is not sold.

@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import * as shared from "@goshop/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { product, rupiah, variant } from "@/test/fake-api.ts";
+import { currentLocation, inRouter } from "@/test/render.tsx";
 import { ProductCard } from "./ProductCard.tsx";
 
 // Every export keeps its real behaviour; formatRupiah's calls are counted
@@ -17,10 +18,9 @@ beforeEach(() => {
 describe("ProductCard", () => {
   it("shows the name, category, price and a photo placeholder in an article", () => {
     render(
-      <ProductCard
-        product={product("kaos", { name: "Kaos Polos Hitam" })}
-        onSelect={vi.fn()}
-      />,
+      inRouter(
+        <ProductCard product={product("kaos", { name: "Kaos Polos Hitam" })} />,
+      ),
     );
 
     const card = screen.getByRole("article");
@@ -40,9 +40,7 @@ describe("ProductCard", () => {
       ],
     });
 
-    const { container } = render(
-      <ProductCard product={item} onSelect={vi.fn()} />,
-    );
+    const { container } = render(inRouter(<ProductCard product={item} />));
 
     expect(container.querySelector(".price")?.textContent).toBe(
       `Mulai ${rupiah(89_000)}`,
@@ -50,13 +48,9 @@ describe("ProductCard", () => {
   });
 
   it("leaves Mulai out when every variant costs the same", () => {
-    const item = product("kaos", {
-      variants: [variant("m"), variant("l")],
-    });
+    const item = product("kaos", { variants: [variant("m"), variant("l")] });
 
-    const { container } = render(
-      <ProductCard product={item} onSelect={vi.fn()} />,
-    );
+    const { container } = render(inRouter(<ProductCard product={item} />));
 
     expect(screen.queryByText(/Mulai/)).toBeNull();
     expect(container.querySelector(".price")?.textContent).toBe(rupiah(89_000));
@@ -64,70 +58,70 @@ describe("ProductCard", () => {
 
   it("shows a Stok habis badge only when the product is out of stock", () => {
     const { rerender } = render(
-      <ProductCard
-        product={product("kaos", { variants: [variant("m", { stock: 0 })] })}
-        onSelect={vi.fn()}
-      />,
+      inRouter(
+        <ProductCard
+          product={product("kaos", { variants: [variant("m", { stock: 0 })] })}
+        />,
+      ),
     );
     expect(screen.getByText("Stok habis")).toBeTruthy();
 
-    rerender(<ProductCard product={product("kaos")} onSelect={vi.fn()} />);
+    rerender(inRouter(<ProductCard product={product("kaos")} />));
     expect(screen.queryByText("Stok habis")).toBeNull();
   });
 
-  it("opens the product through a button named after it", async () => {
+  it("links to the product's page, named after the product", async () => {
     const user = userEvent.setup();
-    const onSelect = vi.fn();
     render(
-      <ProductCard
-        product={product("kaos-polos", { name: "Kaos Polos" })}
-        onSelect={onSelect}
-      />,
+      inRouter(
+        <ProductCard product={product("kaos-polos", { name: "Kaos Polos" })} />,
+      ),
     );
 
-    const button = screen.getByRole("button", { name: "Kaos Polos" });
-    expect(button.getAttribute("type")).toBe("button");
-    expect(onSelect).not.toHaveBeenCalled();
-    await user.click(button);
+    const link = screen.getByRole("link", { name: "Kaos Polos" });
+    expect(link.getAttribute("href")).toBe("/produk/kaos-polos");
+    await user.click(link);
 
-    expect(onSelect).toHaveBeenCalledExactlyOnceWith("kaos-polos");
+    expect(currentLocation()).toBe("/produk/kaos-polos");
   });
 
-  it("marks its button with the product's slug, for App to return the focus to", () => {
-    render(<ProductCard product={product("kaos-polos")} onSelect={vi.fn()} />);
+  it("encodes the slug in the link", () => {
+    render(inRouter(<ProductCard product={product("a/b?c")} />));
+
+    expect(
+      screen.getByRole("link", { name: "Produk a/b?c" }).getAttribute("href"),
+    ).toBe("/produk/a%2Fb%3Fc");
+  });
+
+  it("marks its link with the product's slug, for the focus to return to", () => {
+    render(inRouter(<ProductCard product={product("kaos-polos")} />));
 
     expect(
       screen
-        .getByRole("button", { name: "Produk kaos-polos" })
+        .getByRole("link", { name: "Produk kaos-polos" })
         .getAttribute("data-product-slug"),
     ).toBe("kaos-polos");
   });
 
   it("opens the product from the keyboard", async () => {
     const user = userEvent.setup();
-    const onSelect = vi.fn();
-    render(<ProductCard product={product("kaos")} onSelect={onSelect} />);
+    render(inRouter(<ProductCard product={product("kaos")} />));
 
     await user.tab();
     await user.keyboard("{Enter}");
 
-    expect(onSelect).toHaveBeenCalledExactlyOnceWith("kaos");
+    expect(currentLocation()).toBe("/produk/kaos");
   });
 
   it("skips rendering again when its props are the same objects", () => {
     const item = product("kaos");
-    const onSelect = vi.fn();
-    const { rerender } = render(
-      <ProductCard product={item} onSelect={onSelect} />,
-    );
+    const { rerender } = render(inRouter(<ProductCard product={item} />));
     expect(formatRupiah).toHaveBeenCalledTimes(1);
 
-    rerender(<ProductCard product={item} onSelect={onSelect} />);
+    rerender(inRouter(<ProductCard product={item} />));
     expect(formatRupiah).toHaveBeenCalledTimes(1);
 
-    rerender(<ProductCard product={item} onSelect={vi.fn()} />);
+    rerender(inRouter(<ProductCard product={{ ...item }} />));
     expect(formatRupiah).toHaveBeenCalledTimes(2);
-    rerender(<ProductCard product={{ ...item }} onSelect={onSelect} />);
-    expect(formatRupiah).toHaveBeenCalledTimes(3);
   });
 });

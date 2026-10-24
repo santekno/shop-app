@@ -3,7 +3,6 @@ import { ProductCard } from "./ProductCard.tsx";
 
 interface ProductGridProps {
   products: readonly Product[];
-  onSelectProduct: (slug: string) => void;
 }
 
 /**
@@ -16,12 +15,12 @@ interface ProductGridProps {
  * others, would hand one product's DOM (and state) to another; the id never
  * moves with the position.
  */
-export function ProductGrid({ products, onSelectProduct }: ProductGridProps) {
+export function ProductGrid({ products }: ProductGridProps) {
   return (
     <ul className="product-grid">
       {products.map((product) => (
         <li key={product.id}>
-          <ProductCard product={product} onSelect={onSelectProduct} />
+          <ProductCard product={product} />
         </li>
       ))}
     </ul>

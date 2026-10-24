@@ -16,6 +16,7 @@ import {
   productsResponse,
   requestUrl,
 } from "@/test/fake-api.ts";
+import { inRouter } from "@/test/render.tsx";
 import { ProductGrid } from "../components/ProductGrid.tsx";
 import { useProducts } from "./useProducts.ts";
 import type { ProductFilters } from "./useProducts.ts";
@@ -474,17 +475,17 @@ describe("useProducts", () => {
     function Catalog({ category }: { category: string }) {
       const list = useProducts({ category, limit: 12 });
       loadMore = list.loadMore;
-      return <ProductGrid products={list.products} onSelectProduct={vi.fn()} />;
+      return <ProductGrid products={list.products} />;
     }
-    const view = renderUi(<Catalog category="kaos" />);
+    const view = renderUi(inRouter(<Catalog category="kaos" />));
     await screen.findByText("Produk a");
     act(() => {
       loadMore();
     });
     await screen.findByText("Produk b");
 
-    view.rerender(<Catalog category="kemeja" />);
-    view.rerender(<Catalog category="kaos" />);
+    view.rerender(inRouter(<Catalog category="kemeja" />));
+    view.rerender(inRouter(<Catalog category="kaos" />));
     await screen.findByText("Produk a");
     act(() => {
       loadMore();

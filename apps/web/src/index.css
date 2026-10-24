@@ -111,6 +111,14 @@ button {
   font-size: 1rem;
 }
 
+.product-card__name a {
+  text-decoration: none;
+}
+
+.product-card__name a:hover {
+  text-decoration: underline;
+}
+
 .product-card p {
   margin: 0;
 }
@@ -203,22 +211,6 @@ button:disabled {
 
 .variant-picker__name {
   font-weight: 600;
-}
-
-/* A button that reads like a link: product names in the grid. */
-.link-button {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--accent);
-  font: inherit;
-  font-weight: 600;
-  text-align: left;
-  cursor: pointer;
-}
-
-.link-button:hover {
-  text-decoration: underline;
 }
 
 .product-grid {

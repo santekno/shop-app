@@ -8,11 +8,19 @@ import {
 import { useProduct } from "../hooks/useProduct.ts";
 import { ProductDetail } from "./ProductDetail.tsx";
 
-/** /produk/:slug: one product, loaded by the slug in the URL. */
+/**
+ * /produk/:slug: one product, loaded by the slug in the URL.
+ *
+ * The URL is now the only input. In Bab 8 the slug arrived as a prop from
+ * App's state, so a reload or a shared link always showed the catalog;
+ * now /produk/kaos-polos-hitam opens this product directly (Caddy answers
+ * index.html for every path, and the router picks the route).
+ */
 export function ProductDetailPage() {
-  // The route is "produk/:slug", so the router always fills `slug` here;
-  // the type says string | undefined because useParams cannot know which
-  // route a component is rendered by.
+  // useParams returns the route's parameters, already decoded. The type
+  // says string | undefined because useParams cannot know which route a
+  // component is rendered by; this one is only rendered by PRODUCT_ROUTE,
+  // so `slug` is always there.
   const { slug = "" } = useParams<"slug">();
   const { state, retry } = useProduct(slug);
 
@@ -29,7 +37,11 @@ export function ProductDetailPage() {
         ) : (
           <ErrorState error={state.error} onRetry={retry} />
         ))}
-      {state.status === "success" && <ProductDetail product={state.data} />}
+      {/* key: another product is another component, so the variant and
+          quantity it keeps start again from the new product. */}
+      {state.status === "success" && (
+        <ProductDetail key={state.data.id} product={state.data} />
+      )}
     </div>
   );
 }
