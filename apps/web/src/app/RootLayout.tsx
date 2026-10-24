@@ -19,7 +19,14 @@ export function RootLayout() {
       <SiteHeader />
       {/* tabIndex={-1}: the page can give <main> the focus from code
           (useRouteFocus), but Tab never stops on it. */}
-      <main ref={mainRef} className="site-main" tabIndex={-1}>
+      {/* Utility classes instead of a .site-main rule: the width, the
+          centring and the padding are read right here. focus:outline-none
+          because <main> only takes the focus from code (no ring needed). */}
+      <main
+        ref={mainRef}
+        className="mx-auto max-w-6xl px-4 pt-6 pb-12 focus:outline-none"
+        tabIndex={-1}
+      >
         <Outlet />
       </main>
       {/* A new page starts at the top; Back and Forward return to where

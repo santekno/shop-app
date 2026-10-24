@@ -65,7 +65,7 @@ export function CatalogPage() {
   const hasPages = data !== undefined;
 
   return (
-    <div className="page">
+    <div className="grid gap-4">
       <h1 tabIndex={-1}>Katalog</h1>
       <div className="catalog">
         <aside className="catalog__aside">

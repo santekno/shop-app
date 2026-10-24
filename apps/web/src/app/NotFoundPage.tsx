@@ -27,7 +27,7 @@ export function NotFoundPage({
   // appears after the navigation.
   const headingRef = useLateHeadingFocus();
   return (
-    <div className="page">
+    <div className="grid gap-4">
       <h1 ref={headingRef} tabIndex={-1}>
         Halaman tidak ditemukan
       </h1>

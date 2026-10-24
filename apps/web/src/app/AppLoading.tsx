@@ -6,7 +6,7 @@
  */
 export function AppLoading() {
   return (
-    <p role="status" className="app-loading">
+    <p role="status" className="muted mx-auto max-w-6xl px-4 py-6">
       Memuat GoShop…
     </p>
   );

@@ -17,6 +17,8 @@ Open **http://localhost:5173**, not `127.0.0.1:5173`: the API's CORS default (`A
 
 The Playwright suite in `e2e/` expects the example catalog from `make seed`: `make test-integration` seeds first, so run `make seed` yourself before running the suite against your own `make up` (without it, the page shows "Belum ada kategori.").
 
+Before the suite runs, its global setup (`e2e/support/global-setup.ts`) writes to the Compose project it tests, never anywhere else: it clears the API's rate-limit counters (`goshop:rl:*` in Redis), registers the e2e buyer `e2e-buyer@goshop.local` through `POST /v1/auth/register`, and marks it verified with `psql` in the Compose Postgres.
+
 | Script      | What it does                                                                          |
 | ----------- | ------------------------------------------------------------------------------------- |
 | `dev`       | Vite dev server with hot reload                                                       |

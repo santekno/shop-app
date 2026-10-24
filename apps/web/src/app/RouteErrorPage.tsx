@@ -38,7 +38,7 @@ function UnexpectedError({ error }: { error: unknown }) {
   const requestId = errorRequestId(error);
   const headingRef = useLateHeadingFocus();
   return (
-    <div className="page" role="alert">
+    <div className="grid gap-4" role="alert">
       <h1 ref={headingRef} tabIndex={-1}>
         Terjadi kesalahan
       </h1>
