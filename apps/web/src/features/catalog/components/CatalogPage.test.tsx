@@ -242,3 +242,83 @@ describe("CatalogPage's filters in the URL", () => {
     expect(currentLocation()).toBe("/?q=polos");
   });
 });
+
+describe("CatalogPage's pages and their errors", () => {
+  it("keeps the loaded products when a later page fails, and retries only that page", async () => {
+    const user = userEvent.setup();
+    const { pages, answer } = serveCatalog();
+    renderWithProviders(<CatalogPage />, { path: "/" });
+    answer(0, productsResponse([product("a")], "c2"));
+    await user.click(
+      await screen.findByRole("button", { name: "Muat lebih banyak" }),
+    );
+
+    answer(1, errorResponse(503, "INTERNAL_ERROR", "req-503"));
+
+    const alert = await within(productsSection()).findByRole("alert");
+    expect(alert.textContent).toContain("Kode permintaan: req-503");
+    expect(screen.getByRole("link", { name: "Produk a" })).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Muat lebih banyak" }),
+    ).toBeNull();
+
+    await user.click(within(alert).getByRole("button", { name: "Coba lagi" }));
+
+    // Only the failed page is asked for again, with its cursor.
+    expect(pages.map((page) => page.query)).toEqual([
+      "?sort=newest&limit=12",
+      "?sort=newest&limit=12&cursor=c2",
+      "?sort=newest&limit=12&cursor=c2",
+    ]);
+    answer(2, productsResponse([product("b")], null));
+    expect(await screen.findByRole("link", { name: "Produk b" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Produk a" })).toBeTruthy();
+    expect(within(productsSection()).queryByRole("alert")).toBeNull();
+  });
+
+  it("shows the whole list's error, with no grid, when no page has arrived", async () => {
+    const user = userEvent.setup();
+    const { pages, answer } = serveCatalog();
+    renderWithProviders(<CatalogPage />, { path: "/" });
+
+    answer(0, errorResponse(500, "INTERNAL_ERROR"));
+
+    const alert = await within(productsSection()).findByRole("alert");
+    expect(within(productsSection()).queryByRole("list")).toBeNull();
+    expect(screen.queryByText("Belum ada produk.")).toBeNull();
+    await user.click(within(alert).getByRole("button", { name: "Coba lagi" }));
+    expect(pages.at(-1)?.query).toBe("?sort=newest&limit=12");
+  });
+
+  it("keeps the grid when a background refetch fails", async () => {
+    const { pages, answer } = serveCatalog();
+    const { queryClient } = renderWithProviders(<CatalogPage />, { path: "/" });
+    answer(0, productsResponse([product("a")], null));
+    await screen.findByRole("link", { name: "Produk a" });
+
+    void queryClient.invalidateQueries({ queryKey: ["products"] });
+    await vi.waitFor(() => {
+      expect(pages).toHaveLength(2);
+    });
+    answer(1, errorResponse(503, "INTERNAL_ERROR"));
+    await vi.waitFor(() => {
+      expect(
+        queryClient.getQueryState([
+          "products",
+          "list",
+          {
+            category: undefined,
+            q: undefined,
+            sort: "newest",
+            limit: 12,
+          },
+        ])?.status,
+      ).toBe("error");
+    });
+
+    expect(screen.getByRole("link", { name: "Produk a" })).toBeTruthy();
+    expect(screen.getByText("Semua produk sudah ditampilkan.")).toBeTruthy();
+    expect(within(productsSection()).queryByText("Memuat produk…")).toBeNull();
+    expect(within(productsSection()).queryByRole("alert")).toBeNull();
+  });
+});
