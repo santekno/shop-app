@@ -122,6 +122,33 @@ func TestRace_SettlementVersusClose(t *testing.T) {
 	assertNoServerErrors(t, ps.server)
 }
 
+// TestRace_SettlementVersusAdminSave: the settlement notification pays an
+// order while a seller saves its product with the variants in reverse id
+// order. Paying touches the order, its payment and the outbox, never the
+// variants, so neither waits on the other: the order is paid, the save
+// lands, and the stock is the save's.
+func TestRace_SettlementVersusAdminSave(t *testing.T) {
+	ps := newPayShop(t, nil)
+	for i := range raceIterations {
+		p := ps.product(t, fmt.Sprintf("kaos-bayar-admin-%d", i), variant(fmt.Sprintf("BA-%d-M", i), "M", 10000, 40),
+			variant(fmt.Sprintf("BA-%d-L", i), "L", 10000, 40))
+		m := p.Variants[fmt.Sprintf("BA-%d-M", i)]
+		b := ps.buyer(t, fmt.Sprintf("bayar-admin-%d", i))
+		o, _, poid := ps.paid(t, b, line{m, 2})
+		n := ps.notification(t, poid, "settlement", "")
+		save := reverseSave(t, ps.adminForm(t, p.ID), 90, "")
+		results := runTogether(t,
+			func() (response, error) { return ps.tryNotify(n) },
+			func() (response, error) { return ps.trySave(p.ID, save) })
+		assertNo5xx(t, fmt.Sprintf("iteration %d", i), results...)
+		assertOutcome(t, results[0], "paid", "settlement")
+		if results[1].Status != http.StatusOK || ps.stock(t, m) != 90 || ps.orderStatus(t, o.ID) != "paid" {
+			t.Fatalf("iteration %d: save %s, stock %d, order %s", i, describe(results[1]), ps.stock(t, m), ps.orderStatus(t, o.ID))
+		}
+	}
+	assertNoServerErrors(t, ps.server)
+}
+
 // TestRace_ExpireNotificationVersusAdminSave: Midtrans' expire
 // notification cancels the unpaid order and returns its stock (order →
 // payment → variants in id order) while a seller saves the product with
