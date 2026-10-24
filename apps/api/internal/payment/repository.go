@@ -132,9 +132,13 @@ func applyIn(ctx context.Context, q *sqlc.Queries, in ApplyInput) (Outcome, erro
 		if paid {
 			return OutcomePaid, nil
 		}
-		// Money arrived for an order that is no longer waiting for it.
-		// It is never moved back to paid.
-		return OutcomeRecorded, nil
+		// Money arrived for an order that is no longer waiting for it: it
+		// expired, was cancelled, or another payment paid it first. The
+		// order is never revived; the payment is flagged for a refund.
+		if err := q.FlagPaymentForRefund(ctx, sqlc.FlagPaymentForRefundParams{ID: in.Payment.ID, Now: in.Now}); err != nil {
+			return "", fmt.Errorf("flag payment for refund: %w", err)
+		}
+		return OutcomeRefundRequired, nil
 	case StatusExpired:
 		cancelled, err := order.ExpireUnpaidIn(ctx, q, in.Payment.OrderID, in.Now)
 		if err != nil {

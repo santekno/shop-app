@@ -79,3 +79,10 @@ VALUES (
     @id, @payment_id, @dedupe_key, @source, @transaction_status, sqlc.narg('fraud_status'), @status_code,
     sqlc.narg('transaction_id'), sqlc.narg('payment_type'), sqlc.narg('gross_amount'), @outcome, @received_at)
 ON CONFLICT (payment_id, dedupe_key) DO NOTHING;
+
+-- name: FlagPaymentForRefund :exec
+-- Money arrived for an order that can no longer be paid (it expired, was
+-- cancelled, or another payment paid it first). The order is not touched:
+-- the seller returns the money (ADR 0007). Keeps the first flag time.
+UPDATE payments SET refund_required_at = COALESCE(refund_required_at, @now::timestamptz), updated_at = @now::timestamptz
+WHERE id = @id AND paid_at IS NOT NULL;

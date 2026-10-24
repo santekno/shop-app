@@ -34,6 +34,24 @@ func (q *Queries) CancelOpenPaymentsOfOrders(ctx context.Context, arg CancelOpen
 	return err
 }
 
+const flagPaymentForRefund = `-- name: FlagPaymentForRefund :exec
+UPDATE payments SET refund_required_at = COALESCE(refund_required_at, $1::timestamptz), updated_at = $1::timestamptz
+WHERE id = $2 AND paid_at IS NOT NULL
+`
+
+type FlagPaymentForRefundParams struct {
+	Now time.Time
+	ID  string
+}
+
+// Money arrived for an order that can no longer be paid (it expired, was
+// cancelled, or another payment paid it first). The order is not touched:
+// the seller returns the money (ADR 0007). Keeps the first flag time.
+func (q *Queries) FlagPaymentForRefund(ctx context.Context, arg FlagPaymentForRefundParams) error {
+	_, err := q.db.ExecContext(ctx, flagPaymentForRefund, arg.Now, arg.ID)
+	return err
+}
+
 const getOpenPayment = `-- name: GetOpenPayment :one
 
 SELECT id, order_id, provider, provider_order_id, amount, status, snap_token, redirect_url,
