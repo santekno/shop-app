@@ -10,13 +10,13 @@ Branch: `bab-6` (from `bab-5` @ `45aab80`; Bab 5 verified code `0ae3f11`)
 | 1 unit tests | test-engineer | pass | 97.4% total coverage (payment 99.3, midtrans 98.4, fake 97.2, storage 98.3, imaging 96.0, notify 97.4, mail 95.7, worker 92.1, report 100); 48/48 mutations caught in the first round, 79/79 in the last; an AST check that the signature compare is constant-time; 1 production bug found and fixed (below) |
 | 2 DB audit | database-auditor | pass | 5 rounds on a large dataset: 3 blocking findings (B1, B2 in round 1; B3 in round 2) fixed, then 0 blocking in rounds 3–5; 0 deadlocks in every round |
 | 3 integration | integration-engineer | pass | every route and job against real PostgreSQL, Redis and SeaweedFS; 11 races × 25 iterations judged on the final DB state; checkout → fake pay → webhook → `order.paid` → email end to end through the worker program; 1054 top-level tests, 0 skipped on `make test-integration`; `-race` clean on the unit and integration suites (28 packages; the integration package takes about 19 minutes under `-race`, so it needs `-timeout 60m`) |
-| 4 quality review | quality-review | pass | round 1: 0 blocking, 6 advice items (A1–A6); A1, A2, A4, A5, A6 fixed and A3 recorded here; round 2 re-review: pass, 0 blocking |
+| 4 quality review | quality-review | pass | round 1: 0 blocking, 6 advice items (A1–A6); A1, A2, A4, A5, A6 fixed and A3 recorded here; round 2 re-review: pass, 0 blocking; round 3 (the artikel-05 timestamp fix, with a DB audit): pass, 0 blocking |
 
-**Verified SHA:** `8b553dd48d213b8edde391afad8856a7939ec70e` (2026-10-26)
+**Verified SHA:** `33c05d5391dc91e2dfd70cb53249a17a4d725e02` (2026-10-26). The gate first passed on `8b553dd48d213b8edde391afad8856a7939ec70e`; writing artikel 05 then found a bug (below), fixed in `8204de2` and `33c05d5`, and the whole gate ran again on the new SHA.
 
-Every commit in `bab-5..bab-6` passes `go build ./...`, `go vet -tags=integration ./...` and `go test ./...` at its own snapshot (52/52).
+Every commit in `bab-5..bab-6` passes `go build ./...`, `go vet -tags=integration ./...` and `go test ./...` at its own snapshot (54/54; `4df9666` is docs only).
 
-`make verify` ran from a cold stack (`docker compose down -v` first) at the verified SHA and passed every stage in 515 s, with 0 skipped tests.
+`make verify` ran from a cold stack (`docker compose down -v` first) at the verified SHA and passed every stage in 477 s (515 s at `8b553dd`), with 0 skipped tests; the integration suite then ran again under `-race` (about 19 minutes, `-timeout 60m`), clean.
 
 ### What the gate changed
 
@@ -40,6 +40,7 @@ Every commit in `bab-5..bab-6` passes `go build ./...`, `go vet -tags=integratio
 - **Quality review A4:** the sales report's range error and contract said "at most 366 days later", but `to = from + 366 days` is refused. The text now reads "at most 366 days in all, both included".
 - **Quality review A5:** `APP_PAYMENT_TTL` accepted `1m`, but a Snap transaction keeps a one-minute margin, so every pay call under about 2 minutes was 409 `PAYMENT_WINDOW_CLOSED`. The minimum is now `5m`.
 - **Quality review A6:** the order-confirmation email, rendered when it is sent (possibly hours later, after retries), could still ask the buyer to pay an order that was already paid or cancelled. The "pay before" line now appears only while the order is `pending_payment`.
+- **Found while writing artikel 05:** `POST /v1/admin/products/{id}/images/uploads` answered `created_at` and `updated_at` as `0001-01-01T00:00:00Z`, because `InsertProductImage` was `:exec` and `CreatePendingImage` never read back what PostgreSQL set. The insert now ends in `RETURNING created_at, updated_at` (`8204de2`), and the upload integration test checks both against the stored row (`33c05d5`). A DB audit and a review of the fix (round 3) passed with 0 blocking, and found no other insert with the same problem.
 - **Integration:**
   - `TestResetPassword` (Bab 4) failed now and then because the host's clock and PostgreSQL's `now()` in the Docker VM disagree by a second or two; token expiries are compared within a 5-second margin (`a84c72a`);
   - `make test-integration` starts the `worker` service, so its health check gates the run (`e3e93f3`).
@@ -105,6 +106,7 @@ All recorded in ADR 0007, including the payment rows of the lock-order table.
   - `302c5c1` feat(bab-6/artikel-02) rewrites test-owned `apps/api/internal/config/shipping_test.go` (`TestLoad_PaymentTTL` as a table, +32/−8), because the A5 minimum would otherwise leave the intermediate commits red;
   - `e3e93f3` test(bab-6/artikel-07) changed the backend-owned `Makefile`, adding `worker` to `make test-integration`;
   - `302c5c1`, `ed4ea6e`, `068ae59`, `8ac3c30`, `36883d6` and `f6d3dd0` made mechanical test edits (usage strings, a call signature, a log message, the rate-limit count), to keep every commit green;
+  - `8204de2` fix(bab-6/artikel-05) also updates test-owned `internal/product/image_repository_test.go`, `image_service_test.go` and `image_handler_test.go`, so the fix commit stays green;
   - none of these lets a test agent change production code.
 
 ## Deferred
@@ -128,7 +130,7 @@ Each article has a `feat` commit, unit tests and integration tests.
 | 02 | Midtrans Snap integration (sandbox) | `302c5c1` | `441a35e`, `13db86d` |
 | 03 | Payment webhook and signature verification | `2a0eae0`, `9895fed` | `1d223ab`, `198227b`, `b1c8577`, `9b6d3b5`, `8b553dd` |
 | 04 | Payment status reconciliation | `ed4ea6e` | `6d7e0ac`, `1a4be2a` |
-| 05 | Product image upload to S3/R2 with presigned URLs | `74043d2`, `e01f487` (fix) | `ada0368`, `7c22ce3`, `4f58144` |
+| 05 | Product image upload to S3/R2 with presigned URLs | `74043d2`, `e01f487` (fix), `8204de2` (fix) | `ada0368`, `7c22ce3`, `4f58144`, `33c05d5` |
 | 06 | Image resize and optimisation | `068ae59` | `0549e3c`, `149ea39` |
 | 07 | Background jobs with a worker and queue (Asynq) | `9a1554a`, `9ded50b` (fix) | `4b00b84`, `5d273dd`, `b95ad19`, `413d76c` (end to end), `e3e93f3` |
 | 08 | Transactional email | `8ac3c30` | `8e22beb`, `cce3c50` |
