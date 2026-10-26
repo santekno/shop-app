@@ -80,7 +80,7 @@ Install the React Developer Tools extension (Chrome, Firefox or Edge) and open t
 
 **Profiler** records what rendered and why.
 
-- Start recording, click "Muat lebih banyak", then stop. With "Record why each component rendered" turned on in the settings, the cards that were already on screen show "Did not render": that is `memo(ProductCard)` together with the `useCallback` in `App`. Remove the `useCallback` and record again: every card renders, because its `onSelect` prop changed.
+- Start recording, click "Muat lebih banyak", then stop. With "Record why each component rendered" turned on in the settings, the cards that were already on screen show "Did not render": that is `memo(ProductCard)`, with each `product` keeping its identity. `App` does not render here (`CatalogPage` owns the list), so `onSelect` is unchanged even without `useCallback`. Now record opening a product and going back: `App` renders, and the cards still show "Did not render" because the `useCallback` keeps `onSelect` the same. Remove the `useCallback` and record that again: every card renders, because its `onSelect` prop changed.
 - Use it before adding `useMemo` or `useCallback` anywhere else. If a component is not slow and does not render for nothing, leave it as it is.
 
 **Two things that look like bugs but are not:**
