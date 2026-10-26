@@ -76,7 +76,9 @@
   --success: #1a7f37;
   /* Lines between things, the edge of a form field, the focus ring. */
   --border: #d1d9e0;
-  --input: #d1d9e0;
+  /* A field's edge must be seen to find the field: 3:1 against the
+     surface (WCAG 1.4.11), unlike a decorative line. */
+  --input: #768390;
   --ring: #0b5cad;
 
   /* The base radius rounded-sm, -md and -lg are derived from (below). */
@@ -103,7 +105,7 @@
     --destructive-foreground: #0d1117;
     --success: #3fb950;
     --border: #3d444d;
-    --input: #3d444d;
+    --input: #768390;
     --ring: #4493f8;
   }
 }

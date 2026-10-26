@@ -51,8 +51,12 @@ export function DropdownMenuItem({
   return (
     <DropdownMenuPrimitive.Item
       className={cn(
-        // data-highlighted: the item the arrow keys or the pointer are on.
-        "relative flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground",
+        // data-highlighted: the item the arrow keys or the pointer are on,
+        // which also has the focus. The accent background alone is too
+        // faint to find (1.1:1 against the menu), so the item gets the
+        // focus ring's outline too, inside its edge. outline-hidden, not
+        // outline-none: Windows' forced-colours mode still draws it.
+        "relative flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-accent data-highlighted:text-accent-foreground data-highlighted:outline-2 data-highlighted:-outline-offset-2 data-highlighted:outline-ring data-highlighted:outline-solid",
         className,
       )}
       {...props}

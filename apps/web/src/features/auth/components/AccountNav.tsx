@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useRef } from "react";
 import { NavLink } from "react-router";
 import { useSession } from "../session-context.ts";
 
@@ -15,12 +15,27 @@ const AccountMenu = lazy(async () => ({
  */
 export function AccountNav() {
   const { session, setSession } = useSession();
+  // Set by "Keluar". The menu that had the focus disappears with the
+  // session, and the focus would fall back to <body>, the top of the
+  // document. The "Masuk" link that takes its place takes the focus
+  // instead, so a keyboard user stays where they were.
+  const focusLoginLink = useRef(false);
 
   if (session === null) {
     return (
       <>
         <li>
-          <NavLink to="/masuk">Masuk</NavLink>
+          <NavLink
+            to="/masuk"
+            // A ref callback runs when the link is attached to the page.
+            ref={(link) => {
+              if (link === null || !focusLoginLink.current) return;
+              focusLoginLink.current = false;
+              link.focus();
+            }}
+          >
+            Masuk
+          </NavLink>
         </li>
         <li>
           <NavLink to="/daftar">Daftar</NavLink>
@@ -46,6 +61,7 @@ export function AccountNav() {
         <AccountMenu
           user={session.user}
           onLogout={() => {
+            focusLoginLink.current = true;
             setSession(null);
           }}
         />
