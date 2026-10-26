@@ -64,6 +64,8 @@ type adminImageOut struct {
 	Width       *int              `json:"width"`
 	Height      *int              `json:"height"`
 	Variants    []imageVariantOut `json:"variants"`
+	CreatedAt   time.Time         `json:"created_at"`
+	UpdatedAt   time.Time         `json:"updated_at"`
 }
 
 // imageVariantOut is ImageVariant.
@@ -180,6 +182,28 @@ func assertUpload(t *testing.T, resp response, what string) uploadOut {
 		t.Errorf("%s: the URL works for %s, want 15 minutes", what, d)
 	}
 	return u
+}
+
+// assertCreatedTimes checks a new pending image's timestamps: the ones
+// PostgreSQL set, read back (not Go's zero time), equal to each other on
+// creation, and between before and after on the host's clock. PostgreSQL
+// runs in the Docker VM, whose clock may disagree with the host's, so the
+// window allows clockSkew either way.
+func (sh *shop) assertCreatedTimes(t *testing.T, img adminImageOut, before, after time.Time, what string) {
+	t.Helper()
+	if img.CreatedAt.IsZero() || img.UpdatedAt.IsZero() {
+		t.Fatalf("%s: created_at %s, updated_at %s, want the database's timestamps",
+			what, img.CreatedAt.Format(time.RFC3339Nano), img.UpdatedAt.Format(time.RFC3339Nano))
+	}
+	if !img.UpdatedAt.Equal(img.CreatedAt) {
+		t.Errorf("%s: updated_at %s, want created_at %s on creation", what, img.UpdatedAt, img.CreatedAt)
+	}
+	if n := sh.count(t, `SELECT count(*) FROM product_images WHERE id = $1 AND created_at = $2 AND updated_at = $3
+		AND created_at BETWEEN $4::timestamptz - $6::interval AND $5::timestamptz + $6::interval`,
+		img.ID, img.CreatedAt, img.UpdatedAt, before, after, clockSkew); n != 1 {
+		t.Errorf("%s: created_at %s is not the stored one, or not between %s and %s (± %s)",
+			what, img.CreatedAt, before.UTC(), after.UTC(), clockSkew)
+	}
 }
 
 // put sends body to the presigned URL with headers (the ones the API

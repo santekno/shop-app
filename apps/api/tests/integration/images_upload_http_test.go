@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/santekno/sdk/uuidx"
 
@@ -16,7 +17,8 @@ import (
 
 // TestImageUpload_PresignPutConfirm walks the upload flow against the
 // real SeaweedFS: the API signs a PUT for exactly the declared type and
-// size under uploads/, the file goes straight to S3, and confirm reads
+// size under uploads/ and answers the pending image with the timestamps
+// PostgreSQL set, the file goes straight to S3, and confirm reads
 // what arrived and hands the image to the worker (processing). Confirming
 // again answers the same image. The original is private (403 to an
 // anonymous reader), and the storefront shows nothing until the worker
@@ -27,7 +29,9 @@ func TestImageUpload_PresignPutConfirm(t *testing.T) {
 	p := sh.product(t, "kaos-foto", variant("FT-M", "M", 50000, 10))
 	data := jpegOf(t, 1200, 900)
 
+	before := time.Now()
 	u := assertUpload(t, sh.startUpload(t, p.ID, "image/jpeg", len(data)), "start upload")
+	sh.assertCreatedTimes(t, u.Image, before, time.Now(), "start upload")
 	if u.Image.Position != 0 || u.Image.SizeBytes != len(data) || u.Image.ContentType != "image/jpeg" {
 		t.Errorf("pending image %+v", u.Image)
 	}
