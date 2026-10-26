@@ -15,7 +15,28 @@ export interface VariantRow {
   stock: number;
 }
 
-/** One product of GET /v1/products and GET /v1/products/{slug}. */
+/** One size of a product photo (the contract's ImageVariant). */
+export interface ImageVariantRow {
+  width: number;
+  height: number;
+  url: string;
+}
+
+/** One product photo (the contract's ProductImage). */
+export interface ImageRow {
+  id: string;
+  url: string;
+  alt: string;
+  width: number;
+  height: number;
+  /** Narrowest first. */
+  variants: ImageVariantRow[];
+}
+
+/**
+ * One product of GET /v1/products and GET /v1/products/{slug}, as the
+ * contract defines it.
+ */
 export interface ProductRow {
   id: string;
   slug: string;
@@ -25,6 +46,10 @@ export interface ProductRow {
   price_from: { amount: number; currency: string };
   in_stock: boolean;
   variants: VariantRow[];
+  /** Ready photos only, in order; the storefront ignores them until Bab 11. */
+  images: ImageRow[];
+  /** RFC 3339. */
+  created_at: string;
 }
 
 /** The storefront's page size (CatalogPage's PAGE_SIZE). */

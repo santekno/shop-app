@@ -1,6 +1,7 @@
 // Each product card against the API's data: name, category, the price in
 // rupiah (with "Mulai" when the variants differ in price) and the sold-out
-// badge, with the image placeholder while products have no photos.
+// badge, with the image placeholder: the seed writes no photos, and the
+// storefront ignores the API's images until Bab 11.
 import { expect, test } from "@playwright/test";
 import { watchBrowser } from "../support/browser.ts";
 import {
@@ -44,7 +45,10 @@ test("every card shows the API's name, category, rupiah price, Mulai and stock",
     if (!product.in_stock) {
       await expect(card.locator(".badge"), label).toHaveText("Stok habis");
     }
-    // No photos yet: a placeholder that screen readers skip.
+    // The seed writes no photos. Check that first, so a seed that gains
+    // photos fails here by name instead of passing for the wrong reason.
+    expect(product.images, `${label} images`).toEqual([]);
+    // Without photos: a placeholder that screen readers skip.
     await expect(card.getByText("Belum ada foto"), label).toBeVisible();
     await expect(
       card.locator(".product-image--placeholder"),
