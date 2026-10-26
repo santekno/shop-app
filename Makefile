@@ -13,6 +13,10 @@ COMPOSE ?= $(shell docker compose version >/dev/null 2>&1 && echo "docker compos
 HAS_API  := $(wildcard $(API)/go.mod)
 HAS_PNPM := $(wildcard pnpm-lock.yaml)
 
+# pnpm writes this file on every install. Targets that run pnpm depend on it,
+# so a fresh clone (or a changed lockfile) installs the workspace first.
+PNPM_INSTALLED := node_modules/.modules.yaml
+
 # golangci-lint refuses a module whose `go` line is newer than the Go it was
 # built with, and a prebuilt binary may lag behind (go1.25 vs our go 1.26).
 # make lint therefore builds this pinned version once, with the module's own
@@ -69,10 +73,13 @@ IT_ENV := POSTGRES_DSN='postgres://goshop:goshop@localhost:5432/goshop?sslmode=d
 	REDIS_URL=redis://localhost:6379/0 \
 	JWT_SECRET=integration-tests-only-signing-key-0123456789 \
 	S3_ENDPOINT=http://localhost:8333 \
+	S3_BUCKET=goshop \
+	S3_ACCESS_KEY=goshop \
+	S3_SECRET_KEY=goshop-secret \
 	GOSHOP_API_URL=http://127.0.0.1:8080
 
 .PHONY: help doctor build lint lint-openapi test-unit test-integration test-mobile-e2e docker-build scan verify up down dev-api docs-api \
-	migrate-up migrate-down migrate-new seed seed-large seed-admin seed-loadtest loadtest sqlc sqlc-check expire-orders cleanup-idempotency-keys publish-events
+	migrate-up migrate-down migrate-new seed seed-large seed-admin seed-loadtest loadtest sqlc sqlc-check expire-orders cleanup-idempotency-keys publish-events reconcile-payments process-images fake-pay dead-tasks requeue-task requeue-dead-tasks gen-types gen-types-check
 
 help: ## List targets
 	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -80,17 +87,17 @@ help: ## List targets
 doctor: ## Check that the required tools are installed
 	./scripts/check-tools.sh
 
-build: ## Compile and type-check every app present
+build: $(if $(HAS_PNPM),$(PNPM_INSTALLED)) ## Compile and type-check every app present
 ifneq ($(HAS_API),)
 	cd $(API) && go build -o bin/ ./...
 endif
 ifneq ($(HAS_PNPM),)
 	pnpm -r --if-present run typecheck
-	pnpm -r --if-present run build
+	VITE_API_URL=$${VITE_API_URL:-http://localhost:8080} pnpm -r --if-present run build
 endif
 	@echo "build: ok"
 
-lint: lint-openapi $(if $(HAS_API),$(GOLANGCI) sqlc-check) ## Lint every app present, the API contract and the sqlc output
+lint: lint-openapi $(if $(HAS_API),$(GOLANGCI) sqlc-check) $(if $(HAS_PNPM),gen-types-check) ## Lint every app present, the API contract and the generated code
 ifneq ($(HAS_API),)
 	cd $(API) && go vet -tags=integration ./... && $(GOLANGCI) run ./...
 endif
@@ -106,23 +113,35 @@ $(GOLANGCI):
 lint-openapi: ## Lint the API contract (api/openapi.yaml, rules in redocly.yaml)
 	$(REDOCLY) lint api/openapi.yaml
 
-test-unit: ## Unit tests + coverage thresholds (Go >= 80%, TS >= 70%)
+$(PNPM_INSTALLED): pnpm-lock.yaml package.json
+	pnpm install --frozen-lockfile
+	@touch $@
+
+gen-types: $(PNPM_INSTALLED) ## Generate the TypeScript API types (packages/shared) from api/openapi.yaml
+	pnpm --filter @goshop/shared run gen
+
+gen-types-check: $(PNPM_INSTALLED) ## Fail when the generated TypeScript API types do not match api/openapi.yaml
+	@pnpm --filter @goshop/shared --silent run gen:check || { echo "gen-types-check: packages/shared/src/api/schema.gen.ts is out of date; run make gen-types and commit the result" >&2; exit 1; }
+
+test-unit: $(if $(HAS_PNPM),$(PNPM_INSTALLED)) ## Unit tests + coverage thresholds (Go >= 80%, TS >= 70%)
 ifneq ($(HAS_API),)
 	./scripts/go-coverage.sh $(API) 80
 endif
 ifneq ($(HAS_PNPM),)
-	pnpm -r --if-present run test:unit
+	pnpm -r --if-present run test:unit --coverage
 endif
 	@echo "test-unit: ok"
 
-test-integration: ## Integration and e2e tests against the Compose stack; fails on any skipped test
+test-integration: $(if $(HAS_PNPM),$(PNPM_INSTALLED)) ## Integration and e2e tests against the Compose stack; fails on any skipped test
 	./scripts/no-skips.sh --self-test
 ifneq ($(HAS_API),)
-	$(COMPOSE) up -d --wait --build postgres redis storage api
+	$(COMPOSE) up -d --wait --build postgres redis storage api worker
 	cd $(API) && $(IT_ENV) ../../scripts/no-skips.sh go test -tags=integration -count=1 -json ./...
 endif
 ifneq ($(HAS_PNPM),)
-	pnpm -r --if-present run test:e2e
+	$(COMPOSE) up -d --wait --build web
+	$(if $(HAS_API),$(MAKE) --no-print-directory seed)
+	GOSHOP_COMPOSE='$(COMPOSE)' pnpm -r --if-present run test:e2e
 endif
 	@echo "test-integration: ok"
 
@@ -215,6 +234,27 @@ cleanup-idempotency-keys: ## Delete checkout idempotency keys past their 24 hour
 
 publish-events: ## Publish the outbox's pending domain events (to the log until Bab 6), once
 	$(COMPOSE) run --rm --no-deps api publish-events
+
+reconcile-payments: ## Ask Midtrans about every open payment and apply its answer, once
+	$(COMPOSE) run --rm --no-deps api reconcile-payments
+
+process-images: ## Resize the confirmed product images into their storefront variants, once
+	$(COMPOSE) run --rm --no-deps api process-images
+
+fake-pay: ## Pay an order with the fake gateway (APP_PAYMENT_PROVIDER=fake): make fake-pay order=GS-… [status=settlement]
+	@[[ "$(order)" =~ ^GS-[0-9]{8}-[0-9A-Z]{6}(-[0-9A-Z]{6})?$$ ]] || { echo "usage: make fake-pay order=GS-20261101-7KQ2M9 [status=settlement|expire|deny|...]" >&2; exit 1; }
+	@[[ "$(status)" =~ ^[a-z_]*$$ ]] || { echo "fake-pay: status is a Midtrans transaction_status such as settlement" >&2; exit 1; }
+	$(COMPOSE) exec api /api fake-pay '$(order)' $(if $(status),'$(status)')
+
+dead-tasks: ## List the worker tasks that ran out of retries (the dead-letter queue)
+	$(COMPOSE) run --rm --no-deps worker dead-tasks list
+
+requeue-task: ## Run one dead task again: make requeue-task id=<task id>
+	@[[ "$(id)" =~ ^[A-Za-z0-9:._-]+$$ ]] || { echo "usage: make requeue-task id=<task id from make dead-tasks>" >&2; exit 1; }
+	$(COMPOSE) run --rm --no-deps worker dead-tasks requeue '$(id)'
+
+requeue-dead-tasks: ## Run every dead task again
+	$(COMPOSE) run --rm --no-deps worker dead-tasks requeue-all
 
 up: ## Start the full stack locally
 	$(COMPOSE) up -d --build

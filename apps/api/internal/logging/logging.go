@@ -32,6 +32,12 @@ func stringField(key string, get func(context.Context) string) logx.ContextExtra
 // human-readable text format; every other environment gets one JSON object
 // per line, which log platforms such as Railway's parse into fields.
 func New(out io.Writer, development bool, level string) logx.Logger {
+	return NewService(out, development, level, "api")
+}
+
+// NewService is New for another binary of the module: every line carries
+// service=<service>, e.g. "worker".
+func NewService(out io.Writer, development bool, level, service string) logx.Logger {
 	format := "json"
 	if development {
 		format = "console"
@@ -40,7 +46,7 @@ func New(out io.Writer, development bool, level string) logx.Logger {
 		logx.WithOutput(out),
 		logx.WithFormat(format),
 		logx.WithLevel(level),
-		logx.WithFields("service", "api"),
+		logx.WithFields("service", service),
 	)
 }
 

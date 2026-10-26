@@ -9,6 +9,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -47,15 +48,15 @@ func Record(ctx context.Context, q *sqlc.Queries, aggregateType, aggregateID, ev
 	return nil
 }
 
-// Publisher hands an event to whoever consumes it. Bab 5 has only
-// LogPublisher; Bab 6 adds the job queue that sends emails and push
-// notifications.
+// Publisher hands an event to whoever consumes it: notify.QueuePublisher
+// (Bab 6) enqueues the worker's tasks; LogPublisher writes it to the log.
 type Publisher interface {
 	Publish(ctx context.Context, e Event) error
 }
 
-// LogPublisher publishes an event by writing it to the log: a stand-in
-// until Bab 6, which shows the flow end to end.
+// LogPublisher publishes an event by writing it to the log: Bab 5's
+// stand-in, kept for tests and demonstrations. It delivers to nobody, so
+// the API and the worker never use it.
 type LogPublisher struct {
 	Logger logx.Logger
 }
@@ -69,6 +70,24 @@ func (p LogPublisher) Publish(_ context.Context, e Event) error {
 
 // BatchSize is how many events one dispatcher transaction takes.
 const BatchSize = 100
+
+// PublishTimeout bounds one Publish (ADR 0007). The batch's rows stay
+// locked while the publisher runs, so a hanging broker must not hold them
+// for long: the first publish that times out ends the batch, and the
+// event waits for the next run.
+const PublishTimeout = 2 * time.Second
+
+// BatchPublishTime bounds the publishing inside one batch's transaction,
+// all publishes together: under a slow (not hanging) broker, 100 publishes
+// that each stay under PublishTimeout could still hold the claimed rows
+// for minutes. When it runs out, the events published so far are marked,
+// the rest stay for the next run, and the run ends there.
+const BatchPublishTime = 5 * time.Second
+
+// MaxBatchesPerRun bounds one PublishPending: at most this many batches,
+// then the rest waits for the next run (the worker runs it every 5
+// seconds), so one run never takes unbounded time under a flood.
+const MaxBatchesPerRun = 10
 
 // Dispatcher publishes the outbox.
 type Dispatcher struct {
@@ -89,20 +108,22 @@ func NewDispatcher(db *sql.DB, publisher Publisher) *Dispatcher {
 // to the publisher, and marked published. When the publisher fails, the
 // events published before it are still marked, the batch stops, and the
 // failed event is tried again on the next run: at least once, in order.
-// `api publish-events` runs it once; Bab 6's worker runs it on a ticker.
+// `api publish-events` runs it once; the worker every 5 seconds. One run
+// takes at most MaxBatchesPerRun batches.
 //
-// The batch's row locks are held while the publisher runs, so a publisher
-// must be quick: the log is; Bab 6's queue publisher must bound each
-// publish with a short timeout (ADR 0006).
+// The batch's row locks are held while the publisher runs, so each
+// publish gets PublishTimeout and the batch's publishes together
+// BatchPublishTime (ADR 0006, ADR 0007).
 func (d *Dispatcher) PublishPending(ctx context.Context) (int, error) {
 	total := 0
-	for {
+	for range MaxBatchesPerRun {
 		n, more, err := d.publishBatch(ctx)
 		total += n
 		if err != nil || !more {
 			return total, err
 		}
 	}
+	return total, nil
 }
 
 // publishBatch publishes one batch and reports whether a full one was
@@ -115,14 +136,25 @@ func (d *Dispatcher) publishBatch(ctx context.Context) (published int, more bool
 			return fmt.Errorf("claim outbox events: %w", err)
 		}
 		more = len(rows) == BatchSize
+		// The publishes share BatchPublishTime; the transaction's own
+		// statements keep ctx.
+		pubCtx, cancel := context.WithTimeout(ctx, BatchPublishTime)
+		defer cancel()
 		var done []string
 		for _, row := range rows {
+			if pubCtx.Err() != nil && ctx.Err() == nil {
+				more = false // out of time: the next run goes on
+				break
+			}
 			e := Event{
 				ID: row.ID, AggregateType: row.AggregateType, AggregateID: row.AggregateID,
 				Type: row.EventType, Payload: row.Payload, CreatedAt: row.CreatedAt,
 			}
-			if publishErr = d.publisher.Publish(ctx, e); publishErr != nil {
+			if publishErr = d.publish(pubCtx, e); publishErr != nil {
 				more = false
+				if pubCtx.Err() != nil && ctx.Err() == nil && errors.Is(publishErr, context.DeadlineExceeded) {
+					publishErr = nil // the batch ran out of time; not the event's fault
+				}
 				break
 			}
 			done = append(done, row.ID)
@@ -143,4 +175,74 @@ func (d *Dispatcher) publishBatch(ctx context.Context) (published int, more bool
 		return published, false, fmt.Errorf("publish outbox event: %w", publishErr)
 	}
 	return published, more, nil
+}
+
+// publish hands e to the publisher within PublishTimeout.
+func (d *Dispatcher) publish(ctx context.Context, e Event) error {
+	ctx, cancel := context.WithTimeout(ctx, PublishTimeout)
+	defer cancel()
+	return d.publisher.Publish(ctx, e)
+}
+
+// Retention is how long published events (and their delivery records) are
+// kept: long enough for every consumer's retries and for a look at what
+// happened, short enough that the table does not grow for ever.
+const Retention = 7 * 24 * time.Hour
+
+// cleanupBatchSize is how many rows one cleanup DELETE takes.
+const cleanupBatchSize = 1000
+
+// Cleanup deletes the events published, and the delivery records made,
+// more than Retention before now, in batches, and returns how many events
+// it deleted. The worker runs it daily.
+func Cleanup(ctx context.Context, db *sql.DB, now time.Time) (int64, error) {
+	q := sqlc.New(db)
+	before := now.Add(-Retention)
+	var events int64
+	for {
+		n, err := q.DeletePublishedEvents(ctx, sqlc.DeletePublishedEventsParams{Before: before, BatchSize: cleanupBatchSize})
+		events += n
+		if err != nil {
+			return events, fmt.Errorf("delete published events: %w", err)
+		}
+		if n < cleanupBatchSize {
+			break
+		}
+	}
+	for {
+		n, err := q.DeleteOldDeliveries(ctx, sqlc.DeleteOldDeliveriesParams{Before: before, BatchSize: cleanupBatchSize})
+		if err != nil {
+			return events, fmt.Errorf("delete old deliveries: %w", err)
+		}
+		if n < cleanupBatchSize {
+			return events, nil
+		}
+	}
+}
+
+// Deliveries records which consumer has handled which event (ADR 0007),
+// so a consumer can skip an event it saw before: delivery is at least
+// once.
+type Deliveries struct {
+	q *sqlc.Queries
+}
+
+// NewDeliveries returns the delivery records of db.
+func NewDeliveries(db *sql.DB) *Deliveries { return &Deliveries{q: sqlc.New(db)} }
+
+// Delivered reports whether consumer has handled event eventID.
+func (d *Deliveries) Delivered(ctx context.Context, eventID, consumer string) (bool, error) {
+	ok, err := d.q.EventDelivered(ctx, sqlc.EventDeliveredParams{EventID: eventID, Consumer: consumer})
+	if err != nil {
+		return false, fmt.Errorf("query event delivery: %w", err)
+	}
+	return ok, nil
+}
+
+// MarkDelivered records that consumer has handled event eventID.
+func (d *Deliveries) MarkDelivered(ctx context.Context, eventID, consumer string) error {
+	if err := d.q.MarkEventDelivered(ctx, sqlc.MarkEventDeliveredParams{EventID: eventID, Consumer: consumer}); err != nil {
+		return fmt.Errorf("record event delivery: %w", err)
+	}
+	return nil
 }

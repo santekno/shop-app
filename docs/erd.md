@@ -19,6 +19,15 @@ Every column is `NOT NULL` unless the diagram says `nullable`.
 | Bab 5 | `000009_create_orders` | `orders` and `order_items` as below, with `discount`, `voucher_id` and `voucher_code` added in Bab 5 (`orders_amounts_check`: `total = subtotal - discount + shipping_fee`); `orders_paid_check` (every status from `paid` on has `paid_at`); indexes `orders_user_created_idx`, `orders_user_pending_idx` (partial, `pending_payment`), `orders_status_created_idx`, `orders_payment_expires_idx` (partial, `pending_payment`), `orders_voucher_user_idx` (partial) and `order_items_variant_id_idx` |
 | Bab 5 | `000010_create_idempotency_keys` | `idempotency_keys`: primary key `(user_id, key)`, the SHA-256 of the body, a `claim_id` that saving and releasing must match, the stored answer (`json`, so a replay is byte for byte) and `order_id` (no foreign key: short-lived request state); `idempotency_keys_expires_at_idx` for the cleanup |
 | Bab 5 | `000011_create_outbox_events` | `outbox_events` (ADR 0006): one row per order status change, written in the change's transaction; `aggregate_type` and `event_type` CHECKs; the partial `outbox_events_unpublished_idx (created_at, id) WHERE published_at IS NULL` for the dispatcher |
+| Bab 6 | `000012_create_payments` | `payments` ([ADR 0007](adr/0007-payments-uploads-worker.md)): one row per Midtrans transaction, `provider_order_id` unique (`<order code>-<6 characters>`), the amount from the order, status CHECK, `paid_at` for every paid status, `refund_required_at` and `refunded_amount` (0 up to `amount`) for refunds; `payments_order_open_key`, a partial unique index that allows one open (`pending`, `challenge`) payment per order; `payments_order_created_idx` |
+| Bab 6 | `000013_create_payment_events` | `payment_events`: every distinct status Midtrans reported and what GoShop did (`outcome`); `payment_events_dedupe_key UNIQUE (payment_id, dedupe_key)` turns a repeated notification into a no-op |
+| Bab 6 | `000014_add_payments_checked_at` | `payments.checked_at` (the last check that got an answer) and `payments.final_checked_at` (the first check that got a final one), and the reconciler's two queues: the partial `payments_reconcile_idx (checked_at NULLS FIRST, created_at)` over open payments, and the partial `payments_closed_window_idx (expires_at) WHERE status = 'cancelled' AND final_checked_at IS NULL` over payments GoShop closed that have no final answer from Midtrans yet |
+| Bab 6 | `000015_create_product_images` | `product_images`: a pending upload until confirmed, content type, size (≤ 5 MiB) and dimension CHECKs, `original_key` unique; `product_images_product_idx (product_id, position, id)`, `product_images_pending_idx` (partial, for the cleanup) |
+| Bab 6 | `000016_add_product_image_variants` | `product_images.variants` (jsonb array of `{width, height, key}`), statuses `processing` and `failed`, a ready image has variants; `product_images_processing_idx` (partial) for the worker |
+| Bab 6 | `000017_index_guest_carts` | `carts_guest_updated_idx (updated_at) WHERE user_id IS NULL`, for the guest-cart cleanup |
+| Bab 6 | `000018_index_refresh_tokens_expires_at` | `refresh_tokens_expires_at_idx`, for the expired-token cleanup. Not `CONCURRENTLY` as ADR 0005 asked: it deadlocks with a second `api migrate` waiting on golang-migrate's advisory lock (the migration says how to build it by hand on a big table) |
+| Bab 6 | `000019_create_event_deliveries` | `event_deliveries (event_id, consumer)`: which consumer handled which outbox event; `outbox_events_published_idx` (partial) for deleting published events after 7 days |
+| Bab 6 | `000020_index_orders_paid_at` | `orders_paid_at_idx (paid_at) INCLUDE (id, total) WHERE status IN ('paid', 'processing', 'shipped', 'completed')`, for the sales report |
 
 Two choices made while building it:
 
@@ -42,6 +51,10 @@ erDiagram
     vouchers |o--o{ orders : "applied to"
     users ||--o{ idempotency_keys : "sends"
     orders ||--o{ outbox_events : "announces"
+    orders ||--o{ payments : "paid with"
+    payments ||--o{ payment_events : "reported as"
+    products ||--o{ product_images : "shown in"
+    outbox_events ||--o{ event_deliveries : "handled by (no FK)"
 
     users {
         uuid id PK "UUIDv7"
@@ -208,6 +221,65 @@ erDiagram
         timestamptz created_at
         timestamptz published_at "nullable = not yet"
     }
+
+    payments {
+        uuid id PK
+        uuid order_id FK "one open payment per order"
+        text provider "midtrans, fake"
+        text provider_order_id UK "order code + 6 characters"
+        bigint amount "rupiah, the order's total"
+        text status "pending, challenge, paid, denied, cancelled, expired, failed, (partially_)refunded"
+        text snap_token
+        text redirect_url
+        timestamptz expires_at "Snap stops taking money"
+        text provider_status "nullable, Midtrans' last word"
+        text provider_transaction_id "nullable"
+        text payment_type "nullable"
+        timestamptz paid_at "nullable"
+        timestamptz refund_required_at "nullable, money for an order that cannot take it"
+        bigint refunded_amount "0 to amount"
+        timestamptz checked_at "nullable, last reconciled"
+        timestamptz final_checked_at "nullable, first final answer"
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    payment_events {
+        uuid id PK
+        uuid payment_id FK
+        text dedupe_key "transaction_id|status|fraud_status"
+        text source "webhook, reconcile"
+        text transaction_status
+        text fraud_status "nullable"
+        text status_code
+        text transaction_id "nullable"
+        text payment_type "nullable"
+        bigint gross_amount "nullable"
+        text outcome "paid, order_cancelled, refund_required, amount_mismatch, recorded"
+        timestamptz received_at
+    }
+
+    product_images {
+        uuid id PK
+        uuid product_id FK
+        smallint position
+        text alt "at most 200"
+        text status "pending_upload, processing, ready, failed"
+        text content_type "image/jpeg, image/png, image/webp"
+        integer size_bytes "at most 5 MiB"
+        text original_key UK "S3 key"
+        integer width "nullable until confirmed"
+        integer height "nullable until confirmed"
+        jsonb variants "[{width, height, key}]"
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    event_deliveries {
+        uuid event_id PK "no FK: both are deleted after 7 days"
+        text consumer PK "task type"
+        timestamptz delivered_at
+    }
 ```
 
 ## Keys and constraints
@@ -229,7 +301,7 @@ erDiagram
 | At most one default address per user | `addresses` | partial unique index on `(user_id) WHERE is_default` |
 | `UNIQUE (id, level)` | `categories` | the target of the composite parent foreign key below |
 
-The Midtrans `order_id` is not `orders.code`: a buyer may retry payment after an attempt fails, and Midtrans needs a new id per attempt. It lives on the `payments` table added in Bab 6.
+The Midtrans `order_id` is not `orders.code`: a buyer may retry payment after an attempt fails, and Midtrans needs a new id per attempt. It is `payments.provider_order_id`, the order code plus 6 random characters (Bab 6).
 
 ### Foreign keys
 
@@ -247,6 +319,11 @@ The Midtrans `order_id` is not `orders.code`: a buyer may retry payment after an
 | `idempotency_keys.user_id` → `users` | no | CASCADE | keys are short-lived request state |
 | `order_items.order_id` → `orders` | no | CASCADE | items are part of the order; orders themselves are never deleted |
 | `order_items.variant_id` → `product_variants` | no | RESTRICT | the sales history of a variant must survive |
+| `payments.order_id` → `orders` | no | RESTRICT | a payment is a financial record of its order; orders are never deleted (Bab 6) |
+| `payment_events.payment_id` → `payments` | no | RESTRICT | the audit trail of a payment stays with it; `payment_events_dedupe_key` leads with `payment_id` and serves the check |
+| `product_images.product_id` → `products` | no | RESTRICT | products are archived, never deleted; `product_images_product_idx` leads with `product_id` |
+
+`event_deliveries.event_id` has no foreign key to `outbox_events`: both are deleted 7 days after publishing, by separate batches.
 
 `orders` has no foreign key to `addresses`: the shipping address is copied into the order (see below).
 
@@ -280,7 +357,7 @@ Nullable by design: `users.password_hash` (Google-only accounts), `users.phone`,
 | Status | Set when | Timestamp |
 |---|---|---|
 | `pending_payment` | the order is created at checkout; stock is already taken | `created_at`, `payment_expires_at` |
-| `paid` | the Midtrans webhook confirms payment (Bab 6) | `paid_at` |
+| `paid` | a signed Midtrans notification, confirmed with Midtrans' status API, reports the money (Bab 6, [ADR 0007](adr/0007-payments-uploads-worker.md)) | `paid_at` |
 | `processing` | the seller starts packing | — |
 | `shipped` | the seller enters the airway bill (`tracking_number`) | `shipped_at` |
 | `completed` | the buyer confirms receipt, or automatically some days after shipping | `completed_at` |
@@ -290,7 +367,7 @@ From Bab 5 each change also writes an `outbox_events` row in the same transactio
 
 `cancel_reason` is one of `payment_expired`, `buyer_cancelled`, `seller_cancelled`. An unpaid order whose `payment_expires_at` has passed becomes `cancelled` with `payment_expired`; there is no separate `expired` status. An order can be cancelled while it is `pending_payment`, `paid` or `processing`, never after it has shipped. The allowed transitions are one table in Go (`order.CanTransition`) and one conditional `UPDATE … WHERE status = ANY(…)` per transition (Bab 5), and the CHECKs above refuse rows that skip a required field. A buyer may cancel only while `pending_payment`; a seller or admin until shipping.
 
-The Midtrans transaction is created with an expiry that ends a safety margin **before** `payment_expires_at`, so Midtrans stops accepting payment before GoShop cancels the order. If a settlement still arrives for an order that is already cancelled, Bab 6 refunds it instead of reviving the order.
+The Midtrans transaction is created with an expiry that ends a safety margin **before** `payment_expires_at`, so Midtrans stops accepting payment before GoShop cancels the order. Cancelling an order (by the buyer, the seller, the expiry job or an account deletion) closes its open payment in the same transaction (`cancelled`), after the order row. If a settlement still arrives for an order that is already cancelled (or paid by another payment), the order is never revived: the payment is recorded as paid and flagged with `refund_required_at` (Bab 6). When Midtrans expires the open payment, the unpaid order is cancelled (`payment_expired`) right away, a minute before its own deadline.
 
 ## Stock and concurrency
 

@@ -84,6 +84,12 @@ tags:
       (name, variant, SKU, price) and where it ships, so later catalog or
       address changes never alter it. Every operation is scoped to the
       caller: another user's order answers 404 like a missing one.
+  - name: Payments
+    description: |
+      Paying an order with Midtrans Snap, sandbox only (Bab 6, ADR 0007).
+      The amount is always the order's total from the server; GoShop
+      learns that a payment arrived from Midtrans' signed notification,
+      confirmed with Midtrans' status API, never from a client.
 
 paths:
   /healthz:
@@ -243,6 +249,19 @@ paths:
                         name: XL
                         price: { amount: 99000, currency: IDR }
                         stock: 0
+                    images:
+                      - id: 0192f3b2-0a1b-7c2d-8e3f-4a5b6c7d8e9f
+                        url: http://localhost:8333/goshop/products/0192f3a1-5e6f-7a8b-9c0d-1e2f3a4b5c6d/0192f3b2-0a1b-7c2d-8e3f-4a5b6c7d8e9f/800.jpg
+                        alt: Kaos polos hitam, tampak depan
+                        width: 800
+                        height: 800
+                        variants:
+                          - width: 400
+                            height: 400
+                            url: http://localhost:8333/goshop/products/0192f3a1-5e6f-7a8b-9c0d-1e2f3a4b5c6d/0192f3b2-0a1b-7c2d-8e3f-4a5b6c7d8e9f/400.jpg
+                          - width: 800
+                            height: 800
+                            url: http://localhost:8333/goshop/products/0192f3a1-5e6f-7a8b-9c0d-1e2f3a4b5c6d/0192f3b2-0a1b-7c2d-8e3f-4a5b6c7d8e9f/800.jpg
                     created_at: "2026-11-01T08:00:00Z"
                 page:
                   next_cursor: eyJjIjoiMjAyNi0xMS0wMVQwODowMDowMFoiLCJpZCI6IjAxOTJmM2ExIn0
@@ -293,6 +312,7 @@ paths:
                       name: M
                       price: { amount: 89000, currency: IDR }
                       stock: 12
+                  images: []
                   created_at: "2026-11-01T08:00:00Z"
         "404":
           $ref: "#/components/responses/NotFound"
@@ -434,6 +454,179 @@ paths:
           description: The product is archived.
         "404":
           $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/admin/products/{id}/images/uploads:
+    parameters:
+      - $ref: "#/components/parameters/ProductID"
+    post:
+      tags: [Admin]
+      operationId: startProductImageUpload
+      summary: Start uploading a product photo
+      description: |
+        Records a pending photo and answers a presigned `PUT` to the image
+        bucket (ADR 0007): the client sends the file straight to S3, never
+        through the API. The URL works for 15 minutes, only for exactly the
+        declared `content_type` and `size_bytes` (at most 5 MiB). Then call
+        `POST …/images/{image_id}/confirm`. At most 10 photos per product,
+        pending ones included.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImageUploadRequest"
+      responses:
+        "201":
+          description: The pending photo and where to upload its file.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImageUploadDetail"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/ImageConflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/StorageUnavailable"
+
+  /v1/admin/products/{id}/images/{image_id}/confirm:
+    parameters:
+      - $ref: "#/components/parameters/ProductID"
+      - $ref: "#/components/parameters/ImageID"
+    post:
+      tags: [Admin]
+      operationId: confirmProductImage
+      summary: Confirm an uploaded product photo
+      description: |
+        Checks the uploaded file before the storefront shows it: its size
+        and type must be the declared ones, its first bytes must really be
+        that format, and it must be at most 6000 pixels a side and 24
+        megapixels. A file that fails is deleted with its pending photo
+        (422); start a new upload. A photo that passes is `processing`:
+        the worker resizes it into 400 and 800 pixel wide JPEGs (dropping
+        the original's metadata) and then it is `ready` on the storefront,
+        normally within 30 seconds. Confirming a confirmed photo answers it
+        again.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImageConfirmRequest"
+      responses:
+        "200":
+          description: The photo.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminProductImageDetail"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/ImageNotFound"
+        "409":
+          $ref: "#/components/responses/ImageConflict"
+        "422":
+          $ref: "#/components/responses/UploadInvalid"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/StorageUnavailable"
+
+  /v1/admin/products/{id}/images/{image_id}:
+    parameters:
+      - $ref: "#/components/parameters/ProductID"
+      - $ref: "#/components/parameters/ImageID"
+    delete:
+      tags: [Admin]
+      operationId: deleteProductImage
+      summary: Delete a product photo
+      description: Deletes the photo and its files.
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: Deleted.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/ImageNotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/StorageUnavailable"
+
+  /v1/admin/reports/sales:
+    get:
+      tags: [Admin]
+      operationId: getSalesReport
+      summary: Sales report
+      description: |
+        Revenue, order count and average order value per period, with a
+        running total, and the top 5 products, for the orders paid in the
+        range that were not cancelled afterwards (status `paid`,
+        `processing`, `shipped` or `completed`). Dates are Jakarta dates
+        (WIB), both included; at most 366 days. Every period of the range
+        is listed, empty ones included; weeks start on Monday, and the
+        first week or month may start before `from`. Revenue is the orders'
+        totals (after vouchers, with shipping); a top product's revenue is
+        its lines' totals (goods only, before vouchers).
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          description: First day; 29 days before `to` when not given.
+          schema:
+            type: string
+            format: date
+          example: "2026-10-01"
+        - name: to
+          in: query
+          description: Last day; today (Jakarta) when not given.
+          schema:
+            type: string
+            format: date
+          example: "2026-10-31"
+        - name: group
+          in: query
+          schema:
+            type: string
+            enum: [day, week, month]
+            default: day
+      responses:
+        "200":
+          description: The report.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesReportDetail"
+        "400":
+          $ref: "#/components/responses/BadReportQuery"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -1441,6 +1634,105 @@ paths:
           $ref: "#/components/responses/InternalError"
 
 
+  /v1/orders/{id}/pay:
+    parameters:
+      - $ref: "#/components/parameters/OrderID"
+    post:
+      tags: [Payments]
+      operationId: payMyOrder
+      summary: Start paying my unpaid order
+      description: |
+        Creates a Midtrans Snap transaction for the caller's
+        `pending_payment` order and answers its `token` (for Snap.js, with
+        `client_key`) and `redirect_url` (Midtrans' hosted page). The
+        request has no body: the amount is the order's `total`.
+
+        Idempotent per order: while the order has an open payment
+        (`pending` or `challenge`), every call answers it again (200).
+        After a payment ends without money (`denied`, `cancelled`,
+        `failed`), a call creates a new one (201) until the order's
+        deadline. Snap stops taking money at `expires_at`, at least one
+        minute before the order's `payment_expires_at`.
+
+        At most 10 calls per buyer per minute.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The order's open payment, created earlier.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentSessionDetail"
+        "201":
+          description: A new payment.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentSessionDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/OrderNotFound"
+        "409":
+          $ref: "#/components/responses/PaymentConflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/PaymentUnavailable"
+
+  /v1/payments/midtrans/notification:
+    post:
+      tags: [Payments]
+      operationId: midtransNotification
+      summary: Midtrans payment notification (webhook)
+      description: |
+        Called by Midtrans (Settings → Configuration → Payment Notification
+        URL), not by clients. No GoShop token: the notification's
+        `signature_key` (SHA-512 of `order_id`, `status_code`,
+        `gross_amount` and the server key) is its authentication, compared
+        in constant time. The body is only a hint: GoShop then asks
+        Midtrans' status API for the transaction's current status and acts
+        on that answer, so a replayed, late or out-of-order notification
+        cannot move a payment or an order backwards. Each distinct status is
+        recorded once; repeats are no-ops (`outcome: duplicate`).
+
+        What a status does: `settlement` (or a card `capture` accepted by
+        the fraud check) marks the order paid; `expire` cancels an unpaid
+        order and returns its stock; money for an order that can no longer
+        be paid is recorded for a refund and never revives the order; an
+        amount that is not the order's total changes nothing.
+
+        The body is read up to 64 KiB, unknown fields are ignored, and each
+        client IP may call it 120 times a minute.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MidtransNotification"
+      responses:
+        "200":
+          description: Handled; Midtrans stops sending this notification.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationResultDetail"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "403":
+          $ref: "#/components/responses/InvalidSignature"
+        "404":
+          $ref: "#/components/responses/PaymentNotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/PaymentUnavailable"
+
   /v1/admin/orders:
     get:
       tags: [Admin]
@@ -1655,6 +1947,22 @@ components:
         expires.
 
   parameters:
+    ProductID:
+      name: id
+      in: path
+      required: true
+      description: Product ID. One that is not a UUID returns 404 `NOT_FOUND`.
+      schema:
+        type: string
+        format: uuid
+    ImageID:
+      name: image_id
+      in: path
+      required: true
+      description: Image ID. One that is not a UUID returns 404 `NOT_FOUND`.
+      schema:
+        type: string
+        format: uuid
     CartToken:
       name: X-Cart-Token
       in: header
@@ -1740,7 +2048,7 @@ components:
 
     Product:
       type: object
-      required: [id, slug, name, description, category, price_from, in_stock, variants, created_at]
+      required: [id, slug, name, description, category, price_from, in_stock, variants, images, created_at]
       additionalProperties: false
       properties:
         id:
@@ -1770,9 +2078,186 @@ components:
           minItems: 1
           items:
             $ref: "#/components/schemas/ProductVariant"
+        images:
+          type: array
+          description: The product's photos in order, the first being its main photo; empty while it has none. Only `ready` photos are listed (Bab 6).
+          maxItems: 10
+          items:
+            $ref: "#/components/schemas/ProductImage"
         created_at:
           type: string
           format: date-time
+
+    ProductImage:
+      type: object
+      description: A product photo as the storefront shows it, resized by the server into JPEGs; the uploaded original is never linked.
+      required: [id, url, alt, width, height, variants]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        url:
+          type: string
+          format: uri
+          description: The widest variant, for an `<img src>`. Read from the bucket's public URL or a CDN; never changes for one image id, so it may be cached.
+        alt:
+          type: string
+          maxLength: 200
+          description: The photo's text for screen readers; may be empty (then use the product's name).
+        width:
+          type: integer
+          minimum: 1
+          description: The width of `url`.
+        height:
+          type: integer
+          minimum: 1
+        variants:
+          type: array
+          description: Every size, narrowest first (400 and 800 pixels wide, or the original's width when it is smaller), for `srcset="<url> <width>w, …"`.
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/ImageVariant"
+
+    ImageVariant:
+      type: object
+      required: [width, height, url]
+      additionalProperties: false
+      properties:
+        width:
+          type: integer
+          minimum: 1
+        height:
+          type: integer
+          minimum: 1
+        url:
+          type: string
+          format: uri
+
+    AdminProductImage:
+      type: object
+      description: A product photo as the admin sees it, pending uploads included.
+      required: [id, status, position, alt, content_type, size_bytes, url, width, height, variants, created_at, updated_at]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending_upload, processing, ready, failed]
+          description: "`pending_upload`: signed but not confirmed; `processing`: confirmed, the worker is making its sizes (normally within 30 seconds); `ready`: on the storefront; `failed`: the file could not be decoded, delete it and upload again."
+        position:
+          type: integer
+          minimum: 0
+        alt:
+          type: string
+          maxLength: 200
+        content_type:
+          type: string
+          enum: [image/jpeg, image/png, image/webp]
+        size_bytes:
+          type: integer
+          minimum: 1
+          maximum: 5242880
+        url:
+          description: The widest variant's public URL, `null` until `ready`.
+          oneOf:
+            - type: string
+              format: uri
+            - type: "null"
+        width:
+          description: The width of `url`, `null` until `ready`.
+          oneOf:
+            - type: integer
+              minimum: 1
+            - type: "null"
+        height:
+          oneOf:
+            - type: integer
+              minimum: 1
+            - type: "null"
+        variants:
+          type: array
+          description: Every size, narrowest first; empty until `ready`.
+          items:
+            $ref: "#/components/schemas/ImageVariant"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ImageUploadRequest:
+      type: object
+      required: [content_type, size_bytes]
+      additionalProperties: false
+      properties:
+        content_type:
+          type: string
+          enum: [image/jpeg, image/png, image/webp]
+        size_bytes:
+          type: integer
+          minimum: 1
+          maximum: 5242880
+          description: The file's exact size; the upload must have exactly this many bytes.
+
+    ImageUpload:
+      type: object
+      required: [image, upload]
+      additionalProperties: false
+      properties:
+        image:
+          $ref: "#/components/schemas/AdminProductImage"
+        upload:
+          type: object
+          description: Send the file as the body of one request with exactly this method, URL and headers; Content-Type and Content-Length are part of the signature.
+          required: [method, url, headers, expires_at]
+          additionalProperties: false
+          properties:
+            method:
+              type: string
+              const: PUT
+            url:
+              type: string
+              format: uri
+            headers:
+              type: object
+              additionalProperties:
+                type: string
+              example:
+                Content-Type: image/jpeg
+                Content-Length: "348112"
+            expires_at:
+              type: string
+              format: date-time
+              description: The URL stops working 15 minutes after it was signed.
+
+    ImageUploadDetail:
+      type: object
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          $ref: "#/components/schemas/ImageUpload"
+
+    ImageConfirmRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        alt:
+          type: string
+          maxLength: 200
+          default: ""
+
+    AdminProductImageDetail:
+      type: object
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          $ref: "#/components/schemas/AdminProductImage"
 
     ProductWrite:
       type: object
@@ -1876,7 +2361,7 @@ components:
     AdminProduct:
       type: object
       description: A product as the admin sees it, in any status.
-      required: [id, category_id, slug, name, description, status, price_from, variants, created_at, updated_at]
+      required: [id, category_id, slug, name, description, status, price_from, variants, images, created_at, updated_at]
       additionalProperties: false
       properties:
         id:
@@ -1904,6 +2389,12 @@ components:
           description: The sellable (non-archived) variants, cheapest first.
           items:
             $ref: "#/components/schemas/AdminVariant"
+        images:
+          type: array
+          description: Every photo in order, pending uploads included (at most 10).
+          maxItems: 10
+          items:
+            $ref: "#/components/schemas/AdminProductImage"
         created_at:
           type: string
           format: date-time
@@ -2795,6 +3286,179 @@ components:
         page:
           $ref: "#/components/schemas/PageInfo"
 
+    PaymentSession:
+      type: object
+      description: A Midtrans Snap transaction for an order.
+      required: [id, order_id, provider, status, amount, token, redirect_url, client_key, expires_at, created_at]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        order_id:
+          type: string
+          format: uuid
+        provider:
+          type: string
+          enum: [midtrans, fake]
+          description: "`fake` only where the server runs the test gateway (`APP_PAYMENT_PROVIDER=fake`, never in production)."
+        status:
+          type: string
+          enum: [pending, challenge]
+          description: An open payment is always `pending` or `challenge`.
+        amount:
+          $ref: "#/components/schemas/Money"
+        token:
+          type: string
+          description: The Snap token, for `snap.pay(token)` in Snap.js.
+        redirect_url:
+          type: string
+          format: uri
+          description: Midtrans' hosted payment page, for a client without Snap.js.
+        client_key:
+          type: string
+          description: Midtrans' public client key, the `data-client-key` of Snap.js.
+        expires_at:
+          type: string
+          format: date-time
+          description: When Snap stops taking money for this payment.
+        created_at:
+          type: string
+          format: date-time
+
+    PaymentSessionDetail:
+      type: object
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          $ref: "#/components/schemas/PaymentSession"
+
+    MidtransNotification:
+      type: object
+      description: The fields of a Midtrans HTTP notification that GoShop reads. Midtrans sends more (transaction_status, payment_type, …); they are ignored, because the status comes from Midtrans' status API.
+      required: [order_id, status_code, gross_amount, signature_key]
+      additionalProperties: true
+      properties:
+        order_id:
+          type: string
+          maxLength: 256
+          description: The payment's Midtrans order_id, `<order code>-<6 characters>`.
+          example: GS-20261101-7KQ2M9-K3D9QX
+        status_code:
+          type: string
+          maxLength: 256
+          example: "200"
+        gross_amount:
+          type: string
+          maxLength: 256
+          example: "117000.00"
+        signature_key:
+          type: string
+          maxLength: 256
+          description: Lower-case hex SHA-512 of order_id + status_code + gross_amount + server key.
+
+    NotificationResult:
+      type: object
+      required: [outcome]
+      additionalProperties: false
+      properties:
+        outcome:
+          type: string
+          enum: [paid, order_cancelled, refund_required, amount_mismatch, recorded, duplicate]
+          description: What GoShop did with the transaction's current status.
+
+    NotificationResultDetail:
+      type: object
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          $ref: "#/components/schemas/NotificationResult"
+
+    SalesReport:
+      type: object
+      required: [from, to, group, time_zone, totals, series, top_products]
+      additionalProperties: false
+      properties:
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+        group:
+          type: string
+          enum: [day, week, month]
+        time_zone:
+          type: string
+          const: Asia/Jakarta
+        totals:
+          type: object
+          required: [revenue, order_count, average_order_value]
+          additionalProperties: false
+          properties:
+            revenue:
+              $ref: "#/components/schemas/Money"
+            order_count:
+              type: integer
+              minimum: 0
+            average_order_value:
+              $ref: "#/components/schemas/Money"
+              description: Revenue divided by order count, rounded to the rupiah; 0 without orders.
+        series:
+          type: array
+          items:
+            type: object
+            required: [period, revenue, order_count, average_order_value, cumulative_revenue]
+            additionalProperties: false
+            properties:
+              period:
+                type: string
+                format: date
+                description: The period's first day.
+              revenue:
+                $ref: "#/components/schemas/Money"
+              order_count:
+                type: integer
+                minimum: 0
+              average_order_value:
+                $ref: "#/components/schemas/Money"
+              cumulative_revenue:
+                $ref: "#/components/schemas/Money"
+                description: Revenue from the range's start through this period.
+        top_products:
+          type: array
+          maxItems: 5
+          items:
+            type: object
+            required: [rank, product_id, name, units, revenue]
+            additionalProperties: false
+            properties:
+              rank:
+                type: integer
+                minimum: 1
+                description: Products with the same revenue share a rank.
+              product_id:
+                type: string
+                format: uuid
+              name:
+                type: string
+                description: The product's current name.
+              units:
+                type: integer
+                minimum: 1
+              revenue:
+                $ref: "#/components/schemas/Money"
+
+    SalesReportDetail:
+      type: object
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          $ref: "#/components/schemas/SalesReport"
+
     ShipRequest:
       type: object
       required: [tracking_number]
@@ -3371,3 +4035,139 @@ components:
               message: invalid request
               details:
                 tracking_number: "must be the courier's airway bill: 6 to 40 letters, digits or hyphens"
+
+    PaymentConflict:
+      description: |
+        The order is not waiting for payment (`INVALID_TRANSITION` with
+        `details.status` and `details.to: paid`), or its payment deadline is
+        less than two minutes away, too close to start a payment
+        (`PAYMENT_WINDOW_CLOSED`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            notPayable:
+              value:
+                error:
+                  code: INVALID_TRANSITION
+                  message: the order cannot make this change in its current status
+                  details:
+                    status: cancelled
+                    to: paid
+            windowClosed:
+              value:
+                error:
+                  code: PAYMENT_WINDOW_CLOSED
+                  message: the payment deadline of this order is too close to start a payment
+    PaymentUnavailable:
+      description: |
+        Payments are not configured on this server (`PAYMENTS_DISABLED`:
+        `MIDTRANS_SERVER_KEY` is empty), or Midtrans did not answer in time
+        (`APP_PAYMENT_TIMEOUT`), answered with an error, or has failed so
+        often that the API stopped asking it for a while
+        (`UPSTREAM_UNAVAILABLE`). Retry the second one shortly; Midtrans
+        sends a notification again by itself.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            disabled:
+              value:
+                error:
+                  code: PAYMENTS_DISABLED
+                  message: payments are not configured on this server
+            upstream:
+              value:
+                error:
+                  code: UPSTREAM_UNAVAILABLE
+                  message: the payment service is not answering; try again shortly
+    InvalidSignature:
+      description: The notification's `signature_key` is not Midtrans' signature with this server's key (`INVALID_SIGNATURE`). Nothing is read or changed.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: INVALID_SIGNATURE
+              message: the notification signature is not valid
+    PaymentNotFound:
+      description: A correctly signed notification about an `order_id` this server never created.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: NOT_FOUND
+              message: payment not found
+    StorageUnavailable:
+      description: Image storage is not configured on this server (`STORAGE_DISABLED`, `S3_ENDPOINT` is empty).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: STORAGE_DISABLED
+              message: image storage is not configured on this server
+    ImageConflict:
+      description: The product has 10 photos already (`IMAGE_LIMIT_REACHED`, `details.max`), or confirm was called before the file was uploaded (`UPLOAD_MISSING`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            limit:
+              value:
+                error:
+                  code: IMAGE_LIMIT_REACHED
+                  message: this product has the most images it may have; delete one first
+                  details:
+                    max: 10
+            missing:
+              value:
+                error:
+                  code: UPLOAD_MISSING
+                  message: upload the file to the presigned URL before confirming
+    UploadInvalid:
+      description: |
+        The uploaded file is not what was declared, or not an acceptable
+        image (`UPLOAD_INVALID`, `details.reason` one of `size_mismatch`,
+        `content_type_mismatch`, `not_an_image_of_the_declared_type`,
+        `unreadable_image`, `too_many_pixels`). The file and the pending
+        photo were deleted.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: UPLOAD_INVALID
+              message: the uploaded file is not the declared image; start a new upload
+              details:
+                reason: too_many_pixels
+    ImageNotFound:
+      description: No such photo of this product, or an id that is not a UUID.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: NOT_FOUND
+              message: image not found
+    BadReportQuery:
+      description: A date is not `YYYY-MM-DD`, `group` is not day, week or month, or `to` is before `from` or the range is longer than 366 days, both included (`VALIDATION_FAILED`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: VALIDATION_FAILED
+              message: invalid query parameters
+              details:
+                to: must be on or after from, at most 366 days in all, both included

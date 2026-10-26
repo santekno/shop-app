@@ -40,7 +40,7 @@ Every path has exactly one owner. When patterns overlap, the more specific row w
 | `deploy/seaweedfs/**`, `deploy/railway/api.json`, `deploy/railway/worker.json` | backend-engineer |
 | `.env.example`, `.dockerignore`, `.go-version` | backend-engineer |
 | `docs/architecture.md`, `docs/erd.md`, `docs/configuration.md`, `docs/sdk-gaps.md`, `docs/adr/**` | backend-engineer |
-| `apps/web/**`, `apps/admin/**` (except tests), `packages/**` | frontend-engineer |
+| `apps/web/**`, `apps/admin/**` (except tests), `packages/**`, `docs/web/**` | frontend-engineer |
 | `docker-compose.yml`: the `web`/`admin` services; `deploy/railway/web.json`, `deploy/railway/admin.json` | frontend-engineer |
 | root `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml` (except its `e2e` entry), `.nvmrc` | frontend-engineer |
 | `apps/mobile/**` (except tests and `.maestro/`) | react-native-engineer |

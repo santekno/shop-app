@@ -22,6 +22,8 @@ Start with the [repository README](../README.md) to run the project, then read t
 | [ai-rules.md](ai-rules.md) | When to use AI, the AI box in articles, what never goes into a prompt |
 | [`../CLAUDE.md`](../CLAUDE.md) | The verified gate and the agents that run it |
 | [sdk-gaps.md](sdk-gaps.md) | Concerns santekno/sdk does not cover yet, and GoShop's adapters |
+| [web/README.md](web/README.md) | JS/TS for Go developers: the Bab 7 concepts mapped to files in `packages/shared` and `apps/web` |
+| [`../apps/web/README.md`](../apps/web/README.md) | Running, building and configuring the storefront (`VITE_API_URL`, the container) |
 
 ## Chapter records
 
@@ -42,3 +44,4 @@ An ADR records one significant decision: the context, the decision and its conse
 | [0004](adr/0004-api-layering.md) | Layer the API per feature: handler, service, repository | Accepted |
 | [0005](adr/0005-auth-tokens.md) | Authenticate with a short-lived JWT and a rotating refresh token | Accepted |
 | [0006](adr/0006-cart-checkout-orders.md) | Keep carts in PostgreSQL and create an order in one guarded transaction | Accepted |
+| [0007](adr/0007-payments-uploads-worker.md) | Take payments through Midtrans Snap, upload images straight to S3, and run side effects on an Asynq worker | Accepted |

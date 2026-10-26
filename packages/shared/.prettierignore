@@ -1,0 +1,2 @@
+# Generated from api/openapi.yaml (make gen-types).
+src/api/schema.gen.ts

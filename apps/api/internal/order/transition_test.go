@@ -63,7 +63,7 @@ func TestPostgresRepository_TransitionStatements(t *testing.T) {
 			testx.AssertContains(t, db.sqlOf(tt.query), "updated_at = $")
 			testx.AssertTrue(t, db.ran("COMMIT"))
 			cancels := tt.c.To == StatusCancelled
-			for _, name := range []string{"LockOrderVariants", "RestoreOrderStock", "ReleaseVoucher"} {
+			for _, name := range []string{"LockOrderVariants", "RestoreOrderStock", "ReleaseVoucher", "CancelOpenPaymentsOfOrders"} {
 				testx.AssertEqual(t, db.ran(name), cancels, "%s runs only for a cancel", name)
 			}
 			ev, _ := db.call("InsertOutboxEvent")
@@ -83,8 +83,14 @@ func TestPostgresRepository_CancelGivesBack(t *testing.T) {
 	err := transition(t, db, Change{OrderID: orderID1, To: StatusCancelled, Now: testTime, CancelReason: reason, BuyerID: buyerID})
 	testx.AssertNoError(t, err)
 	testx.AssertEqual(t, strings.Join(db.names(), ","),
-		"BEGIN,CancelOrder,LockOrderVariants,RestoreOrderStock,ReleaseVoucher,GetOrder,InsertOutboxEvent,COMMIT")
+		"BEGIN,CancelOrder,LockOrderVariants,RestoreOrderStock,ReleaseVoucher,CancelOpenPaymentsOfOrders,GetOrder,InsertOutboxEvent,COMMIT")
 	assertSQL(t, db, "CancelOrder", "WHERE id = $3 AND status = ANY($4::text[])")
+	// Bab 6 (ADR 0007): the order's open payment closes in the same
+	// transaction, after the order row, so its Snap page takes no money.
+	closed, _ := db.call("CancelOpenPaymentsOfOrders")
+	assertArgs(t, closed.args, []driver.Value{testTime, pqArray(orderID1)}, "CancelOpenPaymentsOfOrders")
+	assertSQL(t, db, "CancelOpenPaymentsOfOrders", "UPDATE payments SET status = 'cancelled'",
+		"WHERE order_id = ANY($2::uuid[]) AND status IN ('pending', 'challenge')")
 	assertSQL(t, db, "LockOrderVariants", "ORDER BY v.id FOR NO KEY UPDATE OF v")
 	for _, name := range []string{"LockOrderVariants", "RestoreOrderStock", "ReleaseVoucher"} {
 		c, _ := db.call(name)
@@ -160,6 +166,7 @@ func TestPostgresRepository_TransitionErrors(t *testing.T) {
 		{query: "LockOrderVariants", db: changedDB(StatusCancelled).on("LockOrderVariants", failWith(errBoom)), msg: "lock order variants: boom"},
 		{query: "RestoreOrderStock", db: changedDB(StatusCancelled).on("RestoreOrderStock", failWith(errBoom)), msg: "restore stock: boom"},
 		{query: "ReleaseVoucher", db: changedDB(StatusCancelled).on("ReleaseVoucher", failWith(errBoom)), msg: "release voucher: boom"},
+		{query: "CancelOpenPaymentsOfOrders", db: changedDB(StatusCancelled).on("CancelOpenPaymentsOfOrders", failWith(errBoom)), msg: "close open payments: boom"},
 		{query: "GetOrder", db: newFakeSQL().on("GetOrder", failWith(errBoom)), msg: "read changed order: boom"},
 		{query: "InsertOutboxEvent", db: changedDB(StatusCancelled).on("InsertOutboxEvent", failWith(errBoom)), msg: "record order.cancelled event: boom"},
 	}

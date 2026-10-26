@@ -1,0 +1,10 @@
+{
+  // Two programs with different globals: the app runs in the browser,
+  // vite.config.ts runs in Node. Each has its own tsconfig; `tsc -b`
+  // checks both.
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.app.json" },
+    { "path": "./tsconfig.node.json" }
+  ]
+}

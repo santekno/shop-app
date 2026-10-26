@@ -46,6 +46,8 @@ type Handler struct {
 	catalog   Catalog
 	admin     Admin
 	validator *httpapi.Validator
+	images    Images
+	publicURL func(key string) string
 }
 
 // NewHandler returns a Handler. svc is usually one *Service that is both
@@ -97,7 +99,11 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, r, toHTTPError(err))
 		return
 	}
-	httpapi.JSON(w, r, http.StatusOK, toListResponse(page))
+	resp := toListResponse(page)
+	for i, p := range page.Products {
+		resp.Data[i].Images = h.toImagesJSON(p.Images)
+	}
+	httpapi.JSON(w, r, http.StatusOK, resp)
 }
 
 // Get serves GET /v1/products/{slug}. A malformed slug is answered exactly
@@ -113,7 +119,9 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, r, toHTTPError(err))
 		return
 	}
-	httpapi.JSON(w, r, http.StatusOK, dataResponse{Data: toProductJSON(p)})
+	out := toProductJSON(p)
+	out.Images = h.toImagesJSON(p.Images)
+	httpapi.JSON(w, r, http.StatusOK, dataResponse{Data: out})
 }
 
 // toHTTPError maps the service's errors to the API's error responses.
@@ -190,7 +198,9 @@ type productJSON struct {
 	PriceFrom   moneyJSON     `json:"price_from"`
 	InStock     bool          `json:"in_stock"`
 	Variants    []variantJSON `json:"variants"`
-	CreatedAt   time.Time     `json:"created_at"`
+	// Images is filled by the handler, which knows the public URLs.
+	Images    []imageJSON `json:"images"`
+	CreatedAt time.Time   `json:"created_at"`
 }
 
 type pageJSON struct {
@@ -222,6 +232,7 @@ func toProductJSON(p Product) productJSON {
 		PriceFrom: rupiah(p.PriceFrom),
 		InStock:   p.InStock(),
 		Variants:  variants,
+		Images:    []imageJSON{},
 		CreatedAt: p.CreatedAt.UTC(),
 	}
 }

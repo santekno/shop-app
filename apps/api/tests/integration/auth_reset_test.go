@@ -35,8 +35,12 @@ func TestResetPassword(t *testing.T) {
 
 	token := s.forgot(t, mailer, u.Email)
 	id, hash := splitOpaque(t, token)
+	// expires_at comes from the API's clock (the host) and now() from
+	// PostgreSQL's (the Docker VM), which may disagree by a second or two:
+	// the window allows clockSkew either way.
 	if n := s.count(t, `SELECT count(*) FROM user_tokens WHERE id = $1 AND token_hash = $2 AND purpose = 'reset_password'
-		AND expires_at BETWEEN now() + interval '29 minutes' AND now() + interval '30 minutes'`, id, hash); n != 1 {
+		AND expires_at BETWEEN now() + interval '29 minutes' - $3::interval AND now() + interval '30 minutes' + $3::interval`,
+		id, hash, clockSkew); n != 1 {
 		t.Error("the reset token is not stored as its SHA-256 with a 30-minute expiry")
 	}
 

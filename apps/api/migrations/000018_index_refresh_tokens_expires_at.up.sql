@@ -1,0 +1,13 @@
+-- The worker's refresh-token cleanup (ADR 0005, ADR 0007): expired tokens
+-- are deleted in batches.
+--
+-- Not CONCURRENTLY, although ADR 0005 asked for it: golang-migrate holds
+-- a session advisory lock while it migrates, and a second `api migrate`
+-- (two deploys at once) waits for that lock inside a statement, which
+-- CREATE INDEX CONCURRENTLY then waits for in turn: PostgreSQL detects a
+-- deadlock and fails the second deploy. GoShop is not deployed yet
+-- (Bab 19), so the table is small and a plain build takes milliseconds.
+-- On a big production table, build it by hand first with
+--   CREATE INDEX CONCURRENTLY IF NOT EXISTS refresh_tokens_expires_at_idx ON refresh_tokens (expires_at);
+-- and this migration does nothing.
+CREATE INDEX IF NOT EXISTS refresh_tokens_expires_at_idx ON refresh_tokens (expires_at);

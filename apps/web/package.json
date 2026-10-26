@@ -1,0 +1,43 @@
+{
+  "name": "@goshop/web",
+  "version": "0.0.0",
+  "private": true,
+  "description": "GoShop storefront for buyers (Vite + React)",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc -b",
+    "lint": "eslint --max-warnings=0 . && prettier --check .",
+    "format": "prettier --write . && eslint --fix .",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test:unit": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@goshop/shared": "workspace:*",
+    "react": "catalog:",
+    "react-dom": "catalog:"
+  },
+  "devDependencies": {
+    "@eslint/js": "catalog:",
+    "@testing-library/dom": "catalog:",
+    "@testing-library/react": "catalog:",
+    "@testing-library/user-event": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
+    "eslint": "catalog:",
+    "eslint-config-prettier": "catalog:",
+    "eslint-plugin-react-hooks": "catalog:",
+    "eslint-plugin-react-refresh": "catalog:",
+    "globals": "catalog:",
+    "jsdom": "catalog:",
+    "prettier": "catalog:",
+    "typescript": "catalog:",
+    "typescript-eslint": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:"
+  }
+}

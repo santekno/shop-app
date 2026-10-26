@@ -10,7 +10,7 @@ cp .env.example .env   # .env is gitignored; never commit it
 
 ## Variables
 
-"Reads it" names the service that uses the variable. The worker (Bab 6) shares the API's Go module and reads the same database, Redis and storage settings. The web, admin and mobile apps never see these values; their own public settings (such as the API URL) arrive with each app.
+"Reads it" names the service that uses the variable. The worker (Bab 6, `apps/api/cmd/worker`) shares the API's Go module and **loads the same configuration**: it validates every variable the API does (so `JWT_SECRET`, `GOOGLE_CLIENT_ID` and `APP_TRUSTED_PROXY_HOPS` are required for it too outside development, though it uses none of them), and listens on `PORT`/`APP_PORT` for its health checks only. The web, admin and mobile apps never see these values; their own public settings (such as the API URL) arrive with each app.
 
 | Variable | Reads it | Secret | Purpose | Used from |
 |---|---|---|---|---|
@@ -34,14 +34,28 @@ cp .env.example .env   # .env is gitignored; never commit it
 | `BITESHIP_API_KEY` | api | **yes** | Key for [Biteship](https://biteship.com)'s rates API, which prices shipping by postal code for JNE, J&T and SiCepat ([ADR 0006](adr/0006-cart-checkout-orders.md)). **Empty turns Biteship off**: the API then prices from a fixed table per started kilogram (`shipping.Static`) in every environment, and logs `shipping fees provider=static` at start. Use a test key (Biteship's dashboard → API keys) outside production. | Bab 5 |
 | `APP_SHIPPING_ORIGIN_POSTAL_CODE` | api | no | Postal code of the warehouse parcels leave from, five digits such as `40111`. **Required when `BITESHIP_API_KEY` is set**; the fixed table ignores it. | Bab 5 |
 | `APP_SHIPPING_TIMEOUT` | api | no | How long checkout waits for the rates API (Go duration, `1s`–`15s`, default `5s`). Past it the request answers 503 `UPSTREAM_UNAVAILABLE`; the call is never retried, and it is made before the checkout transaction, so a slow courier API never holds a row lock. | Bab 5 |
-| `APP_PAYMENT_TTL` | api | no | How long a buyer has to pay an order (Go duration, `1m`–`72h`, default `24h`, Midtrans' default expiry). Stock is taken at checkout and returned when an unpaid order passes this deadline (`api expire-orders`). | Bab 5 |
-| `APP_CHECKOUT_LIMIT_PER_MINUTE` | api | no | How many checkout previews, shipping quotes and checkouts one buyer may ask for per minute, each (`1`–`100000`, default `30`); past it the API answers 429 `RATE_LIMITED`. Raise it only for a load test (the k6 test in `e2e/k6` needs about 1 500), never in production. | Bab 5 |
-| `S3_ENDPOINT` | api, worker | no | S3 API endpoint. SeaweedFS locally (`http://localhost:8333`), the provider's endpoint in production. | Bab 6 |
-| `S3_BUCKET` | api, worker | no | Bucket for product and review images. | Bab 6 |
-| `S3_ACCESS_KEY` | api, worker | **yes** | S3 access key. | Bab 6 |
-| `S3_SECRET_KEY` | api, worker | **yes** | S3 secret key. | Bab 6 |
-| `MIDTRANS_SERVER_KEY` | api | **yes** | Midtrans server key: creates transactions and verifies webhook signatures. Sandbox key only in this course. | Bab 6 |
-| `MIDTRANS_CLIENT_KEY` | api | no | Midtrans client key, passed to Snap in the browser and the app. Public by design, but still per environment. | Bab 6 |
+| `APP_PAYMENT_TTL` | api | no | How long a buyer has to pay an order (Go duration, `5m`–`72h`, default `24h`, Midtrans' default expiry; at least 5 minutes, because Snap stops taking payment a minute before the deadline and counts whole minutes). Stock is taken at checkout and returned when an unpaid order passes this deadline (`api expire-orders`). | Bab 5 |
+| `APP_CHECKOUT_LIMIT_PER_MINUTE` | api | no | How many checkout previews, shipping quotes and checkouts one buyer may ask for per minute, each (`1`–`100000`, default `30`); past it the API answers 429 `RATE_LIMITED`. Raise it only for a load test (the k6 test in `e2e/k6` needs `100000`: `e2e/k6/run.sh` refuses to run below it, `APP_CHECKOUT_LIMIT_PER_MINUTE=100000 make up`), never in production. | Bab 5 |
+| `SMTP_HOST` | api, worker | no | SMTP server for email ([ADR 0007](adr/0007-payments-uploads-worker.md)). **Empty keeps the log mailer**: emails are written to the log (bodies, with their tokens, in development only). Set, the API queues its emails (verification, reset) and the worker sends them with the order emails. TLS is required (STARTTLS, or port 465), except to a server on this machine. To see emails locally, run [Mailpit](https://mailpit.axllent.org) (`docker run -p 127.0.0.1:1025:1025 -p 127.0.0.1:8025:8025 axllent/mailpit`) and set `SMTP_HOST=localhost`, `SMTP_PORT=1025` for `make dev-api` and a worker run on the host. | Bab 6 |
+| `SMTP_PORT` | api, worker | no | `1`–`65535`, default `587` (STARTTLS); `465` uses TLS from the first byte. | Bab 6 |
+| `SMTP_USERNAME` | api, worker | no | SMTP login; set with `SMTP_PASSWORD` or neither. | Bab 6 |
+| `SMTP_PASSWORD` | api, worker | **yes** | SMTP password. Never logged. | Bab 6 |
+| `SMTP_FROM` | api, worker | no | The sender, e.g. `GoShop <no-reply@shop.example>`. Required with `SMTP_HOST`. | Bab 6 |
+| `TELEGRAM_BOT_TOKEN` | worker | **yes** | Token of the Telegram bot (from @BotFather) that tells the seller about each newly paid order ([ADR 0007](adr/0007-payments-uploads-worker.md)). Set with `TELEGRAM_CHAT_ID`, or neither: **both empty turn the messages off**. The token is part of every Bot API URL, so GoShop strips URLs from Telegram errors before logging them. | Bab 6 |
+| `TELEGRAM_CHAT_ID` | worker | no | The seller's chat or group id (a group's id is negative, e.g. `-1001234567890`; add the bot to the group first). | Bab 6 |
+| `APP_WORKER_CONCURRENCY` | worker | no | How many tasks one worker process runs at once (`1`–`50`, default `5`). Each running task may hold a database connection, so keep it at or below `APP_DB_MAX_OPEN_CONNS`. | Bab 6 |
+| `S3_ENDPOINT` | api, worker | no | How the API and the worker reach the S3 API: SeaweedFS locally (`http://localhost:8333`, `http://storage:8333` inside Compose), the provider's endpoint in production (Cloudflare R2: `https://<account>.r2.cloudflarestorage.com`). **Empty turns image uploads off** (503 `STORAGE_DISABLED`). `api migrate` creates the bucket when it is missing ([ADR 0007](adr/0007-payments-uploads-worker.md)). | Bab 6 |
+| `S3_PRESIGN_ENDPOINT` | api | no | The endpoint presigned upload URLs are signed for, when clients reach S3 by another address than the API does (Compose: `http://localhost:8333`). Empty means `S3_ENDPOINT`. | Bab 6 |
+| `S3_PUBLIC_URL` | api, worker | no | Base URL the public reads images from, without a trailing slash: a CDN or the bucket's public domain (R2: `https://pub-….r2.dev`). Empty means `<S3_PRESIGN_ENDPOINT>/<S3_BUCKET>`. Only the worker's variants under `products/` are linked; keep the bucket private and allow public reads of `products/*` only (originals under `uploads/` stay private). The local SeaweedFS does exactly that (`deploy/seaweedfs/s3.json`). | Bab 6 |
+| `S3_REGION` | api, worker | no | Region of the bucket (default `us-east-1`; `auto` for R2). | Bab 6 |
+| `S3_BUCKET` | api, worker | no | Bucket for product images. Required with `S3_ENDPOINT`. | Bab 6 |
+| `S3_ACCESS_KEY` | api, worker | **yes** | S3 access key. Required with `S3_ENDPOINT`. | Bab 6 |
+| `S3_SECRET_KEY` | api, worker | **yes** | S3 secret key. Required with `S3_ENDPOINT`. The local SeaweedFS value `goshop-secret` is for development only; staging and production get their own keys from the provider. | Bab 6 |
+| `APP_PAYMENT_PROVIDER` | api, worker | no | `midtrans` (default) or `fake`: `internal/payment/fake`, a stand-in for Midtrans with its transactions in Redis, so a developer pays an order with `make fake-pay order=GS-…` (it signs and sends the notification Midtrans would). **The API and the worker refuse `fake` when `APP_ENV=production`.** `make up` uses `fake` unless `.env` says otherwise. | Bab 6 |
+| `MIDTRANS_SERVER_KEY` | api, worker | **yes** | Midtrans **sandbox** server key (`SB-Mid-server-…`, from dashboard.sandbox.midtrans.com → Settings → Access keys). It authenticates every call to Midtrans and is the key notifications are signed with ([ADR 0007](adr/0007-payments-uploads-worker.md)). **Empty turns payments off**: `POST /v1/orders/{id}/pay` and the notification route answer 503 `PAYMENTS_DISABLED`, and the API logs a warning at start. A key that is not a sandbox key stops the API at start. | Bab 6 |
+| `MIDTRANS_CLIENT_KEY` | api | no | Midtrans sandbox client key (`SB-Mid-client-…`), returned to clients as `client_key` for Snap.js. Public by design, but per environment. Required with the server key. | Bab 6 |
+| `MIDTRANS_IS_PRODUCTION` | api, worker | no | Must be `false` (or empty): GoShop talks to the Midtrans sandbox only, and refuses to start with `true`. | Bab 6 |
+| `APP_PAYMENT_TIMEOUT` | api, worker | no | How long one call to Midtrans may take (Go duration, `1s`–`30s`, default `10s`). Past it the request answers 503 `UPSTREAM_UNAVAILABLE`. Calls are never made inside a database transaction, and never retried. | Bab 6 |
 | `GOOGLE_CLIENT_ID` | api | no | OAuth client ID for "Sign in with Google" (ends with `.apps.googleusercontent.com`). `POST /v1/auth/google` accepts only Google ID tokens issued to this client. Required in staging and production; empty in development turns Google sign-in off (the endpoint answers 404). Public by design, but per environment. There is no `GOOGLE_CLIENT_SECRET`: the API only verifies ID tokens against Google's public keys, which needs no secret. | Bab 4 |
 | `OPENAI_API_KEY` | api, worker | **yes** | Key for the LLM and embedding provider. | Bab 18 |
 
@@ -58,7 +72,7 @@ A variable that a chapter does not use yet may stay empty. When a chapter starts
 | `REDIS_ADDR` | `localhost:6379` | `testx.RedisContainer` only. **Test-only**: the services read `REDIS_URL`. |
 | `REDIS_URL` | `redis://localhost:6379/0` | the API when an integration test starts it in-process with `config.Load` |
 | `JWT_SECRET` | a key for tests only | the same |
-| `S3_ENDPOINT` | `http://localhost:8333` | storage integration tests, and the api/worker at runtime (see the table above) |
+| `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` | `http://localhost:8333`, `goshop`, the local SeaweedFS keys | storage integration tests, and the API started in-process |
 
 When `POSTGRES_DSN` or `REDIS_ADDR` is missing, testx skips the test, and the gate fails on any skipped test.
 

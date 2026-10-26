@@ -38,15 +38,36 @@ flowchart LR
 | Component | Path | Responsibility | Arrives in |
 |---|---|---|---|
 | GoShop API | `apps/api/cmd/api` | REST API under `/v1`, auth, business rules; the API and the worker are the only writers to the database | Bab 2 |
-| Worker | `apps/api/cmd/worker` | Background jobs: payment webhooks follow-up, emails, notifications, image processing | Bab 6 |
+| Worker | `apps/api/cmd/worker` | Asynq tasks from Redis ([ADR 0007](adr/0007-payments-uploads-worker.md)): the outbox's events as emails and the seller's Telegram message, image resizing, payment reconciliation, order expiry and the cleanups; serves only `/healthz` and `/readyz` | Bab 6 |
 | Web storefront | `apps/web` | Catalog, cart, checkout for buyers in the browser | Bab 7 |
 | Admin dashboard | `apps/admin` | Products, stock and orders for sellers and admins | Bab 12 |
 | Mobile app | `apps/mobile` | The storefront on Android and iOS | Bab 13 |
 | PostgreSQL + pgvector | `docker-compose.yml` (`postgres`) | System of record; pgvector stores embeddings for semantic search (Bab 18) | Bab 1 (compose), Bab 3 (schema) |
-| Redis | `docker-compose.yml` (`redis`) | Rate limits and revoked-session markers (Bab 4; refresh tokens stay in PostgreSQL, [ADR 0005](adr/0005-auth-tokens.md)), later cache and job queue | Bab 1 (compose), Bab 4 (used) |
-| S3 storage | `docker-compose.yml` (`storage`) | Product and review images; SeaweedFS S3 gateway locally, any S3-compatible bucket in production | Bab 1 (compose), Bab 6 (used) |
+| Redis | `docker-compose.yml` (`redis`) | Rate limits and revoked-session markers (Bab 4; refresh tokens stay in PostgreSQL, [ADR 0005](adr/0005-auth-tokens.md)); from Bab 6 the worker's Asynq queue, so production Redis must not evict keys (`maxmemory-policy noeviction`) and should persist | Bab 1 (compose), Bab 4 (used) |
+| S3 storage | `docker-compose.yml` (`storage`) | Product and review images, uploaded by clients with presigned URLs and resized by the worker; SeaweedFS S3 gateway locally, any S3-compatible bucket in production | Bab 1 (compose), Bab 6 (used) |
+| Midtrans | external | Snap payment pages and the payment notifications (sandbox only); `internal/payment/fake` stands in for it locally | Bab 6 |
 
 The API and the worker are two binaries built from the same Go module, so they share the domain code and are deployed as two services.
+
+## Background work (Bab 6)
+
+```mermaid
+flowchart LR
+    api["API"] -- "one transaction:<br/>change + event" --> pg[("PostgreSQL<br/>outbox_events")]
+    worker["Worker"] -- "every 5 s: claim, enqueue,<br/>mark published" --> pg
+    worker -- "one task per consumer<br/>TaskID = event id" --> redis[("Redis<br/>Asynq queue")]
+    redis --> worker
+    worker -- "emails" --> smtp["SMTP"]
+    worker -- "new paid order" --> tg["Telegram"]
+    worker -- "400w / 800w JPEGs" --> s3[("S3")]
+    midtrans["Midtrans"] -- "signed notification" --> api
+    api -- "status API" --> midtrans
+    worker -- "reconcile open payments" --> midtrans
+```
+
+- The API never sends an email or a message in a request that changes an order: the change writes an event to the outbox in its transaction, and the worker turns it into tasks. An event exists exactly when its change committed; delivery is at least once, and every consumer skips an event it has handled (`event_deliveries`).
+- The worker also runs the scheduled jobs on Asynq's scheduler (order expiry, payment reconciliation, image processing, cleanups); each is also an `api` command for operators.
+- Failing tasks retry with backoff and then wait in Asynq's archived (dead-letter) queue for `worker dead-tasks requeue`.
 
 ## Why one API
 

@@ -1,0 +1,27 @@
+{
+  "name": "@goshop/e2e",
+  "version": "0.0.0",
+  "private": true,
+  "description": "GoShop end-to-end tests: Playwright against the Compose stack (make up), and the shared API client against the real API",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc",
+    "lint": "eslint --max-warnings=0 . && prettier --check .",
+    "format": "prettier --write . && eslint --fix .",
+    "test:e2e": "playwright install chromium && node selftest/run.ts && playwright test"
+  },
+  "dependencies": {
+    "@goshop/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@eslint/js": "catalog:",
+    "@playwright/test": "catalog:",
+    "@types/node": "catalog:",
+    "eslint": "catalog:",
+    "eslint-config-prettier": "catalog:",
+    "globals": "catalog:",
+    "prettier": "catalog:",
+    "typescript": "catalog:",
+    "typescript-eslint": "catalog:"
+  }
+}
