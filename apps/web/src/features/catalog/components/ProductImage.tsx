@@ -1,7 +1,12 @@
 interface ProductImageProps {
   /** The product's name, for the photo's alt text. */
   name: string;
-  /** The photo's URL. Products have none until uploads arrive (Bab 6). */
+  /**
+   * The photo's URL. The API already sends `product.images` (Bab 6), but
+   * this chapter passes no `src` on purpose, so every product shows the
+   * placeholder. Bab 11 wires the photos: `srcset` from each image's
+   * `variants`, and the storage origin in the CSP's `img-src`.
+   */
   src?: string | undefined;
 }
 
