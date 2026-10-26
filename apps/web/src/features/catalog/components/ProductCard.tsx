@@ -19,10 +19,12 @@ interface ProductCardProps {
  *
  * Wrapped in memo: React skips rendering a card again when its props are
  * the same objects as last time. "Muat lebih banyak" re-renders the grid
- * with 12 more products; with memo, the cards already on screen are left
- * alone. It only works because both props stay the same: `product` keeps
- * its identity (useProducts appends pages without copying products) and
- * `onSelect` is the same function (App wraps it in useCallback).
+ * (CatalogPage owns useProducts) with 12 more products; with memo, the
+ * cards already on screen are left alone, because `product` keeps its
+ * identity (useProducts appends pages without copying products) and
+ * `onSelect` comes from App, which did not render. App renders again when
+ * a product opens and when the buyer goes back; then it is useCallback
+ * that keeps `onSelect` the same function, so the cards still skip.
  */
 export const ProductCard = memo(function ProductCard({
   product,

@@ -8,7 +8,7 @@ export type ProductFilters = Omit<ListProductsQuery, "cursor">;
 
 /** Everything the hook remembers about one list. */
 interface ListState {
-  /** The filters these products belong to (see `filtersKey`). */
+  /** The filters these products belong to, as one string: a change starts a fresh list. */
   key: string;
   /** Every page loaded so far, in order. */
   products: Product[];
