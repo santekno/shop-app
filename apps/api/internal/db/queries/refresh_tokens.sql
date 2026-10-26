@@ -65,3 +65,15 @@ WHERE family_id = @family_id AND revoked_at IS NULL;
 UPDATE refresh_tokens SET revoked_at = now()
 WHERE user_id = @user_id AND used_at IS NULL AND revoked_at IS NULL
 RETURNING family_id;
+
+-- name: DeleteExpiredRefreshTokens :execrows
+-- The worker's cleanup (ADR 0005): up to @batch_size tokens past their
+-- expiry, which no request can use any more. SKIP LOCKED leaves a token a
+-- rotation or a revocation holds. Served by refresh_tokens_expires_at_idx.
+DELETE FROM refresh_tokens
+WHERE id IN (
+    SELECT rt.id FROM refresh_tokens rt
+    WHERE rt.expires_at < @before
+    ORDER BY rt.expires_at
+    LIMIT @batch_size
+    FOR UPDATE SKIP LOCKED);

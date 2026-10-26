@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/hibiken/asynq"
 	"github.com/redis/go-redis/v9"
 	"github.com/santekno/sdk/logx"
 
@@ -29,11 +30,17 @@ import (
 	"github.com/santekno/shop-app/apps/api/internal/httpserver"
 	"github.com/santekno/shop-app/apps/api/internal/logging"
 	"github.com/santekno/shop-app/apps/api/internal/mail"
+	"github.com/santekno/shop-app/apps/api/internal/notify"
 	"github.com/santekno/shop-app/apps/api/internal/order"
 	"github.com/santekno/shop-app/apps/api/internal/outbox"
+	"github.com/santekno/shop-app/apps/api/internal/payment"
+	"github.com/santekno/shop-app/apps/api/internal/payment/fake"
+	"github.com/santekno/shop-app/apps/api/internal/payment/midtrans"
 	"github.com/santekno/shop-app/apps/api/internal/product"
 	"github.com/santekno/shop-app/apps/api/internal/redisconn"
+	"github.com/santekno/shop-app/apps/api/internal/report"
 	"github.com/santekno/shop-app/apps/api/internal/shipping"
+	"github.com/santekno/shop-app/apps/api/internal/storage"
 	"github.com/santekno/shop-app/apps/api/internal/user"
 )
 
@@ -51,10 +58,8 @@ type App struct {
 // closes neither: whoever opened them does, after the server has stopped.
 func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalClient, opts ...Option) *App {
 	o := options{
-		clock: time.Now,
-		// Development logs every email with its token, so a developer can
-		// copy it; elsewhere the body (and the token) is never logged.
-		mailer:  mail.NewLogMailer(logger, cfg.IsDevelopment()),
+		clock:   time.Now,
+		mailer:  apiMailer(cfg, logger, rdb),
 		limiter: auth.NewRedisRateLimiter(redisconn.NewCounter(rdb), rateLimits(cfg)),
 		// Revoked sessions live in Redis as long as an access token
 		// (ADR 0005).
@@ -103,6 +108,17 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 		Repo: orderRepo, Clock: o.clock, Carts: cartService, Addresses: addressService, Shipping: o.shipping,
 		OriginPostalCode: cfg.Shipping.OriginPostalCode, PaymentTTL: cfg.PaymentTTL,
 	})
+	if o.gateway == nil {
+		o.gateway = PaymentGateway(cfg.Payment, logger, rdb)
+	}
+	if o.gateway == nil {
+		logger.Warn("payments are off: MIDTRANS_SERVER_KEY is not set")
+	} else {
+		logger.Info("payments", "provider", o.gateway.Name())
+	}
+	paymentService := payment.NewService(payment.Deps{
+		Repo: payment.NewPostgresRepository(db), Orders: orderService, Gateway: o.gateway, Clock: o.clock,
+	})
 	accessTokens := auth.NewAccessTokens(cfg.Auth.JWTSecret, cfg.Auth.AccessTokenTTL, o.clock)
 	authService := auth.NewService(auth.Deps{
 		Repo:        authRepo,
@@ -119,6 +135,22 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 	validator := httpapi.NewValidator()
 	categoryHandler := category.NewHandler(categoryService)
 	productHandler := product.NewHandler(productService, productService, validator)
+	if o.store == nil {
+		store, err := ObjectStore(cfg.Storage)
+		if err != nil {
+			// The configuration was validated already; a client that
+			// cannot be built is logged and uploads stay off.
+			logger.Error("image storage is off", "error", err.Error())
+		} else if store != nil {
+			o.store = store
+		}
+	}
+	if o.store == nil {
+		logger.Warn("image uploads are off: S3_ENDPOINT is not set")
+		productHandler.WithImages(nil, nil)
+	} else {
+		productHandler.WithImages(product.NewImageService(productRepo, o.store), o.store.PublicURL)
+	}
 	authHandler := auth.NewHandler(auth.HandlerDeps{
 		Service:          authService,
 		Validator:        validator,
@@ -128,6 +160,10 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 	})
 	orderHandler := order.NewHandler(orderService, orderService, orderService, validator).
 		LimitPerBuyer(o.limiter, order.NewLimits(cfg.CheckoutLimitPerMinute))
+	paymentHandler := payment.NewHandler(payment.HandlerDeps{
+		Payer: paymentService, Limiter: o.limiter, TrustedProxyHops: cfg.TrustedProxyHops,
+	})
+	reportHandler := report.NewHandler(report.NewService(db), validator, o.clock)
 	userHandler := user.NewHandler(userService, validator)
 	addressHandler := address.NewHandler(addressService, validator)
 	cartHandler := cart.NewHandler(cart.HandlerDeps{
@@ -148,6 +184,9 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 			categoryHandler.Routes(r)
 			productHandler.Routes(r)
 			authHandler.Routes(r)
+			// Called by Midtrans, which has no GoShop token: the
+			// notification's signature is its authentication.
+			paymentHandler.Routes(r)
 			// Guests and logged-in users alike: a token, when sent, must
 			// be valid.
 			r.Group(func(r chi.Router) {
@@ -161,6 +200,7 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 				addressHandler.Routes(r)
 				cartHandler.ProtectedRoutes(r)
 				orderHandler.Routes(r)
+				paymentHandler.ProtectedRoutes(r)
 				authHandler.ProtectedRoutes(r)
 				// Store staff only: sellers manage the catalog, and admins
 				// can do everything a seller can (docs/prd.md).
@@ -168,6 +208,7 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 					Route("/admin", func(r chi.Router) {
 						productHandler.AdminRoutes(r)
 						orderHandler.AdminRoutes(r)
+						reportHandler.AdminRoutes(r)
 					})
 			})
 		})
@@ -185,10 +226,65 @@ func shippingProvider(cfg config.Shipping) shipping.Provider {
 	return shipping.NewBiteship(cfg.BiteshipAPIKey, shipping.BiteshipURL, cfg.Timeout)
 }
 
+// apiMailer is how the API sends its emails (verify, reset). With
+// SMTP_HOST set they are queued for the worker, which sends them (ADR
+// 0007). Without it they go to the log: development logs every email with
+// its token, so a developer can copy it; elsewhere the body (and the
+// token) is never logged.
+func apiMailer(cfg config.Config, logger logx.Logger, rdb redis.UniversalClient) mail.Mailer {
+	if cfg.SMTP.Host != "" {
+		return notify.NewQueueMailer(asynq.NewClientFromRedisClient(rdb))
+	}
+	return mail.NewLogMailer(logger, cfg.IsDevelopment())
+}
+
+// WorkerMailer is how the worker sends email: SMTP when SMTP_HOST is set,
+// otherwise the log, like the API.
+func WorkerMailer(cfg config.Config, logger logx.Logger) mail.Mailer {
+	if cfg.SMTP.Host == "" {
+		return mail.NewLogMailer(logger, cfg.IsDevelopment())
+	}
+	return mail.NewSMTPMailer(mail.SMTPConfig{
+		Host: cfg.SMTP.Host, Port: cfg.SMTP.Port, Username: cfg.SMTP.Username,
+		Password: cfg.SMTP.Password, From: cfg.SMTP.From,
+	})
+}
+
+// PaymentGateway is the fake when APP_PAYMENT_PROVIDER=fake (its
+// transactions in rdb, shared by the API, the worker and api fake-pay),
+// Midtrans when MIDTRANS_SERVER_KEY is set, and nil (payments off)
+// otherwise (ADR 0007).
+func PaymentGateway(cfg config.Payment, logger logx.Logger, rdb redis.UniversalClient) payment.Gateway {
+	if cfg.Provider == config.PaymentFake {
+		logger.Warn("payments go to the fake gateway (APP_PAYMENT_PROVIDER=fake): no money moves")
+		return fake.New(fake.NewRedisStore(rdb))
+	}
+	if cfg.MidtransServerKey == "" {
+		return nil
+	}
+	return midtrans.New(cfg.MidtransServerKey, cfg.MidtransClientKey, cfg.Timeout, midtrans.WithLogger(logger))
+}
+
+// ObjectStore is the S3 bucket of cfg, or nil when S3_ENDPOINT is empty.
+func ObjectStore(cfg config.Storage) (*storage.S3, error) {
+	if cfg.Endpoint == "" {
+		return nil, nil
+	}
+	s, err := storage.New(storage.Config{
+		Endpoint: cfg.Endpoint, PresignEndpoint: cfg.PresignEndpoint, PublicURL: cfg.PublicURL,
+		Region: cfg.Region, Bucket: cfg.Bucket, AccessKey: cfg.AccessKey, SecretKey: cfg.SecretKey,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("image storage: %w", err)
+	}
+	return s, nil
+}
+
 // rateLimits is every limit the API counts in Redis.
 func rateLimits(cfg config.Config) []auth.Limit {
 	limits := append(slices.Clone(auth.Limits), cart.LimitGuestCartPerIP)
-	return append(limits, order.NewLimits(cfg.CheckoutLimitPerMinute).All()...)
+	limits = append(limits, order.NewLimits(cfg.CheckoutLimitPerMinute).All()...)
+	return append(limits, payment.Limits...)
 }
 
 // Option replaces one of the real dependencies New would build, for tests.
@@ -204,6 +300,8 @@ type options struct {
 	limiter     auth.RateLimiter
 	revocations auth.SessionRevocations
 	shipping    shipping.Provider
+	gateway     payment.Gateway
+	store       product.ObjectStore
 }
 
 // WithClock makes the auth flows read the time from now: token expiry,
@@ -232,6 +330,14 @@ func WithGoogleVerifier(v auth.GoogleVerifier) Option { return func(o *options) 
 // WithShippingProvider prices parcels with p instead of the provider the
 // configuration picks, for tests that need a failing or fixed provider.
 func WithShippingProvider(p shipping.Provider) Option { return func(o *options) { o.shipping = p } }
+
+// WithPaymentGateway takes payments through g instead of the gateway the
+// configuration picks, for tests that steer the gateway's answers.
+func WithPaymentGateway(g payment.Gateway) Option { return func(o *options) { o.gateway = g } }
+
+// WithObjectStore stores images in s instead of the S3 bucket the
+// configuration names, for tests.
+func WithObjectStore(s product.ObjectStore) Option { return func(o *options) { o.store = s } }
 
 // Handler is the API's router with all middleware, for httptest.
 func (a *App) Handler() http.Handler { return a.handler }
@@ -278,9 +384,15 @@ func Run(ctx context.Context, args []string, stdout io.Writer) error {
 	case len(args) == 1 && args[0] == "cleanup-idempotency-keys":
 		return runJob(ctx, cfg, logger, "cleanup-idempotency-keys", cleanupIdempotencyKeys)
 	case len(args) == 1 && args[0] == "publish-events":
-		return runJob(ctx, cfg, logger, "publish-events", publishEvents)
+		return runPublishEvents(ctx, cfg, logger)
+	case len(args) == 1 && args[0] == "reconcile-payments":
+		return runJob(ctx, cfg, logger, "reconcile-payments", reconcilePayments(cfg))
+	case len(args) == 1 && args[0] == "process-images":
+		return runJob(ctx, cfg, logger, "process-images", processImages(cfg.Storage))
+	case len(args) >= 1 && args[0] == "fake-pay":
+		return runFakePay(ctx, cfg, logger, args[1:])
 	default:
-		return fmt.Errorf("unknown arguments %q (usage: api [healthcheck|migrate|expire-orders|cleanup-idempotency-keys|publish-events])", args)
+		return fmt.Errorf("unknown arguments %q (usage: api [healthcheck|migrate|expire-orders|cleanup-idempotency-keys|publish-events|reconcile-payments|process-images|fake-pay])", args)
 	}
 
 	db, err := database.Open(ctx, cfg.Database, logger)
@@ -365,12 +477,82 @@ func cleanupIdempotencyKeys(ctx context.Context, db *sql.DB, logger logx.Logger)
 	return err
 }
 
-// publishEvents publishes the outbox's pending domain events to the log
-// (outbox.LogPublisher); Bab 6 publishes them to the job queue instead.
-func publishEvents(ctx context.Context, db *sql.DB, logger logx.Logger) error {
-	n, err := outbox.NewDispatcher(db, outbox.LogPublisher{Logger: logger}).PublishPending(ctx)
-	logger.Info("published domain events", "published", n)
-	return err
+// publishEvents publishes the outbox's pending domain events through
+// publisher, once: what the worker does every 5 seconds, for an operator.
+func publishEvents(publisher outbox.Publisher) func(context.Context, *sql.DB, logx.Logger) error {
+	return func(ctx context.Context, db *sql.DB, logger logx.Logger) error {
+		n, err := outbox.NewDispatcher(db, publisher).PublishPending(logx.WithContextLogger(ctx, logger))
+		logger.Info("published domain events", "published", n)
+		return err
+	}
+}
+
+// runPublishEvents is `api publish-events`: the outbox to the worker's
+// queue (notify.QueuePublisher), the same publisher the worker uses.
+// The database is opened first, like every job.
+func runPublishEvents(ctx context.Context, cfg config.Config, logger logx.Logger) error {
+	db, err := database.Open(ctx, cfg.Database, logger)
+	if err != nil {
+		return err
+	}
+	defer closeDB(db, logger)
+	rdb, err := redisconn.Open(ctx, cfg.RedisURL)
+	if err != nil {
+		return err
+	}
+	defer closeRedis(rdb, logger)
+	publisher := notify.NewQueuePublisher(asynq.NewClientFromRedisClient(rdb), notify.NewRoutes(cfg.Telegram.BotToken != ""))
+	if err := publishEvents(publisher)(ctx, db, logger); err != nil {
+		return fmt.Errorf("publish-events: %w", err)
+	}
+	return nil
+}
+
+// reconcilePayments asks the payment gateway about the open payments and
+// applies what it says (payment.Service.Reconcile), once: the safety net
+// for a lost notification. With payments off it does nothing.
+func reconcilePayments(cfg config.Config) func(context.Context, *sql.DB, logx.Logger) error {
+	return func(ctx context.Context, db *sql.DB, logger logx.Logger) error {
+		// Only the fake gateway needs Redis (its transactions live there).
+		var rdb redis.UniversalClient
+		if cfg.Payment.Provider == config.PaymentFake {
+			c, err := redisconn.Open(ctx, cfg.RedisURL)
+			if err != nil {
+				return err
+			}
+			defer closeRedis(c, logger)
+			rdb = c
+		}
+		gateway := PaymentGateway(cfg.Payment, logger, rdb)
+		if gateway == nil {
+			logger.Warn("payments are off: MIDTRANS_SERVER_KEY is not set; nothing to reconcile")
+			return nil
+		}
+		svc := payment.NewService(payment.Deps{Repo: payment.NewPostgresRepository(db), Gateway: gateway})
+		res, err := svc.Reconcile(logx.WithContextLogger(ctx, logger))
+		logger.Info("reconciled payments", "checked", res.Checked, "changed", res.Changed, "failed", res.Failed)
+		return err
+	}
+}
+
+// processImages makes the variants of the confirmed product images
+// (product.ImageService.ProcessPending), once. With storage off it does
+// nothing.
+func processImages(cfg config.Storage) func(context.Context, *sql.DB, logx.Logger) error {
+	return func(ctx context.Context, db *sql.DB, logger logx.Logger) error {
+		store, err := ObjectStore(cfg)
+		if err != nil {
+			return err
+		}
+		if store == nil {
+			logger.Warn("image uploads are off: S3_ENDPOINT is not set; nothing to process")
+			return nil
+		}
+		svc := product.NewImageService(product.NewPostgresRepository(db), store)
+		n, err := svc.ProcessPending(logx.WithContextLogger(ctx, logger))
+		logger.Info("processed product images", "finished", n)
+		return err
+	}
 }
 
 // runMigrations is `api migrate`: the one way a deployed database gets its
@@ -388,5 +570,15 @@ func runMigrations(ctx context.Context, cfg config.Config, logger logx.Logger) e
 		return err
 	}
 	logger.Info("database migrated", "version", version)
+	// The image bucket is part of the environment the API needs, so the
+	// same setup step creates it when it is missing (ADR 0007).
+	store, err := ObjectStore(cfg.Storage)
+	if err != nil || store == nil {
+		return err
+	}
+	if err := store.EnsureBucket(ctx); err != nil {
+		return err
+	}
+	logger.Info("image bucket ready", "bucket", cfg.Storage.Bucket)
 	return nil
 }

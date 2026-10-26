@@ -53,6 +53,12 @@ type Category struct {
 	UpdatedAt   time.Time
 }
 
+type EventDelivery struct {
+	EventID     string
+	Consumer    string
+	DeliveredAt time.Time
+}
+
 type IdempotencyKey struct {
 	UserID         string
 	Key            string
@@ -119,6 +125,43 @@ type OutboxEvent struct {
 	PublishedAt   sql.NullTime
 }
 
+type Payment struct {
+	ID                    string
+	OrderID               string
+	Provider              string
+	ProviderOrderID       string
+	Amount                int64
+	Status                string
+	SnapToken             string
+	RedirectUrl           string
+	ExpiresAt             time.Time
+	ProviderStatus        sql.NullString
+	ProviderTransactionID sql.NullString
+	PaymentType           sql.NullString
+	PaidAt                sql.NullTime
+	RefundRequiredAt      sql.NullTime
+	RefundedAmount        int64
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	CheckedAt             sql.NullTime
+	FinalCheckedAt        sql.NullTime
+}
+
+type PaymentEvent struct {
+	ID                string
+	PaymentID         string
+	DedupeKey         string
+	Source            string
+	TransactionStatus string
+	FraudStatus       sql.NullString
+	StatusCode        string
+	TransactionID     sql.NullString
+	PaymentType       sql.NullString
+	GrossAmount       sql.NullInt64
+	Outcome           string
+	ReceivedAt        time.Time
+}
+
 type Product struct {
 	ID          string
 	CategoryID  string
@@ -130,6 +173,22 @@ type Product struct {
 	Search      interface{}
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+}
+
+type ProductImage struct {
+	ID          string
+	ProductID   string
+	Position    int16
+	Alt         string
+	Status      string
+	ContentType string
+	SizeBytes   int32
+	OriginalKey string
+	Width       sql.NullInt32
+	Height      sql.NullInt32
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	Variants    json.RawMessage
 }
 
 type ProductVariant struct {

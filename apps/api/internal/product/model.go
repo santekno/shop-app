@@ -39,6 +39,8 @@ type Product struct {
 	// rupiah.
 	PriceFrom int64
 	Variants  []Variant
+	// Images are the photos the storefront shows, in order.
+	Images    []Image
 	CreatedAt time.Time
 }
 
@@ -73,8 +75,10 @@ type AdminProduct struct {
 	Status      string
 	PriceFrom   *int64 // nil when no variant is sellable
 	Variants    []AdminVariant
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	// Images are all the product's photos, pending uploads included.
+	Images    []Image
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // AdminVariant is a sellable variant with everything the admin can edit.

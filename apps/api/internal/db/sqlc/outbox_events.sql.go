@@ -65,6 +65,74 @@ func (q *Queries) ClaimOutboxEvents(ctx context.Context, batchSize int32) ([]Cla
 	return items, nil
 }
 
+const deleteOldDeliveries = `-- name: DeleteOldDeliveries :execrows
+DELETE FROM event_deliveries
+WHERE (event_id, consumer) IN (
+    SELECT ed.event_id, ed.consumer FROM event_deliveries ed
+    WHERE ed.delivered_at < $1
+    ORDER BY ed.delivered_at
+    LIMIT $2)
+`
+
+type DeleteOldDeliveriesParams struct {
+	Before    time.Time
+	BatchSize int32
+}
+
+// Up to @batch_size delivery records older than @before: their events are
+// deleted by now. Served by event_deliveries_delivered_at_idx.
+func (q *Queries) DeleteOldDeliveries(ctx context.Context, arg DeleteOldDeliveriesParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteOldDeliveries, arg.Before, arg.BatchSize)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const deletePublishedEvents = `-- name: DeletePublishedEvents :execrows
+DELETE FROM outbox_events
+WHERE id IN (
+    SELECT oe.id FROM outbox_events oe
+    WHERE oe.published_at < $1::timestamptz
+    ORDER BY oe.published_at
+    LIMIT $2)
+`
+
+type DeletePublishedEventsParams struct {
+	Before    time.Time
+	BatchSize int32
+}
+
+// The cleanup (ADR 0007): up to @batch_size events published before
+// @before. The dispatcher only touches unpublished rows, so the two never
+// wait for each other. Served by outbox_events_published_idx.
+func (q *Queries) DeletePublishedEvents(ctx context.Context, arg DeletePublishedEventsParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deletePublishedEvents, arg.Before, arg.BatchSize)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const eventDelivered = `-- name: EventDelivered :one
+SELECT EXISTS (
+    SELECT 1 FROM event_deliveries WHERE event_id = $1 AND consumer = $2
+) AS delivered
+`
+
+type EventDeliveredParams struct {
+	EventID  string
+	Consumer string
+}
+
+// Whether consumer has handled the event. Served by event_deliveries_pkey.
+func (q *Queries) EventDelivered(ctx context.Context, arg EventDeliveredParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, eventDelivered, arg.EventID, arg.Consumer)
+	var delivered bool
+	err := row.Scan(&delivered)
+	return delivered, err
+}
+
 const insertOutboxEvent = `-- name: InsertOutboxEvent :exec
 
 INSERT INTO outbox_events (id, aggregate_type, aggregate_id, event_type, payload)
@@ -89,6 +157,23 @@ func (q *Queries) InsertOutboxEvent(ctx context.Context, arg InsertOutboxEventPa
 		arg.EventType,
 		arg.Payload,
 	)
+	return err
+}
+
+const markEventDelivered = `-- name: MarkEventDelivered :exec
+INSERT INTO event_deliveries (event_id, consumer) VALUES ($1, $2)
+ON CONFLICT (event_id, consumer) DO NOTHING
+`
+
+type MarkEventDeliveredParams struct {
+	EventID  string
+	Consumer string
+}
+
+// After the consumer's side effect; a second run of the same task finds
+// the row and does nothing.
+func (q *Queries) MarkEventDelivered(ctx context.Context, arg MarkEventDeliveredParams) error {
+	_, err := q.db.ExecContext(ctx, markEventDelivered, arg.EventID, arg.Consumer)
 	return err
 }
 

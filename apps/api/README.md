@@ -3,7 +3,7 @@
 The Go REST API behind the GoShop storefront, admin dashboard and mobile app. The contract is [`api/openapi.yaml`](../../api/openapi.yaml); the code must match it.
 
 - Module: `github.com/santekno/shop-app/apps/api` (Go 1.26, see `.go-version`)
-- Entry point: `cmd/api` (`api` serves; `api healthcheck` probes a running API, for Docker)
+- Entry points: `cmd/api` (`api` serves; `api healthcheck` probes a running API, for Docker; the one-shot jobs below) and, from Bab 6, `cmd/worker` (the background worker, [ADR 0007](../../docs/adr/0007-payments-uploads-worker.md))
 - Structure: one folder per feature under `internal/`, each with `model.go`, `repository.go`, `service.go` and `handler.go` ([ADR 0004](../../docs/adr/0004-api-layering.md)); the wiring is plain Go in `internal/app`
 
 ## Endpoints
@@ -38,6 +38,8 @@ The Go REST API behind the GoShop storefront, admin dashboard and mobile app. Th
 | POST | `/v1/checkout` | **Access token, verified email, `Idempotency-Key`.** Turn the cart into an order waiting for payment, in one transaction (buyer row, then variants in id order, re-validated; guarded voucher and stock updates); 201 with `Location: /v1/orders/{id}`. At most 5 unpaid orders per buyer. A retry with the same key and body replays the first 201 (`Idempotency-Replayed: true`); another body under the key is 422 `IDEMPOTENCY_KEY_REUSED`; a duplicate in flight 409 `IDEMPOTENCY_IN_PROGRESS`; a failed checkout frees its key |
 | GET | `/v1/orders` | **Access token.** The caller's orders, newest first (cursor pagination) |
 | GET | `/v1/orders/{id}` | **Access token.** One of the caller's orders with its line snapshots; anyone else's is 404 |
+| POST | `/v1/orders/{id}/pay` | **Access token.** A Midtrans Snap payment for the caller's unpaid order: `token`, `redirect_url`, `client_key` (201 new, 200 the open one again). The amount is the order's total; 503 `PAYMENTS_DISABLED` without `MIDTRANS_SERVER_KEY` (or the fake gateway) |
+| POST | `/v1/payments/midtrans/notification` | **Midtrans only.** The payment webhook: signature checked in constant time, then the status read from Midtrans' status API and applied once (`payment_events`); 403 `INVALID_SIGNATURE` |
 | POST | `/v1/orders/{id}/cancel` | **Access token.** Cancel the caller's own unpaid order; its stock and voucher use go back |
 | POST | `/v1/orders/{id}/complete` | **Access token.** Confirm that the caller's shipped order arrived |
 | GET | `/v1/admin/orders?status=paid` | **Seller or admin.** One status's order queue, newest first (cursor pagination) |
@@ -47,6 +49,10 @@ The Go REST API behind the GoShop storefront, admin dashboard and mobile app. Th
 | GET | `/v1/admin/products/{id}` | **Seller or admin.** Any product, whatever its status |
 | PUT | `/v1/admin/products/{id}` | **Seller or admin.** Save a product and its variants; variants left out are archived; each existing variant needs its `version` (409 `VERSION_CONFLICT` when it changed) |
 | DELETE | `/v1/admin/products/{id}` | **Seller or admin.** Archive a product (soft delete) |
+| POST | `/v1/admin/products/{id}/images/uploads` | **Seller or admin.** A pending photo and a 15-minute presigned `PUT` to S3 for exactly the declared type (JPEG, PNG, WebP) and size (≤ 5 MiB); at most 10 photos per product |
+| POST | `/v1/admin/products/{id}/images/{image_id}/confirm` | **Seller or admin.** Check the uploaded file (size, type, real format, ≤ 6000 px a side and 24 MP) and hand it to the worker, which makes 400 and 800 px JPEGs; 422 `UPLOAD_INVALID` deletes a bad file |
+| DELETE | `/v1/admin/products/{id}/images/{image_id}` | **Seller or admin.** Delete a photo and its files |
+| GET | `/v1/admin/reports/sales?from&to&group=day` | **Seller or admin.** Revenue, order count, average order value per day, week or month with a running total, and the top 5 products (Jakarta dates, at most 366 days) |
 
 Routes marked **Optional token** serve guests without an `Authorization` header; with one, the token must be valid (a bad token is 401, never a silent switch to the guest cart). Routes marked **Access token** need `Authorization: Bearer <access_token>` (401 `UNAUTHORIZED` without one); routes marked **Seller or admin** also need that role (403 `FORBIDDEN` for a buyer). The token design is [ADR 0005](../../docs/adr/0005-auth-tokens.md): refresh tokens live hashed in PostgreSQL; a revoked session (logout, a reused refresh token, a password reset, a deleted account) is also marked in Redis as `goshop:session-revoked:<sid>` for one access-token lifetime, and the auth middleware checks that key on every request, so the session's access tokens stop working at once. Without Redis, authenticated requests fail with 500 rather than skip the check.
 
@@ -60,9 +66,9 @@ Login, registration, forgot-password, Google sign-in, refresh, email verificatio
 
 From Bab 5 the checkout routes are limited per buyer too (artikel 08 adds the limits to all three at once, closing the gap the preview of artikel 04 and the quotes of artikel 06 leave open until then): `POST /v1/checkout/preview`, `GET /v1/checkout/shipping-quotes` and `POST /v1/checkout` each allow `APP_CHECKOUT_LIMIT_PER_MINUTE` requests per minute (30 by default). The k6 load test checks out far faster than a person, so its stack must be started with a high value (for example `APP_CHECKOUT_LIMIT_PER_MINUTE=100000 make up`).
 
-### Email in development
+### Email
 
-There is no mail provider until Bab 6. Email goes through the `mail.Mailer` interface, and `mail.LogMailer` writes each message to the API's log instead of sending it: in development with the recipient and the whole body, so you can copy a verification or reset token from the output (`docker compose logs api | grep email`); in staging and production with the subject only, because a token in a log line would let anyone who reads the logs take over the account.
+Email goes through the `mail.Mailer` interface. Without `SMTP_HOST`, `mail.LogMailer` writes each message to the log instead of sending it: in development with the recipient and the whole body, so you can copy a verification or reset token from the output (`docker compose logs api | grep email`; the order emails are in `docker compose logs worker`); in staging and production with the subject only, because a token in a log line would let anyone who reads the logs take over the account. With `SMTP_HOST` set (Bab 6), the API queues its emails for the worker and the worker sends them, with the order emails, through `mail.SMTPMailer` (TLS required except to localhost; [configuration](../../docs/configuration.md) shows Mailpit for local testing).
 
 ### A local admin
 
@@ -82,19 +88,44 @@ Every error, including unknown routes (404 `NOT_FOUND`) and wrong methods (405 `
 
 ### Orders and their life cycle
 
-An order goes `pending_payment → paid → processing → shipped → completed`, or `cancelled` before it ships ([ADR 0006](../../docs/adr/0006-cart-checkout-orders.md)). The allowed moves are one table in `internal/order/status.go`, and each move is one conditional `UPDATE … WHERE status = ANY(…)`, so two racing requests cannot both move an order (409 `INVALID_TRANSITION`). A cancel gives the stock and the voucher use back in the same transaction. `paid` is set by the Midtrans webhook in Bab 6 (`order.Service.MarkPaid`); until then, mark an order paid in `psql` to try the seller's steps.
+An order goes `pending_payment → paid → processing → shipped → completed`, or `cancelled` before it ships ([ADR 0006](../../docs/adr/0006-cart-checkout-orders.md)). The allowed moves are one table in `internal/order/status.go`, and each move is one conditional `UPDATE … WHERE status = ANY(…)`, so two racing requests cannot both move an order (409 `INVALID_TRANSITION`). A cancel gives the stock and the voucher use back in the same transaction. `paid` is set only by a confirmed payment notification (Bab 6, [ADR 0007](../../docs/adr/0007-payments-uploads-worker.md)); a payment that arrives for an order that can no longer be paid never revives it, and is flagged for a refund (`payments.refund_required_at`).
 
-An unpaid order is cancelled (`payment_expired`) once `payment_expires_at` has passed (`APP_PAYMENT_TTL`, 24 hours by default). Bab 5 has no worker yet, so this is a one-shot command of the api binary:
+Every order change writes a domain event to `outbox_events` in the same transaction (the transactional outbox). From Bab 6 the worker publishes them every 5 seconds to its Asynq queue, one task per consumer (the buyer's emails, the seller's Telegram message), each idempotent per event (`event_deliveries`).
+
+### Paying locally
+
+`make up` runs the fake payment gateway (`APP_PAYMENT_PROVIDER=fake`), so no Midtrans account is needed:
 
 ```bash
-make expire-orders            # docker compose run --rm --no-deps api expire-orders
+# after POST /v1/orders/{id}/pay for an order GS-20261101-7KQ2M9
+make fake-pay order=GS-20261101-7KQ2M9                    # settlement: the order is paid
+make fake-pay order=GS-20261101-7KQ2M9 status=expire      # Snap expired: the order is cancelled
 ```
 
-Every order change (created, paid, processing, shipped, completed, cancelled) writes a domain event to `outbox_events` in the same transaction ([ADR 0006](../../docs/adr/0006-cart-checkout-orders.md), transactional outbox). `make publish-events` (`/api publish-events`) publishes the pending ones, oldest first, with `FOR UPDATE SKIP LOCKED` so two runs never take the same event; in Bab 5 "publishing" writes each event to the log (`outbox.LogPublisher`, look for `domain event`), and Bab 6 sends them to the job queue for emails and notifications. Delivery is at least once: consumers deduplicate by the event `id`.
+`fake-pay` sets the fake transaction's status and sends the signed notification to the API, which handles it exactly like Midtrans' own. For the real Snap sandbox set `APP_PAYMENT_PROVIDER=midtrans` and the sandbox keys in `.env`, and point Midtrans' notification URL at `/v1/payments/midtrans/notification` (a tunnel such as `cloudflared` for a local API).
 
-Checkout idempotency keys live 24 hours; `make cleanup-idempotency-keys` (`/api cleanup-idempotency-keys`) deletes the expired ones, in batches.
+### The worker and the one-shot jobs
 
-In production, run `/api expire-orders`, `/api publish-events` and `/api cleanup-idempotency-keys` from Railway cron services on the api image every few minutes; Bab 6's worker takes it over. Two runs at once are safe.
+The worker (`cmd/worker`, the compose `worker` service, `deploy/railway/worker.json`) runs on Asynq and Redis, and schedules these jobs; each is also a one-shot `api` command for operators, safe to run while the worker runs:
+
+| Job | Every | Command |
+|---|---|---|
+| Publish the outbox | 5 s | `make publish-events` |
+| Cancel unpaid orders past their deadline | 1 min | `make expire-orders` |
+| Resize confirmed product photos | 30 s | `make process-images` |
+| Ask Midtrans about open payments | 5 min | `make reconcile-payments` |
+| Delete expired idempotency keys, expired refresh tokens, guest carts untouched for 30 days, uploads never confirmed | 1 h | `make cleanup-idempotency-keys` (the others run in the worker only) |
+| Delete events published (and their delivery records) over 7 days ago | 1 day | worker only |
+
+Each worker instance runs Asynq's scheduler, and every tick is enqueued as a unique task, so with two or more instances one enqueue per tick wins and the others are refused as duplicates. The worker logs each refusal at DEBUG (`scheduled task already enqueued by another worker`): expected with several instances, and hidden at the default `APP_LOG_LEVEL=info`. Any other enqueue failure (Redis down) is an ERROR, `could not enqueue a scheduled task`: that tick's job did not run. One instance is enough for this shop.
+
+A task that fails is retried with backoff (10 s doubling to 1 h; emails 8 times, the Telegram message 5, jobs 3). One that runs out of retries waits in Asynq's archived (dead-letter) queue:
+
+```bash
+make dead-tasks                    # list them: id, type, last error (never the payload)
+make requeue-task id=<task id>     # run one again, after fixing the cause
+make requeue-dead-tasks            # run all of them again
+```
 
 ### Load-testing checkout
 

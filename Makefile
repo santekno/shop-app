@@ -69,10 +69,13 @@ IT_ENV := POSTGRES_DSN='postgres://goshop:goshop@localhost:5432/goshop?sslmode=d
 	REDIS_URL=redis://localhost:6379/0 \
 	JWT_SECRET=integration-tests-only-signing-key-0123456789 \
 	S3_ENDPOINT=http://localhost:8333 \
+	S3_BUCKET=goshop \
+	S3_ACCESS_KEY=goshop \
+	S3_SECRET_KEY=goshop-secret \
 	GOSHOP_API_URL=http://127.0.0.1:8080
 
 .PHONY: help doctor build lint lint-openapi test-unit test-integration test-mobile-e2e docker-build scan verify up down dev-api docs-api \
-	migrate-up migrate-down migrate-new seed seed-large seed-admin seed-loadtest loadtest sqlc sqlc-check expire-orders cleanup-idempotency-keys publish-events
+	migrate-up migrate-down migrate-new seed seed-large seed-admin seed-loadtest loadtest sqlc sqlc-check expire-orders cleanup-idempotency-keys publish-events reconcile-payments process-images fake-pay dead-tasks requeue-task requeue-dead-tasks
 
 help: ## List targets
 	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -118,7 +121,7 @@ endif
 test-integration: ## Integration and e2e tests against the Compose stack; fails on any skipped test
 	./scripts/no-skips.sh --self-test
 ifneq ($(HAS_API),)
-	$(COMPOSE) up -d --wait --build postgres redis storage api
+	$(COMPOSE) up -d --wait --build postgres redis storage api worker
 	cd $(API) && $(IT_ENV) ../../scripts/no-skips.sh go test -tags=integration -count=1 -json ./...
 endif
 ifneq ($(HAS_PNPM),)
@@ -215,6 +218,27 @@ cleanup-idempotency-keys: ## Delete checkout idempotency keys past their 24 hour
 
 publish-events: ## Publish the outbox's pending domain events (to the log until Bab 6), once
 	$(COMPOSE) run --rm --no-deps api publish-events
+
+reconcile-payments: ## Ask Midtrans about every open payment and apply its answer, once
+	$(COMPOSE) run --rm --no-deps api reconcile-payments
+
+process-images: ## Resize the confirmed product images into their storefront variants, once
+	$(COMPOSE) run --rm --no-deps api process-images
+
+fake-pay: ## Pay an order with the fake gateway (APP_PAYMENT_PROVIDER=fake): make fake-pay order=GS-… [status=settlement]
+	@[[ "$(order)" =~ ^GS-[0-9]{8}-[0-9A-Z]{6}(-[0-9A-Z]{6})?$$ ]] || { echo "usage: make fake-pay order=GS-20261101-7KQ2M9 [status=settlement|expire|deny|...]" >&2; exit 1; }
+	@[[ "$(status)" =~ ^[a-z_]*$$ ]] || { echo "fake-pay: status is a Midtrans transaction_status such as settlement" >&2; exit 1; }
+	$(COMPOSE) exec api /api fake-pay '$(order)' $(if $(status),'$(status)')
+
+dead-tasks: ## List the worker tasks that ran out of retries (the dead-letter queue)
+	$(COMPOSE) run --rm --no-deps worker dead-tasks list
+
+requeue-task: ## Run one dead task again: make requeue-task id=<task id>
+	@[[ "$(id)" =~ ^[A-Za-z0-9:._-]+$$ ]] || { echo "usage: make requeue-task id=<task id from make dead-tasks>" >&2; exit 1; }
+	$(COMPOSE) run --rm --no-deps worker dead-tasks requeue '$(id)'
+
+requeue-dead-tasks: ## Run every dead task again
+	$(COMPOSE) run --rm --no-deps worker dead-tasks requeue-all
 
 up: ## Start the full stack locally
 	$(COMPOSE) up -d --build

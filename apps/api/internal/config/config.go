@@ -8,6 +8,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/mail"
 	"net/url"
 	"os"
 	"regexp"
@@ -77,6 +78,18 @@ const (
 	// DefaultCheckoutLimitPerMinute is used when
 	// APP_CHECKOUT_LIMIT_PER_MINUTE is not set (order.DefaultLimitPerMinute).
 	DefaultCheckoutLimitPerMinute = 30
+
+	// DefaultWorkerConcurrency is used when APP_WORKER_CONCURRENCY is not
+	// set: enough for emails and messages, few enough that the worker's
+	// database connections stay within APP_DB_MAX_OPEN_CONNS.
+	DefaultWorkerConcurrency = 5
+	// DefaultPaymentTimeout is used when APP_PAYMENT_TIMEOUT is not set:
+	// how long a call to the payment gateway may take.
+	DefaultPaymentTimeout = 10 * time.Second
+	// Midtrans sandbox keys start with these; GoShop takes no other
+	// (ADR 0007: sandbox only).
+	midtransServerKeyPrefix = "SB-Mid-server-"
+	midtransClientKeyPrefix = "SB-Mid-client-"
 )
 
 // Config is the validated configuration of the API.
@@ -118,13 +131,99 @@ type Config struct {
 	TrustedProxyHops int
 	// Shipping configures the courier rates (ADR 0006).
 	Shipping Shipping
-	// PaymentTTL is APP_PAYMENT_TTL (1m-72h, default 24h): how long a buyer
+	// PaymentTTL is APP_PAYMENT_TTL (5m-72h, default 24h): how long a buyer
 	// has to pay an order before it is cancelled and its stock returned.
+	// At least 5 minutes, because Snap stops taking money a minute before
+	// the deadline and counts whole minutes (Bab 6): a shorter TTL leaves
+	// the buyer no time to pay.
 	PaymentTTL time.Duration
 	// CheckoutLimitPerMinute is APP_CHECKOUT_LIMIT_PER_MINUTE (1-100000,
 	// default 30): how many previews, shipping quotes and checkouts one
 	// buyer may ask for per minute, each.
 	CheckoutLimitPerMinute int
+	// Payment configures the payment gateway (ADR 0007).
+	Payment Payment
+	// Storage is the S3 bucket for product images (ADR 0007).
+	Storage Storage
+	// SMTP is the mail server; an empty Host keeps the log mailer.
+	SMTP SMTP
+	// Telegram is the seller's chat for new paid orders; empty is off.
+	Telegram Telegram
+	// WorkerConcurrency is APP_WORKER_CONCURRENCY (1-50, default 5): how
+	// many tasks one worker process runs at once.
+	WorkerConcurrency int
+}
+
+// Storage configures the S3 bucket. An empty Endpoint turns image uploads
+// off (503 STORAGE_DISABLED).
+type Storage struct {
+	// Endpoint is S3_ENDPOINT: how the API and worker reach S3.
+	Endpoint string
+	// PresignEndpoint is S3_PRESIGN_ENDPOINT: the endpoint clients upload
+	// to, when it differs from S3_ENDPOINT (Docker Compose:
+	// http://localhost:8333 for the browser, http://storage:8333 inside).
+	PresignEndpoint string
+	// PublicURL is S3_PUBLIC_URL: the base URL the public reads images
+	// from (a CDN, the bucket's public domain). Empty means
+	// <presign endpoint>/<bucket>.
+	PublicURL string
+	// Region is S3_REGION (default us-east-1; auto for Cloudflare R2).
+	Region string
+	// Bucket is S3_BUCKET.
+	Bucket string
+	// AccessKey and SecretKey are S3_ACCESS_KEY and S3_SECRET_KEY; the
+	// secret key is never logged.
+	AccessKey string
+	SecretKey string
+}
+
+// SMTP configures sending email (ADR 0007).
+type SMTP struct {
+	// Host is SMTP_HOST. Empty: emails are written to the log (bodies in
+	// development only) instead of sent.
+	Host string
+	// Port is SMTP_PORT (default 587: STARTTLS; 465: TLS).
+	Port int
+	// Username and Password are SMTP_USERNAME and SMTP_PASSWORD, both or
+	// neither; the password is a secret.
+	Username string
+	Password string
+	// From is SMTP_FROM, the sender, e.g. GoShop <no-reply@shop.example>.
+	From string
+}
+
+// Telegram configures the seller's chat notifications (ADR 0007).
+type Telegram struct {
+	// BotToken is TELEGRAM_BOT_TOKEN, from @BotFather; a secret, never
+	// logged (it is part of every Bot API URL).
+	BotToken string
+	// ChatID is TELEGRAM_CHAT_ID: the seller's group or chat.
+	ChatID string
+}
+
+// The payment providers APP_PAYMENT_PROVIDER accepts.
+const (
+	PaymentMidtrans = "midtrans"
+	// PaymentFake is internal/payment/fake, refused in production.
+	PaymentFake = "fake"
+)
+
+// Payment configures the payment gateway: Midtrans in the sandbox only, or
+// the fake.
+type Payment struct {
+	// Provider is APP_PAYMENT_PROVIDER: midtrans (default) or fake, the
+	// test double, which production refuses.
+	Provider string
+	// MidtransServerKey is MIDTRANS_SERVER_KEY, a sandbox server key
+	// (SB-Mid-server-…): it authenticates GoShop at Midtrans and signs
+	// notifications. Empty turns payments off (503 PAYMENTS_DISABLED). A
+	// secret, never logged.
+	MidtransServerKey string
+	// MidtransClientKey is MIDTRANS_CLIENT_KEY (SB-Mid-client-…), public by
+	// design: clients hand it to Snap.js. Required with the server key.
+	MidtransClientKey string
+	// Timeout is APP_PAYMENT_TIMEOUT (1s-30s, default 10s).
+	Timeout time.Duration
 }
 
 // Shipping configures where shipping fees come from.
@@ -269,11 +368,32 @@ func Load() (Config, error) {
 	errs = append(errs, err)
 
 	cfg.PaymentTTL, err = parseDuration("APP_PAYMENT_TTL", src.String("payment.ttl"),
-		DefaultPaymentTTL, time.Minute, 72*time.Hour)
+		DefaultPaymentTTL, 5*time.Minute, 72*time.Hour)
 	errs = append(errs, err)
 
 	cfg.CheckoutLimitPerMinute, err = parseInt("APP_CHECKOUT_LIMIT_PER_MINUTE", src.String("checkout.limit.per.minute"),
 		DefaultCheckoutLimitPerMinute, 1, 100_000)
+	errs = append(errs, err)
+
+	cfg.Payment, err = parsePayment(src, cfg.Env)
+	errs = append(errs, err)
+
+	cfg.Storage, err = parseStorage()
+	errs = append(errs, err)
+
+	cfg.SMTP, err = parseSMTP()
+	errs = append(errs, err)
+
+	cfg.Telegram = Telegram{
+		BotToken: strings.TrimSpace(os.Getenv("TELEGRAM_BOT_TOKEN")),
+		ChatID:   strings.TrimSpace(os.Getenv("TELEGRAM_CHAT_ID")),
+	}
+	if (cfg.Telegram.BotToken == "") != (cfg.Telegram.ChatID == "") {
+		errs = append(errs, errors.New("TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID: set both (seller notifications on) or neither (off)"))
+	}
+
+	cfg.WorkerConcurrency, err = parseInt("APP_WORKER_CONCURRENCY", src.String("worker.concurrency"),
+		DefaultWorkerConcurrency, 1, 50)
 	errs = append(errs, err)
 
 	if err := errors.Join(errs...); err != nil {
@@ -373,6 +493,122 @@ func parseShipping(src *configx.Config) (Shipping, error) {
 		DefaultShippingTimeout, time.Second, 15*time.Second)
 	errs = append(errs, err)
 	return sh, errors.Join(errs...)
+}
+
+// parsePayment reads APP_PAYMENT_PROVIDER, MIDTRANS_SERVER_KEY,
+// MIDTRANS_CLIENT_KEY and MIDTRANS_IS_PRODUCTION (no APP_ prefix:
+// Midtrans' own names) and APP_PAYMENT_TIMEOUT. The course takes money in the sandbox only, so
+// MIDTRANS_IS_PRODUCTION must be false and the keys must be sandbox keys.
+// No error repeats a key.
+func parsePayment(src *configx.Config, env string) (Payment, error) {
+	p := Payment{
+		Provider:          src.StringDefault("payment.provider", PaymentMidtrans),
+		MidtransServerKey: strings.TrimSpace(os.Getenv("MIDTRANS_SERVER_KEY")),
+		MidtransClientKey: strings.TrimSpace(os.Getenv("MIDTRANS_CLIENT_KEY")),
+	}
+	var errs []error
+	switch {
+	case p.Provider == PaymentFake && env == EnvProduction:
+		errs = append(errs, errors.New("APP_PAYMENT_PROVIDER: fake is a test double and is refused in production"))
+	case p.Provider != PaymentMidtrans && p.Provider != PaymentFake:
+		errs = append(errs, fmt.Errorf("APP_PAYMENT_PROVIDER: must be %s or %s, got %q", PaymentMidtrans, PaymentFake, p.Provider))
+	}
+	switch strings.TrimSpace(os.Getenv("MIDTRANS_IS_PRODUCTION")) {
+	case "", "false":
+	case "true":
+		errs = append(errs, errors.New("MIDTRANS_IS_PRODUCTION: must be false: GoShop uses the Midtrans sandbox only"))
+	default:
+		errs = append(errs, errors.New("MIDTRANS_IS_PRODUCTION: must be false or empty"))
+	}
+	switch {
+	case p.MidtransServerKey == "" && p.MidtransClientKey != "":
+		errs = append(errs, errors.New("MIDTRANS_SERVER_KEY: is required when MIDTRANS_CLIENT_KEY is set"))
+	case p.MidtransServerKey != "" && !strings.HasPrefix(p.MidtransServerKey, midtransServerKeyPrefix):
+		errs = append(errs, errors.New("MIDTRANS_SERVER_KEY: must be a sandbox server key ("+midtransServerKeyPrefix+"…): GoShop uses the Midtrans sandbox only"))
+	case p.MidtransServerKey != "" && !strings.HasPrefix(p.MidtransClientKey, midtransClientKeyPrefix):
+		errs = append(errs, errors.New("MIDTRANS_CLIENT_KEY: is required with MIDTRANS_SERVER_KEY and must be a sandbox client key ("+midtransClientKeyPrefix+"…)"))
+	}
+	var err error
+	p.Timeout, err = parseDuration("APP_PAYMENT_TIMEOUT", src.String("payment.timeout"),
+		DefaultPaymentTimeout, time.Second, 30*time.Second)
+	errs = append(errs, err)
+	return p, errors.Join(errs...)
+}
+
+// parseStorage reads the S3_* variables (no APP_ prefix: the usual names
+// of S3 tools). Only S3_ENDPOINT turns storage on; then the bucket and
+// both keys are required. No error repeats a key.
+func parseStorage() (Storage, error) {
+	st := Storage{
+		Endpoint:        strings.TrimSpace(os.Getenv("S3_ENDPOINT")),
+		PresignEndpoint: strings.TrimSpace(os.Getenv("S3_PRESIGN_ENDPOINT")),
+		PublicURL:       strings.TrimRight(strings.TrimSpace(os.Getenv("S3_PUBLIC_URL")), "/"),
+		Region:          strings.TrimSpace(os.Getenv("S3_REGION")),
+		Bucket:          strings.TrimSpace(os.Getenv("S3_BUCKET")),
+		AccessKey:       strings.TrimSpace(os.Getenv("S3_ACCESS_KEY")),
+		SecretKey:       strings.TrimSpace(os.Getenv("S3_SECRET_KEY")),
+	}
+	if st.Endpoint == "" {
+		return Storage{}, nil
+	}
+	if st.Region == "" {
+		st.Region = "us-east-1"
+	}
+	var errs []error
+	for name, value := range map[string]string{"S3_ENDPOINT": st.Endpoint, "S3_PRESIGN_ENDPOINT": st.PresignEndpoint} {
+		if value != "" && !isEndpoint(value) {
+			errs = append(errs, fmt.Errorf("%s: must be an endpoint like http://localhost:8333 (scheme and host, no path)", name))
+		}
+	}
+	if st.PublicURL != "" && !isHTTPURL(st.PublicURL) {
+		errs = append(errs, errors.New("S3_PUBLIC_URL: must be an http(s) URL like https://images.example.com"))
+	}
+	if !bucketName.MatchString(st.Bucket) {
+		errs = append(errs, fmt.Errorf("S3_BUCKET: is required with S3_ENDPOINT and must be a bucket name (3-63 lower-case letters, digits, dots, hyphens), got %q", st.Bucket))
+	}
+	if st.AccessKey == "" || st.SecretKey == "" {
+		errs = append(errs, errors.New("S3_ACCESS_KEY, S3_SECRET_KEY: are required with S3_ENDPOINT"))
+	}
+	return st, errors.Join(errs...)
+}
+
+// parseSMTP reads the SMTP_* variables. Only SMTP_HOST turns SMTP on; then
+// SMTP_FROM is required. No error repeats the password.
+func parseSMTP() (SMTP, error) {
+	sm := SMTP{
+		Host:     strings.TrimSpace(os.Getenv("SMTP_HOST")),
+		Username: strings.TrimSpace(os.Getenv("SMTP_USERNAME")),
+		Password: os.Getenv("SMTP_PASSWORD"),
+		From:     strings.TrimSpace(os.Getenv("SMTP_FROM")),
+	}
+	if sm.Host == "" {
+		return SMTP{}, nil
+	}
+	var errs []error
+	var err error
+	sm.Port, err = parseInt("SMTP_PORT", strings.TrimSpace(os.Getenv("SMTP_PORT")), 587, 1, 65535)
+	errs = append(errs, err)
+	if addr, err := mail.ParseAddress(sm.From); err != nil || strings.ContainsAny(sm.From, "\r\n") || addr.Address == "" {
+		errs = append(errs, errors.New("SMTP_FROM: is required with SMTP_HOST, e.g. GoShop <no-reply@shop.example>"))
+	}
+	if (sm.Username == "") != (sm.Password == "") {
+		errs = append(errs, errors.New("SMTP_USERNAME, SMTP_PASSWORD: set both or neither"))
+	}
+	return sm, errors.Join(errs...)
+}
+
+// bucketName is an S3 bucket name.
+var bucketName = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$`)
+
+func isEndpoint(value string) bool {
+	u, err := url.Parse(value)
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != "" &&
+		u.User == nil && (u.Path == "" || u.Path == "/") && u.RawQuery == ""
+}
+
+func isHTTPURL(value string) bool {
+	u, err := url.Parse(value)
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != "" && u.User == nil
 }
 
 // postalCode is an Indonesian postal code: five digits, never starting

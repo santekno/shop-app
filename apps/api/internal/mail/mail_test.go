@@ -50,7 +50,7 @@ func TestLogMailer_ShowBody(t *testing.T) {
 func TestLogMailer_HidesBodyAndRecipient(t *testing.T) {
 	line := send(t, false)
 	testx.AssertEqual(t, line["level"], any("WARN"))
-	testx.AssertEqual(t, line["msg"], any("email not sent: no mail provider is configured until Bab 6"))
+	testx.AssertEqual(t, line["msg"], any("email not sent: SMTP_HOST is not set"))
 	testx.AssertEqual(t, line["subject"], any(msg.Subject))
 	for _, key := range []string{"to", "body"} {
 		_, present := line[key]

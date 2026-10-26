@@ -86,7 +86,11 @@ func (r *PostgresRepository) List(ctx context.Context, q ListQuery) ([]Product, 
 	default:
 		return nil, fmt.Errorf("query products: unknown sort %q", q.Sort)
 	}
-	return groupProducts(page), nil
+	products := groupProducts(page)
+	if err := r.attachImages(ctx, products); err != nil {
+		return nil, err
+	}
+	return products, nil
 }
 
 // GetBySlug returns the active product with slug, or ErrNotFound.
@@ -104,6 +108,9 @@ func (r *PostgresRepository) GetBySlug(ctx context.Context, slug string) (Produc
 	products := groupProducts(page)
 	if len(products) == 0 {
 		return Product{}, ErrNotFound
+	}
+	if err := r.attachImages(ctx, products); err != nil {
+		return Product{}, err
 	}
 	return products[0], nil
 }
@@ -180,6 +187,11 @@ func (r *PostgresRepository) GetAdmin(ctx context.Context, id string) (AdminProd
 			Version: v.Version,
 		})
 	}
+	images, err := r.imagesOf(ctx, []string{id})
+	if err != nil {
+		return AdminProduct{}, err
+	}
+	p.Images = images[id]
 	return p, nil
 }
 

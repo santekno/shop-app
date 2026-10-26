@@ -1,6 +1,6 @@
 # GoShop API and the OWASP API Security Top 10 (2023)
 
-What the API does about each risk of the [OWASP API Security Top 10 2023](https://owasp.org/API-Security/editions/2023/en/0x11-t10/), where in the code it happens, and what is still open. Updated with every chapter that changes the answer; this version is Bab 5 (cart, checkout, orders).
+What the API does about each risk of the [OWASP API Security Top 10 2023](https://owasp.org/API-Security/editions/2023/en/0x11-t10/), where in the code it happens, and what is still open. Updated with every chapter that changes the answer; this version is Bab 6 (payments, uploads, the worker and notifications).
 
 | # | Risk | Status |
 |---|---|---|
@@ -9,11 +9,11 @@ What the API does about each risk of the [OWASP API Security Top 10 2023](https:
 | API3 | Broken object property level authorization | covered |
 | API4 | Unrestricted resource consumption | covered for Bab 4; known limits below |
 | API5 | Broken function level authorization | covered |
-| API6 | Unrestricted access to sensitive business flows | covered for sign-up, login, reset, guest carts and checkout; payment arrives in Bab 6 |
-| API7 | Server side request forgery | not exposed |
+| API6 | Unrestricted access to sensitive business flows | covered for sign-up, login, reset, guest carts, checkout and payment |
+| API7 | Server side request forgery | not exposed: outbound calls go to fixed hosts only |
 | API8 | Security misconfiguration | covered |
 | API9 | Improper inventory management | covered |
-| API10 | Unsafe consumption of APIs | covered for Google |
+| API10 | Unsafe consumption of APIs | covered for Google, Biteship, Midtrans, S3 uploads and Telegram |
 
 ## API1: Broken object level authorization (BOLA)
 
@@ -36,7 +36,7 @@ What the API does about each risk of the [OWASP API Security Top 10 2023](https:
 Known limits:
 
 - Registration answers 409 `EMAIL_TAKEN` for a registered email: a clear sign-up form was chosen over hiding it; the endpoint is rate limited per IP.
-- Forgot-password does a little more work when the account exists, which a careful timing measurement could see. Bab 6 moves sending to the worker queue.
+- Forgot-password does a little more work when the account exists, which a careful timing measurement could see. With `SMTP_HOST` set (Bab 6) the email is only queued for the worker, so the difference is one Redis write; with the log mailer (no SMTP) it is one log line.
 - The per-email login limit lets an attacker lock a victim out of password login for up to 15 minutes; Google sign-in and the reset email still work.
 - Deleting the account and resetting the password need no re-authentication beyond a valid access token (resetting needs the emailed token). A step-up check (password or a fresh Google token) is a later hardening.
 - No second factor yet (the chapter's challenge: login with OTP).
@@ -57,16 +57,16 @@ Known limits:
 - Rate limits (above) bound login, register, the email-sending endpoints and the token endpoints, which each cost a query and, for a reset, a hash.
 - **Shop bounds (Bab 5):** a cart holds at most 50 lines of at most 99 units each; a buyer may hold at most 5 unpaid orders; new guest carts are limited to 30 per client IP per hour; the courier rates API's answer is read through a 1 MiB limit, within `APP_SHIPPING_TIMEOUT`, and never retried.
 - **Per-buyer limits on checkout:** `POST /v1/checkout/preview`, `GET /v1/checkout/shipping-quotes` and `POST /v1/checkout` each allow `APP_CHECKOUT_LIMIT_PER_MINUTE` requests per buyer per minute (30 by default; 429 `RATE_LIMITED` with `Retry-After`). Every preview and quote can call the courier rates API, so without the limit one account could use GoShop to flood it.
-- Known limit: the refresh-token table grows with every refresh; expired rows are cleaned up by a worker job from Bab 6.
-- Known limit: abandoned guest carts are never deleted in Bab 5 (only a merge removes one); the per-IP limit bounds how fast they grow, and a Bab 6 worker job deletes old ones.
-- Known limit: `outbox_events` keeps every published event in Bab 5 (one row per order status change); Bab 6's worker deletes published events once its consumers have them.
+- **Growth is bounded by the worker (Bab 6):** expired refresh tokens and idempotency keys are deleted hourly, guest carts untouched for 30 days hourly, uploads never confirmed after a day, published outbox events and their delivery records after 7 days.
+- **Uploads never pass through the API.** A seller gets a 15-minute presigned `PUT` for exactly one declared type (JPEG, PNG, WebP) and size (at most 5 MiB), with `Content-Type` and `Content-Length` signed; a product holds at most 10 photos, pending ones included. Confirm reads only the file's header, and refuses a bitmap over 6000 px a side or 24 megapixels before anything decodes it (a decompression bomb); the worker resizes one image at a time.
+- **Payments:** `POST /v1/orders/{id}/pay` allows 10 calls per buyer per minute (each may call Midtrans), and the public notification route 120 per client IP per minute with a 64 KiB body.
 
 ## API5: Broken function level authorization
 
 - Admin routes are mounted behind `auth.Guard.Authenticate` and `auth.RequireRole(seller, admin)` in one place (`internal/app/app.go`), so a new admin route cannot be added without them.
 - `RequireRole` without claims answers 401, so a route mounted in the wrong group fails closed.
 - The API cannot create an admin; `make seed-admin` does it locally only.
-- Order status changes are split by role: `/v1/admin/orders/…` (seller or admin) move any order through processing and shipping; a buyer's `/v1/orders/{id}/cancel` and `/complete` are scoped by `user_id` in the SQL and allow only the buyer's moves (cancel while unpaid, confirm receipt). Marking an order paid has no route at all until the signed Midtrans webhook (Bab 6).
+- Order status changes are split by role: `/v1/admin/orders/…` (seller or admin) move any order through processing and shipping; a buyer's `/v1/orders/{id}/cancel` and `/complete` are scoped by `user_id` in the SQL and allow only the buyer's moves (cancel while unpaid, confirm receipt). Marking an order paid has no route a person can call: only a Midtrans notification whose signature checks, and whose status Midtrans' own status API confirms, moves an order to `paid` (Bab 6). The sales report is staff-only.
 
 ## API6: Unrestricted access to sensitive business flows
 
@@ -78,19 +78,24 @@ Known limits:
 - **Prices and fees come from the server**: checkout reads the lines from the server-side cart, re-reads prices on locked rows, refuses a line whose price changed since the buyer saw it, and asks the shipping provider for the fee itself. A client cannot send a price, a fee or a discount.
 - **Retries never double an order**: `POST /v1/checkout` requires an `Idempotency-Key`, stored per user with the hash of the body; the order and the stored answer commit in one transaction (ADR 0006).
 - **Vouchers** count their uses with a guarded `UPDATE`, and the per-buyer limit under the buyer's row lock, so parallel checkouts cannot overuse one.
-- Payment (Bab 6) will add its own limits.
+- **Payment amounts come from the server** (Bab 6): `POST /v1/orders/{id}/pay` has no body; the Snap transaction's amount is the order's `total` from its row, and the stored payment must match it. A notification whose amount is not the payment's changes nothing (`amount_mismatch`, logged at ERROR).
+- **A payment cannot revive an order**: money for an order that expired, was cancelled or was paid by another payment is recorded and flagged for a refund (`refund_required_at`), never moves the order back to `paid`. Notifications never move a payment or an order backwards (guarded status changes, both directions in one Go table each).
+- **One open payment per order** (a partial unique index), reused on every pay call, so double taps do not multiply Snap pages.
+- **The fake gateway** (`APP_PAYMENT_PROVIDER=fake`) signs with a public key and would let anyone pay with nothing: the API and the worker refuse to start with it in production.
 
 ## API7: Server side request forgery
 
-- The API fetches no URL a client gives it. Its outbound calls go to fixed URLs: Google's JWKS (`https://www.googleapis.com/oauth2/v3/certs`, 10-second timeout) and, when `BITESHIP_API_KEY` is set, Biteship's rates API (`https://api.biteship.com/v1/rates/couriers`, `APP_SHIPPING_TIMEOUT`). A client only chooses which of its own addresses' postal codes is sent.
+- The API fetches no URL a client gives it. Its outbound calls go to fixed URLs: Google's JWKS (`https://www.googleapis.com/oauth2/v3/certs`, 10-second timeout); when `BITESHIP_API_KEY` is set, Biteship's rates API (`https://api.biteship.com/v1/rates/couriers`, `APP_SHIPPING_TIMEOUT`); Midtrans' sandbox (`app.sandbox.midtrans.com`, `api.sandbox.midtrans.com`, `APP_PAYMENT_TIMEOUT`), where the only variable part of a URL is a payment's `order_id` that GoShop generated and path-escapes; and the configured S3 endpoint, with keys GoShop builds from its own ids. The worker also calls the configured SMTP server and Telegram's Bot API. A client only chooses which of its own addresses' postal codes is sent.
 
 ## API8: Security misconfiguration
 
 - **Security headers** on every response, errors included (`httpapi.SecurityHeaders`): `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Cache-Control: no-store` (tokens and personal data are never cached), and HSTS outside development.
 - **CORS** allows only the origins listed in `APP_CORS_ALLOWED_ORIGINS`; `*` is refused, an empty list allows none, and credentials (cookies) are not allowed.
-- **Errors never leak internals**: every 5xx is the generic `INTERNAL_ERROR`, with the cause in the log under the request ID; `healthx` hides check errors outside development.
+- **Errors never leak internals**: every 5xx is the generic `INTERNAL_ERROR`, with the cause in the log under the request ID, except the 503s the API builds on purpose with a message written for the client (`TIMEOUT`, `UPSTREAM_UNAVAILABLE`, and from Bab 6 `PAYMENTS_DISABLED`, `STORAGE_DISABLED`; `httpapi.ToAppError`); `healthx` hides check errors outside development.
 - **Startup checks**: invalid or missing configuration stops the process with a message naming the variable, never repeating a secret.
-- **Logs** carry no passwords, tokens or URLs with credentials; email bodies (with tokens) are logged only in development.
+- **Logs** carry no passwords, tokens or URLs with credentials; email bodies (with tokens) are logged only in development. Payment logs carry ids and statuses, never a signature or a key. The dead-letter listing (`worker dead-tasks list`) never prints payloads.
+- **Placeholders that would be fine locally are refused elsewhere**: the `.env.example` JWT placeholder outside development, the fake payment gateway in production.
+- **Image bucket:** uploads (originals, pending or confirmed) live under `uploads/`, the worker's variants under `products/`. The bucket is private; only `products/*` is publicly readable, which is all the storefront links. Locally SeaweedFS does the same (`deploy/seaweedfs/s3.json`: anonymous `Read:goshop/products/*`). In production, keep the bucket private and allow public reads of the `products/` prefix only (a bucket policy, or a CDN or R2 custom domain in front of that prefix). Keys contain random UUIDv7 ids and are never listed.
 - Containers run as non-root on a distroless image; dev services bind to 127.0.0.1 only.
 
 ## API9: Improper inventory management
@@ -103,7 +108,9 @@ Known limits:
 - Google ID tokens are verified with a maintained library (`github.com/coreos/go-oidc`), RS256 only, against Google's published keys, for our audience, with expiry; the email is used only when Google says it is verified, and only ASCII emails are stored.
 - Values from Google (the name) go through the same text checks as user input before they are stored.
 - **No nonce.** The client gets the ID token from Google itself (Google Sign-In on the web or the phone) and the API never starts that flow, so there is no nonce to check. A stolen ID token can be replayed to sign in until it expires (Google sets about one hour); that is bounded by the expiry the verifier checks, and by TLS, which keeps the token off the wire.
-- Midtrans webhooks (Bab 6) will be verified by signature before they change an order.
+- **Midtrans notifications** (Bab 6) are verified by `signature_key` (SHA-512 of order_id, status_code, gross_amount and the server key, compared in constant time with sdk `hashx`), then treated as a hint only: the status that is applied comes from Midtrans' status API, whose answer is signature-checked too. Each distinct status is recorded once (`payment_events`), so replays are no-ops. The keys must be sandbox keys (`SB-Mid-…`) and `MIDTRANS_IS_PRODUCTION` must be false. Calls to Midtrans use `context.WithoutCancel` with their own timeout, so buyers hanging up cannot open the circuit breaker for everyone.
+- **Uploaded files** are distrusted: a presigned URL promises the request, not the bytes, so confirm checks the stored object's size and type again, sniffs its real format, and reads its dimensions; the storefront only links the worker's re-encoded JPEGs (metadata such as a photo's GPS position dropped), never the original.
+- **Telegram's** errors repeat the request URL, which holds the bot token; GoShop strips the URL before an error is logged or stored in the dead-letter queue.
 - Biteship's answer is read through a 1 MiB limit with a timeout and a circuit breaker (sdk `httpx`); only services of the three known couriers with a positive price are kept, and the fee charged at checkout is always the one Biteship (or the fixed table) gives, never one from the client. A failure answers 503 `UPSTREAM_UNAVAILABLE` without the upstream's message.
 
 ## Checklist for a new endpoint

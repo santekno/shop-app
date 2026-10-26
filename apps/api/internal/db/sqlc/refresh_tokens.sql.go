@@ -11,6 +11,32 @@ import (
 	"time"
 )
 
+const deleteExpiredRefreshTokens = `-- name: DeleteExpiredRefreshTokens :execrows
+DELETE FROM refresh_tokens
+WHERE id IN (
+    SELECT rt.id FROM refresh_tokens rt
+    WHERE rt.expires_at < $1
+    ORDER BY rt.expires_at
+    LIMIT $2
+    FOR UPDATE SKIP LOCKED)
+`
+
+type DeleteExpiredRefreshTokensParams struct {
+	Before    time.Time
+	BatchSize int32
+}
+
+// The worker's cleanup (ADR 0005): up to @batch_size tokens past their
+// expiry, which no request can use any more. SKIP LOCKED leaves a token a
+// rotation or a revocation holds. Served by refresh_tokens_expires_at_idx.
+func (q *Queries) DeleteExpiredRefreshTokens(ctx context.Context, arg DeleteExpiredRefreshTokensParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteExpiredRefreshTokens, arg.Before, arg.BatchSize)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const getRefreshToken = `-- name: GetRefreshToken :one
 SELECT id, family_id, token_hash
 FROM refresh_tokens

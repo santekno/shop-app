@@ -24,9 +24,9 @@ const (
 	CodeForbidden        = "FORBIDDEN"
 	CodeRateLimited      = "RATE_LIMITED"
 	// CodeUpstreamUnavailable is a 503 for a service the API depends on
-	// that did not answer (the courier rates API). Unlike other 5xx errors
-	// it is sent as it is: the client may retry, and the message names no
-	// internals.
+	// that did not answer (the courier rates API). Like every 503 AppError
+	// (see ToAppError) it is sent as it is: the client may retry, and the
+	// message names no internals.
 	CodeUpstreamUnavailable = "UPSTREAM_UNAVAILABLE"
 )
 
@@ -81,16 +81,28 @@ func UpstreamUnavailableError(message string) *errx.AppError {
 	return errx.New(CodeUpstreamUnavailable, message).WithHTTPStatus(http.StatusServiceUnavailable)
 }
 
+// switchedOff reports whether appErr is a 503 for a feature the
+// configuration turned off: any deliberate 503 that is not a timeout or an
+// upstream that did not answer, which are faults and logged at ERROR.
+func switchedOff(appErr *errx.AppError) bool {
+	return appErr.HTTPStatus == http.StatusServiceUnavailable &&
+		appErr.Code != CodeTimeout && appErr.Code != CodeUpstreamUnavailable
+}
+
 // ToAppError decides what the client may see of err:
 //
 //   - an *errx.AppError with a 4xx status anywhere in the chain is sent as it
 //     is: client errors are written for the client, with a safe message;
 //   - a timeout (context.DeadlineExceeded, or TimeoutError itself) becomes
 //     503 TIMEOUT;
-//   - an UpstreamUnavailableError is sent as it is (503);
-//   - anything else, including an AppError without a status or with a 5xx
-//     one, becomes 500 INTERNAL_ERROR, so a driver message or an internal
-//     address never reaches the response.
+//   - an *errx.AppError with status 503 is sent as it is: GoShop builds a
+//     503 only on purpose, for "try again later" or "this is switched off
+//     here" (UPSTREAM_UNAVAILABLE, PAYMENTS_DISABLED, STORAGE_DISABLED),
+//     always with a message written for the client, and the sdk builds
+//     none; a client needs the code to tell them apart;
+//   - anything else, including an AppError without a status or with
+//     another 5xx one, becomes 500 INTERNAL_ERROR, so a driver message or
+//     an internal address never reaches the response.
 func ToAppError(err error) *errx.AppError {
 	var appErr *errx.AppError
 	if errors.As(err, &appErr) {
@@ -100,7 +112,7 @@ func ToAppError(err error) *errx.AppError {
 		if appErr.Code == CodeTimeout {
 			return TimeoutError()
 		}
-		if appErr.Code == CodeUpstreamUnavailable && appErr.HTTPStatus == http.StatusServiceUnavailable {
+		if appErr.HTTPStatus == http.StatusServiceUnavailable {
 			return appErr
 		}
 	}
@@ -124,6 +136,12 @@ func Error(w http.ResponseWriter, r *http.Request, err error) {
 		// usual 500 body is still written; nobody reads it, and writing to a
 		// closed connection is harmless, so there is no special case below.
 		log.Info("request canceled by the client", "method", r.Method, "path", r.URL.Path)
+	case switchedOff(appErr):
+		// Deliberately off by configuration (PAYMENTS_DISABLED,
+		// STORAGE_DISABLED): the operator chose it and was told at start,
+		// so every request it refuses is a WARN, not an ERROR.
+		log.Warn("request refused: switched off by configuration",
+			"code", appErr.Code, "method", r.Method, "path", r.URL.Path)
 	case appErr.HTTPStatus >= http.StatusInternalServerError:
 		cause := "<nil>"
 		if err != nil {

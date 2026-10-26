@@ -21,6 +21,41 @@ func (q *Queries) CountCartItems(ctx context.Context, cartID string) (int64, err
 	return count, err
 }
 
+const deleteAbandonedGuestCarts = `-- name: DeleteAbandonedGuestCarts :execrows
+DELETE FROM carts
+WHERE id IN (
+    SELECT c.id FROM carts c
+    WHERE c.user_id IS NULL AND c.updated_at < $1
+      AND NOT EXISTS (SELECT 1 FROM cart_items ci WHERE ci.cart_id = c.id AND ci.updated_at >= $1)
+    ORDER BY c.updated_at
+    LIMIT $2
+    FOR UPDATE SKIP LOCKED)
+`
+
+type DeleteAbandonedGuestCartsParams struct {
+	Before    time.Time
+	BatchSize int32
+}
+
+// The worker's cleanup (ADR 0007): up to @batch_size guest carts whose
+// cart and lines were all last touched before @before, with their lines
+// (CASCADE). SKIP LOCKED leaves a cart that a cart write or a merge holds
+// right now. A write that locks the cart just after the cleanup read it
+// waits for the DELETE and then finds no cart (404, the guest starts a new
+// one). A write that commits first changed the row (LockGuestCart updates
+// updated_at), so PostgreSQL re-checks the row against the WHERE before
+// the DELETE takes it, and keeps it. The NOT EXISTS over cart_items is a
+// plain read of the snapshot and is not re-checked; carts.updated_at is
+// what protects a cart in use. Served by carts_guest_updated_idx and
+// cart_items_pkey.
+func (q *Queries) DeleteAbandonedGuestCarts(ctx context.Context, arg DeleteAbandonedGuestCartsParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteAbandonedGuestCarts, arg.Before, arg.BatchSize)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const deleteCart = `-- name: DeleteCart :exec
 DELETE FROM carts WHERE id = $1
 `
@@ -206,11 +241,19 @@ func (q *Queries) ListCartLines(ctx context.Context, cartID string) ([]ListCartL
 }
 
 const lockGuestCart = `-- name: LockGuestCart :one
-SELECT token_hash FROM carts WHERE id = $1 AND user_id IS NULL FOR UPDATE
+UPDATE carts SET updated_at = now()
+WHERE id = $1 AND user_id IS NULL
+RETURNING token_hash
 `
 
 // Lock order: a merge locks the user's cart first and the guest cart
 // second; nothing locks them the other way round.
+//
+// An UPDATE, not SELECT … FOR UPDATE (Bab 6): every write to a guest
+// cart's lines touches the cart row, so updated_at is its last use, and
+// the row really changes. The guest-cart cleanup re-checks its conditions
+// only on a row that changed while it waited: a row that was merely
+// locked would be deleted, with a line added by the write it waited for.
 func (q *Queries) LockGuestCart(ctx context.Context, id string) ([]byte, error) {
 	row := q.db.QueryRowContext(ctx, lockGuestCart, id)
 	var token_hash []byte
