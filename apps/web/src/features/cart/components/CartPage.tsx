@@ -1,14 +1,11 @@
 import { Link } from "react-router";
 import { formatRupiah } from "@goshop/shared";
 import { Card } from "@/components/ui/Card.tsx";
-import {
-  EmptyState,
-  ErrorState,
-  LoadingState,
-} from "@/components/ui/StatusMessage.tsx";
+import { ErrorState, LoadingState } from "@/components/ui/StatusMessage.tsx";
 import { productPath } from "@/features/product/paths.ts";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle.ts";
 import { useCart } from "../hooks/useCart.ts";
+import { EmptyCart } from "./EmptyCart.tsx";
 import { Badge } from "@/components/ui/Badge.tsx";
 
 /** Why checkout would refuse a line, in the buyer's words. */
@@ -45,12 +42,7 @@ export function CartPage() {
       )}
       {status === "success" &&
         (cart.lines.length === 0 ? (
-          <>
-            <EmptyState>Keranjang Anda masih kosong.</EmptyState>
-            <p>
-              <Link to="/">Lihat katalog</Link>
-            </p>
-          </>
+          <EmptyCart />
         ) : (
           <>
             <ul className="mb-4 grid gap-3">

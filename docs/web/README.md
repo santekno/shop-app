@@ -208,3 +208,152 @@ The API already searches: `GET /v1/products?q=…` matches names and description
 3. On the page, read `q` with `useSearchParams` and list the results with `useProductList({ q, limit })`. A different `q` is a different query key, so earlier searches come back from the cache (artikel 05 and 07).
 4. Without `q`, show a hint instead of the whole catalog; with no results, say so and suggest removing a word (artikel 08 of Bab 8).
 5. Prefetch on hover works on the results for free, since they are `ProductCard`s (artikel 14). Check the focus: after a search the page heading should say what was searched, and get the focus.
+
+# Bab 10: styling, design system and global state
+
+Bab 10 gives the storefront one consistent look and moves the state that really is global into the right place. Tailwind CSS v4 and shadcn/ui replace Bab 7–9's hand-written stylesheet, a small set of design tokens decides every colour, size and space, dark mode follows the device or the viewer's choice, and the guest cart lives in a Zustand store that survives a reload.
+
+The Bab 7–9 sections above describe the code as those chapters left it. The sections below say what Bab 10 changed.
+
+## The mental model
+
+| Idea | What it means | Go comparison |
+|---|---|---|
+| **Utility classes** | Each class sets one property (`flex`, `gap-4`, `md:grid-cols-2`); the look is read in the markup, and Tailwind writes only the CSS the classes use | Configuration as code beside the thing it configures, instead of a global file whose effects you have to search for |
+| **Design tokens** | A named decision (`--primary`, `--spacing`, `--radius`) that every utility is built from. Components use `bg-primary`, never `#0b5cad` | Constants in one package: change the value once, every caller follows |
+| **Colour by role** | `primary`, `muted-foreground`, `destructive` name what a colour is for, not what it looks like, so dark mode only swaps values | An interface: callers depend on the role, the implementation (the hex value) can change |
+| **Copied components** | shadcn/ui is not a dependency: its components are copied into `components/ui` and changed like our own code | Vendoring a small package you intend to edit |
+| **Global vs local state** | Server data stays in TanStack Query, page state in the URL or a component; only what many distant components share, and that is no server's copy, goes in a store | A package-level variable: right for a few things, a trap for most |
+
+## Decisions
+
+- **Tailwind CSS v4 through its Vite plugin** (`@tailwindcss/vite`, artikel 01). No `tailwind.config.js` and no PostCSS: the theme is CSS (`@theme` in `src/index.css`), and the plugin writes one static CSS file. The Bab 7–9 rules sat in cascade layers while components moved to utilities one at a time; artikel 04 removed the last of them.
+- **Mobile first** (artikel 02): the classes without a prefix are the phone; `sm:`, `md:` and `lg:` add columns as the screen grows (two product columns, three from `sm`, four from `lg`; the category list folds behind a button below `md`).
+- **shadcn/ui, changed for GoShop** (artikel 03): `Button`, `Input`, `Label`, `Badge` and `DropdownMenu` in `components/ui`, plus a styled native `<select>` (`NativeSelect`). Changes from upstream: an outline focus ring instead of a box-shadow ring (it survives Windows' forced-colours mode), taller buttons (`h-10`), and `modal={false}` on the menu (below, CSP). The logged-in menu is a lazy module (`AccountMenu`), so a guest never downloads Radix.
+- **Tokens** (artikel 04, `src/index.css`):
+  - colour values per theme as CSS variables on `:root` (`--background`, `--primary`, `--muted-foreground` …, shadcn/ui's names), turned into utilities by `@theme inline` (`bg-primary` is `background-color: var(--primary)`, so the dark values switch every utility at once);
+  - typography: the system font stack (`--font-sans`, no web font to download), and two sizes of our own beside Tailwind's scale, `text-title` (a page's `<h1>`, 1.75rem) and `text-heading` (a section's `<h2>`, 1.25rem), each with its line height;
+  - spacing: `--spacing: 0.25rem`, the 4 px step every `p-*`, `gap-*` and `m-*` multiplies;
+  - corners: one `--radius` (0.5rem) with `rounded-sm`, `-md` and `-lg` derived from it;
+  - the page width, `--container-page` (`max-w-page`), shared by the header, the main area and the loading text;
+  - the navigation bar's animation, `animate-navigation-progress`, with its keyframes inside `@theme`.
+  The only plain CSS left is the element defaults in `@layer base` (`html`, `h1`, `h2`, `a`, `:focus-visible`), written with `@apply` from the same tokens. Class names such as `price`, `badge`, `cart-line` or `product-card__name` style nothing any more; they stay as hooks for the tests.
+- **Contrast was measured, not guessed.** Every text colour meets WCAG 2.2 AA (4.5:1) on what it sits on, and the focus ring 3:1:
+
+  | Pair | Light | Dark |
+  |---|---|---|
+  | `foreground` on `background` | 14.8 | 16.0 |
+  | `foreground` on `card` | 15.8 | 14.7 |
+  | `muted-foreground` on `card` | 6.1 | 5.9 |
+  | `muted-foreground` on `background` | 5.7 | 6.5 |
+  | `primary` (links, focus ring) on `card` | 6.7 | 5.6 |
+  | `primary-foreground` on `primary` (buttons, the cart count) | 6.7 | 6.1 |
+  | `destructive` on `card` | 6.6 | 6.9 |
+  | `destructive-foreground` on `destructive` | 6.6 | 7.5 |
+  | `success` on `card` | 5.1 | 6.8 |
+  | `primary` on `accent` (a hovered link) | 5.9 | 4.5 |
+
+  Measuring found two failures in the code before artikel 04: white text on the dark theme's blue button (`#4493f8`, 3.1:1; Bab 9's cart count had the same problem) and white on the dark theme's red, in the `destructive` button variant (2.5:1). Both themes now have their own `primary-foreground` and `destructive-foreground`.
+- **Dark mode** (artikel 05): the theme follows the device (`prefers-color-scheme`) until the viewer presses the header's toggle (`features/theme/components/ThemeToggle.tsx`, a button with `aria-pressed`). The choice is `<html data-theme="light|dark">`, saved in `localStorage` under `goshop:theme`, every access wrapped in `try`/`catch` (blocked storage only means the choice is not remembered). A custom `dark` variant (`@custom-variant` in `index.css`) is dark when the attribute says so, or when the device is dark and the attribute does not say light; the dark colour values are written once, inside `@variant dark`, and Tailwind emits both selectors. Pressing the toggle shows the other theme; when that is what the device prefers anyway, the saved choice is removed and the page follows the device again (`useTheme`).
+- **No flash of the wrong theme, and no inline script.** The saved choice must be on `<html>` before the first paint, so something has to run before React. The usual answer is an inline `<script>` in `index.html`; the web container's CSP (`script-src 'self'`, `apps/web/Caddyfile`) refuses it, and allowing it would need `'unsafe-inline'` (which also lets an injected script run) or a hash of the script kept in step with every edit. Instead `index.html` loads `public/theme.js` with a plain `<script src>` in `<head>`: no `type="module"`, no `defer`, so it runs before `<body>` is read. It costs one small request, revalidated on each visit like `index.html`. `<meta name="color-scheme" content="light dark">` makes the browser paint the device's scheme even before the CSS arrives. The CSP is unchanged.
+- **Tailwind, Radix and the CSP: no `'unsafe-inline'` needed for styles either.** Tailwind writes one static file (`style-src 'self'`). Radix positions the menu through React's `style` prop, which sets properties through the CSSOM (`element.style.top = …`); CSP governs `<style>` elements and `style` attributes in markup, not the CSSOM. The one thing that would break is a modal menu: its scroll lock (`react-remove-scroll`) inserts a `<style>` element, which the CSP blocks with a violation, so `DropdownMenu` defaults to `modal={false}` (it still closes on Escape, an outside click and focus leaving). The e2e suite fails on any CSP violation.
+
+## Prototyping UI with AI, then tidying it by hand (artikel 06)
+
+The storefront code of this course is written with an AI coding agent (Claude Code; the commits say so) and then reviewed against the rules in `docs/ai-rules.md`. AI is good at a first layout: it knows Tailwind's and shadcn/ui's vocabulary and produces something that looks right in seconds. What it does not know is *this* project: its tokens, its tests, its CSP, its heading structure. Review is where those come in.
+
+### The AI box: the empty cart
+
+`features/cart/components/EmptyCart.tsx`, what `/keranjang` shows when the cart is empty, started as an AI draft.
+
+**Prompt** (given to a separate model session, with no access to the repository):
+
+> You are helping prototype UI for GoShop, an Indonesian online shop storefront built with React 19, TypeScript, Tailwind CSS v4 and shadcn/ui (`Button` with variants default/outline/ghost/link, sizes default/sm/icon, and `asChild`, imported from "@/components/ui/Button.tsx"); routing is react-router v7 (`Link` from "react-router"); icons come from lucide-react. Colour utilities are semantic tokens: bg-card, bg-muted, text-muted-foreground, text-primary, border-border.
+>
+> Write a component `EmptyCart` for the cart page when the cart has no items: Indonesian copy ("Keranjang Anda masih kosong."), an icon, a short hint, and a call to action that goes to the catalog at "/". Mobile first. Reply with one .tsx file only.
+
+**Raw output** (unedited):
+
+```tsx
+import { Link } from "react-router";
+import { ShoppingCart } from "lucide-react";
+import { Button } from "@/components/ui/Button.tsx";
+
+export function EmptyCart() {
+  return (
+    <section
+      aria-labelledby="empty-cart-title"
+      className="mx-auto flex w-full max-w-md flex-col items-center gap-4 rounded-xl border border-border bg-card px-6 py-12 text-center sm:py-16"
+    >
+      <div className="flex size-20 items-center justify-center rounded-full bg-muted">
+        <ShoppingCart
+          aria-hidden="true"
+          className="size-10 text-muted-foreground"
+        />
+      </div>
+
+      <h2
+        id="empty-cart-title"
+        className="text-lg font-semibold text-primary sm:text-xl"
+      >
+        Keranjang Anda masih kosong.
+      </h2>
+
+      <p className="text-sm text-muted-foreground sm:text-base">
+        Yuk, jelajahi katalog dan tambahkan produk favorit Anda ke keranjang.
+      </p>
+
+      <Button asChild className="mt-2 w-full sm:w-auto">
+        <Link to="/">Mulai Belanja</Link>
+      </Button>
+    </section>
+  );
+}
+
+export default EmptyCart;
+```
+
+**Manual changes and why:**
+
+| Change | Why |
+|---|---|
+| `<section aria-labelledby>` with an `<h2>` → a `<div>` with a paragraph | The page is already one region with its `<h1>` "Keranjang"; a landmark for a message adds a stop to every screen-reader landmark list, and "Keranjang Anda masih kosong." is a sentence, not the title of a part of the page |
+| Hard-coded `id="empty-cart-title"` removed | An id written by hand collides as soon as the component renders twice; GoShop uses `useId` when it needs one (`Section`, `TextField`). Here, with no heading, none is needed |
+| `rounded-xl border border-border bg-card` removed | `CartPage` is already a `Card`: the draft drew a card inside a card. The model could not know; it never saw `CartPage` |
+| `rounded-xl` | Outside GoShop's radius scale (`rounded-sm`/`-md`/`-lg`, derived from `--radius`); dropped with the border |
+| `text-primary` on the heading → plain `font-semibold` | Primary is the colour of links and main actions. Text in it looks clickable |
+| "Mulai Belanja" → "Lihat katalog" | The link the page had since Bab 9; the unit tests find it by that name. Also the storefront writes buttons and links in sentence case ("Tambah ke keranjang") |
+| `export default` removed | The project exports by name only, so an import always says what it takes |
+| Sizes and the hint's wording shortened | Matter of taste: a smaller icon (`size-16`) under the page's `<h1>`, and the hint without "Yuk," to match the storefront's tone |
+| Kept | The layout (centred column, full-width button on a phone), `aria-hidden` on the icon, `Button asChild` around `Link` (a link that looks like a button is still a link) |
+
+The model got the vocabulary right and the context wrong, which is the usual pattern. Every change above came from something outside the prompt: the page around the component, the tests, the token scale, the house style.
+
+### What review changed elsewhere in this chapter
+
+Each of these was in code drafted by the agent that looked fine at first sight:
+
+- **Contrast** (artikel 04, found by measuring every pair): white text on the dark theme's blue and red buttons, 3.1:1 and 2.5:1. Fixed with a `*-foreground` token per theme.
+- **A raw value past the tokens** (artikel 02 → 04): `border-[var(--border)]` on the cart lines; an arbitrary value that bypassed the theme. Now `border-border`.
+- **The CSP** (artikel 03): shadcn/ui's menu is modal by default, and its scroll lock injects a `<style>` element that the storefront's CSP blocks and reports as a violation, which the e2e suite treats as a failure. Fixed with `modal={false}`.
+- **Forced colours** (artikel 03): shadcn/ui's focus ring is a `box-shadow`, which Windows' forced-colours (high-contrast) mode removes. Replaced with an outline.
+
+### How to prompt for UI, and what to check
+
+- Give the model the vocabulary it cannot guess: the token names, the component imports, the routing library, the language of the copy. It still will not know the page around the component; check that yourself.
+- Ask for one component, not a page. Small drafts are cheap to review line by line.
+- Check every draft for: raw colours or sizes instead of tokens; text in a colour that means something else; landmarks and headings that do not fit the page; hard-coded ids; labels on every control; a visible focus state; the copy's language and case; anything that would need `'unsafe-inline'` (inline `<script>`, `<style>` elements, `style="…"` in HTML).
+- Run it: the unit tests, the e2e suite (which fails on CSP violations and on console errors), the browser at a phone width and in both themes.
+
+## Where each Bab 10 article's ideas live
+
+Paths are relative to `apps/web/src` unless they start with another top-level folder.
+
+| Article | Concept | Where to read it |
+|---|---|---|
+| 01 | Tailwind CSS v4 | `vite.config.ts` (`@tailwindcss/vite`), `@import "tailwindcss"` in `index.css`, the utilities in `app/RootLayout.tsx` and `app/SiteHeader.tsx` (breakpoint, state and arbitrary variants) |
+| 02 | Responsive, mobile first | `features/catalog/components/CatalogPage.tsx` (the sidebar from `md`), `ProductGrid.tsx` (2/3/4 columns), `CategorySection.tsx` (the list folds behind a button below `md`, `aria-expanded`), `CatalogToolbar.tsx`, `features/product/components/ProductDetail.tsx`, `features/cart/components/CartPage.tsx` |
+| 03 | shadcn/ui | `components/ui/` (`Button.tsx` with `cva` variants and `asChild`, `Input.tsx`, `Label.tsx`, `NativeSelect.tsx`, `Badge.tsx`, `DropdownMenu.tsx`), `lib/utils.ts` (`cn`), `features/auth/components/AccountMenu.tsx` (lazy) |
+| 04 | Design tokens | `index.css` (colour roles on `:root`, `@theme inline`, `@theme` for type, spacing, radius, page width and animation, `@layer base`); the contrast table above |
+| 05 | Dark mode | the `dark` custom variant and `@variant dark` in `index.css`, `public/theme.js`, `index.html`, `features/theme/` (`theme.ts`, `useTheme.ts`, `components/ThemeToggle.tsx`), the toggle in `app/SiteHeader.tsx` |
+| 06 | Prototyping UI with AI | the section above; `features/cart/components/EmptyCart.tsx` |
