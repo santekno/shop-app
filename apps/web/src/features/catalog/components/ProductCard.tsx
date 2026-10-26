@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/Card.tsx";
 import { usePrefetchProduct } from "@/features/product/hooks/usePrefetchProduct.ts";
 import { FROM_CATALOG, productPath } from "@/features/product/paths.ts";
 import { ProductImage } from "./ProductImage.tsx";
+import { Badge } from "@/components/ui/Badge.tsx";
 
 /**
  * A component's props are one object, typed like a Go struct parameter.
@@ -60,12 +61,16 @@ export const ProductCard = memo(function ProductCard({
           {name}
         </Link>
       </h3>
-      <p className="muted text-sm">{category.name}</p>
+      <p className="text-muted-foreground text-sm">{category.name}</p>
       <p className="price">
         {hasPriceRange && <span className="price__from">Mulai </span>}
         {formatRupiah(priceFrom)}
       </p>
-      {!inStock && <p className="badge">Stok habis</p>}
+      {!inStock && (
+        <Badge variant="destructive" className="badge">
+          Stok habis
+        </Badge>
+      )}
     </Card>
   );
 });

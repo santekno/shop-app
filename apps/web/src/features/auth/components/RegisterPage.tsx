@@ -16,6 +16,7 @@ import { setApiFieldErrors } from "@/lib/api-form-errors.ts";
 import { authErrorMessage } from "../auth-errors.ts";
 import { useRegister } from "../hooks/useRegister.ts";
 import { registeredState } from "../navigation-state.ts";
+import { Button } from "@/components/ui/Button.tsx";
 
 /**
  * /daftar: creating a buyer account. The API does not log the new account
@@ -75,9 +76,11 @@ export function RegisterPage() {
 
   return (
     <Card>
-      <h1 tabIndex={-1}>Daftar akun</h1>
+      <h1 tabIndex={-1} className="mb-4">
+        Daftar akun
+      </h1>
       <form
-        className="form"
+        className="mb-4 grid justify-items-start gap-4"
         noValidate
         onSubmit={(event) => void handleSubmit(onSubmit)(event)}
       >
@@ -104,9 +107,9 @@ export function RegisterPage() {
         />
         {/* Takes the focus when it appears: the disabled button lost it. */}
         <FormAlert error={errors.root?.server} />
-        <button type="submit" disabled={registerMutation.isPending}>
+        <Button type="submit" disabled={registerMutation.isPending}>
           {registerMutation.isPending ? "Memproses…" : "Daftar"}
-        </button>
+        </Button>
       </form>
       <p>
         Sudah punya akun? <Link to="/masuk">Masuk</Link>

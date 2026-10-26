@@ -76,7 +76,9 @@ export function CatalogPage() {
         <Section title="Produk">
           <CatalogToolbar filters={filters} onChange={setFilters} />
           {filters.q !== undefined && (
-            <p className="muted">Hasil pencarian untuk “{filters.q}”.</p>
+            <p className="text-muted-foreground">
+              Hasil pencarian untuk “{filters.q}”.
+            </p>
           )}
 
           {!hasPages && (status === "pending" || isFetching) && (

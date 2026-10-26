@@ -9,7 +9,8 @@ import {
 import { catalogSearch } from "../catalog-filters.ts";
 import type { CatalogFilters } from "../catalog-filters.ts";
 import { useCategoryTree } from "../hooks/useCategoryTree.ts";
-import { CategoryTree } from "./CategoryTree.tsx";
+import { CategoryTree, categoryLinkClasses } from "./CategoryTree.tsx";
+import { Button } from "@/components/ui/Button.tsx";
 
 interface CategorySectionProps {
   /** The catalog's current filters: a category link keeps the others. */
@@ -52,8 +53,9 @@ export function CategorySection({ filters }: CategorySectionProps) {
           <EmptyState>Belum ada kategori.</EmptyState>
         ) : (
           <>
-            <button
-              type="button"
+            <Button
+              variant="outline"
+              size="sm"
               className="mb-2 md:hidden"
               aria-expanded={open}
               aria-controls={listId}
@@ -62,10 +64,11 @@ export function CategorySection({ filters }: CategorySectionProps) {
               }}
             >
               {open ? "Sembunyikan kategori" : "Tampilkan kategori"}
-            </button>
+            </Button>
             <div id={listId} className={open ? "block" : "hidden md:block"}>
-              <p className="category-all">
+              <p className="mb-2">
                 <Link
+                  className={categoryLinkClasses}
                   to={hrefFor(undefined)}
                   aria-current={
                     filters.category === undefined ? "true" : undefined

@@ -9,6 +9,7 @@ import { ProductImage } from "@/features/catalog/components/ProductImage.tsx";
 import { clampQuantity, maxQuantity } from "../quantity.ts";
 import { QuantityStepper } from "./QuantityStepper.tsx";
 import { VariantPicker } from "./VariantPicker.tsx";
+import { Badge } from "@/components/ui/Badge.tsx";
 
 interface ProductDetailProps {
   product: Product;
@@ -59,7 +60,7 @@ export function ProductDetail({ product }: ProductDetailProps) {
     >
       <ProductImage name={product.name} />
       <div className="grid content-start gap-3">
-        <p className="muted">{product.category.name}</p>
+        <p className="text-muted-foreground">{product.category.name}</p>
         <h1 ref={headingRef} id={headingId} tabIndex={-1}>
           {product.name}
         </h1>
@@ -98,7 +99,9 @@ export function ProductDetail({ product }: ProductDetailProps) {
               />
             </>
           ) : (
-            <p className="badge">Stok habis</p>
+            <Badge variant="destructive" className="badge">
+              Stok habis
+            </Badge>
           ))}
       </div>
     </Card>

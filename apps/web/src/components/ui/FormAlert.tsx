@@ -30,7 +30,7 @@ export function FormAlert({ error }: { error: GlobalError | undefined }) {
 
   if (error?.message === undefined) return null;
   return (
-    <p ref={ref} role="alert" tabIndex={-1} className="error-text">
+    <p ref={ref} role="alert" tabIndex={-1} className="text-destructive">
       {error.message}
     </p>
   );

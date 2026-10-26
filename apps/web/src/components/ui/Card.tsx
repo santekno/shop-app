@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { cn } from "@/lib/utils.ts";
 
 interface CardProps {
   /** The element to render: a plain box, a page section, or one item. */
@@ -25,10 +26,16 @@ export function Card({
   children,
 }: CardProps) {
   // A capitalised variable can be used as a tag: <Element> renders
-  // <div>, <section> or <article>.
-  const classes = className === undefined ? "card" : `card ${className}`;
+  // <div>, <section> or <article>. shadcn/ui's Card look; cn lets the
+  // caller's classes win, so <Card className="p-3"> overrides p-4.
   return (
-    <Element className={classes} aria-labelledby={labelledBy}>
+    <Element
+      className={cn(
+        "rounded-lg border border-border bg-card p-4 text-card-foreground shadow-xs sm:p-5",
+        className,
+      )}
+      aria-labelledby={labelledBy}
+    >
       {children}
     </Element>
   );

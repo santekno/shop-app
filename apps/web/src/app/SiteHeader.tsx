@@ -44,7 +44,7 @@ export function SiteHeader() {
           </ul>
         </nav>
       </div>
-      <p className="muted mt-1 text-sm sm:text-base">
+      <p className="text-muted-foreground mt-1 text-sm sm:text-base">
         Toko online contoh dari kursus Fullstack Santekno.
       </p>
     </header>

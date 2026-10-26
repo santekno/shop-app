@@ -4,6 +4,7 @@ import { useDocumentTitle } from "@/hooks/useDocumentTitle.ts";
 import { useLateHeadingFocus } from "@/hooks/useLateHeadingFocus.ts";
 import { errorRequestId } from "@/lib/error-message.ts";
 import { NotFoundPage } from "./NotFoundPage.tsx";
+import { Button } from "@/components/ui/Button.tsx";
 
 /**
  * The routes' error boundary (`ErrorBoundary` in routes.tsx): what renders
@@ -47,19 +48,18 @@ function UnexpectedError({ error }: { error: unknown }) {
         coba lagi beberapa saat lagi.
       </p>
       {requestId !== undefined && (
-        <p className="muted">
+        <p className="text-sm text-muted-foreground">
           Kode permintaan: <code>{requestId}</code>
         </p>
       )}
-      <p className="actions">
-        <button
-          type="button"
+      <p className="flex flex-wrap items-center gap-x-4 gap-y-3">
+        <Button
           onClick={() => {
             window.location.reload();
           }}
         >
           Muat ulang halaman
-        </button>
+        </Button>
         <Link to="/">Kembali ke katalog</Link>
       </p>
     </div>

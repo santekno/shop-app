@@ -9,6 +9,7 @@ import {
 import { productPath } from "@/features/product/paths.ts";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle.ts";
 import { useCart } from "../hooks/useCart.ts";
+import { Badge } from "@/components/ui/Badge.tsx";
 
 /** Why checkout would refuse a line, in the buyer's words. */
 const PROBLEM_TEXT = {
@@ -28,7 +29,9 @@ export function CartPage() {
 
   return (
     <Card>
-      <h1 tabIndex={-1}>Keranjang</h1>
+      <h1 tabIndex={-1} className="mb-4">
+        Keranjang
+      </h1>
       {(status === "pending" || (status === "error" && isFetching)) && (
         <LoadingState>Memuat keranjang…</LoadingState>
       )}
@@ -61,12 +64,14 @@ export function CartPage() {
                     <Link to={productPath(line.product_slug)}>
                       {line.product_name}
                     </Link>
-                    <p className="muted">
+                    <p className="text-muted-foreground">
                       {line.variant_name} · {line.quantity} ×{" "}
                       {formatRupiah(line.unit_price)}
                     </p>
                     {line.problem !== null && (
-                      <p className="badge">{PROBLEM_TEXT[line.problem]}</p>
+                      <Badge variant="destructive" className="badge mt-1">
+                        {PROBLEM_TEXT[line.problem]}
+                      </Badge>
                     )}
                   </div>
                   <strong>{formatRupiah(line.line_total)}</strong>

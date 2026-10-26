@@ -1,6 +1,7 @@
 import { NavLink } from "react-router";
 import type { Cart } from "@goshop/shared";
 import { useCart } from "../hooks/useCart.ts";
+import { Badge } from "@/components/ui/Badge.tsx";
 
 const selectItemCount = (cart: Cart) => cart.item_count;
 
@@ -17,12 +18,12 @@ export function CartNavLink() {
       {count > 0 && (
         <>
           {" "}
-          <span className="cart-count">
+          <Badge className="cart-count ml-1.5 inline-block min-w-6 text-center">
             {/* Read as "Keranjang 3 barang"; the eye sees a badge. The
                 space is a text node of its own, not inside the hidden
                 span, so jsdom and every browser keep it in the name. */}
             {count} <span className="visually-hidden">barang</span>
-          </span>
+          </Badge>
         </>
       )}
     </NavLink>

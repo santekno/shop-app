@@ -44,7 +44,7 @@ export function VariantPicker({
             onChange={handleChange}
           />
           <span className="variant-picker__name">{variant.name}</span>
-          <span className="muted">
+          <span className="text-muted-foreground">
             {formatRupiah(variant.price)}
             {variant.stock === 0 ? " · stok habis" : ` · stok ${variant.stock}`}
           </span>

@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { errorMessage, errorRequestId } from "@/lib/error-message.ts";
+import { Button } from "./Button.tsx";
 
 /**
  * The three states every piece of loaded data can be in besides "here it
@@ -19,7 +20,7 @@ export function LoadingState({ children }: { children: ReactNode }) {
 
 /** Nothing to show yet, for example a catalog with no products. */
 export function EmptyState({ children }: { children: ReactNode }) {
-  return <p className="muted">{children}</p>;
+  return <p className="text-muted-foreground">{children}</p>;
 }
 
 interface ErrorStateProps {
@@ -35,17 +36,17 @@ interface ErrorStateProps {
 export function ErrorState({ error, onRetry }: ErrorStateProps) {
   const requestId = errorRequestId(error);
   return (
-    <div role="alert" className="error">
-      <p>{errorMessage(error)}</p>
+    <div role="alert" className="grid justify-items-start gap-2">
+      <p className="text-destructive">{errorMessage(error)}</p>
       {requestId !== undefined && (
-        <p className="muted">
+        <p className="text-sm text-muted-foreground">
           Kode permintaan: <code>{requestId}</code>
         </p>
       )}
       {onRetry !== undefined && (
-        <button type="button" onClick={onRetry}>
+        <Button variant="outline" size="sm" onClick={onRetry}>
           Coba lagi
-        </button>
+        </Button>
       )}
     </div>
   );

@@ -11,6 +11,7 @@ import { setApiFieldErrors } from "@/lib/api-form-errors.ts";
 import { authErrorMessage } from "../auth-errors.ts";
 import { useLogin } from "../hooks/useLogin.ts";
 import { registeredEmailFrom } from "../navigation-state.ts";
+import { Button } from "@/components/ui/Button.tsx";
 
 /**
  * /masuk: logging in with email and password.
@@ -61,7 +62,9 @@ export function LoginPage() {
 
   return (
     <Card>
-      <h1 tabIndex={-1}>Masuk</h1>
+      <h1 tabIndex={-1} className="mb-4">
+        Masuk
+      </h1>
       {registeredEmail !== undefined && (
         <p role="status">Akun Anda sudah dibuat. Silakan masuk.</p>
       )}
@@ -69,7 +72,7 @@ export function LoginPage() {
           browser's language and style; the form shows its own messages,
           linked to each field. */}
       <form
-        className="form"
+        className="mb-4 grid justify-items-start gap-4"
         noValidate
         onSubmit={(event) => void handleSubmit(onSubmit)(event)}
       >
@@ -89,9 +92,9 @@ export function LoginPage() {
         />
         {/* Takes the focus when it appears: the disabled button lost it. */}
         <FormAlert error={errors.root?.server} />
-        <button type="submit" disabled={loginMutation.isPending}>
+        <Button type="submit" disabled={loginMutation.isPending}>
           {loginMutation.isPending ? "Memproses…" : "Masuk"}
-        </button>
+        </Button>
       </form>
       <p>
         Belum punya akun? <Link to="/daftar">Daftar</Link>
