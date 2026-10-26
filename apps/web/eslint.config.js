@@ -17,6 +17,12 @@ export default defineConfig([
     languageOptions: { globals: globals.node },
   },
   {
+    // public/ is copied into the build as it is and runs in the browser
+    // (public/theme.js, before the app): browser globals, not Node's.
+    files: ["public/**/*.js"],
+    languageOptions: { globals: globals.browser },
+  },
+  {
     files: ["**/*.{ts,tsx}"],
     extends: [
       js.configs.recommended,

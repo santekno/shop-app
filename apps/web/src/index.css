@@ -17,13 +17,41 @@
    components drop in unchanged. */
 @import "tailwindcss";
 
+/* --- Dark mode ---------------------------------------------------------
+
+   The theme follows the device (prefers-color-scheme) until the viewer
+   presses the header's toggle; then <html data-theme="light|dark"> wins.
+   public/theme.js sets that attribute before the page is painted, from
+   the choice saved in localStorage, so a reload never flashes the wrong
+   theme first.
+
+   Tailwind's own `dark:` variant only reads prefers-color-scheme. This
+   one replaces it: dark when the attribute says so, or when the device
+   is dark and the attribute does not say light. Both the colour values
+   below and any dark: utility use it. */
+@custom-variant dark {
+  &:where([data-theme="dark"], [data-theme="dark"] *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(
+      :root:not([data-theme="light"]),
+      :root:not([data-theme="light"]) *
+    ) {
+      @slot;
+    }
+  }
+}
+
 /* --- 1. Colour values ---------------------------------------------------
 
    Each pair below was checked for contrast (WCAG 2.2, level AA): text
    4.5:1 against what it sits on, focus indicators 3:1. The ratios are in
    docs/web/README.md (Bab 10, artikel 04). */
 :root {
-  color-scheme: light dark;
+  /* The browser's own parts (scrollbars, form controls, the page before
+     the CSS arrives) follow the theme too. */
+  color-scheme: light;
 
   /* The page, and the text on it. */
   --background: #f6f8fa;
@@ -53,10 +81,11 @@
 
   /* The base radius rounded-sm, -md and -lg are derived from (below). */
   --radius: 0.5rem;
-}
 
-@media (prefers-color-scheme: dark) {
-  :root {
+  /* The same roles, dark. Written once: the dark variant above turns
+     this block into both selectors (the attribute and the media query). */
+  @variant dark {
+    color-scheme: dark;
     --background: #0d1117;
     --foreground: #e6edf3;
     --card: #151b23;
@@ -83,7 +112,8 @@
 
    `inline`: a utility uses the variable itself (bg-primary is
    background-color: var(--primary)), so when :root switches to the dark
-   values, every utility follows without a second set of classes. */
+   values, every utility follows without a second set of classes: a
+   component never needs dark:bg-… for a colour role. */
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

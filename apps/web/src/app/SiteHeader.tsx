@@ -1,6 +1,7 @@
 import { Link } from "react-router";
 import { AccountNav } from "@/features/auth/components/AccountNav.tsx";
 import { CartNavLink } from "@/features/cart/components/CartNavLink.tsx";
+import { ThemeToggle } from "@/features/theme/components/ThemeToggle.tsx";
 
 /**
  * The site's banner and main navigation, on every page (RootLayout).
@@ -33,16 +34,20 @@ export function SiteHeader() {
         >
           GoShop
         </Link>
-        <nav aria-label="Utama">
-          {/* [&_a[aria-current=page]]: an arbitrary variant, for the link
+        <div className="flex items-center gap-x-4">
+          <nav aria-label="Utama">
+            {/* [&_a[aria-current=page]]: an arbitrary variant, for the link
               NavLink marks as the page on screen. */}
-          <ul className="flex flex-wrap items-center gap-x-4 gap-y-1 [&_a[aria-current=page]]:font-bold [&_a[aria-current=page]]:decoration-2">
-            <li>
-              <CartNavLink />
-            </li>
-            <AccountNav />
-          </ul>
-        </nav>
+            <ul className="flex flex-wrap items-center gap-x-4 gap-y-1 [&_a[aria-current=page]]:font-bold [&_a[aria-current=page]]:decoration-2">
+              <li>
+                <CartNavLink />
+              </li>
+              <AccountNav />
+            </ul>
+          </nav>
+          {/* Outside the nav: it changes the page's look, it goes nowhere. */}
+          <ThemeToggle />
+        </div>
       </div>
       <p className="text-muted-foreground mt-1 text-sm sm:text-base">
         Toko online contoh dari kursus Fullstack Santekno.
