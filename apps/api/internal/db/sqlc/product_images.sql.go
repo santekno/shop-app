@@ -180,9 +180,10 @@ func (q *Queries) GetProductImage(ctx context.Context, arg GetProductImageParams
 	return i, err
 }
 
-const insertProductImage = `-- name: InsertProductImage :exec
+const insertProductImage = `-- name: InsertProductImage :one
 INSERT INTO product_images (id, product_id, position, content_type, size_bytes, original_key)
 VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING created_at, updated_at
 `
 
 type InsertProductImageParams struct {
@@ -194,8 +195,14 @@ type InsertProductImageParams struct {
 	OriginalKey string
 }
 
-func (q *Queries) InsertProductImage(ctx context.Context, arg InsertProductImageParams) error {
-	_, err := q.db.ExecContext(ctx, insertProductImage,
+type InsertProductImageRow struct {
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// RETURNING: the database sets the timestamps, so read them back.
+func (q *Queries) InsertProductImage(ctx context.Context, arg InsertProductImageParams) (InsertProductImageRow, error) {
+	row := q.db.QueryRowContext(ctx, insertProductImage,
 		arg.ID,
 		arg.ProductID,
 		arg.Position,
@@ -203,7 +210,9 @@ func (q *Queries) InsertProductImage(ctx context.Context, arg InsertProductImage
 		arg.SizeBytes,
 		arg.OriginalKey,
 	)
-	return err
+	var i InsertProductImageRow
+	err := row.Scan(&i.CreatedAt, &i.UpdatedAt)
+	return i, err
 }
 
 const listProcessingImages = `-- name: ListProcessingImages :many

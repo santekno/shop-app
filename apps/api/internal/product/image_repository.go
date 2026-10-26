@@ -35,13 +35,14 @@ func (r *PostgresRepository) CreatePendingImage(ctx context.Context, productID, 
 			return ErrImageLimit
 		}
 		img.Position = count.NextPosition
-		err = q.InsertProductImage(ctx, sqlc.InsertProductImageParams{
+		row, err := q.InsertProductImage(ctx, sqlc.InsertProductImageParams{
 			ID: img.ID, ProductID: productID, Position: img.Position, ContentType: contentType,
 			SizeBytes: size, OriginalKey: img.OriginalKey,
 		})
 		if err != nil {
 			return fmt.Errorf("insert image: %w", err)
 		}
+		img.CreatedAt, img.UpdatedAt = row.CreatedAt, row.UpdatedAt
 		return nil
 	})
 	return img, err

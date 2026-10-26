@@ -37,7 +37,8 @@ func TestImageKeys(t *testing.T) {
 
 func TestImageService_StartUpload(t *testing.T) {
 	created := Image{ID: imgID, ProductID: imgProductID, Position: 3, Status: ImagePendingUpload,
-		ContentType: "image/png", SizeBytes: 2048, OriginalKey: ImageKey(imgProductID, imgID)}
+		ContentType: "image/png", SizeBytes: 2048, OriginalKey: ImageKey(imgProductID, imgID),
+		CreatedAt: imgCreated, UpdatedAt: imgCreated.Add(time.Second)}
 	repo := newFakeImageRepo()
 	repo.createImg = created
 	store := newFakeStore()
@@ -53,6 +54,8 @@ func TestImageService_StartUpload(t *testing.T) {
 	})
 	testx.AssertEqual(t, got.Image.ID, imgID)
 	testx.AssertEqual(t, got.Image.Position, int16(3))
+	testx.AssertTrue(t, got.Image.CreatedAt.Equal(created.CreatedAt), "created_at %v", got.Image.CreatedAt)
+	testx.AssertTrue(t, got.Image.UpdatedAt.Equal(created.UpdatedAt), "updated_at %v", got.Image.UpdatedAt)
 	testx.AssertEqual(t, got.Upload.URL, "https://uploads.test/goshop/"+created.OriginalKey+"?X-Amz-Signature=sig")
 	testx.AssertEqual(t, got.Upload.Headers["Content-Length"], "2048")
 }

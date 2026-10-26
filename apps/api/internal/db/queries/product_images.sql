@@ -13,9 +13,11 @@ SELECT count(*) AS images, COALESCE(max(position) + 1, 0)::smallint AS next_posi
 FROM product_images
 WHERE product_id = @product_id;
 
--- name: InsertProductImage :exec
+-- name: InsertProductImage :one
+-- RETURNING: the database sets the timestamps, so read them back.
 INSERT INTO product_images (id, product_id, position, content_type, size_bytes, original_key)
-VALUES (@id, @product_id, @position, @content_type, @size_bytes, @original_key);
+VALUES (@id, @product_id, @position, @content_type, @size_bytes, @original_key)
+RETURNING created_at, updated_at;
 
 -- name: GetProductImage :one
 SELECT id, product_id, position, alt, status, content_type, size_bytes, original_key, width, height, created_at, updated_at, variants

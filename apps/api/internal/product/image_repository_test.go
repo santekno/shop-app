@@ -27,7 +27,8 @@ func lockedForImages(images, next int64) *fakeSQL {
 }
 
 func TestPostgresRepository_CreatePendingImage(t *testing.T) {
-	db := lockedForImages(9, 12)
+	updated := imgCreated.Add(time.Second)
+	db := lockedForImages(9, 12).on("InsertProductImage", rows(imgCreated, updated))
 
 	img, err := NewPostgresRepository(db.open(t)).CreatePendingImage(context.Background(), imgProductID, "image/webp", 4096)
 
@@ -53,6 +54,10 @@ func TestPostgresRepository_CreatePendingImage(t *testing.T) {
 	testx.AssertEqual(t, img.OriginalKey, "uploads/"+imgProductID+"/"+img.ID+"/original")
 	insert, _ := db.call("InsertProductImage")
 	assertArgs(t, insert.args, []driver.Value{img.ID, imgProductID, int64(12), "image/webp", int64(4096), img.OriginalKey})
+	// The database sets the timestamps; the image carries what it returned.
+	assertSQL(t, db, "InsertProductImage", "RETURNING created_at, updated_at")
+	testx.AssertTrue(t, img.CreatedAt.Equal(imgCreated), "created_at %v", img.CreatedAt)
+	testx.AssertTrue(t, img.UpdatedAt.Equal(updated), "updated_at %v", img.UpdatedAt)
 }
 
 func TestPostgresRepository_CreatePendingImage_Limit(t *testing.T) {

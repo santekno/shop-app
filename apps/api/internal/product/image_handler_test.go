@@ -91,8 +91,10 @@ func pendingImage() product.Image {
 func uploadsURL(id string) string { return "/v1/admin/products/" + id + "/images/uploads" }
 
 func TestImages_StartUpload(t *testing.T) {
+	pending := pendingImage()
+	pending.UpdatedAt = imgCreatedAt.Add(time.Second)
 	images := &fakeImages{upload: product.Upload{
-		Image: pendingImage(),
+		Image: pending,
 		Upload: storage.PresignedUpload{
 			URL:       "https://uploads.test/goshop/uploads/x/original?X-Amz-Signature=abc",
 			Headers:   map[string]string{"Content-Type": "image/png", "Content-Length": "2048"},
@@ -116,6 +118,7 @@ func TestImages_StartUpload(t *testing.T) {
 	testx.AssertNil(t, img["height"])
 	testx.AssertEqual(t, len(img["variants"].([]any)), 0)
 	testx.AssertEqual(t, img["created_at"], any("2026-10-24T10:00:00Z"))
+	testx.AssertEqual(t, img["updated_at"], any("2026-10-24T10:00:01Z"))
 	up := data["upload"].(map[string]any)
 	testx.AssertEqual(t, up["method"], any("PUT"))
 	testx.AssertEqual(t, up["url"], any("https://uploads.test/goshop/uploads/x/original?X-Amz-Signature=abc"))
