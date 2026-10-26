@@ -18,11 +18,13 @@ export function CartNavLink() {
       {count > 0 && (
         <>
           {" "}
-          <Badge className="cart-count ml-1.5 inline-block min-w-6 text-center">
+          {/* cart-count: a hook for the tests; the badge's default look
+              (bg-primary, text-primary-foreground) is the token's. */}
+          <Badge className="cart-count ml-1.5 min-w-6">
             {/* Read as "Keranjang 3 barang"; the eye sees a badge. The
                 space is a text node of its own, not inside the hidden
                 span, so jsdom and every browser keep it in the name. */}
-            {count} <span className="visually-hidden">barang</span>
+            {count} <span className="sr-only">barang</span>
           </Badge>
         </>
       )}

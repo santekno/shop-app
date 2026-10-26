@@ -58,13 +58,13 @@ export function CartPage() {
                 // Name above the total on a phone, side by side from sm.
                 <li
                   key={line.variant_id}
-                  className="cart-line flex flex-col gap-1 border-b border-[var(--border)] pb-3 sm:flex-row sm:justify-between sm:gap-4"
+                  className="cart-line flex flex-col gap-1 border-b border-border pb-3 sm:flex-row sm:justify-between sm:gap-4"
                 >
                   <div>
                     <Link to={productPath(line.product_slug)}>
                       {line.product_name}
                     </Link>
-                    <p className="text-muted-foreground">
+                    <p className="mt-0.5 text-muted-foreground">
                       {line.variant_name} · {line.quantity} ×{" "}
                       {formatRupiah(line.unit_price)}
                     </p>

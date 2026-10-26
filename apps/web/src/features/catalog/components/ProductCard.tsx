@@ -52,6 +52,7 @@ export const ProductCard = memo(function ProductCard({
             plain click and renders the product route without a reload. */}
         <Link
           to={productPath(product.slug)}
+          className="no-underline hover:underline"
           state={FROM_CATALOG}
           {...prefetchHandlers}
           // useRouteFocus looks the link up by this attribute to give it
@@ -62,8 +63,12 @@ export const ProductCard = memo(function ProductCard({
         </Link>
       </h3>
       <p className="text-muted-foreground text-sm">{category.name}</p>
-      <p className="price">
-        {hasPriceRange && <span className="price__from">Mulai </span>}
+      <p className="price font-semibold">
+        {hasPriceRange && (
+          <span className="price__from font-normal text-muted-foreground">
+            Mulai{" "}
+          </span>
+        )}
         {formatRupiah(priceFrom)}
       </p>
       {!inStock && (

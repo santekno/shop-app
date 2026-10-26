@@ -65,7 +65,9 @@ export function ProductDetail({ product }: ProductDetailProps) {
           {product.name}
         </h1>
         {variant !== undefined && (
-          <p className="price price--large">{formatRupiah(variant.price)}</p>
+          <p className="price price--large text-2xl font-semibold">
+            {formatRupiah(variant.price)}
+          </p>
         )}
         <p>{product.description}</p>
 

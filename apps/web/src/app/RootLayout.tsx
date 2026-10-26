@@ -24,7 +24,7 @@ export function RootLayout() {
           because <main> only takes the focus from code (no ring needed). */}
       <main
         ref={mainRef}
-        className="mx-auto max-w-6xl px-4 pt-6 pb-12 focus:outline-none"
+        className="mx-auto max-w-page px-4 pt-6 pb-12 focus:outline-none"
         tabIndex={-1}
       >
         <Outlet />

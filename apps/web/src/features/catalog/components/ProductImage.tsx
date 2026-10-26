@@ -25,7 +25,7 @@ export function ProductImage({ name, src }: ProductImageProps) {
   if (src !== undefined && src !== "") {
     return (
       <img
-        className="product-image"
+        className="product-image block aspect-square w-full rounded-md bg-muted object-cover"
         src={src}
         alt={name}
         loading="lazy"
@@ -36,9 +36,12 @@ export function ProductImage({ name, src }: ProductImageProps) {
 
   // The placeholder says nothing a screen reader needs: the product's name
   // is in the heading next to it. aria-hidden keeps it out of the reading.
+  // product-image and product-image--placeholder style nothing: hooks
+  // for the tests. The square, the corners and the muted surface are
+  // utilities.
   return (
     <div
-      className="product-image product-image--placeholder"
+      className="product-image product-image--placeholder flex aspect-square w-full flex-col items-center justify-center gap-1 rounded-md bg-muted text-sm text-muted-foreground"
       aria-hidden="true"
     >
       <svg viewBox="0 0 24 24" width="48" height="48" fill="none">

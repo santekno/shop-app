@@ -25,7 +25,7 @@ import { CartNavLink } from "@/features/cart/components/CartNavLink.tsx";
  */
 export function SiteHeader() {
   return (
-    <header className="mx-auto max-w-6xl px-4 pt-6">
+    <header className="mx-auto max-w-page px-4 pt-6">
       <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
         <Link
           to="/"

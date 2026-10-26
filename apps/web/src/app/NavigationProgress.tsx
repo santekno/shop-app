@@ -11,8 +11,17 @@ export function NavigationProgress() {
   const busy = navigation.state !== "idle";
   return (
     <>
-      {busy && <div className="navigation-progress" aria-hidden="true" />}
-      <p role="status" className="visually-hidden">
+      {/* navigation-progress styles nothing: a hook for the tests. The
+          animation is a theme token (index.css); with reduced motion the
+          bar stands still at half width. */}
+      {busy && (
+        <div
+          className="navigation-progress fixed inset-x-0 top-0 h-0.75 origin-left animate-navigation-progress bg-primary motion-reduce:scale-x-50 motion-reduce:animate-none"
+          aria-hidden="true"
+        />
+      )}
+      {/* sr-only: read by screen readers, invisible on screen. */}
+      <p role="status" className="sr-only">
         {busy ? "Memuat halaman…" : ""}
       </p>
     </>
