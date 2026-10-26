@@ -17,7 +17,12 @@ export type { CategoryNode } from "./catalog/category-tree.ts";
 export { retry, sleep } from "./lib/async.ts";
 export type { RetryOptions } from "./lib/async.ts";
 
-export { ApiError, isApiError, isErrorBody } from "./api/errors.ts";
+export {
+  ApiError,
+  isApiError,
+  isErrorBody,
+  SERVER_ERROR_CODES,
+} from "./api/errors.ts";
 export type {
   ApiErrorCode,
   ApiErrorInit,

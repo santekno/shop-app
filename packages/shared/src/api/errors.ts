@@ -22,48 +22,67 @@ export const isErrorBody = (value: unknown): value is ErrorBody => {
 };
 
 /**
- * The error codes api/openapi.yaml documents. A union of string literals:
- * a value of this type can only be one of these strings, so a typo such as
- * "NOT_FOUN" is a compile error. Go would use a named string type with
- * constants; TypeScript checks the literal values themselves.
+ * The error codes api/openapi.yaml documents, as an array that exists at
+ * run time. `as const` keeps each element as its literal string ("NOT_FOUND")
+ * instead of widening it to `string`, and makes the array readonly. A test
+ * compares this list with the contract, so a code the API adds cannot be
+ * forgotten here.
  */
-export type ServerErrorCode =
-  | "VALIDATION_FAILED"
-  | "UNKNOWN_CATEGORY"
-  | "NOT_FOUND"
-  | "METHOD_NOT_ALLOWED"
-  | "TIMEOUT"
-  | "SLUG_TAKEN"
-  | "SKU_TAKEN"
-  | "EMAIL_TAKEN"
-  | "EMAIL_UNVERIFIED"
-  | "INVALID_CREDENTIALS"
-  | "TOKEN_INVALID"
-  | "TOKEN_EXPIRED"
-  | "UNAUTHORIZED"
-  | "FORBIDDEN"
-  | "RATE_LIMITED"
-  | "ADDRESS_LIMIT_REACHED"
-  | "DEFAULT_ADDRESS_REQUIRED"
-  | "INTERNAL_ERROR"
+export const SERVER_ERROR_CODES = [
+  "VALIDATION_FAILED",
+  "UNKNOWN_CATEGORY",
+  "NOT_FOUND",
+  "METHOD_NOT_ALLOWED",
+  "TIMEOUT",
+  "SLUG_TAKEN",
+  "SKU_TAKEN",
+  "EMAIL_TAKEN",
+  "EMAIL_UNVERIFIED",
+  "INVALID_CREDENTIALS",
+  "TOKEN_INVALID",
+  "TOKEN_EXPIRED",
+  "UNAUTHORIZED",
+  "FORBIDDEN",
+  "RATE_LIMITED",
+  "ADDRESS_LIMIT_REACHED",
+  "DEFAULT_ADDRESS_REQUIRED",
+  "INTERNAL_ERROR",
   // Cart, checkout and orders (Bab 5).
-  | "CART_NOT_FOUND"
-  | "CART_EMPTY"
-  | "CART_FULL"
-  | "CART_CHANGED"
-  | "VARIANT_UNAVAILABLE"
-  | "INSUFFICIENT_STOCK"
-  | "QUANTITY_LIMIT"
-  | "CHECKOUT_PROBLEMS"
-  | "VOUCHER_NOT_APPLICABLE"
-  | "SHIPPING_UNAVAILABLE"
-  | "TOO_MANY_PENDING_ORDERS"
-  | "IDEMPOTENCY_KEY_REQUIRED"
-  | "IDEMPOTENCY_KEY_REUSED"
-  | "IDEMPOTENCY_IN_PROGRESS"
-  | "INVALID_TRANSITION"
-  | "VERSION_CONFLICT"
-  | "UPSTREAM_UNAVAILABLE";
+  "CART_NOT_FOUND",
+  "CART_EMPTY",
+  "CART_FULL",
+  "CART_CHANGED",
+  "VARIANT_UNAVAILABLE",
+  "INSUFFICIENT_STOCK",
+  "QUANTITY_LIMIT",
+  "CHECKOUT_PROBLEMS",
+  "VOUCHER_NOT_APPLICABLE",
+  "SHIPPING_UNAVAILABLE",
+  "TOO_MANY_PENDING_ORDERS",
+  "IDEMPOTENCY_KEY_REQUIRED",
+  "IDEMPOTENCY_KEY_REUSED",
+  "IDEMPOTENCY_IN_PROGRESS",
+  "INVALID_TRANSITION",
+  "VERSION_CONFLICT",
+  "UPSTREAM_UNAVAILABLE",
+  // Payments and product photos (Bab 6).
+  "PAYMENTS_DISABLED",
+  "PAYMENT_WINDOW_CLOSED",
+  "INVALID_SIGNATURE",
+  "STORAGE_DISABLED",
+  "IMAGE_LIMIT_REACHED",
+  "UPLOAD_MISSING",
+  "UPLOAD_INVALID",
+] as const;
+
+/**
+ * One of SERVER_ERROR_CODES. A union of string literals: a value of this
+ * type can only be one of these strings, so a typo such as "NOT_FOUN" is a
+ * compile error. `typeof SERVER_ERROR_CODES` is the array's type, and
+ * `[number]` is the type of any element in it. Go would use a named string
+ * type with constants; TypeScript checks the literal values themselves.
+ */
+export type ServerErrorCode = (typeof SERVER_ERROR_CODES)[number];
 
 /** The codes the client sets itself when there is no usable answer. */
 export type ClientErrorCode =
