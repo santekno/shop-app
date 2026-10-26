@@ -3,7 +3,6 @@ import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { createBrowserRouter } from "react-router";
 import { RouterProvider } from "react-router/dom";
 import { SessionProvider } from "@/features/auth/SessionProvider.tsx";
-import { CartTokenProvider } from "@/features/cart/CartTokenProvider.tsx";
 import { queryClient } from "@/lib/query-client.ts";
 import { reportCaughtError } from "@/lib/report-error.ts";
 import { routes } from "./routes.tsx";
@@ -29,23 +28,23 @@ const router = createBrowserRouter(routes);
  *    than the closest common parent.
  * 4. Do distant parts of the page need it, and is it nobody's copy of
  *    server data? Then it is global: here, the guest cart's token and
- *    the session. Few things pass all four questions.
+ *    the session (context) and the guest cart's token (a Zustand
+ *    store). Few things pass all four questions.
  */
 export function App() {
   // The provider puts the QueryClient in React context, so every page
-  // (inside the router) reads and fills the same cache. The guest cart's
-  // token and the session are app-wide state too: the header and the
-  // pages share them.
+  // (inside the router) reads and fills the same cache. The session is
+  // React context (SessionProvider). The guest cart's token needs no
+  // provider: it lives in a Zustand store (features/cart/cart-store.ts),
+  // which any component reads with a hook.
   return (
     <QueryClientProvider client={queryClient}>
       <SessionProvider>
-        <CartTokenProvider>
-          {/* onError: every error a route's ErrorBoundary catches comes
-              here, once (main.tsx leaves React's onCaughtError silent so
-              it is not reported twice). Without it React Router logs each
-              one itself, the expected 404 of a missing product included. */}
-          <RouterProvider router={router} onError={reportCaughtError} />
-        </CartTokenProvider>
+        {/* onError: every error a route's ErrorBoundary catches comes
+            here, once (main.tsx leaves React's onCaughtError silent so it
+            is not reported twice). Without it React Router logs each one
+            itself, the expected 404 of a missing product included. */}
+        <RouterProvider router={router} onError={reportCaughtError} />
       </SessionProvider>
       {/* A panel to inspect the cache (the flower button, bottom corner).
           The package renders nothing in a production build, and Vite

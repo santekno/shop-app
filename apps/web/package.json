@@ -27,7 +27,8 @@
     "react-hook-form": "catalog:",
     "react-router": "catalog:",
     "tailwind-merge": "catalog:",
-    "zod": "catalog:"
+    "zod": "catalog:",
+    "zustand": "catalog:"
   },
   "devDependencies": {
     "@eslint/js": "catalog:",

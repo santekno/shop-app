@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import type { Cart } from "@goshop/shared";
 import { cartQuery } from "../api/queries.ts";
-import { useCartToken } from "../cart-token-context.ts";
+import { selectCartToken, useCartStore } from "../cart-store.ts";
 
 /**
  * The buyer's guest cart, from the cache (GET /v1/cart). `select`, when
@@ -10,10 +10,11 @@ import { useCartToken } from "../cart-token-context.ts";
  * so TanStack Query can skip running it when the cart has not changed.
  */
 export const useCart = <T = Cart>(select?: (cart: Cart) => T) => {
-  const { cartToken, setCartToken } = useCartToken();
-  // A token the API no longer knows is forgotten (see cartQuery).
-  const forgetCart = () => {
-    setCartToken(null);
-  };
+  // Only the token: a component using the cart renders again when the
+  // token changes, not when the store's other fields do.
+  const cartToken = useCartStore(selectCartToken);
+  // Actions never change, so reading one causes no extra render. A token
+  // the API no longer knows is forgotten (see cartQuery).
+  const forgetCart = useCartStore((state) => state.forgetCart);
   return useQuery({ ...cartQuery(cartToken, forgetCart), select });
 };

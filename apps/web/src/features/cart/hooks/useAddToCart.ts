@@ -3,7 +3,7 @@ import { EMPTY_CART, addCartItem, isApiError } from "@goshop/shared";
 import type { CartItemAdd, Money } from "@goshop/shared";
 import { api } from "@/lib/api.ts";
 import { cartKeys, cartQuery } from "../api/queries.ts";
-import { useCartToken } from "../cart-token-context.ts";
+import { getCartToken, useCartStore } from "../cart-store.ts";
 import { withAddedItem } from "../optimistic-cart.ts";
 
 /** What `mutate` takes: the request body, plus the price for the guess. */
@@ -43,8 +43,8 @@ const ADD_TO_CART = ["cart", "add"] as const;
  * be created (both sent without a token), and two answers could land in
  * either order. Mutations with the same scope id run one after another,
  * across every component, so the second add starts only when the first
- * has finished, and mutationFn reads the token then (getCartToken): the
- * cart the first one created.
+ * has finished, and mutationFn reads the token then (getCartToken, from
+ * the cart store): the cart the first one created.
  *
  * onMutate does not wait in that queue: it runs at the click, so the
  * count still moves at once. A guess made while an earlier add was still
@@ -58,7 +58,10 @@ const ADD_TO_CART = ["cart", "add"] as const;
  */
 export const useAddToCart = () => {
   const queryClient = useQueryClient();
-  const { getCartToken, setCartToken } = useCartToken();
+  // The store's actions; the token itself is read with getCartToken() at
+  // the moment each step runs, never captured from this render.
+  const setToken = useCartStore((state) => state.setToken);
+  const forgetCart = useCartStore((state) => state.forgetCart);
 
   return useMutation({
     mutationKey: ADD_TO_CART,
@@ -91,7 +94,7 @@ export const useAddToCart = () => {
       }
       // The token names no cart any more (cleaned up, or merged): forget
       // it; the next add starts a new guest cart.
-      if (isApiError(error, "CART_NOT_FOUND")) setCartToken(null);
+      if (isApiError(error, "CART_NOT_FOUND")) forgetCart();
     },
 
     onSuccess: ({ cart, cartToken }, _variables, snapshot) => {
@@ -102,7 +105,7 @@ export const useAddToCart = () => {
       // drops back to 0 when the token changes. The guess under
       // ["cart", null] goes back to empty.
       queryClient.setQueryData(snapshot.key, EMPTY_CART);
-      setCartToken(cartToken);
+      setToken(cartToken);
     },
 
     onSettled: (_data, error) => {

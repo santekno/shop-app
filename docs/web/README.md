@@ -258,6 +258,24 @@ The Bab 7–9 sections above describe the code as those chapters left it. The se
 - **No flash of the wrong theme, and no inline script.** The saved choice must be on `<html>` before the first paint, so something has to run before React. The usual answer is an inline `<script>` in `index.html`; the web container's CSP (`script-src 'self'`, `apps/web/Caddyfile`) refuses it, and allowing it would need `'unsafe-inline'` (which also lets an injected script run) or a hash of the script kept in step with every edit. Instead `index.html` loads `public/theme.js` with a plain `<script src>` in `<head>`: no `type="module"`, no `defer`, so it runs before `<body>` is read. It costs one small request, revalidated on each visit like `index.html`. `<meta name="color-scheme" content="light dark">` makes the browser paint the device's scheme even before the CSS arrives. The CSP is unchanged.
 - **Tailwind, Radix and the CSP: no `'unsafe-inline'` needed for styles either.** Tailwind writes one static file (`style-src 'self'`). Radix positions the menu through React's `style` prop, which sets properties through the CSSOM (`element.style.top = …`); CSP governs `<style>` elements and `style` attributes in markup, not the CSSOM. The one thing that would break is a modal menu: its scroll lock (`react-remove-scroll`) inserts a `<style>` element, which the CSP blocks with a violation, so `DropdownMenu` defaults to `modal={false}` (it still closes on Escape, an outside click and focus leaving). The e2e suite fails on any CSP violation.
 
+## The cart store (artikel 09)
+
+- **What moved, what stayed.** The guest cart's token moved from Bab 9's `CartTokenProvider` (React state plus a ref for late readers) into a Zustand store, `features/cart/cart-store.ts`. The cart itself (lines, subtotal, count) stays in TanStack Query's cache under `["cart", token]`: server data has one home.
+- **The store's shape:**
+
+  | Field | Kind | Meaning |
+  |---|---|---|
+  | `token` | `string \| null` | the `X-Cart-Token` of the guest cart; `null` before the first add |
+  | `cartExpired` | `boolean` | the API answered `CART_NOT_FOUND` and the token was forgotten; the cart page says so until the buyer closes the message or a new cart is created |
+  | `setToken(token)` | action | keeps the token of a cart the API just created (and clears `cartExpired`) |
+  | `forgetCart()` | action | forgets the token; sets `cartExpired` only when there was a token to forget |
+  | `dismissCartExpired()` | action | the buyer closed the message |
+
+  Components read one field at a time with a selector (`useCartStore(selectCartToken)`), so the header's count does not render again when `cartExpired` changes. Code that runs after its render (a queued mutation) reads `getCartToken()`, which is `useCartStore.getState().token`: the role Bab 9's ref played, without a provider.
+- **Bab 9's add-to-cart semantics are unchanged.** Every add still runs in one queue (`scope: { id: "cart" }`); `mutationFn` reads the token when its turn comes, so a second add uses the cart the first one created; `onMutate` guesses at the click; the last add of a burst refetches the cart when it settles; `CART_NOT_FOUND` from an add or from `GET /v1/cart` forgets the token (`forgetCart`), and the next add starts a new guest cart.
+- **Why a store and not context here:** the token is read by distant components (header, product page, cart page) and by code outside any render (the mutation queue), and artikel 10 persists it; a store does all three without a provider.
+- **For the tests:** the store is a module-level singleton, so its state outlives one test. Reset it between tests with `useCartStore.setState({ token: null, cartExpired: false })`. Until the Bab 9 tests move to the store, `cart-token-context.ts` and `CartTokenProvider.tsx` stay as a bridge that only tests import (each says so); they go when the tests have moved.
+
 ## Accessibility (artikel 07)
 
 Bab 8 and 9 already label every field, link errors with `aria-describedby`, move the focus after a navigation and render live regions before they speak (the Bab 9 notes above). Artikel 07 checks the new look against the same standard (WCAG 2.2, level AA) and fixes what the restyle missed:
@@ -390,3 +408,4 @@ Paths are relative to `apps/web/src` unless they start with another top-level fo
 | 06 | Prototyping UI with AI | the section above; `features/cart/components/EmptyCart.tsx` |
 | 07 | Accessibility | `app/SkipLink.tsx` and `id="konten"` on `<main>` in `app/RootLayout.tsx`; `--input` in `index.css` (a field's edge at 3:1); the highlighted item's outline in `components/ui/DropdownMenu.tsx`; the focus that moves to "Masuk" after "Keluar" in `features/auth/components/AccountNav.tsx`; `aria-pressed` in `ThemeToggle.tsx`; the Bab 9 notes below still hold |
 | 08 | When global state, and when not | the section above; the note above `App` in `app/App.tsx` |
+| 09 | Zustand: the cart store | `features/cart/cart-store.ts` (`create`, actions, selectors, `getState` in `getCartToken`), read in `hooks/useCart.ts`, `hooks/useAddToCart.ts` and `components/CartPage.tsx` (the "cart expired" notice); `CartTokenProvider` is gone from `app/App.tsx` |

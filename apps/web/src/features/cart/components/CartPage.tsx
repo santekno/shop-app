@@ -4,6 +4,8 @@ import { Card } from "@/components/ui/Card.tsx";
 import { ErrorState, LoadingState } from "@/components/ui/StatusMessage.tsx";
 import { productPath } from "@/features/product/paths.ts";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle.ts";
+import { Button } from "@/components/ui/Button.tsx";
+import { selectCartExpired, useCartStore } from "../cart-store.ts";
 import { useCart } from "../hooks/useCart.ts";
 import { EmptyCart } from "./EmptyCart.tsx";
 import { Badge } from "@/components/ui/Badge.tsx";
@@ -23,12 +25,35 @@ const PROBLEM_TEXT = {
 export function CartPage() {
   useDocumentTitle("Keranjang — GoShop");
   const { data: cart, status, error, isFetching, refetch } = useCart();
+  // Client state from the cart store: the API forgot our cart, and the
+  // buyer has not read why yet.
+  const cartExpired = useCartStore(selectCartExpired);
+  const dismissCartExpired = useCartStore((state) => state.dismissCartExpired);
 
   return (
     <Card>
       <h1 tabIndex={-1} className="mb-4">
         Keranjang
       </h1>
+      <div
+        className={
+          cartExpired
+            ? "mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md bg-muted px-4 py-3"
+            : undefined
+        }
+      >
+        {/* Always rendered, so screen readers hear the text when it
+            appears (a live region must exist before it changes). */}
+        <p role="status">
+          {cartExpired &&
+            "Keranjang Anda sebelumnya sudah tidak berlaku, jadi sekarang kosong."}
+        </p>
+        {cartExpired && (
+          <Button variant="outline" size="sm" onClick={dismissCartExpired}>
+            Tutup
+          </Button>
+        )}
+      </div>
       {(status === "pending" || (status === "error" && isFetching)) && (
         <LoadingState>Memuat keranjang…</LoadingState>
       )}
