@@ -15,6 +15,7 @@ export { buildCategoryTree } from "./catalog/category-tree.ts";
 export type { CategoryNode } from "./catalog/category-tree.ts";
 
 export { retry, sleep } from "./lib/async.ts";
+export { formatRupiah } from "./lib/money.ts";
 export type { RetryOptions } from "./lib/async.ts";
 
 export {
@@ -39,13 +40,19 @@ export type {
   RequestOptions,
 } from "./api/client.ts";
 
-export { listCategories } from "./api/catalog.ts";
+export { getProduct, listCategories, listProducts } from "./api/catalog.ts";
 export type { EndpointOptions } from "./api/catalog.ts";
 
 export type {
   Category,
   CategoryList,
   ErrorBody,
+  ListProductsQuery,
+  Money,
+  Product,
+  ProductDetail,
+  ProductList,
+  ProductVariant,
   components,
   operations,
   paths,
