@@ -35,6 +35,10 @@ Every commit in `bab-7..bab-8` passes `go build ./...`, `go vet -tags=integratio
   - A2: the Bab 8 section of `docs/web/README.md` says the same: `images` is ignored, every card shows "Belum ada foto", even for a product given a photo in Bab 6 (`885b2d6`);
   - A3: the e2e `ProductRow` claimed to be the product "as the contract defines it" but left out `images` and `created_at`. Both are added, with `ImageRow` and `ImageVariantRow` written to match the contract; `catalog-cards.spec.ts` now says it is the seed that writes no photos and asserts each product's `images` is empty before expecting the placeholder, so a seed that gains photos fails by name (`212eed3`).
 
+### After the gate
+
+- **Found while writing the articles (`8ce5eaf`, comments and docs only):** the `ProductCard` comment and the DevTools steps in `docs/web/README.md` credited `useCallback` for the cards that stay still on "Muat lebih banyak". Measured in the browser, that is `memo` alone: `CatalogPage` owns the list, so `App` does not render and `onSelect` is unchanged anyway. `useCallback` is what keeps the cards still when `App` renders, on opening a product and going back (without it, 48 card renders each time under StrictMode). A comment in `useProducts.ts` also named a `filtersKey` helper that does not exist. No code changed: typecheck, lint and the 176 web unit tests pass at `8ce5eaf`.
+
 ## Decisions
 
 No ADR in this chapter: no API, data or deployment-model change. The web decisions are recorded in `docs/web/README.md` (Bab 8 section) and in the code's comments.
