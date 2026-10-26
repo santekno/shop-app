@@ -10,11 +10,11 @@ Branch: `bab-7` (from `bab-6` @ `b3cf6ab`; Bab 6 verified code `33c05d5`)
 | 1 unit tests | test-engineer | pass | 183 TypeScript tests at the verified SHA (140 in `packages/shared`, 43 in `apps/web`), including the contract test for `SERVER_ERROR_CODES`; coverage `packages/shared` 100% statements, functions and lines, 98.98% branches; `apps/web` 100% on every metric; `make test-unit` enforces 70% per file; 63 mutations in the first round, all caught once one survivor (the loop cut in the category tree) got a test (`93e8754`), then 3 for the URL fix and 4 for the post-review assertions, all caught; 1 production bug found and fixed (below) |
 | 2 DB audit | database-auditor | not applicable | no migration, query or SQL change in this chapter |
 | 3 integration | integration-engineer | pass | Playwright (Chromium) against the Compose stack: the storefront container, a real API outage and recovery, the CSP enforced in the browser, the security headers, the SPA fallback, a non-root Caddy, and `@goshop/shared` against real API errors and dead servers; 22 tests, 0 skipped, with a reporter that fails the run on any skipped test; no production bug found |
-| 4 quality review | quality-review | pass | round 1: 1 blocking (B1), 11 advice items, all fixed; round 2 re-review, run against two images the reviewer built: pass, 0 blocking, with two e2e suggestions, both applied; round 3, the rebase onto `bab-6`: 1 blocking (`ServerErrorCode` missed the seven codes Bab 6 added to the contract), fixed in `a715e0c` with a contract test in `0c3b889`, plus 2 advice items recorded under Deferred |
+| 4 quality review | quality-review | pass | round 1: 1 blocking (B1), 11 advice items, all fixed; round 2 re-review, run against two images the reviewer built: pass, 0 blocking, with two e2e suggestions, both applied; round 3, the rebase onto `bab-6`: 1 blocking (`ServerErrorCode` missed the seven codes Bab 6 added to the contract), fixed in `a715e0c` with a contract test in `0c3b889`, plus 2 advice items recorded under Deferred; round 4, re-review of `a715e0c`/`0c3b889`: pass, 0 blocking, 4 advice (Deferred) |
 
 **Verified SHA:** `0c3b889b30a92dcbff2cc6def35299c801ad3f44` (2026-10-26). The gate first passed on `c48f169`, on `bab-7-wip` based on `bab-4` (`0522443`). The branch was rebased onto `bab-5` (`6315081`, checked commit by commit, 22 e2e tests), then onto `bab-6` (`3ce280f`, full gate passed), and after the round-3 fix the whole verification ran again on the new SHA (Notes, **Rebases**).
 
-Every commit in `bab-6..bab-7` passes `go build ./...`, `go vet -tags=integration ./...` and `go test ./...`, and the TypeScript typecheck, lint and unit tests, at its own snapshot (36/36).
+Every commit in `bab-6..bab-7` (`d806224`, this record, included) passes `go build ./...`, `go vet -tags=integration ./...` and `go test ./...`, and the TypeScript typecheck, lint and unit tests, at its own snapshot (37/37).
 
 `make verify` ran from a cold stack (`docker compose down -v` first) at the verified SHA and passed every stage in 564 s (535 s at `3ce280f`): 22 Playwright tests passed, 0 skipped, 183 TypeScript unit tests (140 shared, 43 web) passed, and the Go suites were green with 0 skipped. `apps/api` is byte-identical to Bab 6's verified `33c05d5`, whose Go integration suite passed under `-race`; it ran again under `-race` at `3ce280f`, clean.
 
@@ -84,6 +84,9 @@ No ADR in this chapter: no API, data or deployment-model change. The web decisio
 - **Deliberate gaps** for later chapters: no router, no data-fetching library and no CSS framework yet (Bab 8–10); the storefront is a Vite SPA until the Next.js migration in Bab 11.
 
 ## Deferred
+
+- **Contract test (round 4 advice):** `errors.contract.test.ts` finds codes in backticks and in unquoted `code: X` examples only; a code mentioned without backticks or quoted in an example would drift silently. Accept quotes in the example pattern, write the backtick convention into the header of `api/openapi.yaml`, and add `HEAD` and `OPTIONS` to the words it ignores; longer term an `enum` or `x-error-codes` list on `Error.code` removes the regex.
+- **Concept map (round 4 advice):** the artikel-08 row of `docs/web/README.md` should name `as const` and `(typeof X)[number]`, which `SERVER_ERROR_CODES` now teaches.
 
 - **Web CSP and product photos:** `apps/web/Caddyfile` allows `img-src 'self' data: https:` and no Midtrans origin; the chapter that first shows product photos or Snap must widen it (rebase review advice).
 - **`apps/web/README.md`:** `make dev-api` with postgres and redis is enough for Bab 7; storage and the worker are needed once the page shows photos (rebase review advice).
