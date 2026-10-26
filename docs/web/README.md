@@ -269,6 +269,26 @@ Bab 8 and 9 already label every field, link errors with `aria-describedby`, move
 - **A toggle that says its state.** The theme button keeps one name, "Mode gelap", and says on or off with `aria-pressed`; the filled moon shows the same state without relying on colour.
 - **What to check by hand**, since no automated tool sees all of it: Tab from the top of each page (the skip link first, then the header, then the content) and watch the ring at every stop; each page at 320 px wide and at 200% zoom; both themes; forced colours (Chromium's DevTools, Rendering, "Emulate CSS media feature forced-colors").
 
+## When you need global state, and when you do not (artikel 08)
+
+"Global state" is state that any component can read without it being passed down. It is the easiest kind to reach for and the hardest to reason about: any component may change it, and anything that reads it renders again when it does. So the question is not which library, but whether the state should be global at all. Four questions, in order; the first "yes" decides:
+
+| Question | If yes, it lives in | GoShop examples |
+|---|---|---|
+| Is it a copy of the server's data? | **TanStack Query** (server state): it already fetches, caches, shares between components, refetches when stale and forgets what nobody uses | the catalog, a product, the categories, the cart's lines and subtotal |
+| Should a link, a bookmark or a reload bring it back? | **The URL** (path and query string) | the product on screen, the category filter, the search text, the sort order |
+| Does one component, or one parent and its children, need it? | **`useState`** in the closest common parent, passed down as props | the quantity on the product page, the chosen variant, whether the category list is open on a phone |
+| Do distant parts of the page need it, and is it nobody's copy of server data? | **Global client state**: React context or a store | the guest cart's token (the header's count, the product page's add button and the cart page all need it), the logged-in user, the theme |
+
+Most of the storefront's state stops at one of the first three questions. Putting the cart's *lines* in a global store would be the classic mistake: it would duplicate TanStack Query's cache, and the two copies would disagree after the next refetch. The store keeps only what the server does not hold for us: which cart is ours.
+
+Two tools for the fourth row, and GoShop uses both:
+
+- **React context** passes a value down a subtree: no dependency, and a test or a page can wrap a part of the tree in a different provider. Every component that reads the context renders again when its value changes, so it suits values that change rarely (the logged-in user, artikel 11) and needs care (a memoised value, split contexts) for anything else.
+- **A store (Zustand, artikel 09)** lives outside React. A component subscribes to a slice with a selector and renders again only when that slice changes; code outside a component (a mutation running later, a storage event) reads and writes it without a hook; and a middleware persists it (artikel 10). It suits state that changes often or must be read outside a render.
+
+The theme (artikel 05) is global by nature but is neither: it lives on `<html>` (the CSS reads it there) and in `localStorage`, and the one component that changes it keeps a mirror in `useState`.
+
 ## Prototyping UI with AI, then tidying it by hand (artikel 06)
 
 The storefront code of this course is written with an AI coding agent (Claude Code; the commits say so) and then reviewed against the rules in `docs/ai-rules.md`. AI is good at a first layout: it knows Tailwind's and shadcn/ui's vocabulary and produces something that looks right in seconds. What it does not know is *this* project: its tokens, its tests, its CSP, its heading structure. Review is where those come in.
@@ -369,3 +389,4 @@ Paths are relative to `apps/web/src` unless they start with another top-level fo
 | 05 | Dark mode | the `dark` custom variant and `@variant dark` in `index.css`, `public/theme.js`, `index.html`, `features/theme/` (`theme.ts`, `useTheme.ts`, `components/ThemeToggle.tsx`), the toggle in `app/SiteHeader.tsx` |
 | 06 | Prototyping UI with AI | the section above; `features/cart/components/EmptyCart.tsx` |
 | 07 | Accessibility | `app/SkipLink.tsx` and `id="konten"` on `<main>` in `app/RootLayout.tsx`; `--input` in `index.css` (a field's edge at 3:1); the highlighted item's outline in `components/ui/DropdownMenu.tsx`; the focus that moves to "Masuk" after "Keluar" in `features/auth/components/AccountNav.tsx`; `aria-pressed` in `ThemeToggle.tsx`; the Bab 9 notes below still hold |
+| 08 | When global state, and when not | the section above; the note above `App` in `app/App.tsx` |

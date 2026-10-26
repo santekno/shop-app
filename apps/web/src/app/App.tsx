@@ -17,6 +17,20 @@ import { routes } from "./routes.tsx";
 // plays that role.)
 const router = createBrowserRouter(routes);
 
+/*
+ * Where each kind of state lives (Bab 10, artikel 08). Ask, in order:
+ *
+ * 1. Is it the server's data (products, the cart's lines)? TanStack
+ *    Query's cache: it fetches, shares, refetches and forgets it.
+ * 2. Should a link or a reload bring it back (the product, a filter)?
+ *    The URL.
+ * 3. Does only one component, or one parent and its children, need it
+ *    (a stepper's quantity, a folded list)? useState, lifted no higher
+ *    than the closest common parent.
+ * 4. Do distant parts of the page need it, and is it nobody's copy of
+ *    server data? Then it is global: here, the guest cart's token and
+ *    the session. Few things pass all four questions.
+ */
 export function App() {
   // The provider puts the QueryClient in React context, so every page
   // (inside the router) reads and fills the same cache. The guest cart's
