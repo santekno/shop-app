@@ -16,6 +16,11 @@ import { cn } from "@/lib/utils.ts";
  * - sizes are a little taller (h-10, icon size-10): easier to hit on a
  *   phone;
  * - the variants GoShop does not use (secondary) are gone.
+ *
+ * cva writes the variant's classes first and the size's after them, and
+ * cn (tailwind-merge) keeps the later of two clashing classes. So a
+ * class that must beat the size goes in compoundVariants, which cva
+ * writes last: that is how the link variant drops the box.
  */
 const buttonVariants = cva(
   "inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 rounded-md text-sm font-medium whitespace-nowrap transition-colors disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
@@ -28,7 +33,7 @@ const buttonVariants = cva(
         outline:
           "border border-input bg-background text-foreground hover:bg-accent hover:text-accent-foreground",
         ghost: "text-foreground hover:bg-accent hover:text-accent-foreground",
-        link: "h-auto px-0 text-primary underline-offset-4 hover:underline",
+        link: "text-primary underline-offset-4 hover:underline",
       },
       size: {
         default: "h-10 px-4 py-2",
@@ -36,6 +41,10 @@ const buttonVariants = cva(
         icon: "size-10",
       },
     },
+    compoundVariants: [
+      // A link has no button box, whatever the size says.
+      { variant: "link", className: "h-auto px-0" },
+    ],
     defaultVariants: { variant: "default", size: "default" },
   },
 );
