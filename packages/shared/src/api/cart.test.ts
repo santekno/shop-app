@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { EMPTY_CART, addCartItem, getCart } from "./cart.ts";
+import { EMPTY_CART, addCartItem, getCart, mergeCart } from "./cart.ts";
 import { createApiClient } from "./client.ts";
 import { isApiError } from "./errors.ts";
 import type { Cart } from "./types.ts";
@@ -160,5 +160,61 @@ describe("addCartItem", () => {
       details: { available: 1 },
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("mergeCart", () => {
+  it("POSTs the guest token to /v1/cart/merge and returns the user's cart", async () => {
+    const { api, call } = setup(() => Response.json({ data: cart }));
+
+    await expect(mergeCart(api, "guest-tok")).resolves.toEqual(cart);
+
+    expect(call().url).toBe("http://api.test/v1/cart/merge");
+    expect(call().init?.method).toBe("POST");
+    expect(call().headers.get("X-Cart-Token")).toBe("guest-tok");
+    expect(call().init?.body).toBeUndefined();
+    // An ordinary call: no cookie.
+    expect(call().init?.credentials).toBeUndefined();
+    expect(call().headers.has("X-GoShop-Client")).toBe(false);
+  });
+
+  it("throws CART_NOT_FOUND for a guest cart already merged or gone", async () => {
+    const { api } = setup(() =>
+      Response.json(
+        { error: { code: "CART_NOT_FOUND", message: "gone" } },
+        { status: 404 },
+      ),
+    );
+
+    const error: unknown = await mergeCart(api, "old").catch((e: unknown) => e);
+    expect(isApiError(error, "CART_NOT_FOUND")).toBe(true);
+  });
+
+  it("passes the caller's signal on", async () => {
+    const { api, fetchMock } = setup(() => Response.json({ data: cart }));
+    const controller = new AbortController();
+    const fetchSignal = () => fetchMock.mock.calls[0]?.[1]?.signal;
+
+    const pending = mergeCart(api, "tok", { signal: controller.signal });
+    expect(fetchSignal()?.aborted).toBe(false);
+    controller.abort();
+
+    expect(fetchSignal()?.aborted).toBe(true);
+    await pending.catch(() => undefined);
+  });
+});
+
+describe("the cart calls send no cookie", () => {
+  it("getCart and addCartItem keep fetch's default credentials", async () => {
+    const { api, fetchMock } = setup(() => Response.json({ data: cart }));
+
+    await getCart(api, { cartToken: "tok" });
+    await addCartItem(api, { variant_id: "v1", quantity: 1 });
+
+    for (const [, init] of fetchMock.mock.calls) {
+      expect(init?.credentials).toBeUndefined();
+      expect(new Headers(init?.headers).has("X-GoShop-Client")).toBe(false);
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

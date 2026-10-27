@@ -203,6 +203,30 @@ describe("request: the outgoing call", () => {
     expect(headers.get("X-Trace")).toBe("t-1");
   });
 
+  it("leaves credentials out by default: fetch's same-origin, never a cookie cross-origin", async () => {
+    const { api, fetchMock } = setup();
+    fetchMock.mockResolvedValue(json(200, {}));
+
+    await api.request("/v1/cart", { method: "POST" });
+
+    expect("credentials" in callOf(fetchMock).init).toBe(false);
+  });
+
+  it.each(["include", "omit", "same-origin"] as const)(
+    "passes credentials %s on when asked",
+    async (credentials) => {
+      const { api, fetchMock } = setup();
+      fetchMock.mockResolvedValue(json(200, {}));
+
+      await api.request("/v1/auth/web/refresh", {
+        method: "POST",
+        credentials,
+      });
+
+      expect(callOf(fetchMock).init.credentials).toBe(credentials);
+    },
+  );
+
   it("accepts only the HTTP methods the API uses", async () => {
     const { api, fetchMock } = setup();
     fetchMock.mockResolvedValue(json(200, {}));
