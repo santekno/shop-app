@@ -78,6 +78,13 @@ test("a ?kembali= that leaves the site, or loops to an auth page, lands on the c
     "//evil.example.com",
     "/\\evil.example.com",
     "/\t/evil.example.com",
+    // One leading slash, but the URL parser's normalisation (dot segments
+    // removed, %2e read as a dot, "\" turned into "/") leaves the path
+    // "//evil.example.com": another host, once handed back as a string.
+    "/.//evil.example.com",
+    "/x/..//evil.example.com/masuk",
+    "/%2e//evil.example.com",
+    "/./\\evil.example.com",
     "javascript:alert(1)",
     "evil.example.com",
     BROWSER_API_URL + "/v1/me",
