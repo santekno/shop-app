@@ -5,6 +5,7 @@ import { RouterProvider } from "react-router/dom";
 import type { ApiClient } from "@goshop/shared";
 import { meKeys } from "@/features/account/api/queries.ts";
 import { checkoutKeys } from "@/features/checkout/api/queries.ts";
+import { orderKeys } from "@/features/orders/api/queries.ts";
 import { SessionProvider } from "@/features/auth/SessionProvider.tsx";
 import type { Session } from "@/features/auth/session-context.ts";
 import {
@@ -47,7 +48,7 @@ const router = createBrowserRouter(routes);
  * - A login or a restore moves the guest cart into the user's cart before
  *   the header shows the user (POST /v1/cart/merge).
  * - A logout, or a session the API ended, drops the user's cached cart,
- *   account (artikel 13) and checkout data (addresses, quotes; Bab 11), so
+ *   account (artikel 13), checkout data and orders (Bab 11), so
  *   the next person at this browser starts as a guest and never sees them.
  */
 const onSessionStart = (client: ApiClient, session: Session) =>
@@ -56,6 +57,7 @@ const onSessionEnd = () => {
   forgetUserCarts(queryClient);
   queryClient.removeQueries({ queryKey: meKeys.all });
   queryClient.removeQueries({ queryKey: checkoutKeys.all });
+  queryClient.removeQueries({ queryKey: orderKeys.all });
 };
 
 export function App() {

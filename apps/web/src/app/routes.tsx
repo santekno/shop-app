@@ -6,6 +6,10 @@ import { loadLoginPage, loadRegisterPage } from "@/features/auth/lazy.ts";
 import { CartPage } from "@/features/cart/components/CartPage.tsx";
 import { CatalogPage } from "@/features/catalog/components/CatalogPage.tsx";
 import { loadCheckoutPage } from "@/features/checkout/lazy.ts";
+import {
+  loadPaymentPage,
+  loadPaymentReturnPage,
+} from "@/features/orders/lazy.ts";
 import { loadProductPage } from "@/features/product/lazy.ts";
 import { PRODUCT_ROUTE } from "@/features/product/paths.ts";
 import { AppLoading } from "./AppLoading.tsx";
@@ -25,6 +29,10 @@ import { RouteErrorPage } from "./RouteErrorPage.tsx";
  *   /daftar          RootLayout > AuthLayout > RegisterPage
  *   /akun            RootLayout > RequireAuth > AccountPage (needs a login)
  *   /checkout        RootLayout > RequireAuth > CheckoutPage (Bab 11)
+ *   /pesanan/:id/pembayaran
+ *                    RootLayout > RequireAuth > PaymentPage
+ *   /pembayaran/selesai
+ *                    RootLayout > RequireAuth > PaymentReturnPage (Midtrans' return)
  *   anything else    RootLayout > NotFoundPage
  *
  * An error thrown while a page renders is caught by the nearest
@@ -107,6 +115,18 @@ export const routes: RouteObject[] = [
                 path: "checkout",
                 lazy: async () => ({
                   Component: (await loadCheckoutPage()).CheckoutPage,
+                }),
+              },
+              {
+                path: "pesanan/:id/pembayaran",
+                lazy: async () => ({
+                  Component: (await loadPaymentPage()).PaymentPage,
+                }),
+              },
+              {
+                path: "pembayaran/selesai",
+                lazy: async () => ({
+                  Component: (await loadPaymentReturnPage()).PaymentReturnPage,
                 }),
               },
             ],

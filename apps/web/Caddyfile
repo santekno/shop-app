@@ -21,6 +21,15 @@
 		# The app may load only its own files and call only its own API.
 		# api-origin holds the origin of VITE_API_URL, written by the
 		# Dockerfile: a CSP source with a path allows only that exact path.
+		#
+		# Payments (Bab 11) add nothing here, on purpose. The buyer pays on
+		# Midtrans' hosted Snap page through the transaction's redirect_url:
+		# a top-level navigation to app.sandbox.midtrans.com, which no CSP
+		# directive governs, and back to /pembayaran/selesai. Snap.js (the
+		# pop-up) would need Midtrans in script-src, frame-src and
+		# connect-src, and would run Midtrans' script inside this page, next
+		# to the access token in memory (docs/web/README.md, Bab 11 artikel
+		# 04). payment=() above stays: nothing uses the Payment Request API.
 		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https:; connect-src 'self' {file./etc/caddy/api-origin}; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 	}
 }

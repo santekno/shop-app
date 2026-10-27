@@ -62,6 +62,17 @@ export type OrderTotals = Schemas["OrderTotals"];
 export type AppliedVoucher = Schemas["AppliedVoucher"];
 /** One cart line that checkout refuses (409 CHECKOUT_PROBLEMS). */
 export type CheckoutProblem = Schemas["CheckoutProblem"];
+/** The body of POST /v1/checkout. */
+export type CheckoutRequest = Schemas["CheckoutRequest"];
+/** An order with its line snapshots, totals and address copy (Bab 5). */
+export type Order = Schemas["Order"];
+export type OrderDetail = Schemas["OrderDetail"];
+export type OrderItem = Schemas["OrderItem"];
+/** The life cycle of an order (ADR 0006). */
+export type OrderStatus = Order["status"];
+/** A Midtrans Snap transaction for an order (Bab 6, ADR 0007). */
+export type PaymentSession = Schemas["PaymentSession"];
+export type PaymentSessionDetail = Schemas["PaymentSessionDetail"];
 /** The body of every API error: {"error":{"code","message","details"}}. */
 export type ErrorBody = Schemas["Error"];
 

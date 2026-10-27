@@ -1,12 +1,16 @@
 import { useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import type { CheckoutPreviewRequest } from "@goshop/shared";
-import { Link } from "react-router";
+import { formatRupiah } from "@goshop/shared";
+import type { CheckoutPreviewRequest, CheckoutRequest } from "@goshop/shared";
+import { Link, useNavigate } from "react-router";
 import { Card } from "@/components/ui/Card.tsx";
 import { Section } from "@/components/ui/Section.tsx";
 import { ErrorState, LoadingState } from "@/components/ui/StatusMessage.tsx";
 import { useSession } from "@/features/auth/session-context.ts";
 import { useCart } from "@/features/cart/hooks/useCart.ts";
+import { usePayOrder } from "@/features/orders/hooks/usePayOrder.ts";
+import { paymentPath } from "@/features/orders/paths.ts";
+import { payErrorMessage } from "@/features/orders/payment-errors.ts";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle.ts";
 import {
   addressesQuery,
@@ -16,8 +20,10 @@ import {
 } from "../api/queries.ts";
 import { chosenAddressId, validShippingChoice } from "../shipping.ts";
 import type { ShippingChoice } from "../shipping.ts";
+import { usePlaceOrder } from "../hooks/usePlaceOrder.ts";
 import { AddressStep } from "./AddressStep.tsx";
 import { CourierStep } from "./CourierStep.tsx";
+import { PlaceOrder } from "./PlaceOrder.tsx";
 import { SummaryStep } from "./SummaryStep.tsx";
 
 /**
@@ -36,6 +42,15 @@ import { SummaryStep } from "./SummaryStep.tsx";
  * (chosenAddressId, validShippingChoice in shipping.ts): the default
  * address until the buyer picks one, and a courier choice that silently
  * stops counting when the buyer picks another address.
+ *
+ * Artikel 04 places the order and starts paying it in one press: POST
+ * /v1/checkout (usePlaceOrder, with its Idempotency-Key), then POST
+ * /v1/orders/{id}/pay (usePayOrder), which sends the buyer to Midtrans or,
+ * with the test gateway, to the order's payment page. Once the order
+ * exists the page shows it instead of the steps: the cart it came from is
+ * empty now, and "Keranjang Anda kosong" would be the wrong thing to say.
+ * When the payment cannot be started the order still exists, so the buyer
+ * goes to its payment page anyway, which says why and offers "Bayar".
  */
 export function CheckoutPage() {
   useDocumentTitle("Checkout — GoShop");
@@ -48,6 +63,9 @@ export function CheckoutPage() {
     null,
   );
   const [voucherCode, setVoucherCode] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const place = usePlaceOrder(userId);
+  const payment = usePayOrder();
 
   const addresses = useQuery({
     ...addressesQuery(authApi, userId),
@@ -90,11 +108,61 @@ export function CheckoutPage() {
       session !== null &&
       cart.status === "success" &&
       !cartIsEmpty &&
-      addresses.status !== "pending",
+      addresses.status !== "pending" &&
+      !place.isSuccess,
     // Another choice is another key. Until its answer arrives the summary
     // keeps the last totals (dimmed) instead of going back to "loading".
     placeholderData: keepPreviousData,
   });
+
+  // The checkout body, once everything it needs is chosen.
+  const body: CheckoutRequest | null =
+    addressId === null || shipping === null
+      ? null
+      : {
+          address_id: addressId,
+          courier: shipping.courier,
+          service: shipping.service,
+          ...(voucherCode === null ? {} : { voucher_code: voucherCode }),
+        };
+  const blockedBy =
+    body === null
+      ? "Pilih alamat dan kurir dulu."
+      : preview.status !== "success" || preview.isPlaceholderData
+        ? "Tunggu ringkasan pesanan selesai dihitung."
+        : null;
+
+  const onPlace = () => {
+    if (body === null) return;
+    place.place(body, {
+      onSuccess: (order) => {
+        payment.pay(order, {
+          replace: true,
+          onError: (error) => {
+            void navigate(paymentPath(order.id), {
+              replace: true,
+              state: { payError: payErrorMessage(error) },
+            });
+          },
+        });
+      },
+    });
+  };
+
+  if (place.data !== undefined) {
+    return (
+      <Card>
+        <h1 tabIndex={-1} className="mb-4">
+          Checkout
+        </h1>
+        <p role="status">
+          Pesanan <strong>{place.data.code}</strong> (
+          {formatRupiah(place.data.totals.total)}) sudah dibuat. Membuka
+          pembayaran…
+        </p>
+      </Card>
+    );
+  }
 
   return (
     <div className="grid gap-4">
@@ -166,6 +234,13 @@ export function CheckoutPage() {
               voucherCode={voucherCode}
               onVoucherChange={setVoucherCode}
               preview={preview}
+            />
+            <PlaceOrder
+              blockedBy={blockedBy}
+              busy={place.isPending || payment.isPending}
+              error={place.error}
+              cartLines={cart.data?.lines}
+              onPlace={onPlace}
             />
           </Section>
         </>
