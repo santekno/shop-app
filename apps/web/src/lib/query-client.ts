@@ -15,10 +15,10 @@ export const DEFAULT_STALE_TIME_MS = 30_000;
  *
  * Server state is not like useState. It lives on the server, the screen
  * only holds a copy, and that copy can be out of date. The client keeps
- * one entry per query key (["products", filters], ["product", slug]),
- * shares it between all components that use the key, removes it some
- * time after the last one unmounts (`gcTime`, 5 minutes by default), and
- * decides when to fetch again.
+ * one entry per query key (["products", "list", filters],
+ * ["products", "detail", slug]), shares it between all components that
+ * use the key, removes it some time after the last one unmounts
+ * (`gcTime`, 5 minutes by default), and decides when to fetch again.
  *
  * Defaults that differ from TanStack Query's own:
  *
