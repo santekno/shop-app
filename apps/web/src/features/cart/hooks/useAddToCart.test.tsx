@@ -603,6 +603,8 @@ describe("useAddToCart when the session ends during an add", () => {
     const hook = renderHook(
       () => ({
         add: useAddToCart(),
+        // A second add button on the same page, for two queued adds.
+        second: useAddToCart(),
         session: useSession(),
         token: useCartStore(selectCartToken),
       }),
@@ -666,6 +668,61 @@ describe("useAddToCart when the session ends during an add", () => {
       expect(result.current.token).toBeNull();
     },
   );
+
+  it("sends a queued add as a guest's once the first add's refresh ended the session, writing nothing under the user's key", async () => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+    const guestCart = cartOf([cartLine("l")]);
+    let refreshes = 0;
+    fetchMock.mockImplementation((input, init) => {
+      const path = requestUrl(input).pathname;
+      if (path === "/v1/auth/web/refresh") {
+        refreshes += 1;
+        return Promise.resolve(
+          refreshes === 1
+            ? webSessionResponse(user({ id: "u1" }), "restored", 60)
+            : noContentResponse(),
+        );
+      }
+      // Only the second add reaches the API, as a guest: a new guest cart.
+      return Promise.resolve(
+        init?.method === "POST"
+          ? cartResponse(guestCart, "g1", 201)
+          : cartResponse(guestCart),
+      );
+    });
+    const { result, queryClient } = renderAdd(undefined);
+    await waitFor(() => {
+      expect(result.current.session.status).toBe("authenticated");
+    });
+    queryClient.setQueryData(USER_KEY, before);
+    // Past the moment to replace the 60 s token.
+    clock.mockReturnValue(1_000_000 + 45_000);
+
+    // Both clicks are made while logged in: both guesses go under u1.
+    act(() => {
+      result.current.add.mutate(add(1, "m"));
+      result.current.second.mutate(add(1, "l"));
+    });
+    await waitFor(() => {
+      expect(result.current.second.isSuccess).toBe(true);
+    });
+
+    // The first add's refresh ended the session; it was never sent.
+    expect(isApiError(result.current.add.error, "UNAUTHORIZED")).toBe(true);
+    expect(refreshes).toBe(2);
+    expect(result.current.session.status).toBe("anonymous");
+    // The second ran after that, as a visitor: no access token, no cart
+    // token yet, and the guest cart it created is kept.
+    expect(itemPosts()).toHaveLength(1);
+    const headers = new Headers(itemPosts()[0]?.[1]?.headers);
+    expect(headers.has("Authorization")).toBe(false);
+    expect(headers.has("X-Cart-Token")).toBe(false);
+    expect(result.current.token).toBe("g1");
+    expect(queryClient.getQueryData(["cart", "g1"])).toEqual(guestCart);
+    // Nothing under the logged-out user's key: not the rollback, not the
+    // answer, not the reset of the second click's guess.
+    expect(queryClient.getQueryData(USER_KEY)).toBeUndefined();
+  });
 
   it("does not write a late answer under the user's key once the session has ended", async () => {
     const answer = deferred<Response>();
