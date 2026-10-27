@@ -24,6 +24,12 @@ export interface SessionManagerOptions {
   lock?: <T>(task: () => Promise<T>) => Promise<T>;
   /** The clock, in milliseconds; tests may pass their own. */
   now?: () => number;
+  /**
+   * A session known from the start (tests and stories): `null` for a
+   * guest. When given, `restore` asks the API nothing. Its expiry is
+   * unknown, so it is never refreshed before a request, only after a 401.
+   */
+  initialSession?: Session | null;
 }
 
 /**
@@ -67,13 +73,15 @@ export const createSessionManager = ({
   onEnd,
   lock = withSessionLock,
   now = Date.now,
+  initialSession,
 }: SessionManagerOptions) => {
-  let current: Session | null = null;
+  let current: Session | null = initialSession ?? null;
   // When the current access token should be replaced, in now()'s
   // milliseconds; null when unknown (a session set by setSession).
   let refreshAt: number | null = null;
   let refreshing: Promise<Session | null> | null = null;
-  let restoring: Promise<void> | null = null;
+  let restoring: Promise<void> | null =
+    initialSession === undefined ? null : Promise.resolve();
 
   const publish = (session: Session | null) => {
     current = session;

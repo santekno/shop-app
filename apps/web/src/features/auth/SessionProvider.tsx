@@ -20,6 +20,12 @@ interface SessionProviderProps {
   onStart?: (client: ApiClient, session: Session) => Promise<void>;
   /** After the session ends: App.tsx forgets the user's cached data. */
   onEnd?: () => void;
+  /**
+   * Start with this session instead of restoring one from the cookie
+   * (tests and stories): `null` renders a guest at once and sends no
+   * request. Leave it out in the app. Read once, when the provider mounts.
+   */
+  initialSession?: Session | null;
 }
 
 type SessionState =
@@ -43,10 +49,15 @@ export function SessionProvider({
   children,
   onStart,
   onEnd,
+  initialSession,
 }: SessionProviderProps) {
-  const [state, setState] = useState<SessionState>({
-    status: "restoring",
-    session: null,
+  const [state, setState] = useState<SessionState>(() => {
+    if (initialSession === undefined) {
+      return { status: "restoring", session: null };
+    }
+    return initialSession === null
+      ? { status: "anonymous", session: null }
+      : { status: "authenticated", session: initialSession };
   });
 
   // One manager per provider, created on the first render (useState's
@@ -64,6 +75,7 @@ export function SessionProvider({
       },
       onStart,
       onEnd,
+      initialSession,
     }),
   );
 

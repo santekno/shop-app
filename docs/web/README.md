@@ -326,6 +326,8 @@ No token is ever written to `localStorage` or `sessionStorage`: any script that 
 | `401` | the cookie was refused (expired, revoked, reused); the API has cleared it | `anonymous` |
 | network error, `429`, `500` | unknown; the cookie may still be good | `anonymous` for now; the next reload tries again |
 
+Tests and stories can skip the restore with `<SessionProvider initialSession={null}>` (a guest, no request) or `initialSession={session}`; the app never passes it.
+
 While restoring, the header shows neither "Masuk" nor a name (`AccountNav` renders nothing), the cart is not fetched (`useCart` waits: nobody knows yet whose cart it is), and an add to the cart waits for the answer (`ready()` in `useAddToCart`). StrictMode runs the effect twice in development; `restore()` returns the same promise the second time, so the cookie is sent once.
 
 ### Several tabs: one refresh at a time (Web Locks)
