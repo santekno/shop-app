@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError } from "@goshop/shared";
 import type { ApiClient } from "@goshop/shared";
 import {
   api,
@@ -422,13 +423,59 @@ describe("ensureFreshToken", () => {
     expect(manager.getAccessToken()).toBe("first");
   });
 
-  it("is null when the refresh ends the session", async () => {
+  // null would mean "a guest from the start" to the interceptor, which
+  // would then send the request without a token, as a guest's.
+  it.each([
+    ["no cookie any more (204, logged out in another tab)", noContentResponse],
+    [
+      "a refused cookie (401, revoked)",
+      () => errorResponse(401, "TOKEN_EXPIRED"),
+    ],
+  ])(
+    "rejects with 401 UNAUTHORIZED, ending the session, when the refresh finds %s",
+    async (_name, refreshAnswer) => {
+      const { manager, clock, answer, onEnd, onChange } = await loggedIn(900);
+      answer(refreshAnswer);
+      clock.now = 870_000;
+
+      const error = await manager.ensureFreshToken().catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(ApiError);
+      expect(error).toMatchObject({ status: 401, code: "UNAUTHORIZED" });
+      expect(onEnd).toHaveBeenCalledTimes(1);
+      expect(onChange).toHaveBeenLastCalledWith(null);
+      expect(manager.getSession()).toBeNull();
+      expect(paths()).toEqual(["/v1/auth/web/refresh"]);
+    },
+  );
+
+  it("rejects every request that waited for the same ending refresh", async () => {
     const { manager, clock, answer, onEnd } = await loggedIn(900);
-    answer(() => errorResponse(401, "TOKEN_EXPIRED"));
+    answer(noContentResponse);
     clock.now = 870_000;
 
-    await expect(manager.ensureFreshToken()).resolves.toBeNull();
+    const results = await Promise.allSettled([
+      manager.ensureFreshToken(),
+      manager.ensureFreshToken(),
+    ]);
+
+    expect(results.map((result) => result.status)).toEqual([
+      "rejected",
+      "rejected",
+    ]);
     expect(onEnd).toHaveBeenCalledTimes(1);
+    expect(paths()).toEqual(["/v1/auth/web/refresh"]);
+  });
+
+  it("is null, asking nothing, once the ended session is gone", async () => {
+    const { manager, clock, answer } = await loggedIn(900);
+    answer(noContentResponse);
+    clock.now = 870_000;
+    await manager.ensureFreshToken().catch(() => undefined);
+    fetchMock.mockClear();
+
+    await expect(manager.ensureFreshToken()).resolves.toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("never refreshes ahead a session whose expiry is unknown", async () => {

@@ -4,6 +4,7 @@ import {
   deferred,
   errorResponse,
   fetchMock,
+  noContentResponse,
   requestUrl,
   serve,
   user,
@@ -305,5 +306,80 @@ describe("createAuthClient with the session manager", () => {
     });
     expect(manager.getSession()).toBeNull();
     expect(onEnd).toHaveBeenCalledTimes(1);
+  });
+
+  describe("when the proactive refresh finds the session over", () => {
+    /**
+     * A buyer logged in at clock 0 with a 60 s token; the clock is then
+     * moved past the moment to replace it, so the next request refreshes
+     * first. `refreshAnswer` is what /web/refresh says then.
+     */
+    const expiredSession = async (refreshAnswer: () => Response) => {
+      const clock = { now: 0 };
+      let refreshed = false;
+      serve((url) => {
+        if (url.pathname === "/v1/auth/web/login") {
+          return webSessionResponse(user(), "first", 60);
+        }
+        if (url.pathname === "/v1/auth/web/refresh") {
+          refreshed = true;
+          return refreshAnswer();
+        }
+        // The API takes a request without a token as a guest's.
+        return Response.json({ data: "guest", cart_token: "orphan" });
+      });
+      const onEnd = vi.fn();
+      const manager = createSessionManager({
+        api,
+        onChange: () => undefined,
+        onEnd,
+        lock: (task) => task(),
+        now: () => clock.now,
+      });
+      await manager.login({ email: "b@example.com", password: "x" });
+      fetchMock.mockClear();
+      clock.now = 45_000;
+      return { manager, onEnd, wasRefreshed: () => refreshed };
+    };
+
+    const sentPaths = () =>
+      fetchMock.mock.calls.map(([input]) => requestUrl(input).pathname);
+
+    it.each([
+      ["no cookie any more (204)", noContentResponse],
+      ["a refused cookie (401)", () => errorResponse(401, "TOKEN_INVALID")],
+    ])(
+      "throws 401 UNAUTHORIZED and sends nothing as a guest after %s",
+      async (_name, refreshAnswer) => {
+        const { manager, onEnd, wasRefreshed } =
+          await expiredSession(refreshAnswer);
+        const client = createAuthClient(api, manager);
+
+        await expect(
+          client.request("/v1/cart/items", { method: "POST", body: {} }),
+        ).rejects.toMatchObject({ status: 401, code: "UNAUTHORIZED" });
+
+        expect(wasRefreshed()).toBe(true);
+        expect(sentPaths()).toEqual(["/v1/auth/web/refresh"]);
+        expect(manager.getSession()).toBeNull();
+        expect(onEnd).toHaveBeenCalledTimes(1);
+      },
+    );
+
+    it("still sends a guest's request when there never was a session", async () => {
+      serve(() => Response.json({ data: "guest" }));
+      const manager = createSessionManager({
+        api,
+        onChange: () => undefined,
+        initialSession: null,
+      });
+      const client = createAuthClient(api, manager);
+
+      await expect(client.request("/v1/cart")).resolves.toEqual({
+        data: "guest",
+      });
+      expect(sentPaths()).toEqual(["/v1/cart"]);
+      expect(bearers()).toEqual([null]);
+    });
   });
 });

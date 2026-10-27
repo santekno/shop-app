@@ -64,6 +64,14 @@ describe("cartErrorMessage", () => {
     expect(cartErrorMessage(apiError(code))).toBe(message);
   });
 
+  it("says the session ended for UNAUTHORIZED (a logged-in add)", () => {
+    expect(
+      cartErrorMessage(
+        new ApiError({ status: 401, code: "UNAUTHORIZED", message: "x" }),
+      ),
+    ).toBe("Sesi Anda sudah berakhir. Masuk lagi, lalu tambahkan barang ini.");
+  });
+
   it.each([
     ["another API error", apiError("INTERNAL_ERROR")],
     ["a plain Error", new Error("x")],
