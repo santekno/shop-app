@@ -74,6 +74,9 @@ func testConfig(env string) config.Config {
 		ShutdownTimeout: time.Second,
 		Auth: config.Auth{
 			JWTSecret: testSecret, AccessTokenTTL: 15 * time.Minute, RefreshTokenTTL: 720 * time.Hour,
+			// config.Load's default: tests that need the development-only
+			// insecure cookie turn it off themselves.
+			CookieSecure: true,
 		},
 	}
 }

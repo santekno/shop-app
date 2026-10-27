@@ -34,7 +34,9 @@ func TestApp_WebSessionWiring(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := testConfig(tt.env)
 			cfg.CORSAllowedOrigins = []string{shop}
-			cfg.Auth.CookieSecure = tt.secure
+			if !tt.secure {
+				cfg.Auth.CookieSecure = false // the secure case keeps testConfig's default
+			}
 			var logs bytes.Buffer
 			h := app.New(cfg, logx.New(logx.WithOutput(&logs), logx.WithFormat("json")),
 				(&fakeDB{}).open(t), testRedis(t)).Handler()
