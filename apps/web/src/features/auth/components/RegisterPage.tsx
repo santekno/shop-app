@@ -103,7 +103,7 @@ export function RegisterPage() {
           {...register("password")}
         />
         {/* Takes the focus when it appears: the disabled button lost it. */}
-        <FormAlert message={errors.root?.server?.message} />
+        <FormAlert error={errors.root?.server} />
         <button type="submit" disabled={registerMutation.isPending}>
           {registerMutation.isPending ? "Memproses…" : "Daftar"}
         </button>
