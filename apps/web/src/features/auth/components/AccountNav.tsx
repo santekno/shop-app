@@ -14,14 +14,14 @@ const AccountMenu = lazy(async () => ({
  * around each item.
  */
 export function AccountNav() {
-  const { session, setSession } = useSession();
+  const { session, status, setSession } = useSession();
   // Set by "Keluar". The menu that had the focus disappears with the
   // session, and the focus would fall back to <body>, the top of the
   // document. The "Masuk" link that takes its place takes the focus
   // instead, so a keyboard user stays where they were.
   const focusLoginLink = useRef(false);
 
-  if (session === null) {
+  if (status === "anonymous") {
     return (
       <>
         <li>
@@ -44,6 +44,8 @@ export function AccountNav() {
     );
   }
 
+  // Here status is "authenticated", so TypeScript knows session is a
+  // Session: the union in session-context.ts narrows it.
   return (
     <li>
       {/* Until the menu's code arrives, the name alone: the header keeps
