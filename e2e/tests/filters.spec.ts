@@ -1,8 +1,9 @@
 // The catalog's filters live in the URL (?kategori=, ?q=, ?urut=): choosing
 // one updates the address and reloads the list from the API with the
-// matching query, a reload or a shared link shows the same list, Back
-// returns to the previous filter, and a URL the API cannot serve falls
-// back cleanly instead of breaking the page.
+// matching query, keeping the focus on the control in use; a reload or a
+// shared link shows the same list, Back returns to the previous filter,
+// and a URL the API cannot serve falls back cleanly instead of breaking
+// the page.
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { watchBrowser } from "../support/browser.ts";
@@ -116,6 +117,9 @@ test("sort and search update the URL and the list, and survive a reload", async 
   await search.fill("kopi");
   await search.press("Enter");
   await expect(page).toHaveURL("/?q=kopi&urut=termurah");
+  // The search box is the control in use: it keeps the focus after Enter,
+  // the same element and not a new one (Tab continues from here).
+  await expect(search).toBeFocused();
   await expect(
     productSection(page).getByText("Hasil pencarian untuk “kopi”."),
   ).toBeVisible();
@@ -129,6 +133,14 @@ test("sort and search update the URL and the list, and survive a reload", async 
   await expect(productCards(page)).toHaveCount(kopi.length);
   expect(await firstPageNames(page)).toEqual(kopi.map((p) => p.name));
   await expect(sort).toHaveValue("price_asc");
+  await expect(search).toHaveValue("kopi");
+
+  // Back and Forward change q without a search: the box follows the URL.
+  await page.goBack();
+  await expect(page).toHaveURL("/?urut=termurah");
+  await expect(search).toHaveValue("");
+  await page.goForward();
+  await expect(page).toHaveURL("/?q=kopi&urut=termurah");
   await expect(search).toHaveValue("kopi");
   expectNoProblems(problems);
 });
