@@ -586,6 +586,7 @@ Paths are relative to `apps/web/src` unless they start with another top-level fo
 | 04 | Midtrans Snap in the frontend | `features/checkout/hooks/usePlaceOrder.ts` (the Idempotency-Key's lifetime, retries with the same key), `components/PlaceOrder.tsx`, `onPlace` and the placed state in `components/CheckoutPage.tsx`; `features/orders/hooks/usePayOrder.ts` (redirect flow, `isMidtransUrl`, the fake provider), `components/PayButton.tsx`, `components/PaymentPage.tsx`, `components/FakePaymentHint.tsx`, `components/PaymentReturnPage.tsx`, `payment-state.ts`, `payment-errors.ts`, `paths.ts`; the payment comment in `apps/web/Caddyfile`; `placeOrder`, `payOrder`, `getOrder` (`packages/shared/src/api/orders.ts`) |
 | 05 | Payment status page with polling | `features/orders/components/PaymentPage.tsx` (`refetchInterval` as a function, `staleTime: 0`, the round and "Periksa lagi"), `payment-polling.ts` (`POLL_DELAYS_MS`, `POLL_LIMIT_MS`, `pollDelay`), `components/PaymentStatus.tsx` (one live region), `order-status.ts` (`paymentOutcome`, `canStartPayment`, the status labels) |
 | 06 | Order history and detail | `features/orders/components/OrdersPage.tsx` (infinite query, "Muat lebih banyak", focus on the first new order, "Bayar" for an unpaid order), `OrderDetailPage.tsx` (the order's own snapshots, timeline, `PayButton`), `OrderStatusBadge.tsx`, `ordersQuery` in `api/queries.ts` (`staleTime: 0`), `orderStatusText` and `ORDER_STATUS_LABEL` in `order-status.ts`; "Pesanan saya" in `features/auth/components/AccountMenu.tsx`; the `muted` variant in `components/ui/Badge.tsx`; `listOrders` (`packages/shared/src/api/orders.ts`) |
+| 07 | Why an SPA is weak for SEO | the section below; `apps/web/scripts/seo-probe.js` (what a crawler without JavaScript reads) |
 
 ## The full cart page (artikel 01)
 
@@ -688,6 +689,48 @@ The order's `status` still decides: `latest_payment` is read just after the orde
 - **An unpaid order** has "Bayar" in the list (a link to its payment page, named "Bayar pesanan GS-…" for a screen reader) and, on its page, "Bayar sekarang" (the same `PayButton`, while more than two minutes are left) and "Lihat status pembayaran".
 - **`/pesanan/:id`** shows the order's own copy made at checkout (ADR 0006): product and variant names, unit prices, the voucher code, the shipping address, the courier and service, the airway bill once shipped, the totals, and the moments that happened (created, paid, shipped, completed, cancelled). It never looks the products up again: a product renamed or repriced since does not change a past order. Another buyer's order, or an id that is not a UUID, is the API's `404`, shown as "Pesanan ini tidak ditemukan".
 - **Reached from** "Pesanan saya" in the account menu, the order code on the payment page, the Midtrans return page when it cannot tell which order it was, and checkout's `TOO_MANY_PENDING_ORDERS` message. A logout removes every `["orders", …]` query.
+
+## Why a single-page app is weak for SEO (artikel 07)
+
+Until artikel 08 the storefront is the Vite single-page app of Bab 7–10. Its server (Caddy, or `vite preview`) sends **the same `index.html` for every path**: an empty `<div id="root">`, one script and one stylesheet. Everything a buyer reads is drawn later in the browser by JavaScript that asks the API. A buyer does not notice; a crawler does.
+
+### What a crawler gets, measured
+
+`apps/web/scripts/seo-probe.js` fetches one URL the way a search engine's first pass does (Googlebot's user agent, no JavaScript) and reports what the HTML carries. Against the SPA (built with `VITE_API_URL` pointing at the seeded API, served by `vite preview`):
+
+```text
+$ node apps/web/scripts/seo-probe.js http://localhost:34173/produk/kaos-polos-hitam
+status                 200
+HTML (bytes)           1425
+title                  GoShop
+description            GoShop: toko online contoh dari kursus Fullstack Santekno.
+canonical              —
+og:title               —
+og:image               —
+h1                     —
+links (<a href>)       0
+images (<img>)         0
+JSON-LD                —
+visible text (chars)   6
+visible text (start)   GoShop
+```
+
+The catalog (`/`) answers the same 1 425 bytes, and so does `/produk/tidak-ada`, **with status 200**. A headless Chromium with JavaScript disabled finds no `<h1>` on either page. With JavaScript, on a phone profile (412×823, 4× CPU slowdown, 150 ms latency, 1.6 Mbit/s; median of 5 runs, Playwright), the product's `<h1>` appears after about 2.0 s and the largest paint is at 1.6 s, after 12 requests: HTML, then the bundle, then the API.
+
+| What the HTML lacks | What it costs |
+|---|---|
+| A title and description per page | every result in a search engine reads "GoShop" with the same sentence; the per-page `document.title` (`useDocumentTitle`) exists only after JavaScript ran |
+| Content | Googlebot renders JavaScript, but in a second wave, queued after the crawl, on a budget; the API call must succeed from Google's renderer within its time limits. Bing, DuckDuckGo's crawler and most others render less or not at all |
+| Links | a crawler discovers pages by following `<a href>`; with 0 links in the HTML, the products are found only after rendering, or through a sitemap (artikel 11) |
+| A real 404 | a missing product answers 200 with an error drawn by JavaScript: a "soft 404" that Google may index as a page, and that wastes crawl budget |
+| Open Graph tags | WhatsApp, Facebook, X, Telegram and Slack never run JavaScript: a shared product link shows no name, no price and no photo |
+| Fast first content | the LCP waits for the HTML, the JavaScript bundle, its parse and run, and an API round trip, one after another |
+
+### What stays a client-rendered page
+
+Only public pages need to be found: the catalog and the product pages. The cart, checkout, payment, orders and account pages are behind a login or private to one browser, must never be indexed, and depend on the buyer's session, which lives in the browser (the access token in memory, the refresh cookie on the API's path, Bab 10). They keep rendering in the browser after the move; they get `noindex` (artikel 10) instead of server rendering.
+
+So the move to Next.js (artikel 08) is about **where the first HTML is made** for public pages, not about rewriting the shop: the same components render on the server for the catalog and the products, and in the browser for everything personal.
 
 ## Bab 11, articles 01–06: what changed in the storefront
 
