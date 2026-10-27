@@ -584,6 +584,7 @@ Paths are relative to `apps/web/src` unless they start with another top-level fo
 | 02 | Address form and courier choice | `features/checkout/components/CheckoutPage.tsx` (page state, derived choices, `RequireAuth` route), `AddressStep.tsx` (radio group in a `<fieldset>`, focus after save or cancel), `AddressForm.tsx` (React Hook Form + `addressSchema`, `autoComplete` tokens, API field errors), `CourierStep.tsx` (quotes, `SHIPPING_UNAVAILABLE` vs `UPSTREAM_UNAVAILABLE`), `shipping.ts` (`chosenAddressId`, `validShippingChoice`, `formatEtd`), `api/queries.ts` (`checkoutKeys`), `hooks/useCreateAddress.ts`, `checkout-errors.ts`; the "Lanjut ke checkout" button in `features/cart/components/CartPage.tsx`; `listAddresses`, `createAddress` (`packages/shared/src/api/addresses.ts`), `getShippingQuotes` (`api/checkout.ts`), `addressSchema` (`schemas/address.ts`) |
 | 03 | Order summary and voucher | `features/checkout/components/SummaryStep.tsx` (each preview error's answer), `OrderSummary.tsx` (the API's `totals`, no arithmetic, `aria-busy` while a new preview loads), `CheckoutProblemList.tsx`, `VoucherForm.tsx` (apply through a preview, the cache seeded, focus after apply and remove), `previewQuery` and `cartSignature` in `api/queries.ts` (`keepPreviousData`), `voucherErrorMessage` in `checkout-errors.ts`; `previewCheckout` and `checkoutProblems` (`packages/shared/src/api/checkout.ts`), `voucherSchema` (`schemas/voucher.ts`) |
 | 04 | Midtrans Snap in the frontend | `features/checkout/hooks/usePlaceOrder.ts` (the Idempotency-Key's lifetime, retries with the same key), `components/PlaceOrder.tsx`, `onPlace` and the placed state in `components/CheckoutPage.tsx`; `features/orders/hooks/usePayOrder.ts` (redirect flow, `isMidtransUrl`, the fake provider), `components/PayButton.tsx`, `components/PaymentPage.tsx`, `components/FakePaymentHint.tsx`, `components/PaymentReturnPage.tsx`, `payment-state.ts`, `payment-errors.ts`, `paths.ts`; the payment comment in `apps/web/Caddyfile`; `placeOrder`, `payOrder`, `getOrder` (`packages/shared/src/api/orders.ts`) |
+| 05 | Payment status page with polling | `features/orders/components/PaymentPage.tsx` (`refetchInterval` as a function, `staleTime: 0`, the round and "Periksa lagi"), `payment-polling.ts` (`POLL_DELAYS_MS`, `POLL_LIMIT_MS`, `pollDelay`), `components/PaymentStatus.tsx` (one live region), `order-status.ts` (`paymentOutcome`, `canStartPayment`, the status labels) |
 
 ## The full cart page (artikel 01)
 
@@ -642,3 +643,27 @@ Local development and the e2e stack run the API with the fake gateway (Bab 6, `m
 - **Dropped after success**: the next order is another attempt.
 - **Not kept across a reload.** After an order went through, its lines have left the cart in the same transaction, so a reload with a new key finds `CART_EMPTY`, never a second order. The server's cart is the second guard (ADR 0006); the key covers everything the page retries by itself.
 - The request may take 20 s (`placeOrder`'s `timeoutMs`), longer than the API's own 15 s: a checkout calls the courier and runs a transaction. Giving up earlier would still be safe, only slower.
+
+## The payment status page (artikel 05)
+
+`/pesanan/:id/pembayaran` shows what the API has decided about the order, by asking `GET /v1/orders/{id}` again while the order waits for its payment. The order moves only when the webhook (Midtrans' signed notification, confirmed by its status API) or the reconciler applies Midtrans' answer (ADR 0007); the page follows, it never decides.
+
+| Order | Payment outcome (`paymentOutcome`) | The page says | Polling |
+|---|---|---|---|
+| `pending_payment` | `pending` | "Menunggu pembayaran", the deadline, "Lanjutkan pembayaran" while more than two minutes are left | yes |
+| `pending_payment` past `payment_expires_at` | `pending` | "Batas waktu pembayaran sudah lewat. Menunggu konfirmasi akhir…" (the expiry job has not run yet) | yes |
+| `paid`, `processing`, `shipped`, `completed` | `paid` | "Pembayaran diterima", with `paid_at` | stops |
+| `cancelled` with `payment_expired` | `expired` | "Waktu pembayaran habis", stock returned | stops |
+| `cancelled`, another reason | `cancelled` | "Pesanan ini dibatalkan" | stops |
+
+**The polling policy** (`payment-polling.ts`):
+
+- **Backoff:** 2 s, 2 s, 3 s, 5 s, 8 s, 13 s, 21 s, then every 30 s. Often at first, when a buyer back from Midtrans has usually just paid and the webhook lands within seconds; rarely later, because a virtual account can stay unpaid for hours and an open tab must not ask every 2 seconds all that time. Measured in the browser: requests at 0.5, 2.5, 4.5, 7.6 and 12.6 s.
+- **Visibility:** TanStack Query does not run `refetchInterval` in a hidden tab (`refetchIntervalInBackground` stays `false`), and refetches a stale query when the tab is shown again. The query has `staleTime: 0`, so showing the tab asks at once. Measured: no request in 10 s hidden, one immediately on showing it.
+- **Final states stop it:** `refetchInterval` is a function of the query that returns `false` once the outcome is not `pending`. Measured: no request in the 8 s after "Pembayaran diterima".
+- **A limit:** a round lasts 15 minutes (`POLL_LIMIT_MS`, measured between the round's start and the last answer, so the render never reads the clock); then the page says "Pemeriksaan otomatis berhenti" and offers "Periksa lagi", which starts a new round.
+- **Polling, not a push channel:** an order is paid once and the answer arrives within seconds of the webhook; a handful of GETs costs less than an SSE or WebSocket endpoint held open by every buyer on this page.
+
+**Announced once.** The outcome sentence is the only text in a `role="status"` region that is always rendered: a poll that brings the same answer renders the same text and nothing is read out; the change to "Pembayaran diterima" is. "Terakhir diperiksa 16.36.20", which changes at every poll, sits outside it.
+
+**What the buyer cannot see yet:** a payment Midtrans **denied** (or that failed or was cancelled at Midtrans) leaves the order `pending_payment` (ADR 0007: the buyer may pay again until the deadline), and the order response has no payment field, so this page cannot say "Pembayaran ditolak". It keeps saying "Menunggu pembayaran" and offers "Lanjutkan pembayaran", which creates a new payment. The API change that would let it say so is requested in the Bab 11 frontend report (a `payment` summary on the order).
