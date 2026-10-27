@@ -358,12 +358,19 @@ Inside one tab, a refresh already on its way is shared (`refresh()` keeps the pr
 - **`RequireAuth`** (`features/auth/components/RequireAuth.tsx`) is a layout route without a path around every page that needs a login, the same shape as `AuthLayout`. While the session is `"restoring"` it shows "Memeriksa sesi Anda…" and decides nothing: deciding then would send a logged-in buyer who reloads `/akun` to the login form. `"anonymous"` renders `<Navigate to="/masuk?kembali=…" replace />` with the full path, query and hash asked for; `replace`, so Back from the login form does not land on `/akun` and redirect again. `"authenticated"` renders the page.
 - **It is not the security.** The API refuses every protected request without a valid token. The redirect only spares the buyer a page of 401s; never put anything in the bundle that a guest must not see.
 - **The way back: `?kembali=`**, read by `LoginPage`, which renders `<Navigate to={returnTo} replace />` as soon as the session is there (after a login, or when a logged-in buyer opens `/masuk`). A query parameter rather than router state: it survives a reload of the login page and is visible in the address bar.
-- **No open redirect** (`features/auth/return-to.ts`, `safeReturnPath`). Anyone can send a buyer a link to `/masuk?kembali=…`; followed blindly, a real login on the real shop would end on `https://evil.example/masuk`, dressed as the shop, asking for the password "again". Only a path on our own origin passes: it must start with exactly one `/` (`//evil.example` and `/\evil.example` are other hosts to a browser), it is parsed with `new URL(value, location.origin)` (the parser the browser itself uses, which drops tabs and newlines and turns `\` into `/`) and must still have our origin, and only the parsed `pathname + search + hash` is used, never the original string. `/masuk` and `/daftar` become `/` (a loop), and so does anything over 2 048 characters. Checked in the browser:
+- **No open redirect** (`features/auth/return-to.ts`, `safeReturnPath`). Anyone can send a buyer a link to `/masuk?kembali=…`; followed blindly, a real login on the real shop would end on `https://evil.example/masuk`, dressed as the shop, asking for the password "again". Only a path on our own origin passes, checked in this order:
+  1. **The input** must start with exactly one `/` (`//evil.example` and `/\evil.example` are other hosts to a browser). This is a fast path, not the guard.
+  2. **The parsed URL** (`new URL(value, location.origin)`, the parser the browser itself uses, which drops tabs and newlines and turns `\` into `/`) must still have our origin.
+  3. **The parsed path** must still start with exactly one `/`. Parsing normalises the path: it removes dot segments (`/./`, `/x/../`, and the encoded `%2e`) and turns `\` into `/`, so `/.//evil.example` becomes a URL on our origin whose path is `//evil.example`. It passes step 2, and as a string it is a protocol-relative link to another host again. Only a check on the output sees that; a check on the input cannot.
+  4. **Only the parsed `pathname + search + hash`** is used, never the original string, so what is navigated to is exactly what steps 2 and 3 checked.
+
+  `/masuk` and `/daftar` become `/` (a loop), and so does anything over 2 048 characters. Checked in the browser:
 
   | `kembali` | Goes to |
   |---|---|
   | `/akun`, `/produk/kaos?x=1#a` | itself |
   | `//evil.example/x`, `/\evil.example`, `/<tab>/evil.example`, `https://evil.example`, `javascript:alert(1)`, `akun`, empty | `/` |
+  | `/.//evil.example`, `/x/..//evil.example/masuk`, `/%2e//evil.example`, `/./\evil.example` (each normalises to the path `//evil.example…`) | `/` |
   | `/masuk?kembali=/akun` | `/` |
   | `/%2F%2Fevil.example` | itself: an encoded slash is part of a path on our site (the 404 page), not a host |
 
