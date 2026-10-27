@@ -36,7 +36,9 @@ const readTree = (section: Locator): Promise<NamedNode[]> =>
             children: sublist ? walk(sublist) : [],
           };
         });
-    const top = element.querySelector(":scope > ul.category-tree");
+    // The first tree in document order is the top level; since Bab 10 it
+    // sits inside the block the phone toggle folds (CategorySection).
+    const top = element.querySelector("ul.category-tree");
     return top ? walk(top) : [];
   });
 
@@ -91,20 +93,26 @@ test("loads each endpoint with one request and no retries", async ({
   // No automatic loading: the sentinel could otherwise fetch page 2 as
   // soon as it is near the viewport.
   await disableAutoLoad(page);
+  const refresh = page.waitForResponse(
+    `${BROWSER_API_URL}/v1/auth/web/refresh`,
+  );
   await page.goto("/");
   await expect(
     page.getByRole("region", { name: "Kategori" }).getByRole("list").first(),
   ).toBeVisible();
   await expect(productCards(page)).toHaveCount(PAGE_SIZE);
+  expect((await refresh).status()).toBe(204);
   await expect(
     productSection(page).getByRole("button", { name: "Muat lebih banyak" }),
   ).toBeEnabled();
 
-  // One GET per endpoint: the production build runs each effect once
+  // One request per endpoint: the production build runs each effect once
   // (StrictMode doubles them in dev only), a successful answer is never
   // retried, and the catalog asks for one page of PAGE_SIZE in the
-  // default order.
+  // default order. Since Bab 10 every page load also asks once whether
+  // the browser holds a session (204 for a visitor who is not logged in).
   expect(Object.fromEntries(calls)).toEqual({
+    "/v1/auth/web/refresh": ["POST /v1/auth/web/refresh"],
     "/v1/categories": ["GET /v1/categories"],
     "/v1/products": [`GET /v1/products?${FIRST_PAGE_QUERY}`],
   });
