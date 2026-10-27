@@ -786,6 +786,159 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /v1/auth/web/login:
+    post:
+      tags: [Auth]
+      operationId: webLogin
+      summary: Log in from the web storefront (refresh token in a cookie)
+      description: |
+        Rate limited: 20 per 15 minutes per client IP and 5 per 15 minutes per email (429 `RATE_LIMITED`), the same counters as `/v1/auth/login`.
+
+        The browser's login (Bab 10, ADR 0008). Exactly `/v1/auth/login`,
+        except that the refresh token is set in the `goshop_refresh`
+        cookie (`HttpOnly`, `Secure`, `SameSite=Strict`,
+        `Path=/v1/auth/web`, `Max-Age` = the token's remaining lifetime)
+        and never appears in the body. Keep the access token in memory
+        only. A `goshop_refresh` cookie sent with the request is ignored;
+        the new one replaces it.
+
+        Call it with `credentials: "include"` and the header
+        `X-GoShop-Client: web`. The web session needs the storefront and
+        the API on one site (one registrable domain): see
+        `docs/configuration.md`.
+      parameters:
+        - $ref: "#/components/parameters/GoShopClientHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+            example:
+              email: budi@example.com
+              password: kopi-susu-gula-aren
+      responses:
+        "200":
+          description: Logged in. The refresh token is in the cookie.
+          headers:
+            Set-Cookie:
+              $ref: "#/components/headers/SetRefreshCookie"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebSessionDetail"
+        "400":
+          $ref: "#/components/responses/BadAuthRequest"
+        "401":
+          $ref: "#/components/responses/InvalidCredentials"
+        "403":
+          $ref: "#/components/responses/WebClientRejected"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/auth/web/refresh:
+    post:
+      tags: [Auth]
+      operationId: webRefresh
+      summary: Rotate the web session's refresh cookie
+      description: |
+        Rate limited: 60 per 15 minutes per client IP (429 `RATE_LIMITED`), the same counter as `/v1/auth/refresh`, counted only when a cookie is sent.
+
+        Takes no body. Without a `goshop_refresh` cookie (or with an empty
+        one) it answers 204 and does nothing: the normal answer for a
+        visitor who is not logged in, which the storefront asks at every
+        start-up. With one, it rotates the token exactly as
+        `/v1/auth/refresh` does (a reused token revokes the whole session)
+        and sets the new token in the cookie. Every 401 also clears the
+        cookie; 429 and 500 leave it alone, because the token may still be
+        good. A request that carries several `goshop_refresh` cookies (one
+        planted by a sibling domain) is refused with 401 `TOKEN_INVALID`
+        and the API's cookie is cleared.
+
+        Clients must not refresh in parallel, across tabs too: the
+        storefront serialises refreshes with the Web Locks API.
+      parameters:
+        - $ref: "#/components/parameters/GoShopClientHeader"
+      security:
+        - refreshCookie: []
+        - {}
+      responses:
+        "200":
+          description: Rotated. The new refresh token is in the cookie.
+          headers:
+            Set-Cookie:
+              $ref: "#/components/headers/SetRefreshCookie"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebSessionDetail"
+        "204":
+          description: No cookie was sent; there is no session to restore.
+        "401":
+          description: |
+            The cookie's token is malformed, unknown, revoked, already used
+            (`TOKEN_INVALID`; a reused token also revokes its session) or
+            expired (`TOKEN_EXPIRED`), or its account no longer exists
+            (`UNAUTHORIZED`). The cookie is cleared; the user logs in again.
+          headers:
+            Set-Cookie:
+              $ref: "#/components/headers/ClearRefreshCookie"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                invalid:
+                  summary: Unknown, revoked or reused
+                  value:
+                    error:
+                      code: TOKEN_INVALID
+                      message: the token is invalid or has been revoked; log in again
+                expired:
+                  summary: Expired
+                  value:
+                    error:
+                      code: TOKEN_EXPIRED
+                      message: the token has expired; log in again
+        "403":
+          $ref: "#/components/responses/WebClientRejected"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/auth/web/logout:
+    post:
+      tags: [Auth]
+      operationId: webLogout
+      summary: End the web session and clear its cookie
+      description: |
+        Not rate limited, like `/v1/auth/logout`.
+
+        Takes no body. When the request carries a `goshop_refresh` cookie,
+        revokes its session exactly as `/v1/auth/logout` does (the refresh
+        token and every access token of the session stop working). Then
+        clears the cookie. Answers 204 whether or not a cookie was sent or
+        still valid. No access token is needed. When revoking fails (500)
+        the cookie is kept, so the client can retry.
+      parameters:
+        - $ref: "#/components/parameters/GoShopClientHeader"
+      security:
+        - refreshCookie: []
+        - {}
+      responses:
+        "204":
+          description: The session is over and the cookie is cleared.
+          headers:
+            Set-Cookie:
+              $ref: "#/components/headers/ClearRefreshCookie"
+        "403":
+          $ref: "#/components/responses/WebClientRejected"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /v1/me:
     get:
       tags: [Me]
@@ -1944,9 +2097,49 @@ components:
         The `access_token` from `/v1/auth/login`, `/v1/auth/google` or
         `/v1/auth/refresh`, as `Authorization: Bearer <token>`. It lives 15
         minutes by default (ADR 0005); refresh it before or after it
-        expires.
+        expires. The web storefront gets it from `/v1/auth/web/login` or
+        `/v1/auth/web/refresh` (ADR 0008).
+    refreshCookie:
+      type: apiKey
+      in: cookie
+      name: goshop_refresh
+      description: |
+        The web session's refresh token (Bab 10, ADR 0008), set by
+        `/v1/auth/web/login` and `/v1/auth/web/refresh`:
+        `goshop_refresh=<id>.<secret>; Path=/v1/auth/web; Max-Age=<seconds
+        until the token expires>; HttpOnly; Secure; SameSite=Strict`, no
+        `Domain`. Page scripts cannot read it; the browser sends it to
+        `/v1/auth/web/*` only. `Secure` is left off only when the API runs
+        with `APP_AUTH_COOKIE_SECURE=false`, which development alone
+        accepts.
+
+  headers:
+    SetRefreshCookie:
+      description: The session's new refresh token in the `goshop_refresh` cookie.
+      schema:
+        type: string
+      example: goshop_refresh=0192f5d4-7c1e-7a8b-9c3d-4e5f6a7b8c9d.q8XbS0pV2lYc7mWfN3rT5uJhK9dGzA1eR6tB4yOiPxw; Path=/v1/auth/web; Max-Age=2592000; HttpOnly; Secure; SameSite=Strict
+    ClearRefreshCookie:
+      description: Deletes the `goshop_refresh` cookie (same name, path and attributes, empty value, `Max-Age=0`).
+      schema:
+        type: string
+      example: goshop_refresh=; Path=/v1/auth/web; Max-Age=0; HttpOnly; Secure; SameSite=Strict
 
   parameters:
+    GoShopClientHeader:
+      name: X-GoShop-Client
+      in: header
+      required: true
+      description: |
+        Must be exactly `web`. A page on another origin cannot add a custom
+        header without a CORS preflight, which the API answers only for the
+        origins in `APP_CORS_ALLOWED_ORIGINS`; together with
+        `SameSite=Strict` and the `Origin` check this keeps other sites,
+        sibling subdomains included, from using the cookie (CSRF). Missing
+        or wrong: 403 `FORBIDDEN` with `details.reason` `client_header`.
+      schema:
+        type: string
+        const: web
     ProductID:
       name: id
       in: path
@@ -2538,7 +2731,7 @@ components:
           description: Seconds until the access token expires.
         refresh_token:
           type: string
-          description: Opaque; send it to `/v1/auth/refresh` and `/v1/auth/logout`. Keep it in the platform's secure store (mobile); never in `localStorage`. Shown once, stored by the API only as a hash.
+          description: Opaque; send it to `/v1/auth/refresh` and `/v1/auth/logout`. Keep it in the platform's secure store (mobile); never in `localStorage`. Shown once, stored by the API only as a hash. Web clients never see it; `/v1/auth/web/login` and `/v1/auth/web/refresh` put it in the `goshop_refresh` cookie instead.
         refresh_expires_in:
           type: integer
           minimum: 0
@@ -2554,6 +2747,33 @@ components:
       properties:
         data:
           $ref: "#/components/schemas/TokenPair"
+
+    WebSession:
+      type: object
+      description: A web session (ADR 0008) and the account it belongs to. The refresh token is in the `goshop_refresh` cookie, never in the body.
+      required: [access_token, token_type, expires_in, user]
+      additionalProperties: false
+      properties:
+        access_token:
+          type: string
+          description: "A JWT. Send it as `Authorization: Bearer <access_token>`. Keep it in memory only, never in `localStorage`. Clients must not rely on its claims; they may change."
+        token_type:
+          type: string
+          const: Bearer
+        expires_in:
+          type: integer
+          minimum: 0
+          description: Seconds until the access token expires.
+        user:
+          $ref: "#/components/schemas/User"
+
+    WebSessionDetail:
+      type: object
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          $ref: "#/components/schemas/WebSession"
 
     RefreshRequest:
       type: object
@@ -3661,6 +3881,35 @@ components:
             error:
               code: FORBIDDEN
               message: your role is not allowed to do this
+
+    WebClientRejected:
+      description: |
+        Not a request from the web storefront: the `X-GoShop-Client: web`
+        header is missing or wrong (`details.reason` `client_header`), or
+        the `Origin` header names an origin that is not in
+        `APP_CORS_ALLOWED_ORIGINS` (`details.reason` `origin`). Nothing is
+        counted against a rate limit and no cookie is set or cleared.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            clientHeader:
+              summary: Missing or wrong X-GoShop-Client
+              value:
+                error:
+                  code: FORBIDDEN
+                  message: "this endpoint needs the X-GoShop-Client: web header"
+                  details:
+                    reason: client_header
+            origin:
+              summary: An origin that is not configured
+              value:
+                error:
+                  code: FORBIDDEN
+                  message: this origin may not use the web session
+                  details:
+                    reason: origin
 
     BadEmailToken:
       description: The body is invalid (`VALIDATION_FAILED`; a new password that breaks the policy is reported under `password`), or the token from the email cannot be used. `TOKEN_INVALID` means it is malformed, unknown, already used, replaced by a newer email, or its account was deleted; `TOKEN_EXPIRED` means it is too old. Ask for a new email either way.

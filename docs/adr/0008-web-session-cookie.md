@@ -1,0 +1,81 @@
+# 0008. Give the browser its refresh token in an httpOnly cookie on dedicated web endpoints
+
+- Status: Accepted
+- Date: 2026-10-27
+- Chapter: Bab 10
+
+## Context
+
+[ADR 0005](0005-auth-tokens.md) decided where a browser keeps its tokens (access token in memory, refresh token in an `HttpOnly; Secure; SameSite=Strict` cookie scoped to the auth path) and deferred the cookie until a web client existed. The storefront (`apps/web`) now exists: without the cookie a reload logs the buyer out, and the only alternative, `localStorage`, is readable by any injected script.
+
+The storefront asked for the endpoints in [`docs/web/bab-10-auth-cookie-contract.md`](../web/bab-10-auth-cookie-contract.md). This ADR records what the API built from that request, why, and the places where it differs from it.
+
+Forces:
+
+- The mobile app keeps sending the refresh token in the JSON body (ADR 0005); its endpoints must not change.
+- A cookie the browser attaches by itself opens CSRF, which the JSON endpoints never had: any page can make the browser send a `POST` with the cookie unless something stops it.
+- `SameSite` works per **site** (scheme plus registrable domain), not per origin. Sibling subdomains are the same site.
+- santekno/sdk v0.2.0 has no cookie, CSRF or CORS helper (`docs/sdk-gaps.md`); `net/http` and `go-chi/cors` cover them.
+
+## Decision
+
+We will serve the browser's session from **three new endpoints under `/v1/auth/web/`** that call the existing `Service.Login`, `Service.Refresh` and `Service.Logout` unchanged, and move the refresh token between the API and the browser only in an **httpOnly cookie**, with **three CSRF layers** in front of them.
+
+### Endpoints
+
+| Endpoint | Behaviour |
+|---|---|
+| `POST /v1/auth/web/login` | `Handler.Login` (same body, validation, rate limits and their Redis keys), then `200 {"data": WebSession}` and the cookie. The body never holds the refresh token. |
+| `POST /v1/auth/web/refresh` | No cookie, or an empty one: `204`, no rate-limit count, no database work. Otherwise counted under the refresh limit, `Service.Refresh(cookie)` (rotation, reuse detection, `FOR UPDATE`), `200` and the rotated cookie. Every `401` clears the cookie; `429` and `500` keep it. |
+| `POST /v1/auth/web/logout` | `Service.Logout(cookie)` when there is one, then clear the cookie; `204`. A `500` keeps the cookie so the client can retry. |
+
+Code: `apps/api/internal/auth/web.go`.
+
+### The cookie
+
+`goshop_refresh=<id>.<secret>; Path=/v1/auth/web; Max-Age=<seconds until the token's expires_at>; HttpOnly; Secure; SameSite=Strict`, no `Domain` (host-only). Cleared with the same name, path and attributes, an empty value and `Max-Age=0`. `Max-Age` is computed from the token the service just issued and is at least 1 (Go writes no `Max-Age` for 0, which would turn it into a session cookie).
+
+No `__Host-` prefix: it requires `Path=/`, which would send the refresh token with every API request. No `__Secure-` prefix: it requires `Secure` everywhere, which conflicts with the development switch.
+
+**`APP_AUTH_COOKIE_SECURE`** (default `true`) can be `false` only with `APP_ENV=development`; the config loader refuses it elsewhere, naming the variable. Chromium and Firefox store a `Secure` cookie from `http://localhost`, so `make up` and the e2e suite run with the production setting; the switch is for a browser that is not in a secure context (a phone on the LAN over plain HTTP). The API logs a warning at start when it is off.
+
+### CSRF and CORS
+
+1. **`SameSite=Strict`**: the browser does not attach the cookie to a request another *site* starts.
+2. **`X-GoShop-Client: web`**, exactly one header with exactly that value, required on all three endpoints. A page cannot add a custom header to a cross-origin request without a CORS preflight, and the preflight succeeds only for configured origins. This also stops a *same-site, different-origin* page (a compromised `blog.example.com` next to `shop.example.com`) and a "simple" `text/plain` form `POST` aimed at the login endpoint (login CSRF).
+3. **`Origin`**: when the request carries one, it must be in `APP_CORS_ALLOWED_ORIGINS` (compared case-insensitively, as go-chi/cors does). A request without `Origin` (curl, a server) is not refused for that alone; it carries no cookie a browser attached.
+
+A request that fails 2 or 3 gets `403 FORBIDDEN` with `details.reason` `client_header` or `origin`, before any rate-limit count, token work or `Set-Cookie`. The check is a middleware on the three routes only (`Handler.requireWebClient`), so an unknown path under `/v1/auth/web/` is still `404`.
+
+**CORS** (`internal/httpserver/router.go`): requests whose path starts with `/v1/auth/web/` get their own `cors.Options` with `AllowCredentials: true`, methods `POST`, headers `Accept`, `Content-Type`, `X-Request-ID`, `X-GoShop-Client`, exposed `X-Request-ID`, `Retry-After`; every other path keeps the Bab 2 options, without credentials. Both use the same origin list and the same deny-all rule for an empty list; `*` stays refused by the config loader, and go-chi/cors echoes the origin when credentials are allowed.
+
+### Deployment: one site
+
+`SameSite=Strict` cookies reach the API only when the storefront and the API are the **same site**. `http://localhost:5173` → `http://localhost:8080` is (ports do not count); `https://shop.example.com` → `https://api.example.com` is. Railway's generated `*.up.railway.app` hosts are on the Public Suffix List, so two of them are **different sites** and the cookie is never sent (most browsers also block it as a third-party cookie). A deployment that uses the web session needs **custom domains for the web and the API under one registrable domain** (`docs/configuration.md`); the full deploy is Bab 19.
+
+### Deviations from the storefront's request
+
+- **Several `goshop_refresh` cookies are refused.** The API only ever sets one host-only cookie, so a second one in the same request was planted by someone else: a sibling subdomain can set `Domain=example.com; Path=/v1/auth/web` (cookie tossing), and the browser may list that cookie first. Using it would log the victim into the attacker's session, a login CSRF that neither SameSite nor the header stops. `/web/refresh` therefore answers `401 TOKEN_INVALID` (after the rate-limit count), clears the API's own cookie and logs a warning; `/web/logout` revokes every presented token (at most 4) and clears the cookie. The request did not cover this case.
+- **Order of checks on web login.** The request says "client header and `Origin`, then the rate limit, then the body", and also "exactly `Handler.Login`". Both hold: the header and `Origin` come first, then, as in `Handler.Login`, the body is decoded (the per-email limit needs the email), counted, and validated. A body that is not JSON is answered `400` without a count, as on `/v1/auth/login`.
+- **Exactly one `X-GoShop-Client` value.** Two headers, even if one is `web`, are refused (`client_header`), and so are several `Origin` headers (`origin`).
+
+### Reuse detection and tabs
+
+No grace window is added. The storefront serialises refreshes across tabs with the Web Locks API, so ADR 0005's "one refresh in flight" still holds for a browser.
+
+## Alternatives considered
+
+- **Read the cookie on the existing `/v1/auth/refresh`** — one endpoint, two transports. Rejected: the JSON endpoints would gain a CSRF surface the mobile app does not need, and the cookie's `Path` could no longer keep it away from them.
+- **A double-submit CSRF token** — a second, readable cookie echoed in a header. Rejected: with `SameSite=Strict`, a required custom header and the `Origin` check it adds a moving part without closing a gap those leave.
+- **`Path=/` with the `__Host-` prefix** — the prefix stops cookie tossing, but the refresh token would then travel with every API request (catalog, cart, every log line's request). The narrow path is worth more; tossing is handled by refusing duplicates.
+- **`SameSite=Lax`** — would also send the cookie on top-level navigations from other sites. Nothing needs that: the refresh is a `fetch` the storefront page makes, which is a same-site request.
+- **The refresh token in `localStorage`** — readable by any script that runs on the page. Forbidden by ADR 0005.
+
+## Consequences
+
+- A browser keeps its session across reloads, and an XSS in the storefront can use the session while the page is open but cannot steal the refresh token.
+- One store and one service: rotation, reuse detection, the row and user locks, the Redis revocation marker, password-reset and account-deletion revocation apply to web sessions without new code. No migration.
+- A deployment must put the storefront and the API on one registrable domain; Railway's default domains do not work for the web session.
+- Anyone who controls a sibling subdomain can lock web users out (a planted duplicate cookie makes every refresh fail until it expires). They cannot take over a session. Keep untrusted content off sibling subdomains of the shop.
+- Many buyers behind one NAT share the refresh limit (60 per 15 minutes per IP), now spent once per page load. If that bites, a per-session limit is the better key.
+- `POST /v1/auth/web/google` is not built; when the storefront gets a Google button it follows the web login's pattern.
