@@ -79,7 +79,7 @@ No grace window is added. The storefront serialises refreshes across tabs with t
 - One store and one service: rotation, reuse detection, the row and user locks, the Redis revocation marker, password-reset and account-deletion revocation apply to web sessions without new code. No migration.
 - A deployment must put the storefront and the API on one registrable domain; Railway's default domains do not work for the web session.
 - Anyone who controls a sibling subdomain of the shop can, by planting a `goshop_refresh` cookie on the parent domain:
-  - log a logged-in buyer out, then into the attacker's account: the planted cookie plus the buyer's own make the next refresh fail, and that 401 clears only the buyer's host-only cookie, ending the session. From the next page load the planted cookie is sent alone, and the case below applies;
+  - log a logged-in buyer out, then into the attacker's account: the planted cookie plus the buyer's own make the next refresh fail, and that 401 clears only the buyer's host-only cookie, ending the session. A login right after it sets a new host-only cookie beside the planted one, so the next refresh is refused the same way and logs the buyer out again. Only a page load while logged out sends the planted cookie alone, and then the case below applies;
   - silently log a visitor **without** a session of their own into the attacker's account (login CSRF): the visitor sends one cookie, which is accepted. What the visitor then saves goes to the attacker. Refusing duplicates does not see it (Deviations).
 
   The `__Host-` prefix would prevent both, at the cost of `Path=/` (Alternatives). With the current cookie the defence is the deployment: keep untrusted content off sibling subdomains of the shop.
