@@ -23,10 +23,11 @@ const HOVER_DELAY_MS = 100;
  *   "(hover: hover)" media query would also skip a laptop's touch screen
  *   used with a mouse.
  *
- * Focus is not only the keyboard's: pressing a link with the mouse
- * (Chromium focuses it on mouse-down) or tapping it on a phone focuses it
- * too, so onFocus also prefetches then, a few milliseconds before the
- * click navigates. That costs no extra request: they are the requests the
+ * Focus is not only the keyboard's: in Chromium, pressing a link with the
+ * mouse (on mouse-down) or tapping it on a phone focuses it too, so onFocus
+ * also prefetches then, a few milliseconds before the click navigates.
+ * Safari and Firefox on macOS do not focus a link on click, nor iOS Safari
+ * on tap; there the click alone loads the page. That costs no extra request: they are the requests the
  * click makes anyway, and the page reuses them (the query is already in
  * the cache or in flight under the same key, and import() returns the
  * module it is already loading). It gains little, and needs no special
