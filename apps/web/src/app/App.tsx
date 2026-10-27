@@ -2,7 +2,13 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { createBrowserRouter } from "react-router";
 import { RouterProvider } from "react-router/dom";
+import type { ApiClient } from "@goshop/shared";
 import { SessionProvider } from "@/features/auth/SessionProvider.tsx";
+import type { Session } from "@/features/auth/session-context.ts";
+import {
+  forgetUserCarts,
+  mergeGuestCart,
+} from "@/features/cart/merge-guest-cart.ts";
 import { queryClient } from "@/lib/query-client.ts";
 import { reportCaughtError } from "@/lib/report-error.ts";
 import { routes } from "./routes.tsx";
@@ -27,10 +33,26 @@ const router = createBrowserRouter(routes);
  *    (a stepper's quantity, a folded list)? useState, lifted no higher
  *    than the closest common parent.
  * 4. Do distant parts of the page need it, and is it nobody's copy of
- *    server data? Then it is global: here, the guest cart's token and
- *    the session (context) and the guest cart's token (a Zustand
- *    store). Few things pass all four questions.
+ *    server data? Then it is global: here, the session (context) and the
+ *    guest cart's token (a Zustand store). Few things pass all four
+ *    questions.
  */
+
+/**
+ * What a session's start and end mean for the cart (artikel 12). The auth
+ * feature does not import the cart; the app wires the two together here.
+ *
+ * - A login or a restore moves the guest cart into the user's cart before
+ *   the header shows the user (POST /v1/cart/merge).
+ * - A logout, or a session the API ended, drops the user's cached cart, so
+ *   the next person at this browser starts as a guest with nothing in it.
+ */
+const onSessionStart = (client: ApiClient, session: Session) =>
+  mergeGuestCart(client, queryClient, session.user.id);
+const onSessionEnd = () => {
+  forgetUserCarts(queryClient);
+};
+
 export function App() {
   // The provider puts the QueryClient in React context, so every page
   // (inside the router) reads and fills the same cache. The session is
@@ -39,7 +61,7 @@ export function App() {
   // which any component reads with a hook.
   return (
     <QueryClientProvider client={queryClient}>
-      <SessionProvider>
+      <SessionProvider onStart={onSessionStart} onEnd={onSessionEnd}>
         {/* onError: every error a route's ErrorBoundary catches comes
             here, once (main.tsx leaves React's onCaughtError silent so it
             is not reported twice). Without it React Router logs each one

@@ -2,8 +2,23 @@
 
 - From: frontend-engineer (storefront, `apps/web`)
 - To: backend-engineer (`apps/api/internal/auth`, `apps/api/internal/httpserver`, `apps/api/internal/config`, `api/openapi.yaml`)
-- Status: requested; nothing below is implemented yet
+- Status: **implemented, superseded by [ADR 0008](../adr/0008-web-session-cookie.md)** (backend commits `6437d30`, `0371432`, `165e93f`). The API is the source of truth; this file stays as the request the storefront made, with the differences marked below.
 - Builds on: ADR 0005 (tokens), ADR 0006 (the guest cart token), the Bab 4 auth handlers
+
+## What was built, and where it differs from this request
+
+Everything below was built as requested (paths, cookie attributes, the three CSRF layers, CORS with credentials only on `/v1/auth/web/*`, `204` from refresh without a cookie, the rate-limit keys, the OpenAPI additions, `APP_AUTH_COOKIE_SECURE`), except:
+
+| # | This request said | The API does (ADR 0008) | Effect on the storefront |
+|---|---|---|---|
+| 1 | Nothing about a request that carries **several** `goshop_refresh` cookies | Refused: `/web/refresh` answers `401 TOKEN_INVALID` (after the rate-limit count) and clears the API's own cookie; `/web/logout` revokes every presented token (at most 4) and clears it. A second cookie can only have been planted by a sibling subdomain (cookie tossing), and using it would log the victim into the attacker's session | None in normal use. A planted cookie looks like an ended session: the storefront shows a guest and the buyer logs in again |
+| 2 | "Header `X-GoShop-Client` with the exact value `web`" | **Exactly one** `X-GoShop-Client` header, and it must be `web`; two headers are refused even if one is `web` (`details.reason: client_header`). Likewise several `Origin` headers (`origin`) | None: `WEB_CLIENT_HEADERS` in `packages/shared` sends one |
+| 3 | Order of checks: "client header and `Origin`, then the rate limit, then the body", and also "exactly `Handler.Login`" | Header and `Origin` first; then, as `Handler.Login` does, the body is decoded (the per-email limit needs the email), counted, and validated. A body that is not JSON is `400` without a count | None |
+| 4 | `Max-Age` = "seconds until the new refresh token's `expires_at`" | The whole seconds until `expires_at`, rounded **down**, and **at least 1** (Go writes no `Max-Age` for 0, which would turn the cookie into a session cookie) | None |
+
+Also worth knowing on the client side, though not a change to this request: an **expired access token** on any authenticated endpoint is `401 UNAUTHORIZED`, not `TOKEN_EXPIRED` (sdk `JWTAuth` does not tell expired from invalid; `Unauthorized` in `api/openapi.yaml`). `TOKEN_EXPIRED` comes only from the refresh endpoints, about the refresh token. The storefront's interceptor (artikel 14) therefore refreshes on any `401 UNAUTHORIZED` from a request that carried a token, once.
+
+How the storefront uses it: `docs/web/README.md`, "The web session (artikel 12–14)".
 
 ## Why
 
@@ -37,7 +52,7 @@ The JSON endpoints (`/v1/auth/login`, `/v1/auth/refresh`, `/v1/auth/logout`, `/v
 | `HttpOnly` | set | Page scripts cannot read it: an XSS in the storefront can use the session while the page is open, but cannot steal the refresh token |
 | `Secure` | set, unless `APP_AUTH_COOKIE_SECURE=false` (development only, below) | Never sent over plain HTTP |
 | `SameSite` | `Strict` | The browser does not send it on a request that another site starts (CSRF, first layer) |
-| `Max-Age` | seconds until the **new** refresh token's `expires_at` (`APP_REFRESH_TOKEN_TTL`, 2 592 000 for the default 720h) | The cookie disappears when the token it holds would be refused anyway. Computed from the token the service just issued, not from the config value, so the two never disagree. No `Expires` attribute: `Max-Age` wins in every current browser |
+| `Max-Age` | seconds until the **new** refresh token's `expires_at` (built: rounded down, at least 1; difference 4 above) (`APP_REFRESH_TOKEN_TTL`, 2 592 000 for the default 720h) | The cookie disappears when the token it holds would be refused anyway. Computed from the token the service just issued, not from the config value, so the two never disagree. No `Expires` attribute: `Max-Age` wins in every current browser |
 
 **Clearing it:** a `Set-Cookie` with the same name, `Path=/v1/auth/web`, `HttpOnly`, the same `Secure` and `SameSite`, an empty value and `Max-Age=0` (Go: `MaxAge: -1`). A different `Path` would create a second cookie instead of removing the first.
 
@@ -62,7 +77,7 @@ All three are `POST`, under `/v1/auth/web/`, public (no `Authorization`), and se
 
 ### Required on all three: `X-GoShop-Client: web`
 
-The request must carry the header `X-GoShop-Client` with the exact value `web`. Otherwise: `403 FORBIDDEN`, no `Set-Cookie`, no token work, nothing counted against a rate limit.
+The request must carry the header `X-GoShop-Client` with the exact value `web` (built: exactly one such header, difference 2 above). Otherwise: `403 FORBIDDEN`, no `Set-Cookie`, no token work, nothing counted against a rate limit.
 
 ```json
 { "error": { "code": "FORBIDDEN", "message": "this endpoint needs the X-GoShop-Client: web header", "details": { "reason": "client_header" } } }
@@ -72,7 +87,7 @@ The request must carry the header `X-GoShop-Client` with the exact value `web`. 
 
 **Why both, on top of `SameSite=Strict`:** a custom header cannot be added to a cross-origin request without a CORS preflight, and the API answers a preflight only for its configured origins (and `Access-Control-Allow-Headers` must list the header). That stops what `SameSite` does not: a request from a *same-site but different-origin* page, such as a compromised `blog.example.com` next to `shop.example.com`, and a "simple" cross-site form POST (a `text/plain` body, which `httpapi.DecodeJSON` would otherwise parse) aimed at the login endpoint to log the victim into the attacker's account (login CSRF). The `Origin` check is the third layer for browsers that send it. Reuse the existing `FORBIDDEN` code (`httpapi.CodeForbidden`): the client never sees it in normal use, and `details.reason` says which check failed.
 
-Order of checks in each handler: the client header and `Origin` first, then the rate limit, then the body or cookie.
+Order of checks in each handler: the client header and `Origin` first, then the rate limit, then the body or cookie. (Built: on login the body is decoded before the per-email count, difference 3 above.)
 
 ### `POST /v1/auth/web/login`
 
@@ -130,6 +145,7 @@ Cookie: goshop_refresh=<id>.<secret>
 Behaviour:
 
 - **No `goshop_refresh` cookie, or an empty one: `204 No Content`**, no `Set-Cookie`, no rate-limit count, no database work. This is the normal answer for a visitor who is not logged in, and the storefront asks at every start-up. A `401` here would put a red "Failed to load resource" line in every anonymous visitor's console (and fail the e2e suite's console check); `204` says "nothing to restore" without being an error.
+- **Several cookies** (not covered by this request; built as difference 1 above): `401 TOKEN_INVALID` and the API's cookie cleared.
 - **A cookie:** count it against the refresh limit, then `Service.Refresh(cookieValue)`, the same call `/v1/auth/refresh` makes: the row is locked, the token rotated, a reused token revokes the whole family, an expired one is refused. On success: `200` with `WebSession` and a `Set-Cookie` holding the **new** refresh token (`Max-Age` from the new token's expiry).
 - **Any `401` clears the cookie** (`Max-Age=0`): a refused token never works again, and keeping it would only make the next start-up fail the same way.
 

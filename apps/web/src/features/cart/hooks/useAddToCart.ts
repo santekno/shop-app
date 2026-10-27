@@ -1,8 +1,9 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { EMPTY_CART, addCartItem, isApiError } from "@goshop/shared";
 import type { CartItemAdd, Money } from "@goshop/shared";
+import { useSession } from "@/features/auth/session-context.ts";
 import { api } from "@/lib/api.ts";
-import { cartKeys, cartQuery } from "../api/queries.ts";
+import { cartKeys, cartQuery, userCartQuery } from "../api/queries.ts";
 import { getCartToken, useCartStore } from "../cart-store.ts";
 import { withAddedItem } from "../optimistic-cart.ts";
 
@@ -18,7 +19,9 @@ export interface AddToCartVariables {
 const ADD_TO_CART = ["cart", "add"] as const;
 
 /**
- * Adds a variant to the guest cart (POST /v1/cart/items), optimistically.
+ * Adds a variant to the cart (POST /v1/cart/items), optimistically: the
+ * logged-in user's cart (the access token says whose), or else the guest
+ * cart (X-Cart-Token).
  *
  * A query reads; a mutation changes something on the server. useMutation
  * does not run on render: `mutate(variables)` sends it, and the hook
@@ -58,28 +61,57 @@ const ADD_TO_CART = ["cart", "add"] as const;
  */
 export const useAddToCart = () => {
   const queryClient = useQueryClient();
+  // The session's functions never change; the session itself is read with
+  // getSession() when each step runs, never captured from this render.
+  const { authApi, getSession, ready } = useSession();
   // The store's actions; the token itself is read with getCartToken() at
   // the moment each step runs, never captured from this render.
   const setToken = useCartStore((state) => state.setToken);
   const forgetCart = useCartStore((state) => state.forgetCart);
 
+  /** The query of the cart an add made now would change. */
+  const currentCartQuery = () => {
+    const session = getSession();
+    return session === null
+      ? cartQuery(getCartToken())
+      : userCartQuery(authApi, session.user.id);
+  };
+
   return useMutation({
     mutationKey: ADD_TO_CART,
     scope: { id: "cart" },
 
-    // Runs when its turn in the queue comes, so it reads the token as it
-    // is then, not as it was at the click.
+    // Runs when its turn in the queue comes, so it reads the session and
+    // the token as they are then, not as they were at the click.
     mutationFn: async ({ item }: AddToCartVariables) => {
+      // A click during the start-up restore waits for it: adding as a
+      // guest and then turning out to be logged in would start a guest
+      // cart nobody merges.
+      await ready();
+      const session = getSession();
+      if (session !== null) {
+        const result = await addCartItem(authApi, item);
+        return {
+          cart: result.cart,
+          key: userCartQuery(authApi, session.user.id).queryKey,
+          newCartToken: undefined,
+        };
+      }
       const sentToken = getCartToken();
       const result = await addCartItem(api, item, { cartToken: sentToken });
       // The cart the answer belongs to: a new guest cart, or the one sent.
-      return { cart: result.cart, cartToken: result.cartToken ?? sentToken };
+      const token = result.cartToken ?? sentToken;
+      return {
+        cart: result.cart,
+        key: cartQuery(token).queryKey,
+        newCartToken: token === null || token === sentToken ? undefined : token,
+      };
     },
 
     onMutate: async ({ item, unitPrice }) => {
       // The key from the query options carries the cached type (Cart), so
       // getQueryData and setQueryData below are typed.
-      const key = cartQuery(getCartToken()).queryKey;
+      const key = currentCartQuery().queryKey;
       await queryClient.cancelQueries({ queryKey: key });
       const previous = queryClient.getQueryData(key);
       queryClient.setQueryData(key, (cart = EMPTY_CART) =>
@@ -97,15 +129,15 @@ export const useAddToCart = () => {
       if (isApiError(error, "CART_NOT_FOUND")) forgetCart();
     },
 
-    onSuccess: ({ cart, cartToken }, _variables, snapshot) => {
-      queryClient.setQueryData(cartQuery(cartToken).queryKey, cart);
-      if (cartToken === null || cartToken === getCartToken()) return;
+    onSuccess: ({ cart, key, newCartToken }, _variables, snapshot) => {
+      queryClient.setQueryData(key, cart);
+      if (newCartToken === undefined) return;
       // The add created the guest cart. Its token, sent only this once, is
       // kept; the cart is already stored under its key, so the count never
       // drops back to 0 when the token changes. The guess under
       // ["cart", null] goes back to empty.
       queryClient.setQueryData(snapshot.key, EMPTY_CART);
-      setToken(cartToken);
+      setToken(newCartToken);
     },
 
     onSettled: (_data, error) => {

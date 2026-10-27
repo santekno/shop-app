@@ -6,8 +6,9 @@ import type { Cart, CartAddResult, CartDetail, CartItemAdd } from "./types.ts";
 export interface CartRequestOptions extends EndpointOptions {
   /**
    * The guest cart's token, sent as X-Cart-Token. Leave it out (or pass
-   * null) for a guest who has no cart yet. Bab 10 adds the logged-in
-   * user's cart, which the API finds by the access token instead.
+   * null) for a guest who has no cart yet. A logged-in user's cart is
+   * found by the access token instead: call with a client that sends
+   * Authorization, and without a cart token.
    */
   cartToken?: string | null | undefined;
 }
@@ -73,4 +74,25 @@ export const addCartItem = async (
     signal,
   });
   return { cart: body.data, cartToken: body.cart_token };
+};
+
+/**
+ * POST /v1/cart/merge: moves the guest cart `cartToken` into the logged-in
+ * user's cart and answers with the user's cart. Needs an access token (a
+ * client that sends Authorization). The guest cart is deleted, so forget
+ * its token after this succeeds, and after CART_NOT_FOUND too (it was
+ * already merged, or cleaned up). A line the user's cart cannot take (sold
+ * out, over 99, past 50 lines) is dropped, not an error.
+ */
+export const mergeCart = async (
+  api: ApiClient,
+  cartToken: string,
+  { signal }: EndpointOptions = {},
+): Promise<Cart> => {
+  const body = await api.request<CartDetail>("/v1/cart/merge", {
+    method: "POST",
+    headers: { "X-Cart-Token": cartToken },
+    signal,
+  });
+  return body.data;
 };

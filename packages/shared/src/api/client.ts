@@ -56,6 +56,13 @@ export interface RequestOptions extends Partial<
   headers?: HeadersInit;
   /** Abort it to cancel the request, for example when a component unmounts. */
   signal?: AbortSignal;
+  /**
+   * Whether the browser sends and stores cookies for this request. Leave it
+   * out (fetch's default, "same-origin": never for a cross-origin API) on
+   * every call except the web session's (auth.ts), which need "include"
+   * for the httpOnly refresh cookie.
+   */
+  credentials?: RequestCredentials;
 }
 
 /** JSON.parse that answers `undefined` instead of throwing; JSON never yields `undefined` itself. */
@@ -215,6 +222,7 @@ export const createApiClient = (options: ApiClientOptions) => {
       body,
       headers,
       signal,
+      credentials,
       timeoutMs = defaultTimeoutMs,
       retries = defaultRetries,
     }: RequestOptions = {},
@@ -225,6 +233,7 @@ export const createApiClient = (options: ApiClientOptions) => {
       requestHeaders.set("Accept", "application/json");
     }
     const init: RequestInit = { method, headers: requestHeaders };
+    if (credentials !== undefined) init.credentials = credentials;
     if (body !== undefined) {
       requestHeaders.set("Content-Type", "application/json");
       init.body = JSON.stringify(body);

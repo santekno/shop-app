@@ -1,6 +1,6 @@
 # apps/web — GoShop storefront
 
-The storefront for buyers: a Vite + React 19 + TypeScript single-page app. Bab 7 set it up with one page, the category list. Bab 8 added the catalog and the product page in plain React. Bab 9 adds pages with React Router (`/`, `/produk/:slug`, `/keranjang`, `/masuk`, `/daftar`, a 404), server data with TanStack Query, a guest cart, and the login and registration forms with React Hook Form and Zod. `docs/web/README.md` maps every chapter to the code.
+The storefront for buyers: a Vite + React 19 + TypeScript single-page app. Bab 7 set it up with one page, the category list. Bab 8 added the catalog and the product page in plain React. Bab 9 adds pages with React Router (`/`, `/produk/:slug`, `/keranjang`, `/masuk`, `/daftar`, a 404), server data with TanStack Query, a guest cart, and the login and registration forms with React Hook Form and Zod. Bab 10 restyles it with Tailwind CSS and shadcn/ui, keeps the guest cart in a Zustand store, and keeps the buyer logged in across reloads with an httpOnly refresh cookie. `docs/web/README.md` maps every chapter to the code.
 
 ## Run it
 
@@ -28,6 +28,16 @@ Before the suite runs, its global setup (`e2e/support/global-setup.ts`) writes t
 | `build`     | Production bundle in `dist/`; needs `VITE_API_URL`                                    |
 | `test:unit` | Vitest, in a jsdom environment                                                        |
 | `preview`   | Serves `dist/` on port 4173 (not a CORS-allowed origin; for checking the bundle only) |
+
+## The web session locally (Bab 10)
+
+Logging in sets an httpOnly refresh cookie, `goshop_refresh`, that the browser sends back to `/v1/auth/web/*` by itself; a reload restores the session from it ([ADR 0008](../../docs/adr/0008-web-session-cookie.md)). Three things must line up, or the storefront silently behaves as if nobody were logged in:
+
+1. **The storefront's origin is in the API's `APP_CORS_ALLOWED_ORIGINS`**, exactly (scheme, host, port; no trailing slash). The web endpoints refuse any other `Origin` with `403 FORBIDDEN` (`details.reason: origin`), and CORS allows credentials only for listed origins. The default, `http://localhost:5173`, matches `pnpm dev`. Running the dev server on another port, or a second stack, means adding that origin: for example `APP_CORS_ALLOWED_ORIGINS=http://localhost:5173,http://localhost:34173`.
+2. **The storefront and the API are the same site.** `SameSite=Strict` cookies travel only between hosts of one registrable domain. `localhost:5173` → `localhost:8080` is one site (ports do not count). Use `localhost` for both, never `localhost` for one and `127.0.0.1` for the other: those are two sites, and the cookie is never sent. In a deployment this means custom domains under one domain (`shop.example.com` and `api.example.com`); Railway's generated `*.up.railway.app` hosts are separate sites (`docs/configuration.md`).
+3. **The browser keeps a `Secure` cookie.** The API sets `Secure` by default (`APP_AUTH_COOKIE_SECURE=true`). Chromium and Firefox treat `http://localhost` as a secure context and keep the cookie, so `make up`, `pnpm dev` and the e2e suite need nothing. Set `APP_AUTH_COOKIE_SECURE=false` (accepted only with `APP_ENV=development`) only for a browser that is not in a secure context, such as a phone opening `http://192.168.x.x:5173` over the LAN, or a browser that does not extend the localhost exception to cookies. Note that such a page also has no Web Locks API (`navigator.locks` exists only in a secure context), so two of its tabs can still race a refresh (see `features/auth/refresh-lock.ts`).
+
+To check it: log in, then DevTools → Application → Cookies → `http://localhost:8080` shows `goshop_refresh` with `HttpOnly`, `Secure`, `SameSite=Strict` and `Path=/v1/auth/web`; Local Storage and Session Storage hold no token (only `goshop:cart` and `goshop:theme`). A reload keeps you logged in, and the Network panel shows one `POST /v1/auth/web/refresh` per page load (`204` when logged out).
 
 ## Configuration: `VITE_API_URL`
 
@@ -88,7 +98,7 @@ src/
     ├── catalog/                   # "/": filters in the URL, infinite product list, categories
     ├── product/                   # "/produk/:slug" (lazy), prefetch on hover
     ├── cart/                      # guest cart token, add (optimistic), header count, "/keranjang"
-    └── auth/                      # "/masuk", "/daftar" (lazy), in-memory session
+    └── auth/                      # "/masuk", "/daftar" (lazy), the web session (cookie + in-memory access token)
 ```
 
 Each feature keeps its own `components/`, `hooks/` and `api/` (query keys and options).

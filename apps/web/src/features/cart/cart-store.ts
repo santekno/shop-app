@@ -21,6 +21,11 @@ export interface CartState {
   setToken: (token: string) => void;
   /** Forgets a token the API no longer knows; the next add starts a new cart. */
   forgetCart: () => void;
+  /**
+   * Forgets the token without a message: the guest cart was merged into
+   * the user's cart after a login (artikel 12), so nothing was lost.
+   */
+  clearToken: () => void;
   /** The buyer has read the "cart expired" message. */
   dismissCartExpired: () => void;
 }
@@ -127,6 +132,9 @@ export const useCartStore = create<CartState>()(
         set((state) =>
           state.token === null ? state : { token: null, cartExpired: true },
         );
+      },
+      clearToken: () => {
+        set({ token: null, cartExpired: false });
       },
       dismissCartExpired: () => {
         set({ cartExpired: false });

@@ -295,6 +295,61 @@ The Bab 7–9 sections above describe the code as those chapters left it. The se
 - **`getAccessToken()`** reads a ref that `setSession` updates at once, for code that runs outside a render: a request sent by a mutation or a query function (artikel 13). The same pattern as the cart's `getCartToken`, for the same reason.
 - **Still in memory only.** A reload logs the buyer out until artikel 12 keeps the refresh token in an `HttpOnly` cookie and restores the session from it. The access token never goes to `localStorage` (ADR 0005), and `useLogin` still drops the refresh token from the JSON answer.
 
+## The web session (artikel 12–14)
+
+The API side is [ADR 0008](../adr/0008-web-session-cookie.md) (the storefront's request, with the four places the API differs, is `bab-10-auth-cookie-contract.md`). This is the storefront side.
+
+### Where each token lives (artikel 12)
+
+| Token | Where | Who can read it | Lifetime |
+|---|---|---|---|
+| Refresh token | the `goshop_refresh` cookie: `HttpOnly; Secure; SameSite=Strict; Path=/v1/auth/web`, on the API's host | nobody's JavaScript; the browser sends it to `/v1/auth/web/*` only | 30 days, rotated on every refresh |
+| Access token | a variable inside the session manager (`features/auth/session-manager.ts`), in this tab's memory | the storefront's code while the tab is open | 15 minutes; gone on reload |
+| Guest cart token | `localStorage` (`goshop:cart`, artikel 10) | any script on the page; harmless (artikel 10) | until merged or cleaned up |
+
+No token is ever written to `localStorage` or `sessionStorage`: any script that runs on the page (an XSS, a compromised dependency) can read them. With the refresh token in an `HttpOnly` cookie, such a script can still act as the buyer while the page is open, but it cannot take the session away with it. The access token in memory is the price: a reload loses it, so the storefront asks for a new one at start-up.
+
+### The calls, and where they live
+
+- **`webLogin`, `webRefresh`, `webLogout` are in `packages/shared/src/api/auth.ts`**, next to `login` and `register`, typed from `api/openapi.yaml` (`WebSession`). They are endpoint functions like every other, and the admin dashboard (also a browser app) will need the same session. They are the only calls that send `credentials: "include"` (new `credentials` option of the client) and `X-GoShop-Client: web` (`WEB_CLIENT_HEADERS`); every other request keeps fetch's default and never carries a cookie. Their timeout is 20 s, longer than the API's 15 s, so the client never gives up on a refresh the server may still complete (it would keep the old cookie while the server had rotated it: a reuse on the next refresh).
+- **`mergeCart`** (`POST /v1/cart/merge`) joined `getCart` and `addCartItem` in `packages/shared/src/api/cart.ts`.
+- **The protocol is plain TypeScript** (`features/auth/session-manager.ts`): who is logged in, `restore`, `login`, `logout`, `refresh`. `SessionProvider` creates one manager and turns its changes into React state, so the rules can be read (and tested) without React.
+
+### Start-up: the silent refresh
+
+`SessionProvider` starts in a third status, **`"restoring"`**, and calls `restore()` once: `POST /v1/auth/web/refresh`. The browser adds the cookie if it has one.
+
+| Answer | Meaning | Status |
+|---|---|---|
+| `200` + `WebSession` | the cookie was good; it is rotated, the access token is new | `authenticated` (after the guest cart merge, below) |
+| `204` | no cookie: a visitor who never logged in, or logged out | `anonymous` |
+| `401` | the cookie was refused (expired, revoked, reused); the API has cleared it | `anonymous` |
+| network error, `429`, `500` | unknown; the cookie may still be good | `anonymous` for now; the next reload tries again |
+
+While restoring, the header shows neither "Masuk" nor a name (`AccountNav` renders nothing), the cart is not fetched (`useCart` waits: nobody knows yet whose cart it is), and an add to the cart waits for the answer (`ready()` in `useAddToCart`). StrictMode runs the effect twice in development; `restore()` returns the same promise the second time, so the cookie is sent once.
+
+### Several tabs: one refresh at a time (Web Locks)
+
+The API rotates the refresh token on every refresh and has no grace window: a token used a second time is treated as stolen, and the **whole session (the token family) is revoked**, including the access tokens already handed out (Bab 4's reuse detection, a Redis marker per session). Every tab of the storefront shares the one cookie. Reload two tabs at the same moment and, without coordination:
+
+1. tab A sends `goshop_refresh=R1`; the API rotates it to R2 and answers A;
+2. tab B had also sent R1, before A's answer arrived; the API sees R1 a second time: reuse. The family is revoked;
+3. B gets `401`, A's new token R2 is revoked too, and both tabs are logged out.
+
+`withSessionLock` (`features/auth/refresh-lock.ts`) wraps every call that touches the cookie (login, refresh, logout) in `navigator.locks.request("goshop:session", task)`. The Web Locks API grants a named lock to one holder at a time across every tab of the origin, in order, and releases it when the task's promise settles (or the tab closes). Tab B's request is only *started* after A's task has finished, and A's task finishes only after A's whole answer has arrived, by which time the browser has stored R2 from its `Set-Cookie`. So B sends R2, gets R3, and both tabs stay logged in. Each tab still holds its own access token (memory is per tab); both are valid, because they belong to the same, unrevoked session.
+
+Inside one tab, a refresh already on its way is shared (`refresh()` keeps the promise), so two callers never queue two refreshes.
+
+**Fallback.** `navigator.locks` exists only in a secure context (https, or `http://localhost`). On a plain-http LAN address it is missing; `withSessionLock` then queues the tasks of its own tab in a promise chain. Two tabs can then race exactly as above, and the result is a logout, never a security problem. The API was asked for no grace window for this reason (ADR 0008).
+
+### Login, logout and the guest cart
+
+- **Login** (`useLogin` → `useSession().login`): `webLogin` inside the lock; the answer's access token stays in the manager. The mutation returns nothing, so no token lands in TanStack Query's MutationCache (and `gcTime: 0` still drops the password from it).
+- **The guest cart is merged at login, in artikel 12** (Bab 9 deferred it to Bab 10). After the login or a restore and *before* the session is published, `onStart` (wired in `app/App.tsx` to `features/cart/merge-guest-cart.ts`) calls `POST /v1/cart/merge` with the guest token, through a client that already carries the new access token. The answer is the user's cart, written straight into the cache under `["cart", "user", userId]`, and the guest token is cleared (quietly: nothing was lost, so no "cart expired" message), and every tab follows through the `storage` event. `CART_NOT_FOUND` also clears it. Any other failure keeps the token and lets the login succeed: the next login or reload merges it. The header switches to the user's cart once, already merged. The auth feature does not import the cart; `App.tsx` wires the two.
+- **From then on the cart is the user's.** `useCart` and `useAddToCart` use `useSession().authApi` (adds `Authorization`) and the key `["cart", "user", userId]`; a guest keeps `["cart", token]` and `X-Cart-Token`. The API picks the cart by the access token.
+- **Logout** (`AccountNav` → `useSession().logout`): `webLogout` inside the lock, which revokes the session on the server and clears the cookie; only then is the session forgotten here and `onEnd` drops every user cart from the cache (`forgetUserCarts`). If the API cannot confirm (network, `500`, which keeps the cookie), the buyer stays logged in and the header says "Gagal keluar…" (`role="alert"`): looking logged out while a reload would bring the session back would be worse. The focus still moves to "Masuk" after a logout that worked.
+- **Known limit:** a tab that was already open does not learn about a login or logout in another tab until it next talks to the API (or reloads). The guest token does follow (it is in `localStorage`).
+
 ## Accessibility (artikel 07)
 
 Bab 8 and 9 already label every field, link errors with `aria-describedby`, move the focus after a navigation and render live regions before they speak (the Bab 9 notes above). Artikel 07 checks the new look against the same standard (WCAG 2.2, level AA) and fixes what the restyle missed:
@@ -430,4 +485,4 @@ Paths are relative to `apps/web/src` unless they start with another top-level fo
 | 09 | Zustand: the cart store | `features/cart/cart-store.ts` (`create`, actions, selectors, `getState` in `getCartToken`), read in `hooks/useCart.ts`, `hooks/useAddToCart.ts` and `components/CartPage.tsx` (the "cart expired" notice); `CartTokenProvider` is gone from `app/App.tsx` |
 | 10 | Persisting the cart | `persist` in `features/cart/cart-store.ts` (`CART_STORAGE_KEY`, `CART_STORAGE_VERSION`, `safeLocalStorage`, `partialize`, `migrate`, `merge` with `storedToken`), `syncCartAcrossTabs` called from `main.tsx`; the stale-token path in `features/cart/api/queries.ts` |
 | 11 | Context for the logged-in user | `features/auth/session-context.ts` (`SessionValue` as a discriminated union on `status`, `useSession`, why context and not a store), `features/auth/SessionProvider.tsx` (a memoised value, stable functions, `getAccessToken` through a ref), `features/auth/components/AccountNav.tsx` (narrowing on `status`) |
-| 12 | Access and refresh tokens, safely | the contract for the API: `docs/web/bab-10-auth-cookie-contract.md` (the `HttpOnly; Secure; SameSite=Strict` cookie on `/v1/auth/web`, CSRF defence, CORS with credentials, rate limits); the storefront side follows once the API has it |
+| 12 | Access and refresh tokens, safely: httpOnly cookie vs memory | `webLogin`/`webRefresh`/`webLogout` and the `credentials` option in `packages/shared` (`api/auth.ts`, `api/client.ts`); `features/auth/session-manager.ts` (restore, login, logout, single-flight refresh), `refresh-lock.ts` (Web Locks), `SessionProvider.tsx` (`"restoring"`), `hooks/useLogin.ts`, `components/AccountNav.tsx` (logout); the guest cart merge in `features/cart/merge-guest-cart.ts`, wired in `app/App.tsx`; the user's cart in `features/cart/api/queries.ts`, `hooks/useCart.ts`, `hooks/useAddToCart.ts`; the API's side: ADR 0008 and `docs/web/bab-10-auth-cookie-contract.md` |
