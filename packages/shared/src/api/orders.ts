@@ -4,6 +4,7 @@ import type {
   CheckoutRequest,
   Order,
   OrderDetail,
+  OrderList,
   PaymentSession,
   PaymentSessionDetail,
 } from "./types.ts";
@@ -92,3 +93,29 @@ export const payOrder = async (
   );
   return body.data;
 };
+
+/** The query of GET /v1/orders. */
+export interface ListOrdersQuery {
+  /** `page.next_cursor` of the previous page; leave it out for the first. */
+  cursor?: string | null | undefined;
+  /** 1–50, the API's default is 20. */
+  limit?: number | undefined;
+}
+
+/**
+ * GET /v1/orders: one page of the logged-in user's orders, newest first,
+ * without their lines. Cursor pagination as in the catalog: pass
+ * `page.next_cursor` back as `cursor`, and stop when it is null.
+ */
+export const listOrders = async (
+  api: ApiClient,
+  { cursor, limit }: ListOrdersQuery = {},
+  { signal }: EndpointOptions = {},
+): Promise<OrderList> =>
+  api.request<OrderList>("/v1/orders", {
+    query: {
+      cursor: cursor ?? undefined,
+      limit,
+    },
+    signal,
+  });

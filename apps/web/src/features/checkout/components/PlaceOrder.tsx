@@ -1,5 +1,7 @@
 import { useId, useMemo } from "react";
-import { checkoutProblems } from "@goshop/shared";
+import { Link } from "react-router";
+import { checkoutProblems, isApiError } from "@goshop/shared";
+import { ORDERS_PATH } from "@/features/orders/paths.ts";
 import type { CartLine } from "@goshop/shared";
 import { Button } from "@/components/ui/Button.tsx";
 import { FormAlert } from "@/components/ui/FormAlert.tsx";
@@ -51,6 +53,11 @@ export function PlaceOrder({
         <CheckoutProblemList problems={problems} lines={cartLines} />
       )}
       <FormAlert error={alert} />
+      {isApiError(error, "TOO_MANY_PENDING_ORDERS") && (
+        <p>
+          <Link to={ORDERS_PATH}>Lihat pesanan Anda yang belum dibayar</Link>
+        </p>
+      )}
       <Button
         className="justify-self-end"
         disabled={blockedBy !== null || busy}

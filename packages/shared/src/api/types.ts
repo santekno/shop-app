@@ -68,6 +68,10 @@ export type CheckoutRequest = Schemas["CheckoutRequest"];
 export type Order = Schemas["Order"];
 export type OrderDetail = Schemas["OrderDetail"];
 export type OrderItem = Schemas["OrderItem"];
+/** An order as the history list shows it, without its lines. */
+export type OrderSummary = Schemas["OrderSummary"];
+/** One page of the buyer's orders. */
+export type OrderList = Schemas["OrderList"];
 /** The life cycle of an order (ADR 0006). */
 export type OrderStatus = Order["status"];
 /** A Midtrans Snap transaction for an order (Bab 6, ADR 0007). */

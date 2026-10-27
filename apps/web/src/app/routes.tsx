@@ -7,6 +7,8 @@ import { CartPage } from "@/features/cart/components/CartPage.tsx";
 import { CatalogPage } from "@/features/catalog/components/CatalogPage.tsx";
 import { loadCheckoutPage } from "@/features/checkout/lazy.ts";
 import {
+  loadOrderDetailPage,
+  loadOrdersPage,
   loadPaymentPage,
   loadPaymentReturnPage,
 } from "@/features/orders/lazy.ts";
@@ -29,6 +31,8 @@ import { RouteErrorPage } from "./RouteErrorPage.tsx";
  *   /daftar          RootLayout > AuthLayout > RegisterPage
  *   /akun            RootLayout > RequireAuth > AccountPage (needs a login)
  *   /checkout        RootLayout > RequireAuth > CheckoutPage (Bab 11)
+ *   /pesanan         RootLayout > RequireAuth > OrdersPage
+ *   /pesanan/:id     RootLayout > RequireAuth > OrderDetailPage
  *   /pesanan/:id/pembayaran
  *                    RootLayout > RequireAuth > PaymentPage
  *   /pembayaran/selesai
@@ -115,6 +119,18 @@ export const routes: RouteObject[] = [
                 path: "checkout",
                 lazy: async () => ({
                   Component: (await loadCheckoutPage()).CheckoutPage,
+                }),
+              },
+              {
+                path: "pesanan",
+                lazy: async () => ({
+                  Component: (await loadOrdersPage()).OrdersPage,
+                }),
+              },
+              {
+                path: "pesanan/:id",
+                lazy: async () => ({
+                  Component: (await loadOrderDetailPage()).OrderDetailPage,
                 }),
               },
               {

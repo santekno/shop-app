@@ -81,8 +81,8 @@ export {
   previewCheckout,
 } from "./api/checkout.ts";
 
-export { getOrder, payOrder, placeOrder } from "./api/orders.ts";
-export type { PlaceOrderOptions } from "./api/orders.ts";
+export { getOrder, listOrders, payOrder, placeOrder } from "./api/orders.ts";
+export type { ListOrdersQuery, PlaceOrderOptions } from "./api/orders.ts";
 
 export {
   VOUCHER_CODE_MAX_LENGTH,
@@ -128,7 +128,9 @@ export type {
   Order,
   OrderDetail,
   OrderItem,
+  OrderList,
   OrderStatus,
+  OrderSummary,
   OrderTotals,
   PaymentSession,
   PaymentSessionDetail,

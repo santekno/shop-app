@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useLocation, useParams } from "react-router";
+import { Link, useLocation, useParams } from "react-router";
 import { formatRupiah, isApiError } from "@goshop/shared";
 import { Button } from "@/components/ui/Button.tsx";
 import { Card } from "@/components/ui/Card.tsx";
@@ -9,6 +9,7 @@ import { useSession } from "@/features/auth/session-context.ts";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle.ts";
 import { orderQuery } from "../api/queries.ts";
 import { canStartPayment, paymentOutcome } from "../order-status.ts";
+import { orderPath } from "../paths.ts";
 import { POLL_LIMIT_MS, pollDelay } from "../payment-polling.ts";
 import { paymentPageState } from "../payment-state.ts";
 import { FakePaymentHint } from "./FakePaymentHint.tsx";
@@ -101,8 +102,11 @@ export function PaymentPage() {
       {order.status === "success" && (
         <div className="grid gap-4">
           <p>
-            Pesanan <strong>{order.data.code}</strong> · Total{" "}
-            <strong>{formatRupiah(order.data.totals.total)}</strong>
+            Pesanan{" "}
+            <Link to={orderPath(order.data.id)}>
+              <strong>{order.data.code}</strong>
+            </Link>{" "}
+            · Total <strong>{formatRupiah(order.data.totals.total)}</strong>
           </p>
           <PaymentStatus order={order.data} checkedAt={order.dataUpdatedAt} />
           {pending && (

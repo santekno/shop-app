@@ -1,7 +1,7 @@
 import { Link, Navigate, useSearchParams } from "react-router";
 import { Card } from "@/components/ui/Card.tsx";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle.ts";
-import { paymentPath } from "../paths.ts";
+import { ORDERS_PATH, paymentPath } from "../paths.ts";
 import { findPaymentReturn } from "../payment-state.ts";
 
 /**
@@ -35,7 +35,7 @@ export function PaymentReturnPage() {
         konfirmasi dari Midtrans; Anda juga akan mendapat email.
       </p>
       <p className="mt-2">
-        <Link to="/">Kembali ke katalog</Link>
+        <Link to={ORDERS_PATH}>Lihat pesanan saya</Link>
       </p>
     </Card>
   );

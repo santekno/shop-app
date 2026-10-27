@@ -1,4 +1,4 @@
-import { ChevronDown, LogOut, UserRound } from "lucide-react";
+import { ChevronDown, LogOut, Package, UserRound } from "lucide-react";
 import { Link } from "react-router";
 import type { User } from "@goshop/shared";
 import { Button } from "@/components/ui/Button.tsx";
@@ -47,6 +47,12 @@ export function AccountMenu({ user, onLogout }: AccountMenuProps) {
           <Link to="/akun">
             <UserRound aria-hidden="true" />
             Akun saya
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link to="/pesanan">
+            <Package aria-hidden="true" />
+            Pesanan saya
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={onLogout}>
