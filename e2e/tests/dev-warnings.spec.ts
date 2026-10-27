@@ -7,6 +7,9 @@
 // The dev server has an origin of its own, which the API's CORS does not
 // allow, so each API call is passed through Playwright to the real API and
 // handed back with Access-Control-Allow-Origin added. The data is real.
+// The web session endpoints (Bab 10) also refuse an Origin they do not
+// know, so the call is forwarded with the stack's own storefront origin,
+// and their answer allows credentials, as the API's does for that origin.
 import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
@@ -19,7 +22,12 @@ import {
   productCards,
   productSection,
 } from "../support/catalog.ts";
-import { BROWSER_API_URL, REPO_ROOT, waitForOk } from "../support/stack.ts";
+import {
+  BROWSER_API_URL,
+  REPO_ROOT,
+  WEB_URL,
+  waitForOk,
+} from "../support/stack.ts";
 
 /** A port nothing listens on right now. */
 const freePort = async (): Promise<number> => {
@@ -59,7 +67,13 @@ test("the development build logs no warning or error across the storefront", asy
     await waitForOk(`${origin}/`, 60_000);
 
     await page.route(`${BROWSER_API_URL}/**`, async (route) => {
-      const response = await route.fetch();
+      const request = route.request();
+      const response = await route.fetch({
+        headers: { ...(await request.allHeaders()), origin: WEB_URL },
+      });
+      const session = new URL(request.url()).pathname.startsWith(
+        "/v1/auth/web/",
+      );
       await route.fulfill({
         response,
         headers: {
@@ -67,6 +81,7 @@ test("the development build logs no warning or error across the storefront", asy
           "access-control-allow-origin": origin,
           // What the API's CORS lets a browser read on its own origins.
           "access-control-expose-headers": "X-Request-ID, X-Cart-Token",
+          ...(session ? { "access-control-allow-credentials": "true" } : {}),
         },
       });
     });
