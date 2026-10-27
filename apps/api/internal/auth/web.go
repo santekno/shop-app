@@ -179,7 +179,9 @@ func (h *Handler) clearRefreshCookie(w http.ResponseWriter) {
 // refreshCookie is the cookie with value; Domain is never set, so only the
 // API's own host receives it.
 func (h *Handler) refreshCookie(value string, maxAge int) *http.Cookie {
-	return &http.Cookie{
+	// gosec cannot see that config refuses APP_AUTH_COOKIE_SECURE=false
+	// outside development.
+	return &http.Cookie{ //nolint:gosec // G124: Secure is off in development only
 		Name:     WebCookieName,
 		Value:    value,
 		Path:     WebCookiePath,
