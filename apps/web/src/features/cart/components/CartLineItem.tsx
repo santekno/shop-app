@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useId, useRef } from "react";
 import { Minus, Plus, Trash2 } from "lucide-react";
 import { Link } from "react-router";
 import { formatRupiah } from "@goshop/shared";
@@ -7,7 +7,10 @@ import { Badge } from "@/components/ui/Badge.tsx";
 import { Button } from "@/components/ui/Button.tsx";
 import { productPath } from "@/features/product/paths.ts";
 import { cartLineErrorMessage } from "../cart-errors.ts";
-import { useChangeCartLine } from "../hooks/useChangeCartLine.ts";
+import {
+  LINE_MAX_QUANTITY,
+  useChangeCartLine,
+} from "../hooks/useChangeCartLine.ts";
 
 /** Why checkout would refuse a line, in the buyer's words. */
 const PROBLEM_TEXT = {
@@ -15,9 +18,6 @@ const PROBLEM_TEXT = {
   insufficient_stock: "Stok tidak cukup",
   price_changed: "Harga berubah",
 } as const;
-
-/** The most units one line may hold (the API's CartItemPatch). */
-const LINE_MAX = 99;
 
 interface CartLineItemProps {
   line: CartLine;
@@ -50,10 +50,24 @@ export function CartLineItem({ line, onRemoved }: CartLineItemProps) {
   const removing = isPending && lastChange?.kind === "remove";
   // The stock caps the stepper, but never below 1: a line whose stock ran
   // out shows its problem and the remove button instead.
-  const max = Math.max(1, Math.min(LINE_MAX, line.stock));
+  const max = Math.max(1, Math.min(LINE_MAX_QUANTITY, line.stock));
 
-  const setQuantity = (quantity: number) => {
-    change({ kind: "quantity", variantId: line.variant_id, quantity });
+  const productLink = useRef<HTMLAnchorElement>(null);
+
+  /**
+   * A fix for a problem ("Pakai harga baru", "Ubah jadi N"). Once it
+   * succeeds the problem, and the button that was pressed, disappear; the
+   * focus goes to the line's product link instead of falling to <body>.
+   */
+  const fixQuantity = (quantity: number) => {
+    change(
+      { kind: "quantity", variantId: line.variant_id, quantity },
+      {
+        onSuccess: () => {
+          productLink.current?.focus();
+        },
+      },
+    );
   };
   const remove = () => {
     change(
@@ -75,7 +89,9 @@ export function CartLineItem({ line, onRemoved }: CartLineItemProps) {
     >
       <div className="grid gap-2">
         <div>
-          <Link to={productPath(line.product_slug)}>{line.product_name}</Link>
+          <Link ref={productLink} to={productPath(line.product_slug)}>
+            {line.product_name}
+          </Link>
           <p className="mt-0.5 text-muted-foreground">
             {line.variant_name} · {line.quantity} ×{" "}
             {formatRupiah(line.unit_price)}
@@ -96,7 +112,7 @@ export function CartLineItem({ line, onRemoved }: CartLineItemProps) {
                   size="sm"
                   disabled={isPending}
                   onClick={() => {
-                    setQuantity(line.quantity);
+                    fixQuantity(line.quantity);
                   }}
                 >
                   Pakai harga baru
@@ -109,10 +125,10 @@ export function CartLineItem({ line, onRemoved }: CartLineItemProps) {
                 size="sm"
                 disabled={isPending}
                 onClick={() => {
-                  setQuantity(Math.min(line.stock, LINE_MAX));
+                  fixQuantity(Math.min(line.stock, LINE_MAX_QUANTITY));
                 }}
               >
-                Ubah jadi {Math.min(line.stock, LINE_MAX)}
+                Ubah jadi {Math.min(line.stock, LINE_MAX_QUANTITY)}
               </Button>
             )}
           </div>
@@ -132,7 +148,7 @@ export function CartLineItem({ line, onRemoved }: CartLineItemProps) {
               aria-label={`Kurangi jumlah ${name}`}
               disabled={removing || line.quantity <= 1}
               onClick={() => {
-                setQuantity(line.quantity - 1);
+                change({ kind: "step", variantId: line.variant_id, delta: -1 });
               }}
             >
               <Minus aria-hidden="true" />
@@ -149,7 +165,7 @@ export function CartLineItem({ line, onRemoved }: CartLineItemProps) {
               aria-label={`Tambah jumlah ${name}`}
               disabled={removing || line.quantity >= max}
               onClick={() => {
-                setQuantity(line.quantity + 1);
+                change({ kind: "step", variantId: line.variant_id, delta: 1 });
               }}
             >
               <Plus aria-hidden="true" />
