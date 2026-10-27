@@ -61,6 +61,10 @@ describe("safeReturnPath", () => {
     expect(safe("/produk/kaos?q=a b")).toBe("/produk/kaos?q=a%20b");
   });
 
+  it("is / when the value cannot be parsed against the origin", () => {
+    expect(safeReturnPath("/akun", "bukan-origin")).toBe("/");
+  });
+
   it("checks against the page's own origin by default", () => {
     expect(safeReturnPath("/akun")).toBe("/akun");
     expect(safeReturnPath("//evil.example")).toBe("/");
