@@ -22,7 +22,19 @@ export interface SessionManagerOptions {
   onEnd?: () => void;
   /** Serialises every cookie call across tabs; tests may pass their own. */
   lock?: <T>(task: () => Promise<T>) => Promise<T>;
+  /** The clock, in milliseconds; tests may pass their own. */
+  now?: () => number;
 }
+
+/**
+ * How early before it expires an access token is replaced (artikel 14):
+ * 30 seconds, or half its lifetime when that is shorter (the API allows
+ * APP_ACCESS_TOKEN_TTL down to 1 minute). Enough for a request to reach
+ * the API before the token runs out, without refreshing much earlier than
+ * needed (each refresh counts against the API's 60 per 15 minutes per IP).
+ */
+export const refreshMarginMs = (lifetimeMs: number): number =>
+  Math.min(30_000, lifetimeMs / 2);
 
 /** A refused refresh cookie: the session is over, the buyer logs in again. */
 const endsSession = (error: unknown): boolean =>
@@ -54,19 +66,36 @@ export const createSessionManager = ({
   onStart,
   onEnd,
   lock = withSessionLock,
+  now = Date.now,
 }: SessionManagerOptions) => {
   let current: Session | null = null;
+  // When the current access token should be replaced, in now()'s
+  // milliseconds; null when unknown (a session set by setSession).
+  let refreshAt: number | null = null;
   let refreshing: Promise<Session | null> | null = null;
   let restoring: Promise<void> | null = null;
 
   const publish = (session: Session | null) => {
     current = session;
+    if (session === null) refreshAt = null;
     onChange(session);
+  };
+
+  /**
+   * A token from the API, with the moment to replace it. `expires_in` is
+   * relative (seconds from now), so the client's clock being wrong by
+   * minutes does not matter; only the request's own latency does, and
+   * the margin covers it.
+   */
+  const accept = (web: WebSession): Session => {
+    const lifetimeMs = web.expires_in * 1000;
+    refreshAt = now() + lifetimeMs - refreshMarginMs(lifetimeMs);
+    return toSession(web);
   };
 
   /** A new session from a login or a restore: merge, then publish. */
   const start = async (web: WebSession): Promise<Session> => {
-    const session = toSession(web);
+    const session = accept(web);
     await onStart?.(
       withAccessToken(api, () => session.accessToken),
       session,
@@ -99,7 +128,7 @@ export const createSessionManager = ({
           end();
           return null;
         }
-        const session = toSession(web);
+        const session = accept(web);
         publish(session);
         return session;
       } catch (error) {
@@ -119,10 +148,49 @@ export const createSessionManager = ({
 
     /** Replaces the session without asking the API (tests, mostly). */
     setSession: (session: Session | null) => {
+      refreshAt = null;
       publish(session);
     },
 
     refresh,
+
+    /**
+     * The access token to send with a request now (artikel 14), or null
+     * for a guest. A token about to expire is replaced first (proactive
+     * refresh, shared by every request that asks at the same time), so the
+     * request does not go out only to come back 401. When that refresh
+     * fails for a reason that does not end the session (the network), the
+     * current token is returned: it may still be good, and the 401 path
+     * below is the second chance.
+     */
+    ensureFreshToken: async (): Promise<string | null> => {
+      if (current === null) return null;
+      const token = current.accessToken;
+      if (refreshAt === null || now() < refreshAt) return token;
+      try {
+        return (await refresh())?.accessToken ?? null;
+      } catch {
+        // A failed refresh that did not end the session changed nothing.
+        return token;
+      }
+    },
+
+    /**
+     * After a request sent with `staleToken` came back 401 (artikel 14):
+     * the token to retry with, or null when the session is over (already
+     * ended here: onEnd has run). If another request has refreshed since
+     * this one was sent, its token is used without a second refresh;
+     * otherwise this refreshes, sharing a refresh already on its way.
+     * Other failures (the network, 429, 500) reject, and the session stays.
+     */
+    refreshAfterUnauthorized: async (
+      staleToken: string,
+    ): Promise<string | null> => {
+      if (current !== null && current.accessToken !== staleToken) {
+        return current.accessToken;
+      }
+      return (await refresh())?.accessToken ?? null;
+    },
 
     /**
      * At start-up: ask for a new access token with the cookie, if the

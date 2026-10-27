@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import type { ApiClient } from "@goshop/shared";
 import { api } from "@/lib/api.ts";
-import { withAccessToken } from "./auth-client.ts";
+import { createAuthClient } from "./auth-client.ts";
 import { SessionContext } from "./session-context.ts";
 import type {
   Session,
@@ -84,7 +84,9 @@ export function SessionProvider({
       setSession: manager.setSession,
       getSession: manager.getSession,
       getAccessToken: manager.getAccessToken,
-      authApi: withAccessToken(api, manager.getAccessToken),
+      // Adds the access token, refreshes it before it expires, and once
+      // more after a 401 (artikel 14).
+      authApi: createAuthClient(api, manager),
     }),
     [manager],
   );

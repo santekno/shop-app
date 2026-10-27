@@ -53,8 +53,9 @@ export interface SessionActions {
   getSession: () => Session | null;
   /**
    * The API client for requests made as the logged-in user: it adds the
-   * access token to each one (and, from artikel 14, refreshes it). For a
-   * guest it sends the request without a token.
+   * access token to each one, refreshes the token shortly before it
+   * expires, and refreshes and retries once after a 401 (artikel 14,
+   * createAuthClient). For a guest it sends the request without a token.
    */
   authApi: ApiClient;
   /**

@@ -1,3 +1,4 @@
+import { isApiError } from "@goshop/shared";
 import type { ApiClient, RequestOptions } from "@goshop/shared";
 
 /** `options` with `Authorization: Bearer <token>` added to its headers. */
@@ -29,5 +30,60 @@ export const withAccessToken = (
       path,
       token === null ? options : withBearer(options ?? {}, token),
     );
+  },
+});
+
+/** What createAuthClient needs from the session (session-manager.ts). */
+export interface TokenSource {
+  /** The token to send now, refreshed first when it is about to expire. */
+  ensureFreshToken: () => Promise<string | null>;
+  /** After a 401 with `staleToken`: the token to retry with, or null. */
+  refreshAfterUnauthorized: (staleToken: string) => Promise<string | null>;
+}
+
+/**
+ * The refresh-token interceptor (artikel 14): a client with the same shape
+ * as `api`, for every request made as the logged-in user.
+ *
+ * 1. Before sending, it asks for a fresh token. A token within its last
+ *    30 seconds is replaced first (proactive refresh): the normal case
+ *    never sees a 401, so no failed request and no red line in the
+ *    console.
+ * 2. If the API still answers 401 UNAUTHORIZED (the token expired anyway:
+ *    a tab asleep in the background, a clock jump, the API restarted with
+ *    another key, the session revoked), it refreshes once and sends the
+ *    same request again, once. The API answers an expired access token
+ *    with UNAUTHORIZED, never TOKEN_EXPIRED (that code is only about the
+ *    refresh token), so any 401 to a request that carried a token counts.
+ * 3. Many requests that fail together share one refresh: the session
+ *    manager keeps a refresh on its way as a single promise, and a request
+ *    whose token was already replaced by the time its 401 arrived just
+ *    retries with the new one.
+ * 4. When the refresh says the session is over (204, or 401 from the
+ *    refresh endpoint), the session manager has already ended the session
+ *    (and App.tsx dropped the user's cart and account); the original 401
+ *    is thrown, and a protected page redirects to /masuk.
+ *
+ * Retrying a POST is safe here: a 401 comes from the auth middleware,
+ * before the handler runs, so nothing was done the first time. A second
+ * 401 is not retried again; there is no loop.
+ *
+ * Without a session it sends the request as it is, as a guest's.
+ */
+export const createAuthClient = (
+  api: ApiClient,
+  tokens: TokenSource,
+): ApiClient => ({
+  request: async <T>(path: string, options?: RequestOptions) => {
+    const token = await tokens.ensureFreshToken();
+    if (token === null) return api.request<T>(path, options);
+    try {
+      return await api.request<T>(path, withBearer(options ?? {}, token));
+    } catch (error) {
+      if (!isApiError(error, "UNAUTHORIZED")) throw error;
+      const fresh = await tokens.refreshAfterUnauthorized(token);
+      if (fresh === null) throw error;
+      return api.request<T>(path, withBearer(options ?? {}, fresh));
+    }
   },
 });
