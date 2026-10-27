@@ -23,8 +23,8 @@ import { registeredEmailFrom } from "../navigation-state.ts";
  * focus.
  *
  * The rules come from loginSchema in @goshop/shared, through zodResolver:
- * the same schema the mobile app uses, checked against the contract's
- * LoginRequest type. onSubmit receives the schema's output (the email
+ * the schema the mobile app will use too (from Bab 13), checked against
+ * the contract's LoginRequest type. onSubmit receives the schema's output (the email
  * already trimmed), which is what is sent.
  */
 export function LoginPage() {

@@ -6,7 +6,8 @@ import type { LoginRequest, RegisterRequest } from "../api/types.ts";
 // the API's handler really checks (apps/api/internal/auth: handler.go and
 // password.go). A client check is a convenience: it answers at once, in
 // the buyer's language, but the API checks everything again and has the
-// last word. Shared by the web and mobile apps, so both ask the same.
+// last word. Shared by the web app and, from Bab 13, the mobile app, so
+// both ask the same.
 
 /** The password policy (NIST SP 800-63B): a length, and no rules about
  *  digits or symbols. The API also refuses the most common leaked
