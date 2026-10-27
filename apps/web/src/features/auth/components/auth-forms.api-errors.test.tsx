@@ -46,6 +46,39 @@ describe("LoginPage and the API's answer", () => {
     expect(currentLocation()).toBe("/masuk");
   });
 
+  it("moves the focus to INVALID_CREDENTIALS, again after each failed try", async () => {
+    // A new Response per call: a body can be read only once.
+    fetchMock.mockImplementation(() =>
+      Promise.resolve(errorResponse(401, "INVALID_CREDENTIALS")),
+    );
+    await submitLogin();
+
+    const alert = await screen.findByRole("alert");
+    await vi.waitFor(() => {
+      expect(document.activeElement).toBe(alert);
+    });
+    // Focusable from code, but not a stop for Tab.
+    expect(alert.tabIndex).toBe(-1);
+
+    // The buyer corrects the password and tries again: wrong again.
+    const user = userEvent.setup();
+    await user.clear(field("Kata sandi"));
+    await user.type(field("Kata sandi"), "masih-salah");
+    // Typing re-renders the form; the error does not pull the focus back.
+    expect(document.activeElement).toBe(field("Kata sandi"));
+
+    await user.keyboard("{Enter}");
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+    await vi.waitFor(() => {
+      expect(document.activeElement).toBe(screen.getByRole("alert"));
+    });
+    expect(screen.getByRole("alert").textContent).toBe(
+      "Email atau kata sandi salah.",
+    );
+  });
+
   it("puts a field's VALIDATION_FAILED detail under that field", async () => {
     fetchMock.mockResolvedValue(
       validationResponse({ email: "must be an email address" }),
@@ -126,12 +159,26 @@ describe("RegisterPage and the API's answer", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  it("shows anything else above the button", async () => {
+  it("shows anything else above the button and moves the focus to it", async () => {
     fetchMock.mockResolvedValue(validationResponse({ body: "must be JSON" }));
     await submitRegister();
 
-    expect((await screen.findByRole("alert")).textContent).toBe(
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBe(
       "Permintaan tidak berhasil. Periksa isian Anda, lalu coba lagi.",
     );
+    await vi.waitFor(() => {
+      expect(document.activeElement).toBe(alert);
+    });
+  });
+
+  it("moves the focus to a network failure", async () => {
+    fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
+    await submitRegister();
+
+    const alert = await screen.findByRole("alert");
+    await vi.waitFor(() => {
+      expect(document.activeElement).toBe(alert);
+    });
   });
 });
