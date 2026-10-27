@@ -63,3 +63,36 @@ export const ensureBuyer = async (): Promise<void> => {
     `UPDATE users SET email_verified_at = COALESCE(email_verified_at, now()) WHERE email = '${BUYER.email}'`,
   );
 };
+
+/** A buyer the web session specs log in with. */
+export interface Account {
+  name: string;
+  email: string;
+  password: string;
+}
+
+/**
+ * Registers a new buyer through the real API, for the specs that log in
+ * more often than BUYER's per-email limit (5 per 15 minutes) allows. Each
+ * spec file registers one in beforeAll; register allows 10 per hour per
+ * IP, which global-setup's clearRateLimits resets for every run. Login
+ * does not need a verified email.
+ */
+export const registerBuyer = async (label: string): Promise<Account> => {
+  const account: Account = {
+    name: `Pembeli ${label}`,
+    email: `e2e-${label}-${crypto.randomUUID().slice(0, 8)}@goshop.local`,
+    password: "teh-tarik-e2e-2026",
+  };
+  const response = await fetch(`${API_URL}/v1/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(account),
+  });
+  if (response.status !== 201) {
+    throw new Error(
+      `register ${account.email}: HTTP ${response.status} ${await response.text()}`,
+    );
+  }
+  return account;
+};
