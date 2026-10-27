@@ -18,7 +18,8 @@ const PROBLEM_TEXT = {
 } as const;
 
 /**
- * /keranjang: a minimal cart page, the guest cart's lines and subtotal.
+ * /keranjang: a minimal cart page, the cart's lines and subtotal: the
+ * guest cart, or the logged-in buyer's own cart (useCart picks which).
  * Changing quantities, removing lines and checking out are Bab 11's full
  * cart page.
  */
