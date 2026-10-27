@@ -38,6 +38,36 @@ describe("safeReturnPath", () => {
     expect(safe(value)).toBe("/");
   });
 
+  // Each of these passes the input check (one leading "/") and parses to
+  // our origin, but the parser's normalisation (dot segments removed, the
+  // encoded %2e read as a dot, a backslash turned into "/") leaves the path
+  // "//evil.example…": a protocol-relative URL to another host once it is
+  // returned as a string. Only the check on the parsed path refuses them.
+  it.each([
+    ["a dot segment before //", "/.//evil.example"],
+    ["a parent segment before //", "/x/..//evil.example/masuk"],
+    ["an encoded dot segment", "/%2e//evil.example"],
+    ["an encoded dot segment, upper case", "/%2E//evil.example"],
+    ["an encoded parent segment", "/x/%2e%2e//evil.example"],
+    ["a dot segment before a backslash", "/./\\evil.example"],
+    ["a dot segment, backslash first", "/.\\/evil.example"],
+    ["an encoded dot segment before a backslash", "/%2e/\\evil.example"],
+    ["a dot segment, with a query and hash", "/.//evil.example/x?y=1#z"],
+  ])("refuses %s, which normalises to //host", (_name, value) => {
+    expect(new URL(value, ORIGIN).pathname.startsWith("//")).toBe(true);
+    expect(safe(value)).toBe("/");
+  });
+
+  it.each([
+    // An ordinary dot segment still resolves to a path on our site.
+    ["/./akun", "/akun"],
+    ["/x/../akun?y=1", "/akun?y=1"],
+    // An encoded slash stays encoded: one path segment, not a host.
+    ["/.%2F/evil.example", "/.%2F/evil.example"],
+  ])("keeps %s, whose parsed path has one leading slash", (value, expected) => {
+    expect(safe(value)).toBe(expected);
+  });
+
   it.each([null, undefined])("is / for %s (no parameter)", (value) => {
     expect(safe(value)).toBe("/");
   });
