@@ -12,15 +12,15 @@ Branch: `bab-10` (from `bab-9` @ `51d6256`; Bab 9 verified code `5bc9de2`)
 | 3 integration | integration-engineer | pass | Go integration against real PostgreSQL and Redis: 4208 passed (1088 top level), 0 skipped, including 9 web-session tests with 34 subtests (`apps/api/tests/integration/auth_web_test.go`). Playwright (Chromium) against the Compose stack: 87 passed, 0 skipped, no CSP violation: theme saved and applied before `<body>`, the skip link, the web session (reload, two tabs reloaded together, logout, guest cart merge), the redirect to Masuk and back including open-redirect attempts, and session expiry (proactive refresh, one retry after a 401, a refused refresh). SeaweedFS needed `-volume.max` on a near-full disk during the runs: an environment fix, not a code change |
 | 4 quality review | quality-review | pass | round 1: BLOCKED, 2 blocking (B1, B2) and 8 advice items (A1–A8); round 2: pass, 0 blocking, 4 advice items (R2-A1–R2-A4). B1, B2, A1–A5, R2-A1 and R2-A2 fixed; A6 and A7 recorded under Notes; A8, R2-A3 and R2-A4 under Deferred; round 3 (the R2-A1/R2-A2 fixes): pass, 0 blocking, 2 docs advice items (R3-A1, R3-A2) under Deferred |
 
-**Verified SHA:** `e4ef06919c361c1779412112bb50056127cc15ee` (2026-10-27). The round-1 review read `c48baf5`, the head after stage 3; the B1/B2 fixes and the round-1 advice (`89cfeeea..3377bfc`), then R2-A1 and R2-A2 (`cc60bae`, `5a3fd0a`, `e4ef069`), followed.
+**Verified SHA:** `eabb7600a628811a08148830ae392fd12b292c9b` (2026-10-27), after the fixes found while writing the articles ("After the gate"); the gate first passed on `e4ef06919c361c1779412112bb50056127cc15ee`. The round-1 review read `c48baf5`, the head after stage 3; the B1/B2 fixes and the round-1 advice (`89cfeeea..3377bfc`), then R2-A1 and R2-A2 (`cc60bae`, `5a3fd0a`, `e4ef069`), followed.
 
 **Per-commit, read honestly.** Every commit in `bab-9..bab-10` passes the TypeScript typecheck, lint and build and the Go build, vet and tests at its own snapshot (checked by an exec rebase after the rebase onto `bab-9`, and again by the per-commit loop). The web **unit tests** do not pass at every snapshot: 37 of the 62 commits pass the full loop (Go build/vet/test, TS typecheck/lint/unit), 25 do not. Unlike Bab 5–9, Bab 10's stage 1 ran after the whole of stage 0, so:
 - the 19 commits from `745f1ab` (artikel 03) to `58019b7` (artikel 12) keep the Bab 9 unit tests that their restyling and the Zustand store made stale; `cb6f622` moves those tests to the new behaviour, and every commit after it is green except the next two items;
 - three e2e commits (`65d5bab`, `00ad4d6`, `504a1fb`) fail only Prettier until `fc91fc7` and the next commits format them;
 - the B2 fix `feacc9f` and the docs commit after it fail one old unit test until `c335530` replaces it, and `38a9dfe` (whose base is that pair) with them.
-No commit ships a known defect: each failure is a test or format expectation that a later commit in the same chapter updates. Splitting `cb6f622` back into the article commits would make every commit green, as in earlier chapters; it is left as is to avoid a full history rewrite and another gate run.
+The nine commits after `4bc61b1` pass the full loop (9/9). No commit ships a known defect: each failure is a test or format expectation that a later commit in the same chapter updates. Splitting `cb6f622` back into the article commits would make every commit green, as in earlier chapters; it is left as is to avoid a full history rewrite and another gate run.
 
-`make verify` ran from a cold stack (`docker compose down -v` first) at the verified SHA and passed every stage in 626 s: 1088 top-level Go integration tests and 87 Playwright tests passed, 0 skipped, and 900 TypeScript unit tests (243 shared, 657 web; coverage shared 100% lines and 99.18% branches, web 100% lines and 98.4% branches). `apps/api` changed in this chapter, so the Go integration suite ran again under `-race` (`-timeout 60m`): 28 packages, clean.
+`make verify` ran from a cold stack (`docker compose down -v` first) at the verified SHA and passed every stage in 561 s at `eabb760` (626 s at `e4ef069`): 1088 top-level Go integration tests and 87 Playwright tests passed, 0 skipped, and 910 TypeScript unit tests (243 shared, 667 web; at `e4ef069` 657 web; coverage shared 100% lines and 99.18% branches, web 100% lines and 98.4% branches). `apps/api` changed in this chapter, so the Go integration suite ran again under `-race` (`-timeout 60m`) at `e4ef069`: 28 packages, clean; the fixes after it change no Go code, migration or module file.
 
 ### What the gate changed
 
@@ -35,6 +35,15 @@ No commit ships a known defect: each failure is a test or format expectation tha
   - A5: the refresh limit is spent once per page load of a *logged-in* buyer; a visitor without the cookie gets `204` and is not counted (`3377bfc`).
 - **Found while building artikel 04:** white text on the dark theme's blue button (3.1:1, also Bab 9's cart count) and on its red `destructive` button (2.5:1) failed WCAG AA. Each theme now has its own `primary-foreground` and `destructive-foreground`, and every text pair is measured in `docs/web/README.md` (`0b23c96`).
 - **Found while building artikel 03:** shadcn/ui's menu is modal by default and its scroll lock injects a `<style>` element that the storefront's CSP blocks, a violation the e2e suite fails on; `DropdownMenu` defaults to `modal={false}`. Its focus ring was a `box-shadow`, which forced-colours mode removes; it is an outline now (`745f1ab`).
+
+### After the gate
+
+Writing the articles found one latent bug and some inaccurate comments and docs at `e4ef069`. They were fixed in nine commits (`4bc61b1..eabb760`) and the whole gate ran again at `eabb760`.
+
+- **`Button`'s `link` variant lost to the size** (artikel 03, `8514be9`): `cva` writes the variant's classes before the size's and tailwind-merge keeps the later one, so `variant="link"` rendered `h-10 px-4 py-2` instead of `h-auto px-0`. Nothing used the variant yet. The reset is now a `compoundVariants` entry, written last; `Button.test.tsx` (`eabb760`, 10 tests) fails against the old code.
+- **Comments and docs corrected:** the `--border`/`--input`/`--ring` comments (`f5fc7eb`); the `CartPage` doc comment (`bcba298`); the measured field-edge contrast (`2af8d14`; light 3.64:1 page and 3.87:1 card, dark 4.47:1 card and 4.88:1 page — the card value first written as 3.88 is 3.8749); readers render again on each token refresh too (`8a77d18`, `940b9ef`).
+- **Round-3 advice closed:** R3-A1, the contract doc's Effect column (`791b203`); R3-A2, a login right after the forced logout is logged out again at the next refresh, and only a page load while logged out gives the attacker's session (`9b4bc2a`).
+- **Orchestrator authority:** the 3.88 → 3.87 correction in `docs/web/README.md` (frontend-owned) was made in this record's commit.
 
 ## Decisions
 
@@ -81,8 +90,6 @@ The API side is ADR 0008 (`docs/adr/0008-web-session-cookie.md`), which records 
 
 ## Deferred
 
-- **R3-A1:** the Effect column of `docs/web/bab-10-auth-cookie-contract.md` (~line 14) describes only the forced logout; it should add that the planted cookie is accepted on the next page load (frontend-engineer).
-- **R3-A2:** `apps/api/SECURITY.md` and ADR 0008 could add that a buyer who logs in again right after the forced logout is logged out again at the next refresh; only a page load while logged out gives the attacker's session (backend-engineer).
 
 - **A8:** `WebLogin` ignores a `goshop_refresh` cookie the request already carries; a session whose restore failed with a 5xx stays valid in the database until it expires. Optional: revoke the presented cookie's session on a successful web login (best effort, logged).
 - **R2-A3:** `safeReturnPath` matches `/masuk` and `/daftar` exactly, while React Router also routes `/masuk/`, `/Masuk`, `/%6Dasuk` and `/Daftar` to the auth pages. Not a loop: a logged-in LoginPage navigates to `/`, so it costs one extra hop.
