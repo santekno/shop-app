@@ -1,4 +1,4 @@
-import { Link } from "react-router";
+import Link from "next/link";
 import type { Money } from "@goshop/shared";
 import { cartErrorMessage } from "../cart-errors.ts";
 import { useAddToCart } from "../hooks/useAddToCart.ts";
@@ -40,7 +40,7 @@ export function AddToCart({ variantId, unitPrice, quantity }: AddToCartProps) {
         {addToCart.isSuccess && (
           <>
             Ditambahkan ke keranjang.{" "}
-            <Link to="/keranjang">Lihat keranjang</Link>
+            <Link href="/keranjang">Lihat keranjang</Link>
           </>
         )}
       </p>

@@ -2,7 +2,6 @@ import { useQuery } from "@tanstack/react-query";
 import { Card } from "@/components/ui/Card.tsx";
 import { ErrorState, LoadingState } from "@/components/ui/StatusMessage.tsx";
 import { useSession } from "@/features/auth/session-context.ts";
-import { useDocumentTitle } from "@/hooks/useDocumentTitle.ts";
 import { meQuery } from "../api/queries.ts";
 
 const dateFormat = new Intl.DateTimeFormat("id-ID", { dateStyle: "long" });
@@ -14,7 +13,6 @@ const dateFormat = new Intl.DateTimeFormat("id-ID", { dateStyle: "long" });
  * the session lives, and a protected page should show the server's word.
  */
 export function AccountPage() {
-  useDocumentTitle("Akun saya — GoShop");
   const { session, authApi } = useSession();
   // RequireAuth renders this page only when someone is logged in.
   const userId = session?.user.id ?? "";

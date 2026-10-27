@@ -1,8 +1,9 @@
 import { useMutation } from "@tanstack/react-query";
-import { useNavigate } from "react-router";
+import { useRouter } from "next/navigation";
 import { ApiError, payOrder } from "@goshop/shared";
 import type { Order, PaymentSession } from "@goshop/shared";
 import { useSession } from "@/features/auth/session-context.ts";
+import { setNavigationState } from "@/lib/navigation-state.ts";
 import { paymentPath } from "../paths.ts";
 import { rememberPaymentReturn } from "../payment-state.ts";
 
@@ -57,7 +58,7 @@ type PaymentStep =
  */
 export const usePayOrder = () => {
   const { authApi } = useSession();
-  const navigate = useNavigate();
+  const router = useRouter();
 
   const mutation = useMutation({
     mutationFn: async (order: PayableOrder): Promise<PaymentStep> => {
@@ -75,18 +76,30 @@ export const usePayOrder = () => {
   });
 
   /** Sends the browser where the payment happens. */
-  const go = async (step: PaymentStep, replace: boolean) => {
+  const go = (step: PaymentStep, replace: boolean) => {
+    const path = paymentPath(step.order.id);
     if (step.kind === "fake") {
-      await navigate(paymentPath(step.order.id), {
-        replace,
-        state: { fakeProvider: true },
-      });
+      setNavigationState(path, { fakeProvider: true });
+      if (replace) router.replace(path);
+      else router.push(path);
       return;
     }
     rememberPaymentReturn({ orderId: step.order.id, code: step.order.code });
-    // Wait for the router to commit the payment page (it is a lazy
-    // route), so that is the entry Back from Midtrans returns to.
-    await navigate(paymentPath(step.order.id), { replace });
+    // The entry Back from Midtrans returns to is the payment page, not
+    // the emptied checkout: the address bar's entry is switched to it
+    // before leaving (Next.js keeps its router in step with a direct
+    // history.replaceState or pushState call).
+    if (replace) window.history.replaceState(null, "", path);
+    else window.history.pushState(null, "", path);
+    // Back may restore this very document from the back/forward cache,
+    // still showing the page it left; load the payment page instead.
+    window.addEventListener(
+      "pageshow",
+      (event) => {
+        if (event.persisted) window.location.reload();
+      },
+      { once: true },
+    );
     window.location.assign(step.url);
   };
 
@@ -106,7 +119,7 @@ export const usePayOrder = () => {
     mutation.mutate(order, {
       onError,
       onSuccess: (step) => {
-        void go(step, replace);
+        go(step, replace);
       },
     });
   };

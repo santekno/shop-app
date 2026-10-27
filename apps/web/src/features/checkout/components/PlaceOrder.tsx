@@ -1,5 +1,5 @@
 import { useId, useMemo } from "react";
-import { Link } from "react-router";
+import Link from "next/link";
 import { checkoutProblems, isApiError } from "@goshop/shared";
 import { ORDERS_PATH } from "@/features/orders/paths.ts";
 import type { CartLine } from "@goshop/shared";
@@ -55,7 +55,7 @@ export function PlaceOrder({
       <FormAlert error={alert} />
       {isApiError(error, "TOO_MANY_PENDING_ORDERS") && (
         <p>
-          <Link to={ORDERS_PATH}>Lihat pesanan Anda yang belum dibayar</Link>
+          <Link href={ORDERS_PATH}>Lihat pesanan Anda yang belum dibayar</Link>
         </p>
       )}
       <Button

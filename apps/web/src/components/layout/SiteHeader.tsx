@@ -1,16 +1,17 @@
-import { Link } from "react-router";
+import Link from "next/link";
 import { AccountNav } from "@/features/auth/components/AccountNav.tsx";
 import { CartNavLink } from "@/features/cart/components/CartNavLink.tsx";
 import { ThemeToggle } from "@/features/theme/components/ThemeToggle.tsx";
 
 /**
- * The site's banner and main navigation, on every page (RootLayout).
+ * The site's banner and main navigation, on every page (SiteFrame).
  *
- * <Link> renders a real <a href>: it can be opened in a new tab, copied
- * and read by a screen reader as a link. A plain click is caught and
- * handled by the router without a page load. <NavLink> is a Link that
- * knows when its page is the current one: it sets aria-current="page"
- * (which the CSS styles), so the current page is announced too.
+ * <Link> (next/link) renders a real <a href>: it can be opened in a new
+ * tab, copied and read by a screen reader as a link. A plain click is
+ * caught and handled by the router without a page load. <NavLink>
+ * (components/navigation) is a Link that knows when its page is the
+ * current one: it sets aria-current="page" (which the CSS styles), so the
+ * current page is announced too.
  *
  * Styled with Tailwind utilities: each class sets one property (flex,
  * gap-x-6, text-3xl, font-bold), so the layout is read in the markup
@@ -19,7 +20,7 @@ import { ThemeToggle } from "@/features/theme/components/ThemeToggle.tsx";
  * (md:, hover:, [&_a]:) cover what a selector used to.
  *
  * JSX looks like HTML but compiles to function calls, not markup: with
- * "jsx": "react-jsx" (tsconfig.app.json) the build turns
+ * "jsx": "react-jsx" (tsconfig.json) the build turns
  * <header className="site-header"> into jsx("header", { className: … }),
  * imported for you from react/jsx-runtime. So `className`, not `class`;
  * every tag is closed; a component returns one root element.
@@ -29,7 +30,7 @@ export function SiteHeader() {
     <header className="mx-auto max-w-page px-4 pt-6">
       <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
         <Link
-          to="/"
+          href="/"
           className="text-2xl font-bold text-inherit no-underline sm:text-3xl"
         >
           GoShop

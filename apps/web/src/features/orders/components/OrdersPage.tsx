@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { Link } from "react-router";
+import Link from "next/link";
 import { formatRupiah } from "@goshop/shared";
 import { Button } from "@/components/ui/Button.tsx";
 import { Card } from "@/components/ui/Card.tsx";
@@ -10,7 +10,6 @@ import {
   LoadingState,
 } from "@/components/ui/StatusMessage.tsx";
 import { useSession } from "@/features/auth/session-context.ts";
-import { useDocumentTitle } from "@/hooks/useDocumentTitle.ts";
 import { ordersQuery } from "../api/queries.ts";
 import { formatDateTime } from "../format.ts";
 import { orderPath, paymentPath } from "../paths.ts";
@@ -30,7 +29,6 @@ import { OrderStatusBadge } from "./OrderStatusBadge.tsx";
  * buyer sees the deadline and starts the payment.
  */
 export function OrdersPage() {
-  useDocumentTitle("Pesanan saya — GoShop");
   const { session, authApi } = useSession();
   // RequireAuth renders this page only when someone is logged in.
   const userId = session?.user.id ?? "";
@@ -74,7 +72,7 @@ export function OrdersPage() {
       )}
       {orders.status === "success" && items.length === 0 && (
         <EmptyState>
-          Anda belum punya pesanan. <Link to="/">Mulai belanja</Link>.
+          Anda belum punya pesanan. <Link href="/">Mulai belanja</Link>.
         </EmptyState>
       )}
       {items.length > 0 && (
@@ -88,7 +86,7 @@ export function OrdersPage() {
                 <div className="flex flex-wrap items-center gap-2">
                   <Link
                     className="order-link font-medium"
-                    to={orderPath(order.id)}
+                    href={orderPath(order.id)}
                   >
                     {order.code}
                   </Link>
@@ -105,7 +103,7 @@ export function OrdersPage() {
                 {order.status === "pending_payment" && (
                   <Button asChild size="sm">
                     <Link
-                      to={paymentPath(order.id)}
+                      href={paymentPath(order.id)}
                       aria-label={`Bayar pesanan ${order.code}`}
                     >
                       Bayar

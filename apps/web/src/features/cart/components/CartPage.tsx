@@ -1,10 +1,9 @@
 import { useId, useRef, useState } from "react";
-import { Link } from "react-router";
+import Link from "next/link";
 import { formatRupiah } from "@goshop/shared";
 import type { CartLine } from "@goshop/shared";
 import { Card } from "@/components/ui/Card.tsx";
 import { ErrorState, LoadingState } from "@/components/ui/StatusMessage.tsx";
-import { useDocumentTitle } from "@/hooks/useDocumentTitle.ts";
 import { Button } from "@/components/ui/Button.tsx";
 import { selectCartExpired, useCartStore } from "../cart-store.ts";
 import { useCart } from "../hooks/useCart.ts";
@@ -28,7 +27,6 @@ import { EmptyCart } from "./EmptyCart.tsx";
  * removed.
  */
 export function CartPage() {
-  useDocumentTitle("Keranjang — GoShop");
   const { data: cart, status, error, isFetching, refetch } = useCart();
   // Client state from the cart store: the API forgot our cart, and the
   // buyer has not read why yet.
@@ -120,7 +118,7 @@ export function CartPage() {
                 </>
               ) : (
                 <Button asChild>
-                  <Link to="/checkout">Lanjut ke checkout</Link>
+                  <Link href="/checkout">Lanjut ke checkout</Link>
                 </Button>
               )}
             </div>

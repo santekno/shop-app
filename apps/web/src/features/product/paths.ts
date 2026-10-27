@@ -1,24 +1,40 @@
-/** The route pattern of a product page; useParams() reads `slug` from it. */
-export const PRODUCT_ROUTE = "/produk/:slug";
+/** Where a product page lives: app/produk/[slug]/page.tsx. */
+const PRODUCT_PREFIX = "/produk/";
 
 /**
  * The URL of a product's page. The slug is one path segment, so it is
  * encoded: a "/" or "?" in it must not change which route matches.
- * (The router decodes it again before useParams returns it.)
+ * (Next.js decodes it again before the page reads `params.slug`.)
  */
 export const productPath = (slug: string): string =>
-  `/produk/${encodeURIComponent(slug)}`;
+  `${PRODUCT_PREFIX}${encodeURIComponent(slug)}`;
 
 /**
- * The state a catalog card puts on its link. History entries carry it, so
- * the product page knows that the entry before it is a catalog list (with
- * its filters, its pages and its scroll position), and its "back" link can
- * return there with history.back() instead of opening a fresh "/".
+ * The slug of a product page's path, decoded, or undefined for any other
+ * path (useRouteFocus: the card to focus when the buyer comes back).
+ */
+export const productSlugFromPath = (path: string): string | undefined => {
+  if (!path.startsWith(PRODUCT_PREFIX)) return undefined;
+  const segment = path.slice(PRODUCT_PREFIX.length);
+  if (segment === "" || segment.includes("/")) return undefined;
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * What a catalog card leaves for the product page it opens
+ * (lib/navigation-state.ts): the entry before the product is that list,
+ * with the buyer's filters, its pages and its scroll position, so the
+ * product page's "back" link can return there with history.back()
+ * instead of opening a fresh "/".
  */
 export const FROM_CATALOG = { fromCatalog: true } as const;
 
-/** Whether a location's state is FROM_CATALOG. It is `unknown`: anything
- *  can be in history.state, so it is checked, not cast. */
+/** Whether a page's navigation state is FROM_CATALOG. It is `unknown`:
+ *  anything can be in storage, so it is checked, not cast. */
 export const cameFromCatalog = (state: unknown): boolean =>
   typeof state === "object" &&
   state !== null &&

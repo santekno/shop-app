@@ -1,4 +1,4 @@
-import { Link } from "react-router";
+import Link from "next/link";
 import type { CategoryNode } from "@goshop/shared";
 
 interface CategoryTreeProps {
@@ -31,7 +31,7 @@ export function CategoryTree({
       {nodes.map((node) => (
         <li key={node.id} className="my-1">
           <Link
-            to={hrefFor(node.slug)}
+            href={hrefFor(node.slug)}
             className={`category-name ${categoryLinkClasses}`}
             // "true", not "page": the link marks the current item of a
             // set of filters, while the page itself stays the catalog.

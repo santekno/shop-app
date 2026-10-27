@@ -2,7 +2,9 @@ import { useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { formatRupiah } from "@goshop/shared";
 import type { CheckoutPreviewRequest, CheckoutRequest } from "@goshop/shared";
-import { Link, useNavigate } from "react-router";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { setNavigationState } from "@/lib/navigation-state.ts";
 import { Card } from "@/components/ui/Card.tsx";
 import { Section } from "@/components/ui/Section.tsx";
 import { ErrorState, LoadingState } from "@/components/ui/StatusMessage.tsx";
@@ -11,7 +13,6 @@ import { useCart } from "@/features/cart/hooks/useCart.ts";
 import { usePayOrder } from "@/features/orders/hooks/usePayOrder.ts";
 import { paymentPath } from "@/features/orders/paths.ts";
 import { payErrorMessage } from "@/features/orders/payment-errors.ts";
-import { useDocumentTitle } from "@/hooks/useDocumentTitle.ts";
 import {
   addressesQuery,
   cartSignature,
@@ -53,7 +54,6 @@ import { SummaryStep } from "./SummaryStep.tsx";
  * goes to its payment page anyway, which says why and offers "Bayar".
  */
 export function CheckoutPage() {
-  useDocumentTitle("Checkout — GoShop");
   const { session, authApi } = useSession();
   // RequireAuth renders this page only when someone is logged in.
   const userId = session?.user.id ?? "";
@@ -63,7 +63,7 @@ export function CheckoutPage() {
     null,
   );
   const [voucherCode, setVoucherCode] = useState<string | null>(null);
-  const navigate = useNavigate();
+  const router = useRouter();
   const place = usePlaceOrder(userId);
   const payment = usePayOrder();
 
@@ -139,10 +139,9 @@ export function CheckoutPage() {
         payment.pay(order, {
           replace: true,
           onError: (error) => {
-            void navigate(paymentPath(order.id), {
-              replace: true,
-              state: { payError: payErrorMessage(error) },
-            });
+            const path = paymentPath(order.id);
+            setNavigationState(path, { payError: payErrorMessage(error) });
+            router.replace(path);
           },
         });
       },
@@ -170,8 +169,8 @@ export function CheckoutPage() {
         <h1 tabIndex={-1}>Checkout</h1>
         {cartIsEmpty && (
           <p className="mt-2">
-            Keranjang Anda kosong. <Link to="/">Lihat produk</Link> untuk mulai
-            belanja.
+            Keranjang Anda kosong. <Link href="/">Lihat produk</Link> untuk
+            mulai belanja.
           </p>
         )}
       </Card>

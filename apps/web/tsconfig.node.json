@@ -1,6 +1,7 @@
 {
+  // vite.config.ts: since Bab 11 it only configures Vitest (the unit
+  // tests); Next.js builds the app. Checked with Node's globals.
   "compilerOptions": {
-    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.node.tsbuildinfo",
     "target": "ES2023",
     "lib": ["ES2023"],
     "types": ["node"],

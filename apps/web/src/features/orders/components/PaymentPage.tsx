@@ -1,19 +1,20 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link, useLocation, useParams } from "react-router";
+import Link from "next/link";
+import { useParams } from "next/navigation";
 import { formatRupiah, isApiError } from "@goshop/shared";
 import { Button } from "@/components/ui/Button.tsx";
 import { Card } from "@/components/ui/Card.tsx";
 import { ErrorState, LoadingState } from "@/components/ui/StatusMessage.tsx";
 import { useSession } from "@/features/auth/session-context.ts";
-import { useDocumentTitle } from "@/hooks/useDocumentTitle.ts";
 import { orderQuery } from "../api/queries.ts";
 import {
   canStartPayment,
   payButtonText,
   paymentOutcome,
 } from "../order-status.ts";
-import { orderPath } from "../paths.ts";
+import { orderPath, paymentPath } from "../paths.ts";
+import { useNavigationState } from "@/lib/navigation-state.ts";
 import { POLL_LIMIT_MS, pollDelay } from "../payment-polling.ts";
 import { paymentPageState } from "../payment-state.ts";
 import { FakePaymentHint } from "./FakePaymentHint.tsx";
@@ -48,10 +49,12 @@ const timeFormat = new Intl.DateTimeFormat("id-ID", { timeStyle: "medium" });
  * WebSocket or SSE endpoint kept open by every buyer on this page.
  */
 export function PaymentPage() {
-  useDocumentTitle("Pembayaran — GoShop");
-  const { id = "" } = useParams();
-  const location = useLocation();
-  const { fakeProvider, payError } = paymentPageState(location.state);
+  // The order's id from the URL (app/(akun)/pesanan/[id]/pembayaran).
+  const { id } = useParams<{ id: string }>();
+  // What checkout or "Bayar" handed to this page (lib/navigation-state.ts).
+  const { fakeProvider, payError } = paymentPageState(
+    useNavigationState(paymentPath(id)),
+  );
   const { session, authApi } = useSession();
   // RequireAuth renders this page only when someone is logged in.
   const userId = session?.user.id ?? "";
@@ -107,7 +110,7 @@ export function PaymentPage() {
         <div className="grid gap-4">
           <p>
             Pesanan{" "}
-            <Link to={orderPath(order.data.id)}>
+            <Link href={orderPath(order.data.id)}>
               <strong>{order.data.code}</strong>
             </Link>{" "}
             · Total <strong>{formatRupiah(order.data.totals.total)}</strong>

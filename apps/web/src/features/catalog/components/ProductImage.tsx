@@ -24,6 +24,8 @@ interface ProductImageProps {
 export function ProductImage({ name, src }: ProductImageProps) {
   if (src !== undefined && src !== "") {
     return (
+      // A plain <img> until artikel 12 decides how photos are served.
+      // eslint-disable-next-line @next/next/no-img-element
       <img
         className="product-image block aspect-square w-full rounded-md bg-muted object-cover"
         src={src}

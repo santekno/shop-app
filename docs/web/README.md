@@ -587,6 +587,7 @@ Paths are relative to `apps/web/src` unless they start with another top-level fo
 | 05 | Payment status page with polling | `features/orders/components/PaymentPage.tsx` (`refetchInterval` as a function, `staleTime: 0`, the round and "Periksa lagi"), `payment-polling.ts` (`POLL_DELAYS_MS`, `POLL_LIMIT_MS`, `pollDelay`), `components/PaymentStatus.tsx` (one live region), `order-status.ts` (`paymentOutcome`, `canStartPayment`, the status labels) |
 | 06 | Order history and detail | `features/orders/components/OrdersPage.tsx` (infinite query, "Muat lebih banyak", focus on the first new order, "Bayar" for an unpaid order), `OrderDetailPage.tsx` (the order's own snapshots, timeline, `PayButton`), `OrderStatusBadge.tsx`, `ordersQuery` in `api/queries.ts` (`staleTime: 0`), `orderStatusText` and `ORDER_STATUS_LABEL` in `order-status.ts`; "Pesanan saya" in `features/auth/components/AccountMenu.tsx`; the `muted` variant in `components/ui/Badge.tsx`; `listOrders` (`packages/shared/src/api/orders.ts`) |
 | 07 | Why an SPA is weak for SEO | the section below; `apps/web/scripts/seo-probe.js` (what a crawler without JavaScript reads) |
+| 08 | Next.js App Router: server vs client components | the section below; `app/` (folders as routes, `layout.tsx`, `(auth)` and `(akun)` route groups, `not-found.tsx`, `error.tsx`, `healthz/route.ts`), `components/layout/` (`Providers`, `SiteFrame`, `client-pages`, `ErrorPage`, `NotFoundPage`), `components/navigation/` (`NavLink`, `Redirect`), `proxy.ts` (CSP nonce), `lib/navigation-state.ts`, `getQueryClient` in `lib/query-client.ts`, `lib/server-config.ts`, `features/theme/useTheme.ts`, `next.config.ts`, `postcss.config.mjs` |
 
 ## The full cart page (artikel 01)
 
@@ -731,6 +732,89 @@ The catalog (`/`) answers the same 1 425 bytes, and so does `/produk/tidak-ada`,
 Only public pages need to be found: the catalog and the product pages. The cart, checkout, payment, orders and account pages are behind a login or private to one browser, must never be indexed, and depend on the buyer's session, which lives in the browser (the access token in memory, the refresh cookie on the API's path, Bab 10). They keep rendering in the browser after the move; they get `noindex` (artikel 10) instead of server rendering.
 
 So the move to Next.js (artikel 08) is about **where the first HTML is made** for public pages, not about rewriting the shop: the same components render on the server for the catalog and the products, and in the browser for everything personal.
+
+## Next.js App Router: server and client components (artikel 08)
+
+From this article the storefront is a Next.js 16 app (App Router, `next` 16.4.3 pinned in the pnpm catalog). The components of Bab 7–11 are kept; what moved is **routing** (React Router's route objects became folders under `src/app/`) and **where the first HTML is made**.
+
+### The routes, as folders
+
+| URL | File | Rendered |
+|---|---|---|
+| `/` | `app/page.tsx` → `CatalogPage` | on the server, then hydrated |
+| `/produk/[slug]` | `app/produk/[slug]/page.tsx` → `ProductDetailPage` (+ its own `not-found.tsx`) | on the server, then hydrated |
+| `/keranjang` | `app/keranjang/page.tsx` | browser only |
+| `/masuk`, `/daftar` | `app/(auth)/…/page.tsx` inside `app/(auth)/layout.tsx` (`AuthLayout`) | browser only |
+| `/akun`, `/checkout`, `/pesanan`, `/pesanan/[id]`, `/pesanan/[id]/pembayaran`, `/pembayaran/selesai` | `app/(akun)/…/page.tsx` inside `app/(akun)/layout.tsx` (`RequireAuth`) | browser only |
+| anything else | `app/not-found.tsx` | on the server, **status 404** |
+| `/healthz` | `app/healthz/route.ts` | a route handler: `ok` |
+
+The URLs are the Vite app's, so links, bookmarks and the e2e suite's paths still work. `(auth)` and `(akun)` are **route groups**: the parentheses keep the folder out of the URL; each gives its pages one layout and one `robots` setting (`noindex`).
+
+### Server components and client components
+
+- **A server component** (the default: every `page.tsx` and `layout.tsx` here) runs on the server for each request, can be `async` and read the request (`headers()`), and sends HTML; its code never reaches the browser. It cannot hold state, run effects or handle a click.
+- **A client component** starts with `"use client"`. It renders on the server too (for the first HTML), then again in the browser, where it is **hydrated**: React attaches state and event handlers to the HTML that is already there. Everything it imports is part of the browser's JavaScript.
+- The boundary is the file with `"use client"`: `components/layout/Providers.tsx` (TanStack Query, the session), `SiteFrame.tsx` (skip link, header, focus after navigation), `CatalogPage.tsx`, `ProductDetailPage.tsx`, `NotFoundPage.tsx`, `ErrorPage.tsx`/`app/error.tsx`, `RequireAuth.tsx`, `NavLink`, `Redirect`, `client-pages.tsx`. The components they import (the cards, the forms, `components/ui`) need no directive: they are client code because a client component imports them.
+- A server component can render a client component and pass it server-rendered `children`: the root layout renders `<Providers><SiteFrame>{children}</SiteFrame></Providers>` and the page stays a server component.
+
+### Rendered on the server, or in the browser only
+
+The catalog and the product pages are public: rendered on the server, they give a crawler the HTML artikel 07 found missing (artikel 09 fills it with the API's data). Every other page depends on what only the browser has: the session (the access token in memory, restored from the `HttpOnly` cookie that is sent to the API's path, never to this server, Bab 10), the guest cart token in `localStorage`, the remembered payment in `sessionStorage`. On the server they could only say "Memeriksa sesi Anda…". So `components/layout/client-pages.tsx` loads each with `dynamic(…, { ssr: false })`, Next.js' `lazy()`: the server sends "Memuat GoShop…", the page's code is a chunk of its own (the same `lazy.ts` loaders the React Router routes used), and the component renders in the browser exactly as before. The web session, the refresh interceptor, the Web Locks, the guest cart merge, `RequireAuth`'s wait-then-redirect, and TanStack Query for everything personal are unchanged.
+
+### What replaced React Router
+
+| React Router (Bab 9–10) | Next.js (Bab 11) |
+|---|---|
+| `routes.tsx`, `createBrowserRouter` | folders under `src/app/` |
+| `<Outlet />` in a layout route | `children` of `layout.tsx` |
+| `<Link to>` | `<Link href>` from `next/link` |
+| `<NavLink>` (sets `aria-current`) | `components/navigation/NavLink.tsx` (`usePathname`) |
+| `useNavigate()` | `useRouter().push/replace/back` from `next/navigation` |
+| `<Navigate replace>` | `components/navigation/Redirect.tsx` (browser decisions); `redirect()` on the server |
+| `useParams`, `useSearchParams` | the same names from `next/navigation` (`useSearchParams` is read-only; a filter change is `router.push`), or `params` given to the page |
+| `useLocation().state` | `lib/navigation-state.ts` (below) |
+| `lazy` routes | automatic per-page code splitting; `dynamic()` for the browser-only pages |
+| a route's `ErrorBoundary` | `app/error.tsx` (`ErrorPage`) |
+| the `*` route, a soft 404 | `app/not-found.tsx` and `notFound()`, with HTTP status 404 |
+| `useDocumentTitle` | `metadata` in each `page.tsx` (`title` template `%s — GoShop` in the root layout) |
+| `ScrollRestoration` | built in |
+| `NavigationProgress` (`useNavigation`) | removed; see below |
+
+- **Navigation state.** React Router could attach `state` to a history entry; Next.js' router keeps `history.state` for itself. Four small hand-overs used it: the catalog card telling the product page it came from the list (so "Kembali ke katalog" is `history.back()`), the register page passing the new email to `/masuk`, and checkout or "Bayar" passing "fake gateway" or "the payment could not start" to the payment page. `lib/navigation-state.ts` keeps one such value in `sessionStorage` under the path it is meant for: it survives a reload of that page, and the next navigation to another path forgets it (`SiteFrame`). A render reads it with `useSyncExternalStore`, whose server snapshot is "nothing", so the HTML and the first browser render agree.
+- **Midtrans' Back button.** The Vite app awaited the router before leaving for Midtrans, so Back returned to the payment page. Next.js' `router.replace` returns nothing to await; `usePayOrder` now switches the history entry with `history.replaceState` (Next.js keeps its router in step with it) and reloads the page if the browser restores the old one from its back/forward cache.
+- **No navigation progress bar.** Next.js has no global "navigating" state; the usual answer, a `loading.tsx`, streams the page behind a Suspense boundary, and a page that has started streaming can no longer answer 404: a missing product would be a 200 again. The product and catalog pages answer quickly from the data cache (artikel 09); a `loading.tsx` may be added under `(akun)`, where no status matters.
+- **Focus after a navigation** stays ours (`useRouteFocus`, now with `usePathname`): Next.js scrolls to the top and announces the new title, but moves no focus.
+
+### The QueryClient on the server
+
+`getQueryClient()` (`lib/query-client.ts`) returns a **new client on every server call** and **one client for the whole visit in the browser**. A module-level client on the server would live as long as the process and be shared by every visitor: one buyer's cart or orders could reach another buyer's HTML. The Zustand cart store is still a module-level singleton; on the server it never holds a token (`safeLocalStorage` finds no `localStorage` and the store starts empty), and nothing personal is rendered on the server.
+
+### Theme, CSP and the nonce (the decision)
+
+A server-rendered Next.js page carries **inline scripts**: the React Server Components payload React hydrates from (`self.__next_f.push(…)`). Bab 7–10's `script-src 'self'` refuses them. The choices:
+
+| Option | Inline scripts | Cost |
+|---|---|---|
+| `'unsafe-inline'` | allowed, ours and any injected one | the CSP no longer stops script injection: rejected |
+| hashes, or the experimental SRI build option | only for files known at build time; the RSC payload differs per page and request | not workable for dynamic pages |
+| **a nonce per request** (chosen) | only those carrying this request's nonce | every page renders per request: no full-route cache, no static HTML on a CDN |
+
+`src/proxy.ts` (Next.js 16's name for middleware) makes a random nonce per request, sends `Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-…'; style-src 'self' 'nonce-…'; img-src 'self' data:; connect-src 'self' <API origin>; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'`, and passes the nonce to the page in the request headers, where Next.js puts it on its own scripts. In development it adds `'unsafe-eval'` (React rebuilds server error stacks with `eval`) and `style-src 'unsafe-inline'` (hot reload's `<style>` elements). No `'strict-dynamic'`: with it browsers ignore `'self'`, and every script Next.js loads later would need the nonce too. The other headers Caddy sent (`X-Content-Type-Options`, `X-Frame-Options: DENY`, `Referrer-Policy`, `Permissions-Policy`) come from `headers()` in `next.config.ts`; `X-Powered-By` is off.
+
+**The theme stays a file.** With a nonce available, an inline script would be allowed, but `public/theme.js` keeps working under any CSP, is cached, and needs no change: the root layout renders `<script src="/theme.js">` in `<head>` (synchronous on purpose, so the `@next/next/no-sync-scripts` rule is silenced on that line with the reason), and `<html suppressHydrationWarning>` accepts the `data-theme` it sets before React hydrates. `useTheme` reads the choice and the device's preference with `useSyncExternalStore` and a server snapshot ("no choice, light"), so the server's HTML and the first browser render agree and the button corrects itself right after; the colours never wait, because the CSS reads `data-theme` and the media query.
+
+The cost of the nonce is measured in artikel 09 (the data is still cached).
+
+### Configuration
+
+- `NEXT_PUBLIC_API_URL` (build time, public): the API as the browser reaches it; `next build` refuses to run without it (`next.config.ts`), as Vite did with `VITE_API_URL`. Unset in development means `http://localhost:8080`.
+- `API_INTERNAL_URL` (run time, server only, `lib/server-config.ts` with `import "server-only"`): the API as the storefront's server reaches it (`http://api:8080` in Compose); unset means the public URL.
+- `next dev` runs on port 5173, the origin the API's CORS default allows.
+- `next.config.ts`: `output: "standalone"` (artikel 14), `outputFileTracingRoot` and `turbopack.root` at the workspace root and `transpilePackages: ["@goshop/shared"]` (the shared package ships TypeScript), `poweredByHeader: false`.
+- Tailwind CSS v4 runs as a PostCSS plugin (`postcss.config.mjs`, `@tailwindcss/postcss`) instead of the Vite plugin; `src/index.css`, the tokens and dark mode are unchanged.
+- ESLint adds `@next/eslint-plugin-next`'s Core Web Vitals rules; `eslint-plugin-react-refresh` (a Vite concern) is gone. `next-env.d.ts` is generated by `next typegen` (run by `typecheck`) and ignored by git.
+- `vite.config.ts` now only configures Vitest; the unit tests are excluded from `tsc` and ESLint until the test stage moves them to Next.js (they mount React Router's `MemoryRouter`).
 
 ## Bab 11, articles 01–06: what changed in the storefront
 

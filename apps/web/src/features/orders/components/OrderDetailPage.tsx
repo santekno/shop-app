@@ -1,12 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link, useParams } from "react-router";
+import Link from "next/link";
+import { useParams } from "next/navigation";
 import { formatRupiah, isApiError } from "@goshop/shared";
 import type { Order } from "@goshop/shared";
 import { Card } from "@/components/ui/Card.tsx";
 import { Section } from "@/components/ui/Section.tsx";
 import { ErrorState, LoadingState } from "@/components/ui/StatusMessage.tsx";
 import { useSession } from "@/features/auth/session-context.ts";
-import { useDocumentTitle } from "@/hooks/useDocumentTitle.ts";
 import { orderQuery } from "../api/queries.ts";
 import { formatDateTime } from "../format.ts";
 import {
@@ -50,8 +50,8 @@ const timeline = (order: Order): [string, string][] => {
  * payment page) and a link to its payment page.
  */
 export function OrderDetailPage() {
-  useDocumentTitle("Detail pesanan — GoShop");
-  const { id = "" } = useParams();
+  // The order's id from the URL (app/(akun)/pesanan/[id]).
+  const { id } = useParams<{ id: string }>();
   const { session, authApi } = useSession();
   // RequireAuth renders this page only when someone is logged in.
   const userId = session?.user.id ?? "";
@@ -64,7 +64,7 @@ export function OrderDetailPage() {
     <div className="grid gap-4">
       <Card>
         <p className="mb-2">
-          <Link to={ORDERS_PATH}>← Pesanan saya</Link>
+          <Link href={ORDERS_PATH}>← Pesanan saya</Link>
         </p>
         <h1 tabIndex={-1}>Detail pesanan</h1>
         {(order.status === "pending" ||
@@ -98,7 +98,7 @@ export function OrderDetailPage() {
               <>
                 <p>
                   Bayar sebelum {formatDateTime(order.data.payment_expires_at)}.{" "}
-                  <Link to={paymentPath(order.data.id)}>
+                  <Link href={paymentPath(order.data.id)}>
                     Lihat status pembayaran
                   </Link>
                 </p>

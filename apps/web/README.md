@@ -1,6 +1,6 @@
 # apps/web — GoShop storefront
 
-The storefront for buyers: a Vite + React 19 + TypeScript single-page app. Bab 7 set it up with one page, the category list. Bab 8 added the catalog and the product page in plain React. Bab 9 adds pages with React Router (`/`, `/produk/:slug`, `/keranjang`, `/masuk`, `/daftar`, a 404), server data with TanStack Query, a guest cart, and the login and registration forms with React Hook Form and Zod. Bab 10 restyles it with Tailwind CSS and shadcn/ui, keeps the guest cart in a Zustand store, and keeps the buyer logged in across reloads with an httpOnly refresh cookie. `docs/web/README.md` maps every chapter to the code.
+The storefront for buyers: a Next.js 16 (App Router) + React 19 + TypeScript app; Bab 7–10 built it as a Vite single-page app. Bab 7 set it up with one page, the category list. Bab 8 added the catalog and the product page in plain React. Bab 9 adds pages with React Router (`/`, `/produk/:slug`, `/keranjang`, `/masuk`, `/daftar`, a 404), server data with TanStack Query, a guest cart, and the login and registration forms with React Hook Form and Zod. Bab 10 restyles it with Tailwind CSS and shadcn/ui, keeps the guest cart in a Zustand store, and keeps the buyer logged in across reloads with an httpOnly refresh cookie. Bab 11 adds checkout, payment and order pages, then moves it to the Next.js App Router so the catalog and product pages render on the server. `docs/web/README.md` maps every chapter to the code.
 
 ## Run it
 
@@ -11,7 +11,7 @@ make up                                   # or: make dev-api, with postgres and 
 pnpm --filter @goshop/web dev             # http://localhost:5173
 ```
 
-Open **http://localhost:5173**, not `127.0.0.1:5173`: the API's CORS default (`APP_CORS_ALLOWED_ORIGINS=http://localhost:5173`) allows that exact origin, and the dev server refuses to move to another port (`strictPort`).
+Open **http://localhost:5173**, not `127.0.0.1:5173`: the API's CORS default (`APP_CORS_ALLOWED_ORIGINS=http://localhost:5173`) allows that exact origin, so `dev` always runs `next dev --port 5173` (it stops if the port is taken).
 
 `make up` also starts the built storefront (the `web` service) on the same port 5173, so stop it (`docker compose stop web`) before `pnpm dev`, or use the container instead of the dev server.
 
@@ -19,15 +19,15 @@ The Playwright suite in `e2e/` expects the example catalog from `make seed`: `ma
 
 Before the suite runs, its global setup (`e2e/support/global-setup.ts`) writes to the Compose project it tests, never anywhere else: it clears the API's rate-limit counters (`goshop:rl:*` in Redis), registers the e2e buyer `e2e-buyer@goshop.local` through `POST /v1/auth/register`, and marks it verified with `psql` in the Compose Postgres.
 
-| Script      | What it does                                                                          |
-| ----------- | ------------------------------------------------------------------------------------- |
-| `dev`       | Vite dev server with hot reload                                                       |
-| `typecheck` | `tsc -b`: the app (browser) and `vite.config.ts` (Node)                               |
-| `format`    | `prettier --write` and `eslint --fix`                                                 |
-| `lint`      | ESLint (no warnings allowed) and `prettier --check`                                   |
-| `build`     | Production bundle in `dist/`; needs `VITE_API_URL`                                    |
-| `test:unit` | Vitest, in a jsdom environment                                                        |
-| `preview`   | Serves `dist/` on port 4173 (not a CORS-allowed origin; for checking the bundle only) |
+| Script      | What it does                                                                         |
+| ----------- | ------------------------------------------------------------------------------------ |
+| `dev`       | `next dev` on port 5173, with hot reload                                             |
+| `typecheck` | `next typegen` (route types), then `tsc` for the app and for `vite.config.ts`        |
+| `format`    | `prettier --write` and `eslint --fix`                                                |
+| `lint`      | ESLint (no warnings allowed) and `prettier --check`                                  |
+| `build`     | `next build`: a standalone server in `.next/standalone`; needs `NEXT_PUBLIC_API_URL` |
+| `start`     | `next start`: serves the production build (port 3000, or `--port`)                   |
+| `test:unit` | Vitest, in a jsdom environment (`vite.config.ts` only configures Vitest now)         |
 
 ## The web session locally (Bab 10)
 
@@ -39,26 +39,23 @@ Logging in sets an httpOnly refresh cookie, `goshop_refresh`, that the browser s
 
 To check it: log in, then DevTools → Application → Cookies → `http://localhost:8080` shows `goshop_refresh` with `HttpOnly`, `Secure`, `SameSite=Strict` and `Path=/v1/auth/web`; Local Storage and Session Storage hold no token (only `goshop:cart` and `goshop:theme`). A reload keeps you logged in, and the Network panel shows one `POST /v1/auth/web/refresh` per page load (`204` when logged out).
 
-## Configuration: `VITE_API_URL`
+## Configuration
 
-The only setting is the API's public URL, as the **browser** reaches it.
+| Variable              | Read                            | What it is                                                                                                                                                                    |
+| --------------------- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_API_URL` | at build time, by the browser   | the API as the **browser** reaches it. Written into the JavaScript: public, never a secret; `next build` stops without it; unset in development means `http://localhost:8080` |
+| `API_INTERNAL_URL`    | at run time, by the server only | the API as the storefront's **server** reaches it (`http://api:8080` in Compose); unset means `NEXT_PUBLIC_API_URL`                                                           |
 
-Vite replaces `import.meta.env.VITE_API_URL` with its value **at build time**: the URL ends up inside the JavaScript files. So:
+Next.js replaces only a literal `process.env.NEXT_PUBLIC_…` in code with its value, at build time, so changing the public URL means building again; the server-only variables are read when the server starts, so one image can run against any API it can reach. `lib/server-config.ts` imports `server-only`: a client component that imported it would fail the build.
 
-- it is public, and never a secret: every visitor can read it;
-- changing it means building again. One image serves one API.
-
-| Where                      | How it is set                                                                                                                 |
-| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm dev`                 | `apps/web/.env.local` (copy `.env.example`); unset means `http://localhost:8080`                                              |
-| `pnpm build`, `make build` | the environment; `make build` uses `http://localhost:8080` unless you set it. `vite build` stops when it is missing           |
-| `docker build`             | `--build-arg VITE_API_URL=https://api.example.com`; the build stops when it is missing                                        |
-| `make up` / Compose        | `VITE_API_URL` in your shell or the root `.env`, default `http://localhost:8080`                                              |
-| Railway                    | a service variable `VITE_API_URL` on the web service: Railway passes service variables to the Docker build as build arguments |
-
-We chose a build argument over a run-time `config.js` written at container start: it needs no start script and no second place to read configuration from, and Railway rebuilds on every deploy anyway. Its cost is one image per API URL, which is how GoShop deploys (one Railway service per environment).
+| Where                      | How it is set                                                                                            |
+| -------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `pnpm dev`                 | `apps/web/.env.local` (copy `.env.example`)                                                              |
+| `pnpm build`, `make build` | the environment, for example `NEXT_PUBLIC_API_URL=http://localhost:8080 pnpm --filter @goshop/web build` |
 
 ## Container
+
+_Until Bab 11 artikel 14 this section describes the Vite image (Caddy); artikel 14 replaces it with the Next.js standalone server._
 
 `apps/web/Dockerfile` (repo root as context) builds with pnpm on `node:24-alpine`, then serves `dist/` with Caddy (`apps/web/Caddyfile`) as a non-root user, listening on `$PORT` (8080 by default; Railway sets it). Caddy:
 
@@ -80,31 +77,34 @@ docker run --rm -e PORT=8080 -p 127.0.0.1:5173:8080 goshop-web
 
 ```
 src/
-├── main.tsx                       # mounts <App /> in StrictMode
-├── config.ts                      # VITE_API_URL, checked once
-├── app/
-│   ├── App.tsx                    # QueryClient, session and cart providers, the router
-│   ├── routes.tsx                 # every route: layouts, lazy pages, error boundaries
-│   ├── RootLayout.tsx             # header + <Outlet />, focus and scroll on navigation
-│   └── …                          # SiteHeader, NotFoundPage, RouteErrorPage, NavigationProgress
-├── components/ui/                 # Card, Section, StatusMessage, TextField
-├── hooks/                         # useDocumentTitle, useOnVisible, useLateHeadingFocus
+├── app/                           # the routes (Next.js App Router): one folder per URL segment
+│   ├── layout.tsx                 # <html>, <head> (theme.js), Providers + SiteFrame around every page
+│   ├── page.tsx                   # "/": the catalog (server-rendered)
+│   ├── produk/[slug]/             # "/produk/[slug]" (server-rendered) and its 404
+│   ├── keranjang/                 # "/keranjang" (browser only)
+│   ├── (auth)/                    # "/masuk", "/daftar" (browser only, noindex)
+│   ├── (akun)/                    # pages behind RequireAuth (browser only, noindex)
+│   ├── not-found.tsx, error.tsx   # the 404 (status 404) and the error boundary
+│   └── healthz/route.ts           # liveness probe
+├── proxy.ts                       # the CSP with a per-request nonce
+├── config.ts                      # NEXT_PUBLIC_API_URL, checked once
+├── components/
+│   ├── layout/                    # Providers, SiteFrame, SiteHeader, client-pages, ErrorPage, NotFoundPage
+│   ├── navigation/                # NavLink (aria-current), Redirect
+│   └── ui/                        # shadcn/ui and our small components
+├── hooks/                         # useOnVisible, useLateHeadingFocus
 ├── lib/
-│   ├── api.ts                     # the one API client (packages/shared)
-│   ├── query-client.ts            # the one QueryClient and its defaults
+│   ├── api.ts                     # the browser's API client (packages/shared)
+│   ├── server-config.ts           # server-only settings (API_INTERNAL_URL)
+│   ├── query-client.ts            # getQueryClient: one per request on the server, one per visit in the browser
+│   ├── navigation-state.ts        # what one page hands the next (React Router's location.state)
 │   ├── api-form-errors.ts         # VALIDATION_FAILED details → form fields
 │   └── error-message.ts           # ApiError → Indonesian text
-└── features/
-    ├── catalog/                   # "/": filters in the URL, infinite product list, categories
-    ├── product/                   # "/produk/:slug" (lazy), prefetch on hover
-    ├── cart/                      # guest cart token, add (optimistic), header count, "/keranjang"
-    └── auth/                      # "/masuk", "/daftar" (lazy), the web session (cookie + in-memory access token)
+└── features/                      # catalog, product, cart, auth, account, checkout, orders, theme
 ```
 
 Each feature keeps its own `components/`, `hooks/` and `api/` (query keys and options).
 
-`@/…` is an alias for `src/…` (`tsconfig.app.json` `paths` and `vite.config.ts` `resolve.alias`).
-
-Every route works as a deep link: Caddy answers `index.html` for any path that is not a file, and the router picks the page. The dev server does the same.
+`@/…` is an alias for `src/…` (`tsconfig.json` `paths`; `vite.config.ts` repeats it for Vitest).
 
 In development, the TanStack Query devtools button sits in the bottom-left corner; a production build leaves the devtools out of the bundle.

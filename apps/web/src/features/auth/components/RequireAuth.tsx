@@ -1,12 +1,18 @@
-import { Navigate, Outlet, useLocation } from "react-router";
+"use client";
+
+import { usePathname, useSearchParams } from "next/navigation";
+import type { ReactNode } from "react";
+import { Redirect } from "@/components/navigation/Redirect.tsx";
 import { LoadingState } from "@/components/ui/StatusMessage.tsx";
 import { loginPathFor } from "../return-to.ts";
 import { useSession } from "../session-context.ts";
 
 /**
- * A layout route around the pages that need a login (/akun). It adds no
- * URL segment and no markup of its own; it only decides whether its
- * children may render.
+ * Around the pages that need a login (/akun, /checkout, /pesanan…): the
+ * layout of the (akun) route group renders it (app/(akun)/layout.tsx).
+ * It adds no markup of its own; it only decides whether its children may
+ * render. A client component: the session lives in the browser, so only
+ * the browser can decide (the server always renders "restoring").
  *
  * - "restoring": the start-up refresh has not answered yet. Deciding now
  *   would send a logged-in buyer who reloads /akun to the login form, so
@@ -20,16 +26,19 @@ import { useSession } from "../session-context.ts";
  * every protected request without a valid token anyway. A redirect only
  * saves the buyer a page full of 401 errors.
  */
-export function RequireAuth() {
+export function RequireAuth({ children }: { children: ReactNode }) {
   const { status } = useSession();
-  const location = useLocation();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
 
   if (status === "restoring") {
     return <LoadingState>Memeriksa sesi Anda…</LoadingState>;
   }
   if (status === "anonymous") {
-    const here = `${location.pathname}${location.search}${location.hash}`;
-    return <Navigate to={loginPathFor(here)} replace />;
+    // "anonymous" only ever happens in the browser, after the restore.
+    const search = searchParams.toString();
+    const here = `${pathname}${search === "" ? "" : `?${search}`}${window.location.hash}`;
+    return <Redirect to={loginPathFor(here)} />;
   }
-  return <Outlet />;
+  return children;
 }

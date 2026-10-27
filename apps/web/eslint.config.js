@@ -2,23 +2,34 @@
 // later entry wins over an earlier one for the files it matches.
 import js from "@eslint/js";
 import prettier from "eslint-config-prettier/flat";
+import nextPlugin from "@next/eslint-plugin-next";
 import reactHooks from "eslint-plugin-react-hooks";
-import reactRefresh from "eslint-plugin-react-refresh";
 import { defineConfig, globalIgnores } from "eslint/config";
 import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default defineConfig([
-  globalIgnores(["dist"]),
+  // Build output and the file `next build` writes.
+  globalIgnores(["dist", ".next", "next-env.d.ts"]),
+  // The unit tests, their setup and vite.config.ts (which only runs them
+  // now) were written for the Vite app and React Router. Bab 11 artikel
+  // 08 moved the app to Next.js; the test stage moves them, with a
+  // tsconfig of their own, and removes this entry.
+  globalIgnores([
+    "src/**/*.test.{ts,tsx}",
+    "src/test/**",
+    "src/vitest.setup.ts",
+    "vite.config.ts",
+  ]),
   {
-    // This file itself, run by Node.
-    files: ["**/*.js"],
+    // This file and the scripts, run by Node.
+    files: ["**/*.{js,mjs}"],
     extends: [js.configs.recommended],
     languageOptions: { globals: globals.node },
   },
   {
-    // public/ is copied into the build as it is and runs in the browser
-    // (public/theme.js, before the app): browser globals, not Node's.
+    // public/ is served as it is and runs in the browser (public/theme.js,
+    // before the app): browser globals, not Node's.
     files: ["public/**/*.js"],
     languageOptions: { globals: globals.browser },
   },
@@ -34,9 +45,10 @@ export default defineConfig([
       // The Rules of Hooks, exhaustive effect dependencies, and the React
       // Compiler checks (no setState during render, no mutating props …).
       reactHooks.configs.flat["recommended-latest"],
-      // Hot reload keeps component state only when a file exports
-      // components alone.
-      reactRefresh.configs.vite,
+      // Next.js' own rules: <a> for an internal page instead of <Link>,
+      // a <head> or <script> where Next.js manages them, and the Core Web
+      // Vitals checks (a synchronous script, an <img> without sizes …).
+      nextPlugin.configs["core-web-vitals"],
     ],
     languageOptions: {
       globals: globals.browser,

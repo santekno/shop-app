@@ -3,6 +3,11 @@ import type { ListProductsQuery } from "@goshop/shared";
 /** The API's sort orders, taken from the generated query type. */
 export type ProductSort = NonNullable<ListProductsQuery["sort"]>;
 
+/** Products per page: a grid of 3 or 4 columns fills evenly. The server
+ *  (app/page.tsx) and the browser must ask for the same page size, or the
+ *  browser would not find the server's first page in its cache. */
+export const CATALOG_PAGE_SIZE = 12;
+
 /** What the catalog shows, as read from the URL. */
 export interface CatalogFilters {
   /** A category slug; products of its sub-categories are included. */
@@ -48,7 +53,9 @@ const MAX_QUERY_LENGTH = 100;
  * API error. (A well-formed slug that names no category still reaches the
  * API, which answers UNKNOWN_CATEGORY; CatalogPage says so.)
  */
-export const readCatalogFilters = (params: URLSearchParams): CatalogFilters => {
+export const readCatalogFilters = (
+  params: Pick<URLSearchParams, "get">,
+): CatalogFilters => {
   const category = params.get(PARAM.category) ?? "";
   // The API counts characters (Go runes); Array.from splits by code
   // point, not by UTF-16 unit, so an emoji counts once there too.

@@ -2,7 +2,6 @@ import { useId, useState } from "react";
 import { formatRupiah } from "@goshop/shared";
 import type { Product } from "@goshop/shared";
 import { Card } from "@/components/ui/Card.tsx";
-import { useDocumentTitle } from "@/hooks/useDocumentTitle.ts";
 import { useLateHeadingFocus } from "@/hooks/useLateHeadingFocus.ts";
 import { AddToCart } from "@/features/cart/components/AddToCart.tsx";
 import { ProductImage } from "@/features/catalog/components/ProductImage.tsx";
@@ -23,7 +22,6 @@ interface ProductDetailProps {
  * the product into state after it arrives.
  */
 export function ProductDetail({ product }: ProductDetailProps) {
-  useDocumentTitle(`${product.name} — GoShop`);
   const headingId = useId();
 
   // The heading arrives with the product, after the navigation.

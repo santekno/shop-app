@@ -1,6 +1,7 @@
-import { Link, Navigate, useSearchParams } from "react-router";
+import Link from "next/link";
+import { Redirect } from "@/components/navigation/Redirect.tsx";
+import { useSearchParams } from "next/navigation";
 import { Card } from "@/components/ui/Card.tsx";
-import { useDocumentTitle } from "@/hooks/useDocumentTitle.ts";
 import { ORDERS_PATH, paymentPath } from "../paths.ts";
 import { findPaymentReturn } from "../payment-state.ts";
 
@@ -18,12 +19,11 @@ import { findPaymentReturn } from "../payment-state.ts";
  * nothing remembered; the page says where to look instead of guessing.
  */
 export function PaymentReturnPage() {
-  useDocumentTitle("Pembayaran — GoShop");
-  const [searchParams] = useSearchParams();
+  const searchParams = useSearchParams();
   const payment = findPaymentReturn(searchParams.get("order_id"));
 
   if (payment !== null) {
-    return <Navigate to={paymentPath(payment.orderId)} replace />;
+    return <Redirect to={paymentPath(payment.orderId)} />;
   }
   return (
     <Card>
@@ -35,7 +35,7 @@ export function PaymentReturnPage() {
         konfirmasi dari Midtrans; Anda juga akan mendapat email.
       </p>
       <p className="mt-2">
-        <Link to={ORDERS_PATH}>Lihat pesanan saya</Link>
+        <Link href={ORDERS_PATH}>Lihat pesanan saya</Link>
       </p>
     </Card>
   );

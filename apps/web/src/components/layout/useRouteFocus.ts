@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { RefObject } from "react";
-import { matchPath, useLocation } from "react-router";
-import { PRODUCT_ROUTE } from "@/features/product/paths.ts";
+import { usePathname } from "next/navigation";
+import { productSlugFromPath } from "@/features/product/paths.ts";
 
 /**
  * Moves the keyboard focus when the page changes.
@@ -24,7 +24,7 @@ import { PRODUCT_ROUTE } from "@/features/product/paths.ts";
  * page load itself, where the browser already does the right thing.
  */
 export const useRouteFocus = (mainRef: RefObject<HTMLElement | null>) => {
-  const { pathname } = useLocation();
+  const pathname = usePathname();
   // The path focus was last handled for: the page the buyer comes from.
   // A ref, because changing it must not render anything.
   const handled = useRef(pathname);
@@ -36,10 +36,10 @@ export const useRouteFocus = (mainRef: RefObject<HTMLElement | null>) => {
     const main = mainRef.current;
     if (main === null) return;
 
-    // matchPath decodes the parameter, so it compares equal to the slug
-    // the card was rendered with. CSS.escape makes any slug safe inside
-    // the selector's quotes.
-    const slug = matchPath(PRODUCT_ROUTE, from)?.params.slug;
+    // The slug decoded, so it compares equal to the slug the card was
+    // rendered with. CSS.escape makes any slug safe inside the selector's
+    // quotes.
+    const slug = productSlugFromPath(from);
     const card =
       slug === undefined
         ? null

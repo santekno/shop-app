@@ -1,10 +1,10 @@
 import { memo } from "react";
-import { Link } from "react-router";
+import Link from "next/link";
 import { formatRupiah } from "@goshop/shared";
 import type { Product } from "@goshop/shared";
 import { Card } from "@/components/ui/Card.tsx";
-import { usePrefetchProduct } from "@/features/product/hooks/usePrefetchProduct.ts";
 import { FROM_CATALOG, productPath } from "@/features/product/paths.ts";
+import { setNavigationState } from "@/lib/navigation-state.ts";
 import { ProductImage } from "./ProductImage.tsx";
 import { Badge } from "@/components/ui/Badge.tsx";
 
@@ -37,8 +37,7 @@ export const ProductCard = memo(function ProductCard({
   const hasPriceRange = variants.some(
     (variant) => variant.price.amount !== priceFrom.amount,
   );
-  // Hover (with a mouse) or focus starts loading the product page.
-  const prefetchHandlers = usePrefetchProduct(product.slug);
+  const href = productPath(product.slug);
 
   return (
     <Card as="article" className="flex flex-1 flex-col gap-1 p-3 sm:p-4">
@@ -49,12 +48,21 @@ export const ProductCard = memo(function ProductCard({
         {/* A link, because opening a product is going to another page:
             it has a real href, so it opens in a new tab, can be copied
             and shared, and is announced as a link. The router catches a
-            plain click and renders the product route without a reload. */}
+            plain click and renders the product route without a reload.
+            Next.js prefetches the page when the link scrolls into view
+            (in a production build), the job Bab 9's usePrefetchProduct
+            did on hover. The click leaves FROM_CATALOG for the product
+            page, which React Router carried as the link's `state`. */}
         <Link
-          to={productPath(product.slug)}
+          href={href}
           className="no-underline hover:underline"
-          state={FROM_CATALOG}
-          {...prefetchHandlers}
+          onClick={(event) => {
+            // Only a plain click stays in this tab; a new tab has no list
+            // behind it to go back to.
+            if (event.button !== 0 || event.metaKey || event.ctrlKey) return;
+            if (event.shiftKey || event.altKey) return;
+            setNavigationState(href, FROM_CATALOG);
+          }}
           // useRouteFocus looks the link up by this attribute to give it
           // the focus back when the buyer returns from the product page.
           data-product-slug={product.slug}

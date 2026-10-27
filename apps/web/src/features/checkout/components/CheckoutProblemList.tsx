@@ -1,4 +1,4 @@
-import { Link } from "react-router";
+import Link from "next/link";
 import { formatRupiah } from "@goshop/shared";
 import type { CartLine, CheckoutProblem } from "@goshop/shared";
 
@@ -55,7 +55,7 @@ export function CheckoutProblemList({
         ))}
       </ul>
       <p>
-        <Link to="/keranjang">Perbaiki di keranjang</Link>, lalu kembali ke
+        <Link href="/keranjang">Perbaiki di keranjang</Link>, lalu kembali ke
         sini.
       </p>
     </div>

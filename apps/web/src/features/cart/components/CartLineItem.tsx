@@ -1,6 +1,6 @@
 import { useId, useRef } from "react";
 import { Minus, Plus, Trash2 } from "lucide-react";
-import { Link } from "react-router";
+import Link from "next/link";
 import { formatRupiah } from "@goshop/shared";
 import type { CartLine } from "@goshop/shared";
 import { Badge } from "@/components/ui/Badge.tsx";
@@ -89,7 +89,7 @@ export function CartLineItem({ line, onRemoved }: CartLineItemProps) {
     >
       <div className="grid gap-2">
         <div>
-          <Link ref={productLink} to={productPath(line.product_slug)}>
+          <Link ref={productLink} href={productPath(line.product_slug)}>
             {line.product_name}
           </Link>
           <p className="mt-0.5 text-muted-foreground">
