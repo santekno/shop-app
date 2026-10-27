@@ -1883,6 +1883,17 @@ export interface components {
             voucher_code: string | null;
             shipping: components["schemas"]["OrderShipping"];
             /**
+             * @description The order's newest payment, open or not; `null` until the buyer
+             *     first starts paying (always `null` in the answer of
+             *     `POST /v1/checkout`). It explains why a `pending_payment` order
+             *     still waits: a `denied`, `cancelled`, `failed` or `expired`
+             *     payment leaves the order payable again until
+             *     `payment_expires_at`. The order's `status` decides: this is read
+             *     just after the order, so it may be newer than `status`, never
+             *     older.
+             */
+            latest_payment: components["schemas"]["OrderLatestPayment"] | null;
+            /**
              * Format: date-time
              * @description An unpaid order is cancelled (`payment_expired`) after this.
              */
@@ -1898,6 +1909,30 @@ export interface components {
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
+            updated_at: string;
+        };
+        /**
+         * @description What happened to an order's last attempt to pay, without the
+         *     gateway's token, IDs or amounts.
+         */
+        OrderLatestPayment: {
+            /**
+             * @description `pending` and `challenge` are open (Midtrans still decides);
+             *     `paid` means money arrived; `denied`, `cancelled`, `failed` and
+             *     `expired` ended without money; `refunded` and
+             *     `partially_refunded` returned money.
+             * @enum {string}
+             */
+            status: "pending" | "challenge" | "paid" | "denied" | "cancelled" | "failed" | "expired" | "refunded" | "partially_refunded";
+            /**
+             * Format: date-time
+             * @description When Snap stops taking money for this payment.
+             */
+            expires_at: string;
+            /**
+             * Format: date-time
+             * @description When the payment's status last changed.
+             */
             updated_at: string;
         };
         OrderDetail: {

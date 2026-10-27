@@ -148,3 +148,17 @@ SELECT p.provider_order_id
 FROM payments p
 JOIN orders o ON o.id = p.order_id
 WHERE o.code = @code AND p.status IN ('pending', 'challenge');
+
+-- name: GetLatestPaymentOfOrder :one
+-- The order's newest payment, open or not, for the order page (Bab 11): it
+-- tells the buyer why an order still waits (a denied card, an expired
+-- virtual account). The caller has already read the order scoped to its
+-- owner, so this is never the first read of someone else's order. Served by
+-- payments_order_created_idx (order_id, created_at DESC): an index scan of
+-- one order's few payments, stopped after the first created_at; id only
+-- breaks a tie there (an incremental sort of that one group).
+SELECT status, expires_at, updated_at
+FROM payments
+WHERE order_id = @order_id
+ORDER BY created_at DESC, id DESC
+LIMIT 1;

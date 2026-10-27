@@ -505,7 +505,7 @@ func TestHandler_GetOrder(t *testing.T) {
 	got, _ := json.Marshal(data)
 	want := `{"cancel_reason":"buyer_cancelled","cancelled_at":null,"code":"GS-20261023-ABC123","completed_at":null,"created_at":"2026-10-23T08:00:00Z",` +
 		`"id":"` + orderID1 + `","items":[{"id":"item-1","line_total":{"amount":120000,"currency":"IDR"},"product_name":"Kaos","quantity":2,"sku":"SKU-1",` +
-		`"unit_price":{"amount":60000,"currency":"IDR"},"variant_id":"` + v1 + `","variant_name":"M"}],"paid_at":"2026-10-23T09:00:00Z",` +
+		`"unit_price":{"amount":60000,"currency":"IDR"},"variant_id":"` + v1 + `","variant_name":"M"}],"latest_payment":null,"paid_at":"2026-10-23T09:00:00Z",` +
 		`"payment_expires_at":"2026-10-24T08:00:00Z","shipped_at":null,"shipping":{"address":{"city":"Bandung","phone":"081234567890","postal_code":"40111",` +
 		`"province":"Jawa Barat","recipient_name":"Budi","street":"Jl. Merdeka 1"},"courier":"sicepat","service":"REG","tracking_number":"JNE123456"},` +
 		`"status":"cancelled","totals":{"discount":{"amount":12000,"currency":"IDR"},"shipping_fee":{"amount":9000,"currency":"IDR"},` +

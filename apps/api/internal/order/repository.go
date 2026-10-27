@@ -67,6 +67,9 @@ func (r *PostgresRepository) Get(ctx context.Context, userID, id string) (Order,
 	if o.Items, err = loadItems(ctx, r.q, id); err != nil {
 		return Order{}, err
 	}
+	if o.LatestPayment, err = loadLatestPayment(ctx, r.q, id); err != nil {
+		return Order{}, err
+	}
 	return o, nil
 }
 
@@ -108,6 +111,20 @@ func loadItems(ctx context.Context, q *sqlc.Queries, orderID string) ([]Item, er
 	return items, nil
 }
 
+// loadLatestPayment reads the newest payment of orderID, or nil when it
+// has none. It runs after the order read, which already checked who may
+// see the order.
+func loadLatestPayment(ctx context.Context, q *sqlc.Queries, orderID string) (*LatestPayment, error) {
+	row, err := q.GetLatestPaymentOfOrder(ctx, orderID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("query latest payment: %w", err)
+	}
+	return &LatestPayment{Status: row.Status, ExpiresAt: row.ExpiresAt, UpdatedAt: row.UpdatedAt}, nil
+}
+
 func nullString(s sql.NullString) *string {
 	if !s.Valid {
 		return nil
@@ -134,6 +151,9 @@ func (r *PostgresRepository) GetAny(ctx context.Context, id string) (Order, erro
 	}
 	o := fromOrderRow(orderRow(row))
 	if o.Items, err = loadItems(ctx, r.q, id); err != nil {
+		return Order{}, err
+	}
+	if o.LatestPayment, err = loadLatestPayment(ctx, r.q, id); err != nil {
 		return Order{}, err
 	}
 	return o, nil
