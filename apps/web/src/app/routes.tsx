@@ -1,5 +1,7 @@
 import type { RouteObject } from "react-router";
+import { loadAccountPage } from "@/features/account/lazy.ts";
 import { AuthLayout } from "@/features/auth/components/AuthLayout.tsx";
+import { RequireAuth } from "@/features/auth/components/RequireAuth.tsx";
 import { loadLoginPage, loadRegisterPage } from "@/features/auth/lazy.ts";
 import { CartPage } from "@/features/cart/components/CartPage.tsx";
 import { CatalogPage } from "@/features/catalog/components/CatalogPage.tsx";
@@ -20,6 +22,7 @@ import { RouteErrorPage } from "./RouteErrorPage.tsx";
  *   /keranjang       RootLayout > CartPage
  *   /masuk           RootLayout > AuthLayout > LoginPage
  *   /daftar          RootLayout > AuthLayout > RegisterPage
+ *   /akun            RootLayout > RequireAuth > AccountPage (needs a login)
  *   anything else    RootLayout > NotFoundPage
  *
  * An error thrown while a page renders is caught by the nearest
@@ -82,6 +85,20 @@ export const routes: RouteObject[] = [
                 path: "daftar",
                 lazy: async () => ({
                   Component: (await loadRegisterPage()).RegisterPage,
+                }),
+              },
+            ],
+          },
+          // Pages that need a login: a layout route without a path, like
+          // AuthLayout, whose component decides whether its children may
+          // render (RequireAuth: wait, redirect to /masuk, or render).
+          {
+            Component: RequireAuth,
+            children: [
+              {
+                path: "akun",
+                lazy: async () => ({
+                  Component: (await loadAccountPage()).AccountPage,
                 }),
               },
             ],

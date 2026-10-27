@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
-import { Link, useLocation, useNavigate } from "react-router";
+import { Link, Navigate, useLocation, useSearchParams } from "react-router";
 import { loginSchema } from "@goshop/shared";
 import type { LoginRequest } from "@goshop/shared";
 import { Card } from "@/components/ui/Card.tsx";
@@ -11,6 +11,8 @@ import { setApiFieldErrors } from "@/lib/api-form-errors.ts";
 import { authErrorMessage } from "../auth-errors.ts";
 import { useLogin } from "../hooks/useLogin.ts";
 import { registeredEmailFrom } from "../navigation-state.ts";
+import { RETURN_TO_PARAM, safeReturnPath } from "../return-to.ts";
+import { useSession } from "../session-context.ts";
 import { Button } from "@/components/ui/Button.tsx";
 
 /**
@@ -27,11 +29,20 @@ import { Button } from "@/components/ui/Button.tsx";
  * the schema the mobile app will use too (from Bab 13), checked against
  * the contract's LoginRequest type. onSubmit receives the schema's output
  * (the email already trimmed), which is what is sent.
+ *
+ * After the login (artikel 13) the buyer goes back to the page that sent
+ * them here: `?kembali=/akun`, set by RequireAuth. The value is checked by
+ * safeReturnPath first (a path on this site only, never another host: an
+ * open redirect), and anything else means the catalog. The redirect is a
+ * <Navigate> rendered once the session is there, so it also covers a buyer
+ * who opens /masuk while already logged in.
  */
 export function LoginPage() {
   useDocumentTitle("Masuk — GoShop");
   const location = useLocation();
-  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const returnTo = safeReturnPath(searchParams.get(RETURN_TO_PARAM));
+  const { status } = useSession();
   const registeredEmail = registeredEmailFrom(location.state);
   const loginMutation = useLogin();
   const {
@@ -46,11 +57,8 @@ export function LoginPage() {
 
   const onSubmit = (credentials: LoginRequest) => {
     loginMutation.mutate(credentials, {
-      // replace: Back from the catalog should not reopen the login form.
-      onSuccess: () => {
-        void navigate("/", { replace: true });
-      },
-      // The API's answer, shown where it belongs: a field's own problem
+      // On success the session changes and the <Navigate> below takes
+      // the buyer on. The API's answer, shown where it belongs: a field's own problem
       // under that field, anything else (INVALID_CREDENTIALS, the
       // network) above the button, as the form's `root` error.
       onError: (error) => {
@@ -59,6 +67,9 @@ export function LoginPage() {
       },
     });
   };
+
+  // replace: Back from the page reached should not reopen the login form.
+  if (status === "authenticated") return <Navigate to={returnTo} replace />;
 
   return (
     <Card>

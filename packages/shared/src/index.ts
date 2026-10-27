@@ -62,6 +62,8 @@ export {
 } from "./schemas/auth.ts";
 export type { LoginInput, RegisterInput } from "./schemas/auth.ts";
 
+export { getMe } from "./api/me.ts";
+
 export { EMPTY_CART, addCartItem, getCart, mergeCart } from "./api/cart.ts";
 export type { AddCartItemResult, CartRequestOptions } from "./api/cart.ts";
 

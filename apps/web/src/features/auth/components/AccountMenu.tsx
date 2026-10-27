@@ -1,4 +1,5 @@
-import { ChevronDown, LogOut } from "lucide-react";
+import { ChevronDown, LogOut, UserRound } from "lucide-react";
+import { Link } from "react-router";
 import type { User } from "@goshop/shared";
 import { Button } from "@/components/ui/Button.tsx";
 import {
@@ -40,6 +41,14 @@ export function AccountMenu({ user, onLogout }: AccountMenuProps) {
           {user.email}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
+        {/* asChild: the item is a real link (Radix gives it the item's
+            keyboard handling), so it can also be opened in a new tab. */}
+        <DropdownMenuItem asChild>
+          <Link to="/akun">
+            <UserRound aria-hidden="true" />
+            Akun saya
+          </Link>
+        </DropdownMenuItem>
         <DropdownMenuItem onSelect={onLogout}>
           <LogOut aria-hidden="true" />
           Keluar
