@@ -1,8 +1,8 @@
 // The guest cart against the real API: adding raises the header's count at
 // the click (before the API answers), the first add creates the cart and
 // its X-Cart-Token, a 409 puts the count back and says why, /keranjang
-// lists what the API holds, and, as Bab 9 documents, a reload forgets the
-// token (it lives in memory until Bab 10 keeps it).
+// lists what the API holds, and since Bab 10 (artikel 10) a reload keeps
+// the token, which the cart store saves in localStorage.
 import { expect, test } from "@playwright/test";
 import type { Page, Request, Route } from "@playwright/test";
 import { watchBrowser } from "../support/browser.ts";
@@ -260,7 +260,7 @@ test("a 409 for the 99 limit puts the count back and names the limit", async ({
   expectOnly409s(problems, 1);
 });
 
-test("a reload forgets the guest cart token, as Bab 9 documents", async ({
+test("a reload keeps the guest cart, from the token saved in localStorage", async ({
   page,
 }) => {
   const problems = await watchBrowser(page);
@@ -277,27 +277,27 @@ test("a reload forgets the guest cart token, as Bab 9 documents", async ({
     (await requests[0]?.response())?.headers()["x-cart-token"] ?? "";
   expect(token).not.toBe("");
 
-  // The token lived in React state only: after a reload the page has none.
-  const sentTokens: (string | undefined)[] = [];
-  page.on("request", (request) => {
-    if (request.url().startsWith(`${BROWSER_API_URL}/v1/cart`)) {
-      sentTokens.push(request.headers()["x-cart-token"]);
-    }
+  // The cart store saves only the token, under a versioned entry.
+  const saved = await page.evaluate(() =>
+    window.localStorage.getItem("goshop:cart"),
+  );
+  expect(JSON.parse(saved ?? "null")).toEqual({
+    state: { token },
+    version: 1,
   });
+
+  // After a reload the header asks for the same cart at once.
+  const gets = cartGets(page);
   await page.reload();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText(
     product.name,
   );
-  await expectCount(page, 0);
+  await expectCount(page, 1);
   await cartLink(page).click();
-  await expect(page.getByText("Keranjang Anda masih kosong.")).toBeVisible();
-  expect(sentTokens.every((sent) => sent === undefined)).toBe(true);
-
-  // The cart itself is still on the server, reachable with the old token.
-  const kept = (await (
-    await fetch(`${API_URL}/v1/cart`, { headers: { "X-Cart-Token": token } })
-  ).json()) as { data: { item_count: number } };
-  expect(kept.data.item_count).toBe(1);
+  await expect(page.locator(".cart-line")).toHaveCount(1);
+  await expect(page.locator(".cart-line")).toContainText(product.name);
+  expect(gets.length).toBeGreaterThan(0);
+  expect(gets.every((sent) => sent === token)).toBe(true);
   expectNoProblems(problems);
 });
 
@@ -352,7 +352,7 @@ test("leaving and coming back during a slow first add still makes one cart", asy
   expectNoProblems(problems);
 });
 
-test("a cart token the API does not know is forgotten, and /keranjang shows an empty cart", async ({
+test("a cart token the API does not know is forgotten, and /keranjang shows an empty cart and says why", async ({
   page,
 }) => {
   const problems = await watchBrowser(page);
@@ -393,6 +393,18 @@ test("a cart token the API does not know is forgotten, and /keranjang shows an e
   await expect(page.getByText("Keranjang Anda masih kosong.")).toBeVisible();
   await expect(page.getByRole("alert")).toHaveCount(0);
   expect(gets).toEqual([unknown]);
+  // Since Bab 10 the cart page says why the cart is empty, in a live
+  // region, until the buyer closes the notice; the saved token is gone.
+  const notice = page.getByRole("status").filter({
+    hasText:
+      "Keranjang Anda sebelumnya sudah tidak berlaku, jadi sekarang kosong.",
+  });
+  await expect(notice).toBeVisible();
+  expect(
+    await page.evaluate(() => window.localStorage.getItem("goshop:cart")),
+  ).toBe(JSON.stringify({ state: { token: null }, version: 1 }));
+  await page.getByRole("button", { name: "Tutup" }).click();
+  await expect(notice).toHaveCount(0);
 
   // Chrome's line for that 404 is the only console error.
   const unexpected = problems.consoleErrors.filter(
