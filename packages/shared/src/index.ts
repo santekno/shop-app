@@ -74,7 +74,25 @@ export {
 } from "./api/cart.ts";
 export type { AddCartItemResult, CartRequestOptions } from "./api/cart.ts";
 
+export { createAddress, listAddresses } from "./api/addresses.ts";
+export { getShippingQuotes } from "./api/checkout.ts";
+
+export {
+  ADDRESS_LABEL_MAX_LENGTH,
+  ID_PHONE_PATTERN,
+  ID_POSTAL_CODE_PATTERN,
+  RECIPIENT_NAME_MAX_LENGTH,
+  REGION_MAX_LENGTH,
+  STREET_MAX_LENGTH,
+  addressSchema,
+} from "./schemas/address.ts";
+export type { AddressInput } from "./schemas/address.ts";
+
 export type {
+  Address,
+  AddressCreate,
+  AddressDetail,
+  AddressList,
   Cart,
   CartAddResult,
   CartDetail,
@@ -92,6 +110,9 @@ export type {
   ProductList,
   ProductVariant,
   RegisterRequest,
+  ShippingQuote,
+  ShippingQuotes,
+  ShippingQuotesDetail,
   TokenPair,
   TokenPairDetail,
   User,

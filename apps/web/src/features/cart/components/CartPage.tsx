@@ -1,4 +1,5 @@
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
+import { Link } from "react-router";
 import { formatRupiah } from "@goshop/shared";
 import type { CartLine } from "@goshop/shared";
 import { Card } from "@/components/ui/Card.tsx";
@@ -35,6 +36,7 @@ export function CartPage() {
   const dismissCartExpired = useCartStore((state) => state.dismissCartExpired);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const [removed, setRemoved] = useState<string | null>(null);
+  const blockedId = useId();
 
   const onRemoved = (line: CartLine) => {
     setRemoved(
@@ -103,6 +105,25 @@ export function CartPage() {
             <p className="text-right text-sm text-muted-foreground">
               Ongkos kirim dan voucher dihitung saat checkout.
             </p>
+            <div className="mt-4 grid justify-items-end gap-2">
+              {cart.lines.some((line) => line.problem !== null) ? (
+                // A link cannot be disabled; a disabled button says why
+                // through aria-describedby. Checkout would refuse these
+                // lines anyway (409 CHECKOUT_PROBLEMS).
+                <>
+                  <Button disabled aria-describedby={blockedId}>
+                    Lanjut ke checkout
+                  </Button>
+                  <p id={blockedId} className="text-sm text-destructive">
+                    Perbaiki barang yang bertanda dulu.
+                  </p>
+                </>
+              ) : (
+                <Button asChild>
+                  <Link to="/checkout">Lanjut ke checkout</Link>
+                </Button>
+              )}
+            </div>
           </>
         ))}
     </Card>

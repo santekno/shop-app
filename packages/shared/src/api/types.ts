@@ -42,6 +42,16 @@ export type CartAddResult = Schemas["CartAddResult"];
 export type CartItemAdd = Schemas["CartItemAdd"];
 /** The body of PATCH /v1/cart/items/{variant_id}. */
 export type CartItemPatch = Schemas["CartItemPatch"];
+/** A buyer's address (Bab 4). */
+export type Address = Schemas["Address"];
+/** The body of POST /v1/me/addresses. */
+export type AddressCreate = Schemas["AddressCreate"];
+export type AddressDetail = Schemas["AddressDetail"];
+export type AddressList = Schemas["AddressList"];
+/** One courier service, priced for the cart (Bab 5). */
+export type ShippingQuote = Schemas["ShippingQuote"];
+export type ShippingQuotes = Schemas["ShippingQuotes"];
+export type ShippingQuotesDetail = Schemas["ShippingQuotesDetail"];
 /** The body of every API error: {"error":{"code","message","details"}}. */
 export type ErrorBody = Schemas["Error"];
 
