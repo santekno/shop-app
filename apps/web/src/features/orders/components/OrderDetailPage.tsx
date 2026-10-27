@@ -9,7 +9,11 @@ import { useSession } from "@/features/auth/session-context.ts";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle.ts";
 import { orderQuery } from "../api/queries.ts";
 import { formatDateTime } from "../format.ts";
-import { canStartPayment, orderStatusText } from "../order-status.ts";
+import {
+  canStartPayment,
+  orderStatusText,
+  payButtonText,
+} from "../order-status.ts";
 import { ORDERS_PATH, paymentPath } from "../paths.ts";
 import { OrderStatusBadge } from "./OrderStatusBadge.tsx";
 import { PayButton } from "./PayButton.tsx";
@@ -99,7 +103,9 @@ export function OrderDetailPage() {
                   </Link>
                 </p>
                 {canStartPayment(order.data, order.dataUpdatedAt) && (
-                  <PayButton order={order.data} />
+                  <PayButton order={order.data}>
+                    {payButtonText(order.data)}
+                  </PayButton>
                 )}
               </>
             )}

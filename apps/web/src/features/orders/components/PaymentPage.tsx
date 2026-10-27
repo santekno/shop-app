@@ -8,7 +8,11 @@ import { ErrorState, LoadingState } from "@/components/ui/StatusMessage.tsx";
 import { useSession } from "@/features/auth/session-context.ts";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle.ts";
 import { orderQuery } from "../api/queries.ts";
-import { canStartPayment, paymentOutcome } from "../order-status.ts";
+import {
+  canStartPayment,
+  payButtonText,
+  paymentOutcome,
+} from "../order-status.ts";
 import { orderPath } from "../paths.ts";
 import { POLL_LIMIT_MS, pollDelay } from "../payment-polling.ts";
 import { paymentPageState } from "../payment-state.ts";
@@ -136,9 +140,7 @@ export function PaymentPage() {
           )}
           {canStartPayment(order.data, order.dataUpdatedAt) && (
             <PayButton order={order.data} replace>
-              {fakeProvider === true
-                ? "Bayar sekarang"
-                : "Lanjutkan pembayaran"}
+              {payButtonText(order.data)}
             </PayButton>
           )}
         </div>

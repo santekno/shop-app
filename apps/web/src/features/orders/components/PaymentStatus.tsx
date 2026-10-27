@@ -1,7 +1,29 @@
-import { CheckCircle2, Clock, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock, XCircle } from "lucide-react";
 import type { Order } from "@goshop/shared";
 import { formatDateTime } from "../format.ts";
-import { paymentOutcome } from "../order-status.ts";
+import {
+  paymentAttempt,
+  paymentEndedUnpaid,
+  paymentOutcome,
+} from "../order-status.ts";
+import type { PaymentAttempt } from "../order-status.ts";
+
+/**
+ * The sentence for an order that still waits, by what became of the last
+ * attempt to pay it. A refused payment does not end the order (ADR 0007):
+ * the buyer may pay again, so the sentence says so.
+ */
+const WAITING_TEXT: Record<PaymentAttempt, string> = {
+  none: "Menunggu pembayaran.",
+  open: "Menunggu pembayaran.",
+  confirming: "Pembayaran sedang dikonfirmasi…",
+  denied:
+    "Pembayaran ditolak. Coba lagi, dengan metode pembayaran lain bila perlu.",
+  failed: "Pembayaran gagal diproses. Silakan coba lagi.",
+  cancelled: "Pembayaran dibatalkan. Anda masih bisa membayar pesanan ini.",
+  expired:
+    "Sesi pembayaran sebelumnya habis waktunya. Anda masih bisa membayar pesanan ini.",
+};
 
 /**
  * The payment's state as the API has decided it (Bab 11 artikel 05).
@@ -20,15 +42,23 @@ export function PaymentStatus({
   checkedAt: number;
 }) {
   const outcome = paymentOutcome(order);
+  const attempt = paymentAttempt(order);
   const deadlinePassed = Date.parse(order.payment_expires_at) <= checkedAt;
+  // Only while the order may still be paid: past the deadline the expiry
+  // job decides, whatever the last attempt was.
+  const refused =
+    outcome === "pending" && !deadlinePassed && paymentEndedUnpaid(attempt);
 
   return (
     <div className="flex items-start gap-3 rounded-md border border-border p-4">
       {outcome === "paid" && (
         <CheckCircle2 aria-hidden="true" className="mt-0.5 text-success" />
       )}
-      {outcome === "pending" && (
+      {outcome === "pending" && !refused && (
         <Clock aria-hidden="true" className="mt-0.5 text-muted-foreground" />
+      )}
+      {refused && (
+        <AlertTriangle aria-hidden="true" className="mt-0.5 text-destructive" />
       )}
       {(outcome === "expired" || outcome === "cancelled") && (
         <XCircle aria-hidden="true" className="mt-0.5 text-destructive" />
@@ -39,7 +69,7 @@ export function PaymentStatus({
           {outcome === "pending" &&
             (deadlinePassed
               ? "Batas waktu pembayaran sudah lewat. Menunggu konfirmasi akhir…"
-              : "Menunggu pembayaran.")}
+              : WAITING_TEXT[attempt])}
           {outcome === "expired" &&
             "Waktu pembayaran habis. Pesanan dibatalkan dan stoknya dikembalikan."}
           {outcome === "cancelled" && "Pesanan ini dibatalkan."}

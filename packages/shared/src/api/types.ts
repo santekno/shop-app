@@ -74,6 +74,13 @@ export type OrderSummary = Schemas["OrderSummary"];
 export type OrderList = Schemas["OrderList"];
 /** The life cycle of an order (ADR 0006). */
 export type OrderStatus = Order["status"];
+/**
+ * The order's newest payment (Bab 11): why a `pending_payment` order still
+ * waits. `null` until the buyer first starts paying.
+ */
+export type OrderLatestPayment = Schemas["OrderLatestPayment"];
+/** What happened to that payment: open, paid, or ended without money. */
+export type PaymentStatus = OrderLatestPayment["status"];
 /** A Midtrans Snap transaction for an order (Bab 6, ADR 0007). */
 export type PaymentSession = Schemas["PaymentSession"];
 export type PaymentSessionDetail = Schemas["PaymentSessionDetail"];

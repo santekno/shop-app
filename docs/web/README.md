@@ -651,7 +651,7 @@ Local development and the e2e stack run the API with the fake gateway (Bab 6, `m
 
 | Order | Payment outcome (`paymentOutcome`) | The page says | Polling |
 |---|---|---|---|
-| `pending_payment` | `pending` | "Menunggu pembayaran", the deadline, "Lanjutkan pembayaran" while more than two minutes are left | yes |
+| `pending_payment` | `pending` | "Menunggu pembayaran" (or why the last payment ended, below), the deadline, a pay button while more than two minutes are left | yes |
 | `pending_payment` past `payment_expires_at` | `pending` | "Batas waktu pembayaran sudah lewat. Menunggu konfirmasi akhir…" (the expiry job has not run yet) | yes |
 | `paid`, `processing`, `shipped`, `completed` | `paid` | "Pembayaran diterima", with `paid_at` | stops |
 | `cancelled` with `payment_expired` | `expired` | "Waktu pembayaran habis", stock returned | stops |
@@ -667,7 +667,19 @@ Local development and the e2e stack run the API with the fake gateway (Bab 6, `m
 
 **Announced once.** The outcome sentence is the only text in a `role="status"` region that is always rendered: a poll that brings the same answer renders the same text and nothing is read out; the change to "Pembayaran diterima" is. "Terakhir diperiksa 16.36.20", which changes at every poll, sits outside it.
 
-**What the buyer cannot see yet:** a payment Midtrans **denied** (or that failed or was cancelled at Midtrans) leaves the order `pending_payment` (ADR 0007: the buyer may pay again until the deadline), and the order response has no payment field, so this page cannot say "Pembayaran ditolak". It keeps saying "Menunggu pembayaran" and offers "Lanjutkan pembayaran", which creates a new payment. The API change that would let it say so is requested in the Bab 11 frontend report (a `payment` summary on the order).
+**Why an order still waits** (`latest_payment`, `paymentAttempt` in `order-status.ts`). A payment Midtrans **denied**, that failed, that the buyer cancelled at Midtrans, or whose own Snap window closed leaves the order `pending_payment` (ADR 0007: the buyer may pay again until the order's deadline). The order's `latest_payment` (status, `expires_at`, `updated_at`, `null` before the first attempt; no token, no gateway id, no amount) says which, and the page says it while the order may still be paid:
+
+| `latest_payment.status` | `paymentAttempt` | The page says | The button |
+|---|---|---|---|
+| none yet | `none` | "Menunggu pembayaran." | "Bayar sekarang" |
+| `pending`, `challenge` | `open` | "Menunggu pembayaran." | "Lanjutkan pembayaran" |
+| `paid` (the order has not caught up) | `confirming` | "Pembayaran sedang dikonfirmasi…" | none: a second payment would charge twice |
+| `denied` | `denied` | "Pembayaran ditolak. Coba lagi, dengan metode pembayaran lain bila perlu." (a warning icon) | "Coba bayar lagi" |
+| `failed` | `failed` | "Pembayaran gagal diproses. Silakan coba lagi." | "Coba bayar lagi" |
+| `cancelled` | `cancelled` | "Pembayaran dibatalkan. Anda masih bisa membayar pesanan ini." | "Coba bayar lagi" |
+| `expired` | `expired` | "Sesi pembayaran sebelumnya habis waktunya. Anda masih bisa membayar pesanan ini." | "Coba bayar lagi" |
+
+The order's `status` still decides: `latest_payment` is read just after the order, so it may be newer, never older. A refused payment does not stop the polling (the buyer may pay again from another tab); past the order's deadline the page says what the table above says, whatever the last attempt was. The order's page (`/pesanan/:id`) uses the same button text (`payButtonText`).
 
 ## Order history and detail (artikel 06)
 
