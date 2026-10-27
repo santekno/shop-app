@@ -75,7 +75,18 @@ export {
 export type { AddCartItemResult, CartRequestOptions } from "./api/cart.ts";
 
 export { createAddress, listAddresses } from "./api/addresses.ts";
-export { getShippingQuotes } from "./api/checkout.ts";
+export {
+  checkoutProblems,
+  getShippingQuotes,
+  previewCheckout,
+} from "./api/checkout.ts";
+
+export {
+  VOUCHER_CODE_MAX_LENGTH,
+  VOUCHER_CODE_MIN_LENGTH,
+  voucherSchema,
+} from "./schemas/voucher.ts";
+export type { VoucherInput, VoucherOutput } from "./schemas/voucher.ts";
 
 export {
   ADDRESS_LABEL_MAX_LENGTH,
@@ -93,6 +104,7 @@ export type {
   AddressCreate,
   AddressDetail,
   AddressList,
+  AppliedVoucher,
   Cart,
   CartAddResult,
   CartDetail,
@@ -101,10 +113,15 @@ export type {
   CartLine,
   Category,
   CategoryList,
+  CheckoutPreview,
+  CheckoutPreviewDetail,
+  CheckoutPreviewRequest,
+  CheckoutProblem,
   ErrorBody,
   ListProductsQuery,
   LoginRequest,
   Money,
+  OrderTotals,
   Product,
   ProductDetail,
   ProductList,

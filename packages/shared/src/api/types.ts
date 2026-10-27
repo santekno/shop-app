@@ -52,6 +52,16 @@ export type AddressList = Schemas["AddressList"];
 export type ShippingQuote = Schemas["ShippingQuote"];
 export type ShippingQuotes = Schemas["ShippingQuotes"];
 export type ShippingQuotesDetail = Schemas["ShippingQuotesDetail"];
+/** The body of POST /v1/checkout/preview: what the buyer has chosen so far. */
+export type CheckoutPreviewRequest = Schemas["CheckoutPreviewRequest"];
+/** The cart validated and priced as checkout would (Bab 5). */
+export type CheckoutPreview = Schemas["CheckoutPreview"];
+export type CheckoutPreviewDetail = Schemas["CheckoutPreviewDetail"];
+/** What an order charges, computed by the API in whole rupiah. */
+export type OrderTotals = Schemas["OrderTotals"];
+export type AppliedVoucher = Schemas["AppliedVoucher"];
+/** One cart line that checkout refuses (409 CHECKOUT_PROBLEMS). */
+export type CheckoutProblem = Schemas["CheckoutProblem"];
 /** The body of every API error: {"error":{"code","message","details"}}. */
 export type ErrorBody = Schemas["Error"];
 

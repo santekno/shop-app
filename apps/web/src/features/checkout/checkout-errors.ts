@@ -1,4 +1,4 @@
-import { isApiError } from "@goshop/shared";
+import { formatRupiah, isApiError } from "@goshop/shared";
 import { errorMessage } from "@/lib/error-message.ts";
 
 /**
@@ -29,6 +29,9 @@ export const checkoutErrorMessage = (error: unknown): string => {
   if (isApiError(error, "TOO_MANY_PENDING_ORDERS")) {
     return "Anda sudah punya 5 pesanan yang belum dibayar. Bayar atau batalkan salah satunya dulu.";
   }
+  if (isApiError(error, "VOUCHER_NOT_APPLICABLE")) {
+    return voucherErrorMessage(error);
+  }
   if (isApiError(error, "VALIDATION_FAILED")) {
     return "Alamat atau layanan kurir yang dipilih sudah tidak berlaku. Pilih lagi.";
   }
@@ -36,4 +39,34 @@ export const checkoutErrorMessage = (error: unknown): string => {
     return "Sesi Anda sudah berakhir. Masuk lagi untuk melanjutkan.";
   }
   return errorMessage(error);
+};
+
+/**
+ * Why a voucher does not apply (409 VOUCHER_NOT_APPLICABLE), from its
+ * `details.reason`. A promo that has not started yet answers `not_found`,
+ * like a code that does not exist (the API's choice, so codes cannot be
+ * guessed early), and the text says only that.
+ */
+export const voucherErrorMessage = (error: unknown): string => {
+  if (!isApiError(error, "VOUCHER_NOT_APPLICABLE")) {
+    return checkoutErrorMessage(error);
+  }
+  const { reason, min_spend: minSpend } = error.details;
+  switch (reason) {
+    case "expired":
+      return "Voucher ini sudah tidak berlaku.";
+    case "exhausted":
+      return "Kuota voucher ini sudah habis.";
+    case "per_user_limit":
+      return "Anda sudah memakai voucher ini sebanyak batas yang boleh.";
+    case "min_spend":
+      return typeof minSpend === "object" &&
+        minSpend !== null &&
+        "amount" in minSpend &&
+        typeof minSpend.amount === "number"
+        ? `Voucher ini berlaku untuk belanja minimal ${formatRupiah({ amount: minSpend.amount, currency: "IDR" })}.`
+        : "Belanja Anda belum mencapai minimum voucher ini.";
+    default:
+      return "Kode voucher tidak ditemukan.";
+  }
 };

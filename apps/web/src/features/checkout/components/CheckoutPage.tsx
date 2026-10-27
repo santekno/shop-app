@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import type { CheckoutPreviewRequest } from "@goshop/shared";
 import { Link } from "react-router";
 import { Card } from "@/components/ui/Card.tsx";
 import { Section } from "@/components/ui/Section.tsx";
@@ -7,16 +8,22 @@ import { ErrorState, LoadingState } from "@/components/ui/StatusMessage.tsx";
 import { useSession } from "@/features/auth/session-context.ts";
 import { useCart } from "@/features/cart/hooks/useCart.ts";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle.ts";
-import { addressesQuery, shippingQuotesQuery } from "../api/queries.ts";
+import {
+  addressesQuery,
+  cartSignature,
+  previewQuery,
+  shippingQuotesQuery,
+} from "../api/queries.ts";
 import { chosenAddressId, validShippingChoice } from "../shipping.ts";
 import type { ShippingChoice } from "../shipping.ts";
 import { AddressStep } from "./AddressStep.tsx";
 import { CourierStep } from "./CourierStep.tsx";
+import { SummaryStep } from "./SummaryStep.tsx";
 
 /**
  * /checkout (Bab 11 artikel 02–04): one page, in steps the buyer fills
  * from top to bottom: where the order goes, with which courier, and
- * (artikel 03) what it will cost.
+ * (artikel 03) what it will cost, with a voucher if the buyer has one.
  *
  * Rendered only inside RequireAuth (Bab 10 artikel 13): a guest who
  * presses "Lanjut ke checkout" goes to /masuk?kembali=/checkout first, and
@@ -40,6 +47,7 @@ export function CheckoutPage() {
   const [pickedShipping, setPickedShipping] = useState<ShippingChoice | null>(
     null,
   );
+  const [voucherCode, setVoucherCode] = useState<string | null>(null);
 
   const addresses = useQuery({
     ...addressesQuery(authApi, userId),
@@ -57,6 +65,36 @@ export function CheckoutPage() {
   );
 
   const cartIsEmpty = cart.status === "success" && cart.data.lines.length === 0;
+
+  // What the buyer has chosen so far, in the shape of the preview's body:
+  // a field is sent only once it is chosen. The voucher is added on top,
+  // and only after the API accepted it (VoucherForm).
+  const choice: CheckoutPreviewRequest = {};
+  if (addressId !== null) choice.address_id = addressId;
+  if (shipping !== null) {
+    choice.courier = shipping.courier;
+    choice.service = shipping.service;
+  }
+  const signature = cartSignature(cart.data);
+  const preview = useQuery({
+    ...previewQuery(
+      authApi,
+      userId,
+      signature,
+      voucherCode === null ? choice : { ...choice, voucher_code: voucherCode },
+    ),
+    // Not before the addresses have answered: the first preview would
+    // be priced without the default address, then again with it, and
+    // preview, quotes and checkout share one rate limit.
+    enabled:
+      session !== null &&
+      cart.status === "success" &&
+      !cartIsEmpty &&
+      addresses.status !== "pending",
+    // Another choice is another key. Until its answer arrives the summary
+    // keeps the last totals (dimmed) instead of going back to "loading".
+    placeholderData: keepPreviousData,
+  });
 
   return (
     <div className="grid gap-4">
@@ -117,6 +155,17 @@ export function CheckoutPage() {
                   service: quote.service,
                 });
               }}
+            />
+          </Section>
+          <Section title="3. Ringkasan pesanan">
+            <SummaryStep
+              userId={userId}
+              cartSignature={signature}
+              cartLines={cart.data?.lines}
+              choice={choice}
+              voucherCode={voucherCode}
+              onVoucherChange={setVoucherCode}
+              preview={preview}
             />
           </Section>
         </>
