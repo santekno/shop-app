@@ -65,7 +65,9 @@ test("a verified buyer logs in, is greeted in the header, and logs out", async (
   );
 
   // Keluar lives in the account menu under the buyer's name.
-  await nav(page).getByRole("button", { name: `Halo, ${BUYER.name}` }).click();
+  await nav(page)
+    .getByRole("button", { name: `Halo, ${BUYER.name}` })
+    .click();
   await page.getByRole("menuitem", { name: "Keluar" }).click();
   await expect(nav(page).getByRole("link", { name: "Masuk" })).toBeVisible();
   await expect(nav(page).getByText(`Halo, ${BUYER.name}`)).toHaveCount(0);
