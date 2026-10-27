@@ -1,7 +1,5 @@
 import { act, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ReactNode } from "react";
-import { useEffect } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   cartLine,
@@ -12,38 +10,22 @@ import {
   rupiah,
 } from "@/test/fake-api.ts";
 import { currentLocation, renderWithProviders } from "@/test/render.tsx";
-import { useCartToken } from "../cart-token-context.ts";
+import { useCartStore } from "../cart-store.ts";
 import { CartPage } from "./CartPage.tsx";
 
 vi.mock("@/lib/api.ts", () => import("@/test/fake-api.ts"));
 
-/** Puts a guest cart token in place, as the first add would. */
-function WithToken({
-  children,
-  keepRendering = false,
-}: {
-  children: ReactNode;
-  /** Render the page even without a token (when the cart is forgotten). */
-  keepRendering?: boolean;
-}) {
-  const { cartToken, setCartToken } = useCartToken();
-  useEffect(() => {
-    setCartToken("tok");
-  }, [setCartToken]);
-  return cartToken === null && !keepRendering ? null : children;
-}
+const EXPIRED_TEXT =
+  "Keranjang Anda sebelumnya sudah tidak berlaku, jadi sekarang kosong.";
 
-const renderCart = (withToken = true) =>
-  renderWithProviders(
-    withToken ? (
-      <WithToken>
-        <CartPage />
-      </WithToken>
-    ) : (
-      <CartPage />
-    ),
-    { path: "/keranjang", url: "/keranjang" },
-  );
+/** The cart page, with a guest cart token in place as the first add would. */
+const renderCart = (withToken = true) => {
+  if (withToken) useCartStore.getState().setToken("tok");
+  return renderWithProviders(<CartPage />, {
+    path: "/keranjang",
+    url: "/keranjang",
+  });
+};
 
 beforeEach(() => {
   fetchMock.mockReset();
@@ -113,7 +95,9 @@ describe("CartPage", () => {
     renderCart();
 
     const badge = await screen.findByText(text);
-    expect(badge.className).toBe("badge");
+    expect(badge.classList.contains("badge")).toBe(true);
+    // The destructive look: a problem, not a count.
+    expect(badge.classList.contains("text-destructive")).toBe(true);
     expect(
       screen.getAllByText(/Sudah tidak dijual|Stok tidak cukup|Harga berubah/),
     ).toHaveLength(1);
@@ -140,18 +124,15 @@ describe("CartPage", () => {
     renderCart();
 
     return vi.waitFor(() => {
-      expect(screen.getByRole("status").textContent).toBe("Memuat keranjang…");
+      expect(screen.getByText("Memuat keranjang…").getAttribute("role")).toBe(
+        "status",
+      );
     });
   });
 
   it("shows an empty cart, not an error, when the cart is gone", async () => {
     fetchMock.mockResolvedValue(errorResponse(404, "CART_NOT_FOUND"));
-    renderWithProviders(
-      <WithToken keepRendering>
-        <CartPage />
-      </WithToken>,
-      { path: "/keranjang", url: "/keranjang" },
-    );
+    renderCart();
 
     await vi.waitFor(() => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -160,5 +141,36 @@ describe("CartPage", () => {
       await screen.findByText("Keranjang Anda masih kosong."),
     ).toBeTruthy();
     expect(screen.queryByRole("alert")).toBeNull();
+    expect(useCartStore.getState().token).toBeNull();
+  });
+
+  it("says why the cart is empty when it expired, until Tutup", async () => {
+    const user = userEvent.setup();
+    fetchMock.mockResolvedValue(errorResponse(404, "CART_NOT_FOUND"));
+    renderCart();
+
+    const notice = await screen.findByText(EXPIRED_TEXT);
+    // The live region that was there before the text arrived.
+    expect(notice.getAttribute("role")).toBe("status");
+    expect(useCartStore.getState().cartExpired).toBe(true);
+
+    await user.click(screen.getByRole("button", { name: "Tutup" }));
+
+    expect(screen.queryByText(EXPIRED_TEXT)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Tutup" })).toBeNull();
+    expect(useCartStore.getState().cartExpired).toBe(false);
+    // The live region stays, empty, for the next time.
+    expect(
+      screen.getAllByRole("status").some((region) => region.textContent === ""),
+    ).toBe(true);
+  });
+
+  it("says nothing about an expired cart while the cart is fine", async () => {
+    fetchMock.mockResolvedValue(cartResponse(cartOf([cartLine("m")])));
+    renderCart();
+
+    expect(await screen.findByRole("listitem")).toBeTruthy();
+    expect(screen.queryByText(EXPIRED_TEXT)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Tutup" })).toBeNull();
   });
 });

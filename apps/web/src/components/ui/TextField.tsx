@@ -1,5 +1,7 @@
 import { useId } from "react";
 import type { ComponentProps } from "react";
+import { Input } from "./Input.tsx";
+import { Label } from "./Label.tsx";
 
 interface TextFieldProps extends ComponentProps<"input"> {
   label: string;
@@ -39,21 +41,22 @@ export function TextField({
     .join(" ");
 
   return (
-    <div className="field">
-      <label htmlFor={inputId}>{label}</label>
-      <input
+    <div className="grid w-full gap-1.5">
+      <Label htmlFor={inputId}>{label}</Label>
+      <Input
         id={inputId}
         aria-invalid={error === undefined ? undefined : true}
         aria-describedby={describedBy === "" ? undefined : describedBy}
         {...inputProps}
       />
       {hint !== undefined && (
-        <p id={hintId} className="field__hint">
+        <p id={hintId} className="text-sm text-muted-foreground">
           {hint}
         </p>
       )}
       {error !== undefined && (
-        <p id={errorId} className="field__error">
+        // field__error: a hook for the tests; text-destructive styles it.
+        <p id={errorId} className="field__error text-sm text-destructive">
           {error}
         </p>
       )}

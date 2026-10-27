@@ -17,9 +17,11 @@ interface ProductGridProps {
  */
 export function ProductGrid({ products }: ProductGridProps) {
   return (
-    <ul className="product-grid">
+    // Two columns on a phone, three from sm, four from lg. Each item is a
+    // flex box, so every card in a row stretches to the tallest.
+    <ul className="product-grid grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4">
       {products.map((product) => (
-        <li key={product.id}>
+        <li key={product.id} className="flex">
           <ProductCard product={product} />
         </li>
       ))}

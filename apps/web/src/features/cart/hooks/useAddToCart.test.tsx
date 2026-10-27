@@ -1,7 +1,11 @@
-import { EMPTY_CART } from "@goshop/shared";
+import { EMPTY_CART, isApiError } from "@goshop/shared";
 import type { Cart } from "@goshop/shared";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ReactNode } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { SessionProvider } from "@/features/auth/SessionProvider.tsx";
+import { useSession } from "@/features/auth/session-context.ts";
 import {
   cartLine,
   cartOf,
@@ -10,10 +14,14 @@ import {
   detailedErrorResponse,
   errorResponse,
   fetchMock,
+  noContentResponse,
   requestUrl,
+  user,
+  webSessionResponse,
 } from "@/test/fake-api.ts";
 import { createTestQueryClient, hookWrapper } from "@/test/render.tsx";
-import { useCartToken } from "../cart-token-context.ts";
+import { selectCartToken, useCartStore } from "../cart-store.ts";
+import { forgetUserCarts } from "../merge-guest-cart.ts";
 import { useAddToCart } from "./useAddToCart.ts";
 import { useCart } from "./useCart.ts";
 
@@ -37,7 +45,11 @@ const setup = () => {
     () => {
       const cart = useCart();
       seen.push(cart.data?.item_count);
-      return { add: useAddToCart(), token: useCartToken(), cart };
+      return {
+        add: useAddToCart(),
+        token: useCartStore(selectCartToken),
+        cart,
+      };
     },
     { wrapper: hookWrapper(queryClient) },
   );
@@ -128,13 +140,13 @@ describe("useAddToCart", () => {
     const serverCart = cartOf([cartLine("m", { quantity: 2 })]);
     serveCart(serverCart, serverCart, "tok-new");
     const { result, cartAt, seen } = setup();
-    expect(result.current.token.cartToken).toBeNull();
+    expect(result.current.token).toBeNull();
 
     act(() => {
       result.current.add.mutate(add(2));
     });
     await waitFor(() => {
-      expect(result.current.token.cartToken).toBe("tok-new");
+      expect(result.current.token).toBe("tok-new");
     });
 
     expect(result.current.cart.data).toEqual(serverCart);
@@ -161,7 +173,7 @@ describe("useAddToCart", () => {
     // Already loaded, so setting the token fetches nothing.
     queryClient.setQueryData(["cart", "tok"], before);
     act(() => {
-      result.current.token.setCartToken("tok");
+      useCartStore.getState().setToken("tok");
     });
 
     act(() => {
@@ -172,7 +184,7 @@ describe("useAddToCart", () => {
     });
 
     expect(cartAt("tok")).toEqual(after);
-    expect(result.current.token.cartToken).toBe("tok");
+    expect(result.current.token).toBe("tok");
     expect(
       new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get("X-Cart-Token"),
     ).toBe("tok");
@@ -188,7 +200,7 @@ describe("useAddToCart", () => {
     const { result, cartAt, queryClient } = setup();
     queryClient.setQueryData(["cart", "tok"], before);
     act(() => {
-      result.current.token.setCartToken("tok");
+      useCartStore.getState().setToken("tok");
     });
     // A refetch of the cart is on its way (request 0)…
     act(() => {
@@ -222,7 +234,7 @@ describe("useAddToCart", () => {
     // Already loaded, so setting the token fetches nothing.
     queryClient.setQueryData(["cart", "tok"], before);
     act(() => {
-      result.current.token.setCartToken("tok");
+      useCartStore.getState().setToken("tok");
     });
 
     act(() => {
@@ -256,7 +268,7 @@ describe("useAddToCart", () => {
     await waitFor(() => {
       expect(result.current.cart.data).toEqual(fresh);
     });
-    expect(result.current.token.cartToken).toBe("tok");
+    expect(result.current.token).toBe("tok");
   });
 
   it("puts the empty cart back on screen when the first add fails", async () => {
@@ -276,7 +288,7 @@ describe("useAddToCart", () => {
     await waitFor(() => {
       expect(result.current.cart.data?.item_count).toBe(0);
     });
-    expect(result.current.token.cartToken).toBeNull();
+    expect(result.current.token).toBeNull();
   });
 
   it("forgets a token the API no longer knows (CART_NOT_FOUND), without refetching", async () => {
@@ -286,7 +298,7 @@ describe("useAddToCart", () => {
     // Already loaded, so setting the token fetches nothing.
     queryClient.setQueryData(["cart", "old"], before);
     act(() => {
-      result.current.token.setCartToken("old");
+      useCartStore.getState().setToken("old");
     });
 
     act(() => {
@@ -296,7 +308,7 @@ describe("useAddToCart", () => {
       expect(result.current.add.isError).toBe(true);
     });
 
-    expect(result.current.token.cartToken).toBeNull();
+    expect(result.current.token).toBeNull();
     expect(cartAt("old")).toEqual(before);
     expect(queryClient.getQueryState(["cart", "old"])?.isInvalidated).toBe(
       false,
@@ -327,7 +339,7 @@ describe("useAddToCart's queue", () => {
       () => ({
         first: useAddToCart(),
         second: useAddToCart(),
-        token: useCartToken(),
+        token: useCartStore(selectCartToken),
         cart: useCart(),
       }),
       { wrapper: hookWrapper(queryClient) },
@@ -379,7 +391,7 @@ describe("useAddToCart's queue", () => {
     await waitFor(() => {
       expect(result.current.cart.data).toEqual(both);
     });
-    expect(result.current.token.cartToken).toBe("t1");
+    expect(result.current.token).toBe("t1");
   });
 
   it("rolls a failed add back mid-burst, and the final refetch corrects the cart", async () => {
@@ -388,7 +400,7 @@ describe("useAddToCart's queue", () => {
     const { result, queryClient } = setupTwo();
     queryClient.setQueryData(["cart", "tok"], before);
     act(() => {
-      result.current.token.setCartToken("tok");
+      useCartStore.getState().setToken("tok");
     });
 
     act(() => {
@@ -447,7 +459,7 @@ describe("useAddToCart's queue", () => {
     const { result, queryClient } = setupTwo();
     queryClient.setQueryData(["cart", "old"], cartOf([cartLine("m")]));
     act(() => {
-      result.current.token.setCartToken("old");
+      useCartStore.getState().setToken("old");
     });
 
     act(() => {
@@ -463,6 +475,317 @@ describe("useAddToCart's queue", () => {
     await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
 
     expect(requests()).toEqual(["POST /v1/cart/items"]);
-    expect(result.current.token.cartToken).toBeNull();
+    expect(result.current.token).toBeNull();
+  });
+});
+
+describe("useAddToCart and the session", () => {
+  const itemRequests = () =>
+    fetchMock.mock.calls.filter(
+      ([input]) => requestUrl(input).pathname === "/v1/cart/items",
+    );
+
+  const renderAdd = (session: Parameters<typeof hookWrapper>[2]) => {
+    const queryClient = createTestQueryClient();
+    const hook = renderHook(
+      () => ({ add: useAddToCart(), token: useCartStore(selectCartToken) }),
+      { wrapper: hookWrapper(queryClient, "/", session) },
+    );
+    return { ...hook, queryClient };
+  };
+
+  it("adds to the logged-in user's cart with the access token, never a guest token", async () => {
+    useCartStore.getState().setToken("guest-tok");
+    const after = cartOf([cartLine("m", { quantity: 2 })]);
+    const answer = deferred<Response>();
+    fetchMock.mockImplementation((_input, init) =>
+      init?.method === "POST"
+        ? answer.promise
+        : Promise.resolve(cartResponse(after)),
+    );
+    const { result, queryClient } = renderAdd({
+      user: user({ id: "u1" }),
+      accessToken: "a",
+    });
+
+    act(() => {
+      result.current.add.mutate(add(2));
+    });
+    // The guess goes under the user's key at once.
+    await waitFor(() => {
+      expect(
+        queryClient.getQueryData<Cart>(["cart", "user", "u1"])?.item_count,
+      ).toBe(2);
+    });
+    answer.resolve(cartResponse(after));
+    await waitFor(() => {
+      expect(result.current.add.isSuccess).toBe(true);
+    });
+
+    const headers = new Headers(itemRequests()[0]?.[1]?.headers);
+    expect(headers.get("Authorization")).toBe("Bearer a");
+    expect(headers.has("X-Cart-Token")).toBe(false);
+    expect(queryClient.getQueryData(["cart", "user", "u1"])).toEqual(after);
+    // The guest token is neither used nor replaced.
+    expect(result.current.token).toBe("guest-tok");
+    expect(queryClient.getQueryData(["cart", "guest-tok"])).toBeUndefined();
+  });
+
+  it("waits for the start-up restore, then adds as the user it found", async () => {
+    const refresh = deferred<Response>();
+    const after = cartOf([cartLine("m")]);
+    fetchMock.mockImplementation((input) =>
+      requestUrl(input).pathname === "/v1/auth/web/refresh"
+        ? refresh.promise
+        : Promise.resolve(cartResponse(after)),
+    );
+    const { result, queryClient } = renderAdd("restore");
+
+    act(() => {
+      result.current.add.mutate(add());
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(itemRequests()).toHaveLength(0);
+
+    refresh.resolve(webSessionResponse(user({ id: "u1" }), "restored"));
+
+    await waitFor(() => {
+      expect(result.current.add.isSuccess).toBe(true);
+    });
+    expect(itemRequests()).toHaveLength(1);
+    const headers = new Headers(itemRequests()[0]?.[1]?.headers);
+    expect(headers.get("Authorization")).toBe("Bearer restored");
+    expect(headers.has("X-Cart-Token")).toBe(false);
+    // No guest cart was started that nobody would merge.
+    expect(result.current.token).toBeNull();
+    expect(queryClient.getQueryData(["cart", "user", "u1"])).toEqual(after);
+  });
+});
+
+describe("useAddToCart when the session ends during an add", () => {
+  const USER_KEY = ["cart", "user", "u1"] as const;
+  const before = cartOf([cartLine("x")]);
+  const after = cartOf([cartLine("x"), cartLine("m")]);
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const itemPosts = () =>
+    fetchMock.mock.calls.filter(
+      ([input, init]) =>
+        init?.method === "POST" &&
+        requestUrl(input).pathname === "/v1/cart/items",
+    );
+
+  /**
+   * The hook under the app's providers with the app's onEnd (the user's
+   * carts leave the cache), starting from `session` ("restore" asks the
+   * fake API with /web/refresh, as the app does).
+   */
+  const renderAdd = (
+    session: Parameters<typeof SessionProvider>[0]["initialSession"],
+  ) => {
+    const queryClient = createTestQueryClient();
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>
+        <SessionProvider
+          initialSession={session}
+          onEnd={() => {
+            forgetUserCarts(queryClient);
+          }}
+        >
+          {children}
+        </SessionProvider>
+      </QueryClientProvider>
+    );
+    const hook = renderHook(
+      () => ({
+        add: useAddToCart(),
+        // A second add button on the same page, for two queued adds.
+        second: useAddToCart(),
+        session: useSession(),
+        token: useCartStore(selectCartToken),
+      }),
+      { wrapper },
+    );
+    return { ...hook, queryClient };
+  };
+
+  it.each([
+    ["no cookie any more (204, logged out in another tab)", noContentResponse],
+    [
+      "a refused cookie (401, revoked)",
+      () => errorResponse(401, "TOKEN_INVALID"),
+    ],
+  ])(
+    "fails with UNAUTHORIZED, sends no guest add and writes nothing back under the user's key, after %s",
+    async (_name, refreshAnswer) => {
+      // Date.now is read by the session manager created at mount.
+      const clock = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+      let refreshes = 0;
+      fetchMock.mockImplementation((input, init) => {
+        const path = requestUrl(input).pathname;
+        if (path === "/v1/auth/web/refresh") {
+          refreshes += 1;
+          return Promise.resolve(
+            refreshes === 1
+              ? webSessionResponse(user({ id: "u1" }), "restored", 60)
+              : refreshAnswer(),
+          );
+        }
+        // Sent without a token, the API would start an orphan guest cart.
+        return Promise.resolve(
+          init?.method === "POST"
+            ? cartResponse(after, "orphan-guest-token", 201)
+            : cartResponse(EMPTY_CART),
+        );
+      });
+      const { result, queryClient } = renderAdd(undefined);
+      await waitFor(() => {
+        expect(result.current.session.status).toBe("authenticated");
+      });
+      queryClient.setQueryData(USER_KEY, before);
+      // Past the moment to replace the 60 s token (30 s before it ends).
+      clock.mockReturnValue(1_000_000 + 45_000);
+
+      act(() => {
+        result.current.add.mutate(add());
+      });
+      await waitFor(() => {
+        expect(result.current.add.isError).toBe(true);
+      });
+
+      expect(isApiError(result.current.add.error, "UNAUTHORIZED")).toBe(true);
+      expect(result.current.add.error).toMatchObject({ status: 401 });
+      expect(itemPosts()).toHaveLength(0);
+      expect(refreshes).toBe(2);
+      expect(result.current.session.status).toBe("anonymous");
+      // Neither the rollback nor the guess brought the user's cart back.
+      expect(queryClient.getQueryData(USER_KEY)).toBeUndefined();
+      // No guest cart token was kept from a guest add.
+      expect(result.current.token).toBeNull();
+    },
+  );
+
+  it("sends a queued add as a guest's once the first add's refresh ended the session, writing nothing under the user's key", async () => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+    const guestCart = cartOf([cartLine("l")]);
+    let refreshes = 0;
+    fetchMock.mockImplementation((input, init) => {
+      const path = requestUrl(input).pathname;
+      if (path === "/v1/auth/web/refresh") {
+        refreshes += 1;
+        return Promise.resolve(
+          refreshes === 1
+            ? webSessionResponse(user({ id: "u1" }), "restored", 60)
+            : noContentResponse(),
+        );
+      }
+      // Only the second add reaches the API, as a guest: a new guest cart.
+      return Promise.resolve(
+        init?.method === "POST"
+          ? cartResponse(guestCart, "g1", 201)
+          : cartResponse(guestCart),
+      );
+    });
+    const { result, queryClient } = renderAdd(undefined);
+    await waitFor(() => {
+      expect(result.current.session.status).toBe("authenticated");
+    });
+    queryClient.setQueryData(USER_KEY, before);
+    // Past the moment to replace the 60 s token.
+    clock.mockReturnValue(1_000_000 + 45_000);
+
+    // Both clicks are made while logged in: both guesses go under u1.
+    act(() => {
+      result.current.add.mutate(add(1, "m"));
+      result.current.second.mutate(add(1, "l"));
+    });
+    await waitFor(() => {
+      expect(result.current.second.isSuccess).toBe(true);
+    });
+
+    // The first add's refresh ended the session; it was never sent.
+    expect(isApiError(result.current.add.error, "UNAUTHORIZED")).toBe(true);
+    expect(refreshes).toBe(2);
+    expect(result.current.session.status).toBe("anonymous");
+    // The second ran after that, as a visitor: no access token, no cart
+    // token yet, and the guest cart it created is kept.
+    expect(itemPosts()).toHaveLength(1);
+    const headers = new Headers(itemPosts()[0]?.[1]?.headers);
+    expect(headers.has("Authorization")).toBe(false);
+    expect(headers.has("X-Cart-Token")).toBe(false);
+    expect(result.current.token).toBe("g1");
+    expect(queryClient.getQueryData(["cart", "g1"])).toEqual(guestCart);
+    // Nothing under the logged-out user's key: not the rollback, not the
+    // answer, not the reset of the second click's guess.
+    expect(queryClient.getQueryData(USER_KEY)).toBeUndefined();
+  });
+
+  it("does not write a late answer under the user's key once the session has ended", async () => {
+    const answer = deferred<Response>();
+    fetchMock.mockImplementation((_input, init) =>
+      init?.method === "POST"
+        ? answer.promise
+        : Promise.resolve(cartResponse(EMPTY_CART)),
+    );
+    const { result, queryClient } = renderAdd({
+      user: user({ id: "u1" }),
+      accessToken: "a",
+    });
+    queryClient.setQueryData(USER_KEY, before);
+
+    act(() => {
+      result.current.add.mutate(add());
+    });
+    await waitFor(() => {
+      expect(itemPosts()).toHaveLength(1);
+    });
+    // The session ends while the add is on its way: what onEnd does.
+    act(() => {
+      result.current.session.setSession(null);
+    });
+    forgetUserCarts(queryClient);
+    answer.resolve(cartResponse(after));
+    await waitFor(() => {
+      expect(result.current.add.isSuccess).toBe(true);
+    });
+
+    expect(queryClient.getQueryData(USER_KEY)).toBeUndefined();
+    expect(result.current.token).toBeNull();
+  });
+
+  it("refuses a logged-in add the API answered as a guest's (with a cart_token)", async () => {
+    fetchMock.mockImplementation((_input, init) =>
+      Promise.resolve(
+        init?.method === "POST"
+          ? cartResponse(after, "orphan-guest-token", 201)
+          : cartResponse(before),
+      ),
+    );
+    const { result, queryClient } = renderAdd({
+      user: user({ id: "u1" }),
+      accessToken: "a",
+    });
+    queryClient.setQueryData(USER_KEY, before);
+
+    act(() => {
+      result.current.add.mutate(add());
+    });
+    await waitFor(() => {
+      expect(result.current.add.isError).toBe(true);
+    });
+
+    expect(isApiError(result.current.add.error, "UNAUTHORIZED")).toBe(true);
+    // The guess was rolled back (the user is still logged in here) and the
+    // answer's cart was not stored as the user's.
+    expect(queryClient.getQueryData(USER_KEY)).toEqual(before);
+    // The orphan token is neither kept nor used as a key.
+    expect(result.current.token).toBeNull();
+    expect(
+      queryClient.getQueryData(["cart", "orphan-guest-token"]),
+    ).toBeUndefined();
   });
 });

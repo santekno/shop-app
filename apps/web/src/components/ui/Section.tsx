@@ -18,7 +18,9 @@ export function Section({ title, className, children }: SectionProps) {
   const headingId = useId();
   return (
     <Card as="section" className={className} labelledBy={headingId}>
-      <h2 id={headingId}>{title}</h2>
+      <h2 id={headingId} className="mb-3">
+        {title}
+      </h2>
       {children}
     </Card>
   );

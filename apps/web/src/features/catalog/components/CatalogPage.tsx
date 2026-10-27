@@ -65,20 +65,24 @@ export function CatalogPage() {
   const hasPages = data !== undefined;
 
   return (
-    <div className="page">
+    <div className="grid gap-4">
       <h1 tabIndex={-1}>Katalog</h1>
-      <div className="catalog">
-        <aside className="catalog__aside">
+      {/* Mobile first: one column, the categories above the products.
+          From md (48rem) up, two columns: a 14rem sidebar beside them. */}
+      <div className="grid gap-4 md:grid-cols-[14rem_minmax(0,1fr)] md:items-start">
+        <aside>
           <CategorySection filters={filters} />
         </aside>
-        <Section title="Produk" className="catalog__products">
+        <Section title="Produk">
           <CatalogToolbar filters={filters} onChange={setFilters} />
           {filters.q !== undefined && (
-            <p className="muted">Hasil pencarian untuk “{filters.q}”.</p>
+            <p className="text-muted-foreground">
+              Hasil pencarian untuk “{filters.q}”.
+            </p>
           )}
 
           {!hasPages && (status === "pending" || isFetching) && (
-            <div className="catalog__footer">
+            <div className="mt-4 flex justify-center">
               <LoadingState>Memuat produk…</LoadingState>
             </div>
           )}

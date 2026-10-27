@@ -20,7 +20,7 @@ describe("FormAlert", () => {
     const alert = screen.getByRole("alert");
     expect(alert.textContent).toBe("Email atau kata sandi salah.");
     expect(alert.tabIndex).toBe(-1);
-    expect(alert.className).toBe("error-text");
+    expect(alert.className).toBe("text-destructive");
     expect(document.activeElement).toBe(alert);
   });
 

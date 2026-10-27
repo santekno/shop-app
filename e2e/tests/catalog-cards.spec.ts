@@ -29,7 +29,8 @@ test("every card shows the API's name, category, rupiah price, Mulai and stock",
     await expect(card.locator(".product-card__name"), label).toHaveText(
       product.name,
     );
-    await expect(card.locator("p.muted"), label).toHaveText(
+    // The paragraph right after the name (Bab 10 dropped its .muted).
+    await expect(card.locator(".product-card__name + p"), label).toHaveText(
       product.category.name,
     );
 

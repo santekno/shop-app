@@ -43,7 +43,14 @@ export type {
 export { getProduct, listCategories, listProducts } from "./api/catalog.ts";
 export type { EndpointOptions } from "./api/catalog.ts";
 
-export { login, register } from "./api/auth.ts";
+export {
+  WEB_CLIENT_HEADERS,
+  login,
+  register,
+  webLogin,
+  webLogout,
+  webRefresh,
+} from "./api/auth.ts";
 
 export {
   EMAIL_MAX_LENGTH,
@@ -55,7 +62,9 @@ export {
 } from "./schemas/auth.ts";
 export type { LoginInput, RegisterInput } from "./schemas/auth.ts";
 
-export { EMPTY_CART, addCartItem, getCart } from "./api/cart.ts";
+export { getMe } from "./api/me.ts";
+
+export { EMPTY_CART, addCartItem, getCart, mergeCart } from "./api/cart.ts";
 export type { AddCartItemResult, CartRequestOptions } from "./api/cart.ts";
 
 export type {
@@ -79,6 +88,8 @@ export type {
   TokenPairDetail,
   User,
   UserDetail,
+  WebSession,
+  WebSessionDetail,
   components,
   operations,
   paths,

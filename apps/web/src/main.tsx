@@ -1,7 +1,12 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "@/app/App.tsx";
+import { syncCartAcrossTabs } from "@/features/cart/cart-store.ts";
 import "@/index.css";
+
+// The guest cart's token is saved in localStorage; follow other tabs'
+// changes to it (artikel 10).
+syncCartAcrossTabs();
 
 const root = document.getElementById("root");
 if (root === null) {

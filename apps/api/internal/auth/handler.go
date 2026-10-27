@@ -44,6 +44,8 @@ type Handler struct {
 	limiter     RateLimiter
 	now         func() time.Time
 	trustedHops int
+	// web is the browser session's cookie and origin settings (web.go).
+	web WebSession
 }
 
 // HandlerDeps is what the handler needs. Service, Validator and Limiter
@@ -56,13 +58,15 @@ type HandlerDeps struct {
 	Clock func() time.Time
 	// TrustedProxyHops is APP_TRUSTED_PROXY_HOPS, for httpapi.ClientIP.
 	TrustedProxyHops int
+	// WebSession configures the /v1/auth/web endpoints (Bab 10).
+	WebSession WebSession
 }
 
 // NewHandler returns a Handler built from deps.
 func NewHandler(deps HandlerDeps) *Handler {
 	h := &Handler{
 		svc: deps.Service, validator: deps.Validator, limiter: deps.Limiter,
-		now: deps.Clock, trustedHops: deps.TrustedProxyHops,
+		now: deps.Clock, trustedHops: deps.TrustedProxyHops, web: deps.WebSession,
 	}
 	if h.now == nil {
 		h.now = time.Now
@@ -80,6 +84,12 @@ func (h *Handler) Routes(r chi.Router) {
 	r.Post("/auth/forgot-password", h.ForgotPassword)
 	r.Post("/auth/reset-password", h.ResetPassword)
 	r.Post("/auth/google", h.GoogleLogin)
+	// The browser's session (Bab 10, web.go): the same accounts, with the
+	// refresh token in an httpOnly cookie instead of the body.
+	web := r.With(h.requireWebClient)
+	web.Post("/auth/web/login", h.WebLogin)
+	web.Post("/auth/web/refresh", h.WebRefresh)
+	web.Post("/auth/web/logout", h.WebLogout)
 }
 
 // ProtectedRoutes registers the auth routes that need a logged-in user, on
@@ -138,30 +148,40 @@ type loginBody struct {
 // Login serves POST /v1/auth/login: 200 with an access token, or 401
 // INVALID_CREDENTIALS whatever was wrong.
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
-	var body loginBody
-	if err := httpapi.DecodeJSON(w, r, &body); err != nil {
-		httpapi.Error(w, r, err)
-		return
-	}
-	// Counted before validation, so a malformed attempt costs one too.
-	if !h.allow(w, r, limitCheck{LimitLoginPerIP, h.clientIP(r)}, limitCheck{LimitLoginPerEmail, EmailKey(body.Email)}) {
-		return
-	}
-	if err := h.validator.Struct(body); err != nil {
-		httpapi.Error(w, r, err)
-		return
-	}
-	tokens, err := h.svc.Login(r.Context(), body.Email, body.Password)
-	if err != nil {
-		httpapi.Error(w, r, toHTTPError(err))
+	tokens, ok := h.login(w, r)
+	if !ok {
 		return
 	}
 	httpapi.JSON(w, r, http.StatusOK, dataResponse{Data: toTokensJSON(tokens, h.now())})
 }
 
+// login is the body of Login and WebLogin: decode, count, validate, log
+// in. When ok is false it has answered already.
+func (h *Handler) login(w http.ResponseWriter, r *http.Request) (Tokens, bool) {
+	var body loginBody
+	if err := httpapi.DecodeJSON(w, r, &body); err != nil {
+		httpapi.Error(w, r, err)
+		return Tokens{}, false
+	}
+	// Counted before validation, so a malformed attempt costs one too.
+	if !h.allow(w, r, limitCheck{LimitLoginPerIP, h.clientIP(r)}, limitCheck{LimitLoginPerEmail, EmailKey(body.Email)}) {
+		return Tokens{}, false
+	}
+	if err := h.validator.Struct(body); err != nil {
+		httpapi.Error(w, r, err)
+		return Tokens{}, false
+	}
+	tokens, err := h.svc.Login(r.Context(), body.Email, body.Password)
+	if err != nil {
+		httpapi.Error(w, r, toHTTPError(err))
+		return Tokens{}, false
+	}
+	return tokens, true
+}
+
 // refreshBody is the request body of POST /v1/auth/refresh and
-// /v1/auth/logout. ADR 0005: the refresh token travels in the body until
-// the web client adds an httpOnly cookie.
+// /v1/auth/logout, the mobile app's transport (ADR 0005). A browser uses
+// the /v1/auth/web endpoints and the goshop_refresh cookie instead.
 type refreshBody struct {
 	RefreshToken string `json:"refresh_token" validate:"required,max=200"`
 }

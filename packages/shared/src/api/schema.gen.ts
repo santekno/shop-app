@@ -414,6 +414,100 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/auth/web/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Log in from the web storefront (refresh token in a cookie)
+         * @description Rate limited: 20 per 15 minutes per client IP and 5 per 15 minutes per email (429 `RATE_LIMITED`), the same counters as `/v1/auth/login`.
+         *
+         *     The browser's login (Bab 10, ADR 0008). Exactly `/v1/auth/login`,
+         *     except that the refresh token is set in the `goshop_refresh`
+         *     cookie (`HttpOnly`, `Secure`, `SameSite=Strict`,
+         *     `Path=/v1/auth/web`, `Max-Age` = the token's remaining lifetime)
+         *     and never appears in the body. Keep the access token in memory
+         *     only. A `goshop_refresh` cookie sent with the request is ignored;
+         *     the new one replaces it.
+         *
+         *     Call it with `credentials: "include"` and the header
+         *     `X-GoShop-Client: web`. The web session needs the storefront and
+         *     the API on one site (one registrable domain): see
+         *     `docs/configuration.md`.
+         */
+        post: operations["webLogin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/web/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rotate the web session's refresh cookie
+         * @description Rate limited: 60 per 15 minutes per client IP (429 `RATE_LIMITED`), the same counter as `/v1/auth/refresh`, counted only when a cookie is sent.
+         *
+         *     Takes no body. Without a `goshop_refresh` cookie (or with an empty
+         *     one) it answers 204 and does nothing: the normal answer for a
+         *     visitor who is not logged in, which the storefront asks at every
+         *     start-up. With one, it rotates the token exactly as
+         *     `/v1/auth/refresh` does (a reused token revokes the whole session)
+         *     and sets the new token in the cookie. Every 401 also clears the
+         *     cookie; 429 and 500 leave it alone, because the token may still be
+         *     good. A request that carries several `goshop_refresh` cookies (one
+         *     planted by a sibling domain) is refused with 401 `TOKEN_INVALID`
+         *     and the API's cookie is cleared.
+         *
+         *     Clients must not refresh in parallel, across tabs too: the
+         *     storefront serialises refreshes with the Web Locks API.
+         */
+        post: operations["webRefresh"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/web/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * End the web session and clear its cookie
+         * @description Not rate limited, like `/v1/auth/logout`.
+         *
+         *     Takes no body. When the request carries a `goshop_refresh` cookie,
+         *     revokes its session exactly as `/v1/auth/logout` does (the refresh
+         *     token and every access token of the session stop working). Then
+         *     clears the cookie. Answers 204 whether or not a cookie was sent or
+         *     still valid. No access token is needed. When revoking fails (500)
+         *     the cookie is kept, so the client can retry.
+         */
+        post: operations["webLogout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/me": {
         parameters: {
             query?: never;
@@ -1437,7 +1531,7 @@ export interface components {
             token_type: "Bearer";
             /** @description Seconds until the access token expires. */
             expires_in: number;
-            /** @description Opaque; send it to `/v1/auth/refresh` and `/v1/auth/logout`. Keep it in the platform's secure store (mobile); never in `localStorage`. Shown once, stored by the API only as a hash. */
+            /** @description Opaque; send it to `/v1/auth/refresh` and `/v1/auth/logout`. Keep it in the platform's secure store (mobile); never in `localStorage`. Shown once, stored by the API only as a hash. Web clients never see it; `/v1/auth/web/login` and `/v1/auth/web/refresh` put it in the `goshop_refresh` cookie instead. */
             refresh_token: string;
             /** @description Seconds until the refresh token expires (`APP_REFRESH_TOKEN_TTL`, 30 days by default). Every refresh starts a new period. */
             refresh_expires_in: number;
@@ -1445,6 +1539,19 @@ export interface components {
         };
         TokenPairDetail: {
             data: components["schemas"]["TokenPair"];
+        };
+        /** @description A web session (ADR 0008) and the account it belongs to. The refresh token is in the `goshop_refresh` cookie, never in the body. */
+        WebSession: {
+            /** @description A JWT. Send it as `Authorization: Bearer <access_token>`. Keep it in memory only, never in `localStorage`. Clients must not rely on its claims; they may change. */
+            access_token: string;
+            /** @constant */
+            token_type: "Bearer";
+            /** @description Seconds until the access token expires. */
+            expires_in: number;
+            user: components["schemas"]["User"];
+        };
+        WebSessionDetail: {
+            data: components["schemas"]["WebSession"];
         };
         RefreshRequest: {
             /** @description The `refresh_token` of the last login or refresh. */
@@ -2088,6 +2195,21 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
+        /**
+         * @description Not a request from the web storefront: the `X-GoShop-Client: web`
+         *     header is missing or wrong (`details.reason` `client_header`), or
+         *     the `Origin` header names an origin that is not in
+         *     `APP_CORS_ALLOWED_ORIGINS` (`details.reason` `origin`). Nothing is
+         *     counted against a rate limit and no cookie is set or cleared.
+         */
+        WebClientRejected: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
         /** @description The body is invalid (`VALIDATION_FAILED`; a new password that breaks the policy is reported under `password`), or the token from the email cannot be used. `TOKEN_INVALID` means it is malformed, unknown, already used, replaced by a newer email, or its account was deleted; `TOKEN_EXPIRED` means it is too old. Ask for a new email either way. */
         BadEmailToken: {
             headers: {
@@ -2590,6 +2712,15 @@ export interface components {
         };
     };
     parameters: {
+        /**
+         * @description Must be exactly `web`. A page on another origin cannot add a custom
+         *     header without a CORS preflight, which the API answers only for the
+         *     origins in `APP_CORS_ALLOWED_ORIGINS`; together with
+         *     `SameSite=Strict` and the `Origin` check this keeps other sites,
+         *     sibling subdomains included, from using the cookie (CSRF). Missing
+         *     or wrong: 403 `FORBIDDEN` with `details.reason` `client_header`.
+         */
+        GoShopClientHeader: "web";
         /** @description Product ID. One that is not a UUID returns 404 `NOT_FOUND`. */
         ProductID: string;
         /** @description Image ID. One that is not a UUID returns 404 `NOT_FOUND`. */
@@ -2605,7 +2736,18 @@ export interface components {
         OrderID: string;
     };
     requestBodies: never;
-    headers: never;
+    headers: {
+        /**
+         * @description The session's new refresh token in the `goshop_refresh` cookie.
+         * @example goshop_refresh=0192f5d4-7c1e-7a8b-9c3d-4e5f6a7b8c9d.q8XbS0pV2lYc7mWfN3rT5uJhK9dGzA1eR6tB4yOiPxw; Path=/v1/auth/web; Max-Age=2592000; HttpOnly; Secure; SameSite=Strict
+         */
+        SetRefreshCookie: string;
+        /**
+         * @description Deletes the `goshop_refresh` cookie (same name, path and attributes, empty value, `Max-Age=0`).
+         * @example goshop_refresh=; Path=/v1/auth/web; Max-Age=0; HttpOnly; Secure; SameSite=Strict
+         */
+        ClearRefreshCookie: string;
+    };
     pathItems: never;
 }
 export type $defs = Record<string, never>;
@@ -3262,6 +3404,139 @@ export interface operations {
                 content?: never;
             };
             400: components["responses"]["BadAuthRequest"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    webLogin: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description Must be exactly `web`. A page on another origin cannot add a custom
+                 *     header without a CORS preflight, which the API answers only for the
+                 *     origins in `APP_CORS_ALLOWED_ORIGINS`; together with
+                 *     `SameSite=Strict` and the `Origin` check this keeps other sites,
+                 *     sibling subdomains included, from using the cookie (CSRF). Missing
+                 *     or wrong: 403 `FORBIDDEN` with `details.reason` `client_header`.
+                 */
+                "X-GoShop-Client": components["parameters"]["GoShopClientHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "email": "budi@example.com",
+                 *       "password": "kopi-susu-gula-aren"
+                 *     }
+                 */
+                "application/json": components["schemas"]["LoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Logged in. The refresh token is in the cookie. */
+            200: {
+                headers: {
+                    "Set-Cookie": components["headers"]["SetRefreshCookie"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebSessionDetail"];
+                };
+            };
+            400: components["responses"]["BadAuthRequest"];
+            401: components["responses"]["InvalidCredentials"];
+            403: components["responses"]["WebClientRejected"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    webRefresh: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description Must be exactly `web`. A page on another origin cannot add a custom
+                 *     header without a CORS preflight, which the API answers only for the
+                 *     origins in `APP_CORS_ALLOWED_ORIGINS`; together with
+                 *     `SameSite=Strict` and the `Origin` check this keeps other sites,
+                 *     sibling subdomains included, from using the cookie (CSRF). Missing
+                 *     or wrong: 403 `FORBIDDEN` with `details.reason` `client_header`.
+                 */
+                "X-GoShop-Client": components["parameters"]["GoShopClientHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Rotated. The new refresh token is in the cookie. */
+            200: {
+                headers: {
+                    "Set-Cookie": components["headers"]["SetRefreshCookie"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebSessionDetail"];
+                };
+            };
+            /** @description No cookie was sent; there is no session to restore. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /**
+             * @description The cookie's token is malformed, unknown, revoked, already used
+             *     (`TOKEN_INVALID`; a reused token also revokes its session) or
+             *     expired (`TOKEN_EXPIRED`), or its account no longer exists
+             *     (`UNAUTHORIZED`). The cookie is cleared; the user logs in again.
+             */
+            401: {
+                headers: {
+                    "Set-Cookie": components["headers"]["ClearRefreshCookie"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            403: components["responses"]["WebClientRejected"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    webLogout: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description Must be exactly `web`. A page on another origin cannot add a custom
+                 *     header without a CORS preflight, which the API answers only for the
+                 *     origins in `APP_CORS_ALLOWED_ORIGINS`; together with
+                 *     `SameSite=Strict` and the `Origin` check this keeps other sites,
+                 *     sibling subdomains included, from using the cookie (CSRF). Missing
+                 *     or wrong: 403 `FORBIDDEN` with `details.reason` `client_header`.
+                 */
+                "X-GoShop-Client": components["parameters"]["GoShopClientHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The session is over and the cookie is cleared. */
+            204: {
+                headers: {
+                    "Set-Cookie": components["headers"]["ClearRefreshCookie"];
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["WebClientRejected"];
             500: components["responses"]["InternalError"];
         };
     };

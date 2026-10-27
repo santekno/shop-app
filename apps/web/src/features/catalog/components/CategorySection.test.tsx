@@ -146,4 +146,32 @@ describe("CategorySection", () => {
     expect(all.getAttribute("href")).toBe("/");
     expect(all.getAttribute("aria-current")).toBe("true");
   });
+
+  it("folds the list behind a toggle on a phone that says whether it is open", async () => {
+    const events = userEvent.setup();
+    fetchMock.mockResolvedValue(categoriesResponse([category("1", "Kaos")]));
+    render(inRouter(<CategorySection filters={ALL} />));
+
+    const toggle = await screen.findByRole("button", {
+      name: "Tampilkan kategori",
+    });
+    const listId = toggle.getAttribute("aria-controls") ?? "";
+    const list = document.getElementById(listId);
+    expect(list?.contains(screen.getByText("Kaos"))).toBe(true);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    // Folded on a phone, always shown from md up.
+    expect(list?.className).toBe("hidden md:block");
+
+    await events.click(toggle);
+
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(toggle.textContent).toBe("Sembunyikan kategori");
+    expect(list?.className).toBe("block");
+
+    await events.click(toggle);
+
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(toggle.textContent).toBe("Tampilkan kategori");
+    expect(list?.className).toBe("hidden md:block");
+  });
 });

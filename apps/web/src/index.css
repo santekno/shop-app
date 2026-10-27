@@ -1,549 +1,220 @@
+/* GoShop's design tokens and the few element defaults the storefront
+   needs. Every component styles itself with Tailwind utilities; this file
+   only says what those utilities are made of.
+
+   Three layers, from raw value to class name:
+
+   1. Colour values per theme, as CSS variables on :root (--primary).
+      They are the only place a colour is written down.
+   2. @theme turns tokens into utilities: --color-primary makes
+      bg-primary, text-primary, border-primary, outline-primary …
+   3. Components use the utilities and never a raw value: no #0b5cad, no
+      text-[13px], no border-[var(--border)] in a .tsx file.
+
+   Colours are named by role (primary, muted-foreground, destructive), not
+   by hue (blue-600): a role keeps its meaning when its value changes, in
+   a redesign or in dark mode. The names follow shadcn/ui's, so its
+   components drop in unchanged. */
+@import "tailwindcss";
+
+/* --- Dark mode ---------------------------------------------------------
+
+   The theme follows the device (prefers-color-scheme) until the viewer
+   presses the header's toggle; then <html data-theme="light|dark"> wins.
+   public/theme.js sets that attribute before the page is painted, from
+   the choice saved in localStorage, so a reload never flashes the wrong
+   theme first.
+
+   Tailwind's own `dark:` variant only reads prefers-color-scheme. This
+   one replaces it: dark when the attribute says so, or when the device
+   is dark and the attribute does not say light. Both the colour values
+   below and any dark: utility use it. */
+@custom-variant dark {
+  &:where([data-theme="dark"], [data-theme="dark"] *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(
+      :root:not([data-theme="light"]),
+      :root:not([data-theme="light"]) *
+    ) {
+      @slot;
+    }
+  }
+}
+
+/* --- 1. Colour values ---------------------------------------------------
+
+   Each pair below was checked for contrast (WCAG 2.2, level AA): text
+   4.5:1 against what it sits on, focus indicators 3:1. The ratios are in
+   docs/web/README.md (Bab 10, artikel 04). */
 :root {
-  color-scheme: light dark;
-  --text: #1f2328;
-  --muted: #59636e;
-  --bg: #f6f8fa;
-  --surface: #ffffff;
+  /* The browser's own parts (scrollbars, form controls, the page before
+     the CSS arrives) follow the theme too. */
+  color-scheme: light;
+
+  /* The page, and the text on it. */
+  --background: #f6f8fa;
+  --foreground: #1f2328;
+  /* Panels (Card) and floating panels (the dropdown menu). */
+  --card: #ffffff;
+  --card-foreground: #1f2328;
+  --popover: #ffffff;
+  --popover-foreground: #1f2328;
+  /* The brand colour: main buttons, links, the cart count, focus. */
+  --primary: #0b5cad;
+  --primary-foreground: #ffffff;
+  /* Quiet surfaces (the photo placeholder) and secondary text. */
+  --muted: #eef1f4;
+  --muted-foreground: #59636e;
+  /* The background of a hovered or highlighted control. */
+  --accent: #eef1f4;
+  --accent-foreground: #1f2328;
+  /* Errors and "stok habis"; good news. */
+  --destructive: #b42318;
+  --destructive-foreground: #ffffff;
+  --success: #1a7f37;
+  /* Lines between things: a card's edge, a divider. Decorative. */
   --border: #d1d9e0;
-  --accent: #0b5cad;
-  --error: #b42318;
-  font-family:
-    system-ui,
-    -apple-system,
-    "Segoe UI",
-    Roboto,
-    sans-serif;
-  line-height: 1.5;
-  color: var(--text);
-  background: var(--bg);
-}
+  /* The edge of a form field. It must be seen to find the field: 3:1
+     against the surface (WCAG 1.4.11), unlike a decorative line. */
+  --input: #768390;
+  /* The focus indicator. */
+  --ring: #0b5cad;
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --text: #e6edf3;
-    --muted: #9198a1;
-    --bg: #0d1117;
-    --surface: #151b23;
+  /* The base radius rounded-sm, -md and -lg are derived from (below). */
+  --radius: 0.5rem;
+
+  /* The same roles, dark. Written once: the dark variant above turns
+     this block into both selectors (the attribute and the media query). */
+  @variant dark {
+    color-scheme: dark;
+    --background: #0d1117;
+    --foreground: #e6edf3;
+    --card: #151b23;
+    --card-foreground: #e6edf3;
+    --popover: #151b23;
+    --popover-foreground: #e6edf3;
+    --primary: #4493f8;
+    /* Dark text on the light blue: white on #4493f8 is only 3.1:1. */
+    --primary-foreground: #0d1117;
+    --muted: #212830;
+    --muted-foreground: #9198a1;
+    --accent: #262c36;
+    --accent-foreground: #e6edf3;
+    --destructive: #ff7b72;
+    --destructive-foreground: #0d1117;
+    --success: #3fb950;
     --border: #3d444d;
-    --accent: #4493f8;
-    --error: #ff7b72;
+    --input: #768390;
+    --ring: #4493f8;
   }
 }
 
-* {
-  box-sizing: border-box;
+/* --- 2. Tokens as utilities ---------------------------------------------
+
+   `inline`: a utility uses the variable itself (bg-primary is
+   background-color: var(--primary)), so when :root switches to the dark
+   values, every utility follows without a second set of classes: a
+   component never needs dark:bg-… for a colour role. */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* Corners: one base radius, the others derived from it, so a rounder
+     or sharper GoShop is a change of one number. rounded-lg is the card,
+     rounded-md a button or a field, rounded-sm a menu item. */
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
 }
 
-body {
-  margin: 0;
-}
+@theme {
+  /* Typography. The system font: no download, no layout shift while a
+     web font arrives, and it reads well in Indonesian on every device. */
+  --font-sans:
+    system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  /* Two sizes of our own, beside Tailwind's scale (text-sm, text-base …):
+     text-title for a page's <h1>, text-heading for a section's <h2>. A
+     size token can carry its line height (--text-*--line-height). */
+  --text-title: 1.75rem;
+  --text-title--line-height: 1.2;
+  --text-heading: 1.25rem;
+  --text-heading--line-height: 1.4;
 
-.site-header,
-.site-main {
-  max-width: 48rem;
-  margin: 0 auto;
-  padding: 1.5rem 1rem 0;
-}
+  /* Spacing. Every spacing utility is a multiple of this step: p-4 is
+     4 × 0.25rem = 1rem, gap-3 is 0.75rem. It is Tailwind's default,
+     written here because it is GoShop's grid too: 4 px. */
+  --spacing: 0.25rem;
 
-.site-header p {
-  margin: 0.25rem 0 0;
-}
+  /* The page's width: header, main and footer line up on max-w-page. */
+  --container-page: 72rem;
 
-.muted {
-  color: var(--muted);
-}
+  /* The bar NavigationProgress shows while a lazy page downloads:
+     animate-navigation-progress. */
+  --animate-navigation-progress: navigation-progress 1.5s ease-out forwards;
 
-.card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
-  padding: 1rem 1.25rem;
-}
-
-.card h2 {
-  margin-top: 0;
-}
-
-.category-tree {
-  margin: 0;
-  padding-left: 1.25rem;
-}
-
-.card > .category-tree {
-  padding-left: 0;
-  list-style: none;
-}
-
-.category-tree li {
-  margin: 0.25rem 0;
-}
-
-.category-tree a,
-.category-all a {
-  text-decoration: none;
-}
-
-/* The category the catalog is filtered by (aria-current="true"). */
-.category-tree a[aria-current="true"],
-.category-all a[aria-current="true"] {
-  font-weight: 700;
-  text-decoration: underline;
-}
-
-.category-all {
-  margin: 0 0 0.5rem;
-}
-
-.catalog-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: end;
-  gap: 0.75rem 1.5rem;
-  margin-bottom: 1rem;
-}
-
-.catalog-search,
-.catalog-sort {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-input,
-select {
-  font: inherit;
-  padding: 0.375rem 0.5rem;
-  border: 1px solid var(--border);
-  border-radius: 0.375rem;
-  background: var(--surface);
-  color: var(--text);
-}
-
-.error p:first-child {
-  color: var(--error);
-}
-
-button {
-  font: inherit;
-  padding: 0.375rem 0.875rem;
-  border: 1px solid var(--accent);
-  border-radius: 0.375rem;
-  background: var(--accent);
-  color: #ffffff;
-  cursor: pointer;
-}
-
-/* A visible focus ring for keyboard users, never removed. */
-:focus-visible {
-  outline: 3px solid var(--accent);
-  outline-offset: 2px;
-}
-
-/* --- Products ------------------------------------------------------- */
-
-.product-card {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.product-card__name {
-  margin: 0.5rem 0 0;
-  font-size: 1rem;
-}
-
-.product-card__name a {
-  text-decoration: none;
-}
-
-.product-card__name a:hover {
-  text-decoration: underline;
-}
-
-.product-card p {
-  margin: 0;
-}
-
-.product-image {
-  display: block;
-  width: 100%;
-  aspect-ratio: 1;
-  object-fit: cover;
-  border-radius: 0.375rem;
-  background: var(--bg);
-}
-
-.product-image--placeholder {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 0.25rem;
-  color: var(--muted);
-  font-size: 0.875rem;
-}
-
-.price {
-  font-weight: 600;
-}
-
-.price__from {
-  font-weight: 400;
-  color: var(--muted);
-}
-
-.badge {
-  align-self: flex-start;
-  padding: 0.125rem 0.5rem;
-  border-radius: 999px;
-  border: 1px solid var(--error);
-  color: var(--error);
-  font-size: 0.8125rem;
-}
-
-/* --- Product detail --------------------------------------------------- */
-
-.stepper {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.stepper__label {
-  font-weight: 600;
-  margin-right: 0.25rem;
-}
-
-.stepper button {
-  min-width: 2.5rem;
-}
-
-.stepper__value {
-  min-width: 2ch;
-  text-align: center;
-  font-variant-numeric: tabular-nums;
-}
-
-button:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.variant-picker {
-  display: grid;
-  gap: 0.375rem;
-  margin: 0;
-  padding: 0.75rem 1rem;
-  border: 1px solid var(--border);
-  border-radius: 0.375rem;
-}
-
-.variant-picker legend {
-  font-weight: 600;
-  padding: 0 0.25rem;
-}
-
-.variant-picker__option {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  cursor: pointer;
-}
-
-.variant-picker__name {
-  font-weight: 600;
-}
-
-.product-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
-  gap: 1rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.product-grid > li {
-  display: flex;
-}
-
-.product-grid .product-card {
-  flex: 1;
-}
-
-/* --- Pages ------------------------------------------------------------ */
-
-.site-main {
-  max-width: 72rem;
-  padding-bottom: 3rem;
-}
-
-.site-header {
-  max-width: 72rem;
-}
-
-.catalog {
-  display: grid;
-  gap: 1rem;
-}
-
-@media (min-width: 48rem) {
-  .catalog {
-    grid-template-columns: 14rem 1fr;
-    align-items: start;
+  @keyframes navigation-progress {
+    from {
+      transform: scaleX(0.1);
+    }
+    to {
+      transform: scaleX(0.9);
+    }
   }
 }
 
-.product-page {
-  display: grid;
-  gap: 1rem;
-  justify-items: start;
-}
+/* --- 3. Element defaults ------------------------------------------------
 
-.product-detail {
-  display: grid;
-  gap: 1.5rem;
-  width: 100%;
-}
-
-@media (min-width: 48rem) {
-  .product-detail {
-    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+   Preflight (Tailwind's reset) removes the browser's own heading sizes
+   and link colours. These put back what every page relies on, from the
+   same tokens, so a page does not repeat them on each <h1>. */
+@layer base {
+  html {
+    @apply bg-background font-sans text-foreground;
+    line-height: 1.5;
   }
-}
 
-.product-detail__info {
-  display: grid;
-  gap: 0.75rem;
-  align-content: start;
-}
-
-.product-detail__info > * {
-  margin: 0;
-}
-
-.price--large {
-  font-size: 1.5rem;
-}
-
-.catalog__footer {
-  display: flex;
-  justify-content: center;
-  margin-top: 1rem;
-}
-
-.catalog__footer:empty {
-  display: none;
-}
-
-.brand {
-  color: inherit;
-  font-size: 2rem;
-  font-weight: 700;
-  text-decoration: none;
-}
-
-/* --- Header and navigation (Bab 9) ------------------------------------ */
-
-.site-header__bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem 1.5rem;
-}
-
-.site-nav {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem 1rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-a {
-  color: var(--accent);
-}
-
-/* NavLink sets aria-current="page" on the link of the page on screen. */
-.site-nav a[aria-current="page"] {
-  font-weight: 700;
-  text-decoration-thickness: 2px;
-}
-
-/* <main> and the page headings take the focus from code after a
-   navigation (useRouteFocus); they are not controls, so no ring. */
-.site-main:focus,
-h1[tabindex="-1"]:focus {
-  outline: none;
-}
-
-.page {
-  display: grid;
-  gap: 1rem;
-}
-
-.page > h1,
-.product-detail h1 {
-  margin: 0;
-}
-
-.auth-layout {
-  max-width: 28rem;
-  margin: 0 auto;
-}
-
-/* --- Cart (Bab 9) ------------------------------------------------------ */
-
-/* Read by screen readers, invisible on screen. */
-.visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  padding: 0;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-  border: 0;
-}
-
-.cart-count {
-  display: inline-block;
-  min-width: 1.5em;
-  margin-left: 0.375rem;
-  padding: 0 0.375rem;
-  border-radius: 999px;
-  background: var(--accent);
-  color: #ffffff;
-  font-size: 0.8125rem;
-  text-align: center;
-}
-
-.add-to-cart {
-  display: grid;
-  gap: 0.5rem;
-  justify-items: start;
-}
-
-.add-to-cart__status:empty {
-  display: none;
-}
-
-.add-to-cart p {
-  margin: 0;
-}
-
-.error-text {
-  color: var(--error);
-}
-
-.cart-lines {
-  display: grid;
-  gap: 0.75rem;
-  margin: 0 0 1rem;
-  padding: 0;
-  list-style: none;
-}
-
-.cart-line {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-  padding-bottom: 0.75rem;
-  border-bottom: 1px solid var(--border);
-}
-
-.cart-line p {
-  margin: 0.125rem 0 0;
-}
-
-.cart-subtotal {
-  text-align: right;
-}
-
-/* --- Forms (Bab 9) ----------------------------------------------------- */
-
-.form {
-  display: grid;
-  gap: 1rem;
-  margin-bottom: 1rem;
-  justify-items: start;
-}
-
-.field {
-  display: grid;
-  gap: 0.25rem;
-  width: 100%;
-}
-
-.field label {
-  font-weight: 600;
-}
-
-.field p {
-  margin: 0;
-  font-size: 0.875rem;
-}
-
-.field__hint {
-  color: var(--muted);
-}
-
-.field__error {
-  color: var(--error);
-}
-
-.field input[aria-invalid="true"] {
-  border-color: var(--error);
-}
-
-.text-button {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--accent);
-  text-decoration: underline;
-}
-
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.75rem 1rem;
-}
-
-/* The bar NavigationProgress shows while a lazy page downloads. */
-.navigation-progress {
-  position: fixed;
-  inset: 0 0 auto;
-  height: 3px;
-  background: var(--accent);
-  transform-origin: left;
-  animation: navigation-progress 1.5s ease-out forwards;
-}
-
-@keyframes navigation-progress {
-  from {
-    transform: scaleX(0.1);
+  h1 {
+    @apply text-title font-bold;
   }
-  to {
-    transform: scaleX(0.9);
-  }
-}
 
-@media (prefers-reduced-motion: reduce) {
-  .navigation-progress {
-    animation: none;
-    transform: scaleX(0.5);
+  h2 {
+    @apply text-heading font-semibold;
   }
-}
 
-.app-loading {
-  max-width: 72rem;
-  margin: 0 auto;
-  padding: 1.5rem 1rem;
-  color: var(--muted);
+  a {
+    @apply text-primary;
+  }
+
+  /* A visible focus ring for keyboard users, never removed: an outline,
+     because it survives Windows' forced-colours mode, where a box-shadow
+     ring disappears. */
+  :focus-visible {
+    @apply outline-3 outline-offset-2 outline-ring;
+  }
+
+  /* The page headings take the focus from code after a navigation
+     (useRouteFocus); they are not controls, so no ring. */
+  h1[tabindex="-1"]:focus {
+    @apply outline-none;
+  }
 }

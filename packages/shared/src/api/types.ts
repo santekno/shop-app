@@ -27,6 +27,12 @@ export type LoginRequest = Schemas["LoginRequest"];
 /** A session's tokens and the account they belong to. */
 export type TokenPair = Schemas["TokenPair"];
 export type TokenPairDetail = Schemas["TokenPairDetail"];
+/**
+ * The browser's session (Bab 10): the access token and the account. The
+ * refresh token is in the httpOnly `goshop_refresh` cookie, never here.
+ */
+export type WebSession = Schemas["WebSession"];
+export type WebSessionDetail = Schemas["WebSessionDetail"];
 /** A cart (Bab 5): its lines, the number of units and the subtotal. */
 export type Cart = Schemas["Cart"];
 export type CartLine = Schemas["CartLine"];

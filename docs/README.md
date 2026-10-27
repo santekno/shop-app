@@ -45,3 +45,4 @@ An ADR records one significant decision: the context, the decision and its conse
 | [0005](adr/0005-auth-tokens.md) | Authenticate with a short-lived JWT and a rotating refresh token | Accepted |
 | [0006](adr/0006-cart-checkout-orders.md) | Keep carts in PostgreSQL and create an order in one guarded transaction | Accepted |
 | [0007](adr/0007-payments-uploads-worker.md) | Take payments through Midtrans Snap, upload images straight to S3, and run side effects on an Asynq worker | Accepted |
+| [0008](adr/0008-web-session-cookie.md) | Give the browser its refresh token in an httpOnly cookie on dedicated web endpoints | Accepted |

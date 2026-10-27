@@ -2,6 +2,11 @@ import { useEffect, useId, useRef } from "react";
 import type { ChangeEvent, SubmitEvent } from "react";
 import { SORT_OPTIONS } from "../catalog-filters.ts";
 import type { CatalogFilters, ProductSort } from "../catalog-filters.ts";
+import { Search } from "lucide-react";
+import { Button } from "@/components/ui/Button.tsx";
+import { Input } from "@/components/ui/Input.tsx";
+import { Label } from "@/components/ui/Label.tsx";
+import { NativeSelect } from "@/components/ui/NativeSelect.tsx";
 
 interface CatalogToolbarProps {
   filters: CatalogFilters;
@@ -44,31 +49,45 @@ export function CatalogToolbar({ filters, onChange }: CatalogToolbarProps) {
   };
 
   return (
-    <div className="catalog-toolbar">
+    // A column on a phone, a row (wrapping) from sm up.
+    <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-6">
       {/* role="search" makes the form a landmark screen readers list. */}
-      <form role="search" className="catalog-search" onSubmit={handleSearch}>
-        <label htmlFor={searchId}>Cari produk</label>
+      <form
+        role="search"
+        className="flex flex-wrap items-center gap-2"
+        onSubmit={handleSearch}
+      >
+        <Label htmlFor={searchId}>Cari produk</Label>
         {/* Uncontrolled: the browser keeps what is typed; the effect
             above updates it when the URL's q changes. */}
-        <input
+        <Input
           ref={searchRef}
+          className="flex-1 sm:w-56 sm:flex-none"
           id={searchId}
           name="q"
           type="search"
           defaultValue={q}
           maxLength={100}
         />
-        <button type="submit">Cari</button>
+        <Button type="submit">
+          <Search aria-hidden="true" />
+          Cari
+        </Button>
       </form>
-      <div className="catalog-sort">
-        <label htmlFor={sortId}>Urutkan</label>
-        <select id={sortId} value={filters.sort} onChange={handleSort}>
+      <div className="flex flex-wrap items-center gap-2">
+        <Label htmlFor={sortId}>Urutkan</Label>
+        <NativeSelect
+          className="w-auto"
+          id={sortId}
+          value={filters.sort}
+          onChange={handleSort}
+        >
           {SORT_OPTIONS.map((option) => (
             <option key={option.value} value={option.value}>
               {option.label}
             </option>
           ))}
-        </select>
+        </NativeSelect>
       </div>
     </div>
   );

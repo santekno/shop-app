@@ -9,6 +9,7 @@ import { ProductImage } from "@/features/catalog/components/ProductImage.tsx";
 import { clampQuantity, maxQuantity } from "../quantity.ts";
 import { QuantityStepper } from "./QuantityStepper.tsx";
 import { VariantPicker } from "./VariantPicker.tsx";
+import { Badge } from "@/components/ui/Badge.tsx";
 
 interface ProductDetailProps {
   product: Product;
@@ -51,15 +52,22 @@ export function ProductDetail({ product }: ProductDetailProps) {
   };
 
   return (
-    <Card as="article" className="product-detail" labelledBy={headingId}>
+    // Stacked on a phone; photo and details side by side from md up.
+    <Card
+      as="article"
+      className="grid w-full gap-6 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]"
+      labelledBy={headingId}
+    >
       <ProductImage name={product.name} />
-      <div className="product-detail__info">
-        <p className="muted">{product.category.name}</p>
+      <div className="grid content-start gap-3">
+        <p className="text-muted-foreground">{product.category.name}</p>
         <h1 ref={headingRef} id={headingId} tabIndex={-1}>
           {product.name}
         </h1>
         {variant !== undefined && (
-          <p className="price price--large">{formatRupiah(variant.price)}</p>
+          <p className="price price--large text-2xl font-semibold">
+            {formatRupiah(variant.price)}
+          </p>
         )}
         <p>{product.description}</p>
 
@@ -93,7 +101,9 @@ export function ProductDetail({ product }: ProductDetailProps) {
               />
             </>
           ) : (
-            <p className="badge">Stok habis</p>
+            <Badge variant="destructive" className="badge">
+              Stok habis
+            </Badge>
           ))}
       </div>
     </Card>

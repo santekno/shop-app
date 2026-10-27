@@ -32,19 +32,27 @@ export function VariantPicker({
   };
 
   return (
-    <fieldset className="variant-picker">
-      <legend>Pilih varian</legend>
+    // variant-picker and its __name: hooks for the tests, not styles.
+    <fieldset className="variant-picker grid gap-1.5 rounded-md border border-border px-4 py-3">
+      <legend className="px-1 font-semibold">Pilih varian</legend>
       {variants.map((variant) => (
-        <label key={variant.id} className="variant-picker__option">
+        <label
+          key={variant.id}
+          className="flex cursor-pointer items-center gap-2"
+        >
           <input
+            // accent-color: the browser's own radio, in the brand colour.
+            className="accent-primary"
             type="radio"
             name={groupName}
             value={variant.id}
             checked={variant.id === selectedId}
             onChange={handleChange}
           />
-          <span className="variant-picker__name">{variant.name}</span>
-          <span className="muted">
+          <span className="variant-picker__name font-semibold">
+            {variant.name}
+          </span>
+          <span className="text-muted-foreground">
             {formatRupiah(variant.price)}
             {variant.stock === 0 ? " · stok habis" : ` · stok ${variant.stock}`}
           </span>

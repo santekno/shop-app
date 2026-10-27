@@ -4,8 +4,8 @@ import { errorMessage } from "@/lib/error-message.ts";
 /**
  * An Indonesian sentence for a failed change to the cart. The cart's own
  * conflicts (409) have their own text; a network, timeout or rate-limit
- * problem gets the storefront's general one; anything else says that the
- * item did not go in.
+ * problem gets the storefront's general one; an ended session says so;
+ * anything else says that the item did not go in.
  */
 export const cartErrorMessage = (error: unknown): string => {
   if (isApiError(error, "INSUFFICIENT_STOCK")) {
@@ -30,5 +30,9 @@ export const cartErrorMessage = (error: unknown): string => {
     return errorMessage(error);
   }
   if (isApiError(error, "RATE_LIMITED")) return errorMessage(error);
+  // Only a logged-in add gets it: the session ended while it was on its way.
+  if (isApiError(error, "UNAUTHORIZED")) {
+    return "Sesi Anda sudah berakhir. Masuk lagi, lalu tambahkan barang ini.";
+  }
   return "Barang belum masuk ke keranjang. Coba lagi.";
 };

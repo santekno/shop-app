@@ -4,6 +4,7 @@ import {
   ErrorState,
   LoadingState,
 } from "@/components/ui/StatusMessage.tsx";
+import { Button } from "@/components/ui/Button.tsx";
 
 interface ProductListFooterProps {
   /** Products on screen so far. */
@@ -48,7 +49,7 @@ export function ProductListFooter({
   });
 
   return (
-    <div className="catalog__footer">
+    <div className="mt-4 flex justify-center empty:hidden">
       {hasNextPage && <div ref={sentinelRef} aria-hidden="true" />}
       {isFetchingNextPage && (
         <LoadingState>Memuat produk berikutnya…</LoadingState>
@@ -60,9 +61,9 @@ export function ProductListFooter({
         // Disabled while the list refetches in the background (a stale
         // list, back on screen): fetchNextPage would cancel that refetch,
         // the same reason the sentinel waits (canLoadMore).
-        <button type="button" onClick={fetchNextPage} disabled={isFetching}>
+        <Button variant="outline" onClick={fetchNextPage} disabled={isFetching}>
           Muat lebih banyak
-        </button>
+        </Button>
       )}
       {!hasNextPage && (
         <EmptyState>
