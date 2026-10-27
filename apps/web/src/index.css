@@ -74,11 +74,12 @@
   --destructive: #b42318;
   --destructive-foreground: #ffffff;
   --success: #1a7f37;
-  /* Lines between things, the edge of a form field, the focus ring. */
+  /* Lines between things: a card's edge, a divider. Decorative. */
   --border: #d1d9e0;
-  /* A field's edge must be seen to find the field: 3:1 against the
-     surface (WCAG 1.4.11), unlike a decorative line. */
+  /* The edge of a form field. It must be seen to find the field: 3:1
+     against the surface (WCAG 1.4.11), unlike a decorative line. */
   --input: #768390;
+  /* The focus indicator. */
   --ring: #0b5cad;
 
   /* The base radius rounded-sm, -md and -lg are derived from (below). */
