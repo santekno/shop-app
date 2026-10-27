@@ -558,3 +558,35 @@ Clicking "Keranjang" in the header goes to `/keranjang`, a whole page. Most shop
 7. **During the start-up restore** the cart is not fetched (artikel 12). Make sure the drawer says "Memuat keranjang…" rather than "empty" in that moment, and that it shows the user's cart, merged, right after a login in another part of the page.
 8. **Test it like the rest:** the dialog has a name (`aria-labelledby` on its heading), Tab stays inside, Escape closes, the focus comes back, no CSP violation and no console error in the e2e suite, and a screen reader hears the count change after an add (a live region that exists before it changes, artikel 07).
 
+
+# Bab 11: checkout, payment and SEO
+
+Bab 11 lets a buyer finish what the earlier chapters started: change the cart, choose an address and a courier, see the order's totals and apply a voucher, place the order, pay it with Midtrans, follow the payment until the API has decided, and find the order again later. Articles 01–06 do it in the Vite single-page app of Bab 7–10; from artikel 07 the storefront moves to the Next.js App Router for SEO, keeping these components.
+
+The Bab 7–10 sections above describe the code as those chapters left it. The sections below say what Bab 11 changed.
+
+## The mental model
+
+| Idea | What it means | Go comparison |
+|---|---|---|
+| **The server computes the money** | Every amount a buyer is charged (shipping, discount, total) comes from the API's preview or order; the page only formats it. The cart's subtotal is a hint, as the contract says | The handler never trusts a total in the request body; the client mirrors that by never making one |
+| **A retry is the same request** | A checkout carries an `Idempotency-Key`; a retry after a timeout sends the same key and body, and the API answers the first order instead of making a second | A request ID that makes a write safe to repeat, like an upsert keyed by it |
+| **The browser is told, the server decides** | Midtrans' return page says "paid" in its query string; the storefront ignores it and asks the API, which only believes Midtrans' signed notification and status API | Never trust input; act on the source of truth |
+| **Polling ends** | The payment page asks again while the order waits, slower each time, never while the tab is hidden, and stops on a final status | A ticker with backoff that stops on `ctx.Done()` |
+
+## Where each Bab 11 article's ideas live
+
+Paths are relative to `apps/web/src` unless they start with another top-level folder.
+
+| Article | Concept | Where to read it |
+|---|---|---|
+| 01 | The full cart page | `features/cart/components/CartPage.tsx` (focus and announcement after a removal), `CartLineItem.tsx` (stepper, remove, the fix for each `problem`), `hooks/useChangeCartLine.ts` (PATCH/DELETE in the cart's queue, owner fixed at the click, optimistic quantity), `optimistic-cart.ts` (`withLineQuantity`), `cart-errors.ts` (`cartLineErrorMessage`), `CART_MUTATIONS` in `hooks/useAddToCart.ts`; `updateCartItem`, `removeCartItem` in `packages/shared/src/api/cart.ts` |
+
+## The full cart page (artikel 01)
+
+- **Every line can be changed where it is.** A stepper per line (`PATCH /v1/cart/items/{variant_id}` with the new quantity, capped at the stock and 99), a remove button (`DELETE`), and one fix for each `problem` the API reports: "Pakai harga baru" saves the same quantity again, which is how the contract accepts a changed price; "Ubah jadi N" lowers a line to the stock; an `unavailable` line can only be removed.
+- **One queue for every write to the cart.** A line change runs in the add's `scope` (`"cart"`), so the writes of the whole storefront are sent one after another: two quick presses on + send 3 and then 4, never 4 first. `isMutating({ mutationKey: ["cart"] })` counts the add and the line changes together, so only the last write of a burst refetches the cart.
+- **The buyer is fixed at the click.** A change clicked by a logged-in buyer whose session ends before its turn fails with `401` instead of being sent as a guest's, the same rule as Bab 10's add (artikel 14).
+- **Optimistic quantity, confirmed removal.** A new quantity shows at once and is rolled back on an error. A removal waits for the API, with the line marked busy (`aria-busy`, "Menghapus…"), because an optimistic removal would unmount the line and its error message with it.
+- **Focus after a removal.** The removed line's button disappears with the line; the focus moves to the page's heading and a status line says which product was removed. The stepper's and the remove button's accessible names include the product and variant ("Tambah jumlah Kaos Polos, M"), so a list of buttons can tell five "+" apart.
+- **The subtotal is a hint.** It moves with an optimistic change and is replaced by the API's answer. Shipping, the voucher and the total are the API's at checkout (artikel 03).

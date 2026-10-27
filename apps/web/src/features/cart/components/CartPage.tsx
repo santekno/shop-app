@@ -1,27 +1,30 @@
-import { Link } from "react-router";
+import { useRef, useState } from "react";
 import { formatRupiah } from "@goshop/shared";
+import type { CartLine } from "@goshop/shared";
 import { Card } from "@/components/ui/Card.tsx";
 import { ErrorState, LoadingState } from "@/components/ui/StatusMessage.tsx";
-import { productPath } from "@/features/product/paths.ts";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle.ts";
 import { Button } from "@/components/ui/Button.tsx";
 import { selectCartExpired, useCartStore } from "../cart-store.ts";
 import { useCart } from "../hooks/useCart.ts";
+import { CartLineItem } from "./CartLineItem.tsx";
 import { EmptyCart } from "./EmptyCart.tsx";
-import { Badge } from "@/components/ui/Badge.tsx";
-
-/** Why checkout would refuse a line, in the buyer's words. */
-const PROBLEM_TEXT = {
-  unavailable: "Sudah tidak dijual",
-  insufficient_stock: "Stok tidak cukup",
-  price_changed: "Harga berubah",
-} as const;
 
 /**
- * /keranjang: a minimal cart page, the cart's lines and subtotal: the
- * guest cart, or the logged-in buyer's own cart (useCart picks which).
- * Changing quantities, removing lines and checking out are Bab 11's full
- * cart page.
+ * /keranjang: the full cart page (Bab 11 artikel 01). The guest cart, or
+ * the logged-in buyer's own cart (useCart picks which, Bab 10); each line
+ * can change its quantity, accept a new price or be removed
+ * (CartLineItem), and the subtotal is the API's.
+ *
+ * The subtotal is the cart's hint (the contract says so): it moves with
+ * an optimistic change and is replaced by the API's answer. What an order
+ * really charges (shipping, the voucher's discount, the total) is computed
+ * by the API at checkout (artikel 03), never on this page.
+ *
+ * Removing a line takes away the button that had the focus. Without help
+ * the focus would fall to <body> and a screen reader would say nothing,
+ * so the page heading takes the focus and a status line says what was
+ * removed.
  */
 export function CartPage() {
   useDocumentTitle("Keranjang — GoShop");
@@ -30,10 +33,19 @@ export function CartPage() {
   // buyer has not read why yet.
   const cartExpired = useCartStore(selectCartExpired);
   const dismissCartExpired = useCartStore((state) => state.dismissCartExpired);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const [removed, setRemoved] = useState<string | null>(null);
+
+  const onRemoved = (line: CartLine) => {
+    setRemoved(
+      `${line.product_name} (${line.variant_name}) dihapus dari keranjang.`,
+    );
+    headingRef.current?.focus();
+  };
 
   return (
     <Card>
-      <h1 tabIndex={-1} className="mb-4">
+      <h1 ref={headingRef} tabIndex={-1} className="mb-4">
         Keranjang
       </h1>
       <div
@@ -55,6 +67,10 @@ export function CartPage() {
           </Button>
         )}
       </div>
+      {/* The removal message: its own live region, for the same reason. */}
+      <p role="status" className="sr-only">
+        {removed}
+      </p>
       {(status === "pending" || (status === "error" && isFetching)) && (
         <LoadingState>Memuat keranjang…</LoadingState>
       )}
@@ -71,34 +87,21 @@ export function CartPage() {
           <EmptyCart />
         ) : (
           <>
-            <ul className="mb-4 grid gap-3">
+            <ul className="mb-4 grid gap-3" aria-label="Barang di keranjang">
               {cart.lines.map((line) => (
-                // Name above the total on a phone, side by side from sm.
-                <li
+                <CartLineItem
                   key={line.variant_id}
-                  className="cart-line flex flex-col gap-1 border-b border-border pb-3 sm:flex-row sm:justify-between sm:gap-4"
-                >
-                  <div>
-                    <Link to={productPath(line.product_slug)}>
-                      {line.product_name}
-                    </Link>
-                    <p className="mt-0.5 text-muted-foreground">
-                      {line.variant_name} · {line.quantity} ×{" "}
-                      {formatRupiah(line.unit_price)}
-                    </p>
-                    {line.problem !== null && (
-                      <Badge variant="destructive" className="badge mt-1">
-                        {PROBLEM_TEXT[line.problem]}
-                      </Badge>
-                    )}
-                  </div>
-                  <strong>{formatRupiah(line.line_total)}</strong>
-                </li>
+                  line={line}
+                  onRemoved={onRemoved}
+                />
               ))}
             </ul>
             <p className="cart-subtotal text-right">
               Subtotal ({cart.item_count} barang):{" "}
               <strong>{formatRupiah(cart.subtotal)}</strong>
+            </p>
+            <p className="text-right text-sm text-muted-foreground">
+              Ongkos kirim dan voucher dihitung saat checkout.
             </p>
           </>
         ))}

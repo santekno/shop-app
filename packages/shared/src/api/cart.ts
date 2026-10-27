@@ -1,6 +1,12 @@
 import type { ApiClient } from "./client.ts";
 import type { EndpointOptions } from "./catalog.ts";
-import type { Cart, CartAddResult, CartDetail, CartItemAdd } from "./types.ts";
+import type {
+  Cart,
+  CartAddResult,
+  CartDetail,
+  CartItemAdd,
+  CartItemPatch,
+} from "./types.ts";
 
 /** Options of the cart endpoints: the abort signal and the guest cart. */
 export interface CartRequestOptions extends EndpointOptions {
@@ -74,6 +80,52 @@ export const addCartItem = async (
     signal,
   });
   return { cart: body.data, cartToken: body.cart_token };
+};
+
+/** The path of one cart line; the variant id is escaped like any URL part. */
+const linePath = (variantId: string): string =>
+  `/v1/cart/items/${encodeURIComponent(variantId)}`;
+
+/**
+ * PATCH /v1/cart/items/{variant_id}: replaces the line's quantity (1–99,
+ * at most the stock) and takes today's price as the one the buyer has
+ * seen. Saving the same quantity again is how a buyer accepts a changed
+ * price (`problem: "price_changed"`). Answers with the whole cart.
+ * Conflicts throw INSUFFICIENT_STOCK (`details.available`) or
+ * VARIANT_UNAVAILABLE; a line that is not in the cart throws NOT_FOUND.
+ * Not retried by the client (only GET is), although sending the same
+ * quantity twice would be harmless.
+ */
+export const updateCartItem = async (
+  api: ApiClient,
+  variantId: string,
+  patch: CartItemPatch,
+  { cartToken, signal }: CartRequestOptions = {},
+): Promise<Cart> => {
+  const body = await api.request<CartDetail>(linePath(variantId), {
+    method: "PATCH",
+    body: patch,
+    headers: cartHeaders(cartToken),
+    signal,
+  });
+  return body.data;
+};
+
+/**
+ * DELETE /v1/cart/items/{variant_id}: removes the line and answers with
+ * the cart that is left. A line that is already gone throws NOT_FOUND.
+ */
+export const removeCartItem = async (
+  api: ApiClient,
+  variantId: string,
+  { cartToken, signal }: CartRequestOptions = {},
+): Promise<Cart> => {
+  const body = await api.request<CartDetail>(linePath(variantId), {
+    method: "DELETE",
+    headers: cartHeaders(cartToken),
+    signal,
+  });
+  return body.data;
 };
 
 /**

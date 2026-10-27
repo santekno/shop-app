@@ -40,6 +40,8 @@ export type CartDetail = Schemas["CartDetail"];
 export type CartAddResult = Schemas["CartAddResult"];
 /** The body of POST /v1/cart/items. */
 export type CartItemAdd = Schemas["CartItemAdd"];
+/** The body of PATCH /v1/cart/items/{variant_id}. */
+export type CartItemPatch = Schemas["CartItemPatch"];
 /** The body of every API error: {"error":{"code","message","details"}}. */
 export type ErrorBody = Schemas["Error"];
 

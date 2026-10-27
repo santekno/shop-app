@@ -37,3 +37,41 @@ export const withAddedItem = (
     };
   }),
 });
+
+/**
+ * The cart as it will look once the line of `variantId` holds `quantity`
+ * units: the guess a quantity change shows at the click (artikel Bab 11
+ * 01). Like withAddedItem it moves the count, the line's total and the
+ * cart's subtotal, which is only a hint on the cart page; what an order
+ * charges is computed by the API at checkout, never here. A variant that
+ * is not in the cart leaves the cart as it is.
+ */
+export const withLineQuantity = (
+  cart: Cart,
+  variantId: string,
+  quantity: number,
+): Cart => {
+  const line = cart.lines.find((each) => each.variant_id === variantId);
+  if (line === undefined) return cart;
+  const change = quantity - line.quantity;
+  return {
+    ...cart,
+    item_count: cart.item_count + change,
+    subtotal: {
+      ...cart.subtotal,
+      amount: cart.subtotal.amount + line.unit_price.amount * change,
+    },
+    lines: cart.lines.map((each) =>
+      each.variant_id === variantId
+        ? {
+            ...each,
+            quantity,
+            line_total: {
+              ...each.line_total,
+              amount: each.unit_price.amount * quantity,
+            },
+          }
+        : each,
+    ),
+  };
+};
