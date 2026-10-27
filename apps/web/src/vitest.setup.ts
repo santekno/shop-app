@@ -12,10 +12,12 @@ import { useCartStore } from "@/features/cart/cart-store.ts";
 // it is reset here too, and no test sees the previous one's cart or theme.
 afterEach(() => {
   cleanup();
+  // The store first: its persist middleware writes the reset token to
+  // localStorage, which is then cleared.
+  useCartStore.setState({ token: null, cartExpired: false });
   window.localStorage.clear();
   window.sessionStorage.clear();
   delete document.documentElement.dataset.theme;
-  useCartStore.setState({ token: null, cartExpired: false });
 });
 
 // jsdom has no scrolling: window.scrollTo only reports "Not implemented".
