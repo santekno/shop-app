@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { EMPTY_CART, addCartItem, isApiError } from "@goshop/shared";
+import { ApiError, EMPTY_CART, addCartItem, isApiError } from "@goshop/shared";
 import type { CartItemAdd, Money } from "@goshop/shared";
 import { useSession } from "@/features/auth/session-context.ts";
 import { api } from "@/lib/api.ts";
@@ -58,6 +58,13 @@ const ADD_TO_CART = ["cart", "add"] as const;
  *
  * Artikel 06 invalidated the cart after every add instead: simpler, one
  * extra request, and a count that moves only after the round trip.
+ *
+ * A session that ends while a logged-in add is on its way (logged out in
+ * another tab, revoked) makes the add fail with 401 UNAUTHORIZED rather
+ * than turn into a guest's add (artikel 14). The buyer sees the error and
+ * the header's "Masuk". Nothing is written back under the user's key
+ * afterwards, neither the rollback nor an answer: onEnd has just removed
+ * that user's cart from the cache, and it must stay removed.
  */
 export const useAddToCart = () => {
   const queryClient = useQueryClient();
@@ -68,6 +75,14 @@ export const useAddToCart = () => {
   // the moment each step runs, never captured from this render.
   const setToken = useCartStore((state) => state.setToken);
   const forgetCart = useCartStore((state) => state.forgetCart);
+
+  /**
+   * Whether a write under a user's key may still happen: always for a
+   * guest's key (`owner` null), and for a user's only while that user is
+   * still the one logged in.
+   */
+  const mayWrite = (owner: string | null) =>
+    owner === null || getSession()?.user.id === owner;
 
   /** The query of the cart an add made now would change. */
   const currentCartQuery = () => {
@@ -91,9 +106,22 @@ export const useAddToCart = () => {
       const session = getSession();
       if (session !== null) {
         const result = await addCartItem(authApi, item);
+        // The API answers with a cart token only when it took the request
+        // as a guest's (no access token) and created a guest cart for it.
+        // authApi never sends a logged-in add without the token, so this
+        // is a guard, not a path: if it ever happens, the item is in a cart
+        // that no token here points to, and an error says so honestly.
+        if (result.cartToken !== undefined) {
+          throw new ApiError({
+            status: 401,
+            code: "UNAUTHORIZED",
+            message: "The add was answered as a guest's, not the user's.",
+          });
+        }
         return {
           cart: result.cart,
           key: userCartQuery(authApi, session.user.id).queryKey,
+          owner: session.user.id,
           newCartToken: undefined,
         };
       }
@@ -104,6 +132,7 @@ export const useAddToCart = () => {
       return {
         cart: result.cart,
         key: cartQuery(token).queryKey,
+        owner: null,
         newCartToken: token === null || token === sentToken ? undefined : token,
       };
     },
@@ -111,17 +140,20 @@ export const useAddToCart = () => {
     onMutate: async ({ item, unitPrice }) => {
       // The key from the query options carries the cached type (Cart), so
       // getQueryData and setQueryData below are typed.
+      const owner = getSession()?.user.id ?? null;
       const key = currentCartQuery().queryKey;
       await queryClient.cancelQueries({ queryKey: key });
       const previous = queryClient.getQueryData(key);
       queryClient.setQueryData(key, (cart = EMPTY_CART) =>
         withAddedItem(cart, item, unitPrice),
       );
-      return { key, previous };
+      return { key, owner, previous };
     },
 
     onError: (error, _variables, snapshot) => {
-      if (snapshot !== undefined) {
+      // No rollback into a user's cart whose session has ended: onEnd
+      // removed it, guess included, and the snapshot would bring it back.
+      if (snapshot !== undefined && mayWrite(snapshot.owner)) {
         queryClient.setQueryData(snapshot.key, snapshot.previous);
       }
       // The token names no cart any more (cleaned up, or merged): forget
@@ -129,7 +161,9 @@ export const useAddToCart = () => {
       if (isApiError(error, "CART_NOT_FOUND")) forgetCart();
     },
 
-    onSuccess: ({ cart, key, newCartToken }, _variables, snapshot) => {
+    onSuccess: ({ cart, key, owner, newCartToken }, _variables, snapshot) => {
+      // The session ended after the API answered: same reason as onError.
+      if (!mayWrite(owner)) return;
       queryClient.setQueryData(key, cart);
       if (newCartToken === undefined) return;
       // The add created the guest cart. Its token, sent only this once, is

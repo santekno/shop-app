@@ -35,7 +35,11 @@ export const withAccessToken = (
 
 /** What createAuthClient needs from the session (session-manager.ts). */
 export interface TokenSource {
-  /** The token to send now, refreshed first when it is about to expire. */
+  /**
+   * The token to send now, refreshed first when it is about to expire;
+   * null for a guest (there never was a session). Rejects with 401
+   * UNAUTHORIZED when there was a session and that refresh ended it.
+   */
   ensureFreshToken: () => Promise<string | null>;
   /** After a 401 with `staleToken`: the token to retry with, or null. */
   refreshAfterUnauthorized: (staleToken: string) => Promise<string | null>;
@@ -62,19 +66,25 @@ export interface TokenSource {
  * 4. When the refresh says the session is over (204, or 401 from the
  *    refresh endpoint), the session manager has already ended the session
  *    (and App.tsx dropped the user's cart and account); the original 401
- *    is thrown, and a protected page redirects to /masuk.
+ *    is thrown, and a protected page redirects to /masuk. The proactive
+ *    refresh in (1) ends the same way: ensureFreshToken rejects with 401
+ *    UNAUTHORIZED and the request is not sent at all. It must not go out
+ *    as a guest's: its caller chose the logged-in path (an add to the
+ *    user's cart), and a guest request would answer for another cart.
  *
  * Retrying a POST is safe here: a 401 comes from the auth middleware,
  * before the handler runs, so nothing was done the first time. A second
  * 401 is not retried again; there is no loop.
  *
- * Without a session it sends the request as it is, as a guest's.
+ * Without a session (there never was one) it sends the request as it is,
+ * as a guest's.
  */
 export const createAuthClient = (
   api: ApiClient,
   tokens: TokenSource,
 ): ApiClient => ({
   request: async <T>(path: string, options?: RequestOptions) => {
+    // Rejects with 401 when the session ended just now (see 4).
     const token = await tokens.ensureFreshToken();
     if (token === null) return api.request<T>(path, options);
     try {

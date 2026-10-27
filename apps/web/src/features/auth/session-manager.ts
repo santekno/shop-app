@@ -1,4 +1,10 @@
-import { isApiError, webLogin, webLogout, webRefresh } from "@goshop/shared";
+import {
+  ApiError,
+  isApiError,
+  webLogin,
+  webLogout,
+  webRefresh,
+} from "@goshop/shared";
 import type { ApiClient, LoginRequest, WebSession } from "@goshop/shared";
 import { withAccessToken } from "./auth-client.ts";
 import { withSessionLock } from "./refresh-lock.ts";
@@ -45,6 +51,20 @@ export const refreshMarginMs = (lifetimeMs: number): number =>
 /** A refused refresh cookie: the session is over, the buyer logs in again. */
 const endsSession = (error: unknown): boolean =>
   isApiError(error, "TOKEN_INVALID", "TOKEN_EXPIRED", "UNAUTHORIZED");
+
+/**
+ * What a request made as the user gets when its session ended just before
+ * it was sent (the proactive refresh found the session over): the same 401
+ * UNAUTHORIZED the API gives a token it refuses. Sending it on as a guest's
+ * would be wrong, because the caller chose its logged-in branch: an add to
+ * the cart would land in a new guest cart that no token points to.
+ */
+const sessionEndedError = (): ApiError =>
+  new ApiError({
+    status: 401,
+    code: "UNAUTHORIZED",
+    message: "The session ended before the request was sent.",
+  });
 
 const toSession = (web: WebSession): Session => ({
   user: web.user,
@@ -166,21 +186,30 @@ export const createSessionManager = ({
      * The access token to send with a request now (artikel 14), or null
      * for a guest. A token about to expire is replaced first (proactive
      * refresh, shared by every request that asks at the same time), so the
-     * request does not go out only to come back 401. When that refresh
-     * fails for a reason that does not end the session (the network), the
-     * current token is returned: it may still be good, and the 401 path
-     * below is the second chance.
+     * request does not go out only to come back 401.
+     *
+     * - The refresh fails for a reason that does not end the session (the
+     *   network, 429, 500): the current token is returned. It may still be
+     *   good, and the 401 path below is the second chance.
+     * - The refresh says the session is over (204, 401): the session is
+     *   ended here (onEnd has run) and this rejects with 401 UNAUTHORIZED,
+     *   exactly what the API would have answered. Returning null instead
+     *   would read as "a guest from the start", and the request would go
+     *   out without a token, as a guest's, which the caller never asked for.
      */
     ensureFreshToken: async (): Promise<string | null> => {
       if (current === null) return null;
       const token = current.accessToken;
       if (refreshAt === null || now() < refreshAt) return token;
+      let fresh: Session | null;
       try {
-        return (await refresh())?.accessToken ?? null;
+        fresh = await refresh();
       } catch {
         // A failed refresh that did not end the session changed nothing.
         return token;
       }
+      if (fresh === null) throw sessionEndedError();
+      return fresh.accessToken;
     },
 
     /**
