@@ -152,6 +152,12 @@ type Config struct {
 	// WorkerConcurrency is APP_WORKER_CONCURRENCY (1-50, default 5): how
 	// many tasks one worker process runs at once.
 	WorkerConcurrency int
+	// WebURL is APP_WEB_URL: the storefront's origin, such as
+	// https://shop.example.com, where the API sends buyers back (Midtrans'
+	// finish redirect). An https origin, or http://localhost in
+	// development; empty leaves those redirects to the providers'
+	// dashboards.
+	WebURL string
 }
 
 // Storage configures the S3 bucket. An empty Endpoint turns image uploads
@@ -224,7 +230,17 @@ type Payment struct {
 	MidtransClientKey string
 	// Timeout is APP_PAYMENT_TIMEOUT (1s-30s, default 10s).
 	Timeout time.Duration
+	// FinishURL is where Snap sends the buyer when they finish paying:
+	// APP_WEB_URL + PaymentFinishPath. Empty (no APP_WEB_URL) keeps the
+	// "Finish Redirect URL" of the Midtrans dashboard.
+	FinishURL string
 }
+
+// PaymentFinishPath is the storefront page Midtrans sends a buyer back to
+// (apps/web, /pembayaran/selesai). Midtrans appends order_id, status_code
+// and transaction_status to it; the page trusts none of them and asks the
+// API.
+const PaymentFinishPath = "/pembayaran/selesai"
 
 // Shipping configures where shipping fees come from.
 type Shipping struct {
@@ -385,6 +401,12 @@ func Load() (Config, error) {
 
 	cfg.Payment, err = parsePayment(src, cfg.Env)
 	errs = append(errs, err)
+
+	cfg.WebURL, err = parseWebURL(src.String("web.url"), cfg.Env)
+	errs = append(errs, err)
+	if cfg.WebURL != "" {
+		cfg.Payment.FinishURL = cfg.WebURL + PaymentFinishPath
+	}
 
 	cfg.Storage, err = parseStorage()
 	errs = append(errs, err)
@@ -559,6 +581,39 @@ func parsePayment(src *configx.Config, env string) (Payment, error) {
 		DefaultPaymentTimeout, time.Second, 30*time.Second)
 	errs = append(errs, err)
 	return p, errors.Join(errs...)
+}
+
+// parseWebURL reads APP_WEB_URL, the storefront's origin. Empty is
+// allowed (nothing is redirected by the API). Otherwise it must be an
+// https origin, scheme and host only, because the providers send buyers
+// there with the payment's identifiers in the query; plain http is
+// accepted for localhost in development only. A trailing slash is
+// dropped.
+func parseWebURL(value, env string) (string, error) {
+	value = strings.TrimRight(strings.TrimSpace(value), "/")
+	if value == "" {
+		return "", nil
+	}
+	u, err := url.Parse(value)
+	if err != nil || u.Host == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" ||
+		strings.HasSuffix(value, "?") || strings.HasSuffix(value, "#") {
+		return "", errors.New("APP_WEB_URL: must be the storefront's origin, such as https://shop.example.com (scheme and host, no path)")
+	}
+	switch {
+	case u.Scheme == "https":
+		return value, nil
+	case u.Scheme == "http" && env == EnvDevelopment && isLoopback(u.Hostname()):
+		return value, nil
+	case u.Scheme == "http" && isLoopback(u.Hostname()):
+		return "", errors.New("APP_WEB_URL: http://localhost is allowed in development only; use an https origin")
+	default:
+		return "", errors.New("APP_WEB_URL: must be an https origin such as https://shop.example.com (http only for localhost in development)")
+	}
+}
+
+// isLoopback reports whether host is this machine.
+func isLoopback(host string) bool {
+	return host == "localhost" || host == "127.0.0.1" || host == "::1"
 }
 
 // parseStorage reads the S3_* variables (no APP_ prefix: the usual names

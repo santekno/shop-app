@@ -47,6 +47,7 @@ type Client struct {
 	apiURL    string
 	serverKey string
 	clientKey string
+	finishURL string
 	logger    logx.Logger
 }
 
@@ -64,6 +65,13 @@ func WithBaseURLs(snapURL, apiURL string) Option {
 // WithLogger makes the client log Midtrans' refusals (4xx) at WARN, with
 // the status only.
 func WithLogger(logger logx.Logger) Option { return func(c *Client) { c.logger = logger } }
+
+// WithFinishURL makes every Snap transaction send the buyer to finishURL
+// when they finish paying (Snap's callbacks.finish), instead of the
+// "Finish Redirect URL" of the Midtrans dashboard. Empty changes nothing.
+// Midtrans appends order_id, status_code and transaction_status; the page
+// there must trust none of them (ADR 0007).
+func WithFinishURL(finishURL string) Option { return func(c *Client) { c.finishURL = finishURL } }
 
 // New returns a client for the merchant with serverKey (secret: it signs
 // notifications and authenticates every call) and clientKey (public: for
@@ -106,6 +114,13 @@ type snapRequest struct {
 		Unit      string `json:"unit"`
 		Duration  int    `json:"duration"`
 	} `json:"expiry"`
+	// Callbacks is left out without a finish URL, so the dashboard's
+	// setting applies.
+	Callbacks *snapCallbacks `json:"callbacks,omitempty"`
+}
+
+type snapCallbacks struct {
+	Finish string `json:"finish"`
 }
 
 type snapResponse struct {
@@ -121,6 +136,9 @@ func (c *Client) CreateTransaction(ctx context.Context, req payment.TransactionR
 	body.Expiry.StartTime = req.Start.In(wib).Format("2006-01-02 15:04:05 -0700")
 	body.Expiry.Unit = "minute"
 	body.Expiry.Duration = req.Minutes
+	if c.finishURL != "" {
+		body.Callbacks = &snapCallbacks{Finish: c.finishURL}
+	}
 
 	var out snapResponse
 	if err := c.post(ctx, c.snapURL+"/snap/v1/transactions", body, &out, http.StatusCreated); err != nil {

@@ -47,6 +47,8 @@ x-app-environment: &app-environment
   MIDTRANS_CLIENT_KEY: ${MIDTRANS_CLIENT_KEY:-}
   MIDTRANS_IS_PRODUCTION: "false"
   APP_PAYMENT_TIMEOUT: ${APP_PAYMENT_TIMEOUT:-10s}
+  # The storefront Snap sends buyers back to (<web>/pembayaran/selesai).
+  APP_WEB_URL: ${APP_WEB_URL:-http://localhost:5173}
   # Image storage (ADR 0007). The API reaches SeaweedFS as "storage";
   # browsers upload to, and read images from, localhost:8333, so the
   # presigned URLs are signed for that host.
