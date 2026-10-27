@@ -8,9 +8,17 @@ import {
   product,
   productResponse,
   productsResponse,
+  cartLine,
+  cartOf,
+  cartResponse,
+  noContentResponse,
   serve,
+  user,
+  webSessionResponse,
 } from "@/test/fake-api.ts";
 import { renderApp } from "@/test/render.tsx";
+import { useCartStore } from "@/features/cart/cart-store.ts";
+import { queryClient } from "@/lib/query-client.ts";
 import { App } from "./App.tsx";
 
 vi.mock("@/lib/api.ts", () => import("@/test/fake-api.ts"));
@@ -139,5 +147,50 @@ describe("the storefront's routes", () => {
 
     expect(await pageHeading("Katalog")).toBeTruthy();
     expect(document.title).toBe("Katalog — GoShop");
+  });
+});
+
+describe("App: what a session's start and end do to the cart", () => {
+  it("merges the guest cart at the restore, and drops the user's data at logout", async () => {
+    const events = userEvent.setup();
+    const merged = cartOf([cartLine("m", { quantity: 4 })]);
+    useCartStore.getState().setToken("guest-tok");
+    queryClient.clear();
+    const calls: string[] = [];
+    serve((url, init) => {
+      calls.push(`${init?.method ?? "GET"} ${url.pathname}`);
+      if (url.pathname === "/v1/auth/web/refresh") {
+        return webSessionResponse(user({ id: "u1", name: "Budi" }), "a");
+      }
+      if (url.pathname === "/v1/cart/merge") return cartResponse(merged);
+      if (url.pathname === "/v1/cart") return cartResponse(merged);
+      if (url.pathname === "/v1/auth/web/logout") return noContentResponse();
+      if (url.pathname === "/v1/categories") return categoriesResponse([]);
+      if (url.pathname === "/v1/products") return productsResponse([], null);
+      return undefined;
+    });
+    render(<App />);
+
+    // Merged before the header shows the user, with the merged count.
+    expect(
+      await screen.findByRole("button", { name: /^Halo, Budi/ }),
+    ).toBeTruthy();
+    expect(
+      await screen.findByRole("link", { name: "Keranjang 4 barang" }),
+    ).toBeTruthy();
+    expect(calls.indexOf("POST /v1/cart/merge")).toBeGreaterThan(
+      calls.indexOf("POST /v1/auth/web/refresh"),
+    );
+    expect(useCartStore.getState().token).toBeNull();
+    expect(queryClient.getQueryData(["cart", "user", "u1"])).toEqual(merged);
+    queryClient.setQueryData(["me", "u1"], user({ id: "u1" }));
+
+    await events.click(screen.getByRole("button", { name: /^Halo, Budi/ }));
+    await events.click(await screen.findByRole("menuitem", { name: "Keluar" }));
+
+    expect(await screen.findByRole("link", { name: "Masuk" })).toBeTruthy();
+    expect(queryClient.getQueryData(["cart", "user", "u1"])).toBeUndefined();
+    expect(queryClient.getQueryData(["me", "u1"])).toBeUndefined();
+    queryClient.clear();
   });
 });
