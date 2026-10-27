@@ -60,9 +60,10 @@ export interface SessionActions {
   authApi: ApiClient;
   /**
    * The access token as it is right now, for code that runs outside a
-   * render (a request made by a mutation or a query function). It reads a
-   * ref, so a component that only sends requests does not have to render
-   * again each time the token is refreshed.
+   * render (a request made by a mutation or a query function). It reads
+   * the session manager's current value, not React state, so a component
+   * that only sends requests does not have to render again each time the
+   * token is refreshed.
    */
   getAccessToken: () => string | null;
 }

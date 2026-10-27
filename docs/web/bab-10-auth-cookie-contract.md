@@ -2,7 +2,7 @@
 
 - From: frontend-engineer (storefront, `apps/web`)
 - To: backend-engineer (`apps/api/internal/auth`, `apps/api/internal/httpserver`, `apps/api/internal/config`, `api/openapi.yaml`)
-- Status: **implemented, superseded by [ADR 0008](../adr/0008-web-session-cookie.md)** (backend commits `6437d30`, `0371432`, `165e93f`). The API is the source of truth; this file stays as the request the storefront made, with the differences marked below.
+- Status: **implemented, superseded by [ADR 0008](../adr/0008-web-session-cookie.md)** (backend commits `8324f439`, `7c728b07`, `ec13d95b` on the Bab 10 branch). The API is the source of truth; this file stays as the request the storefront made, with the differences marked below.
 - Builds on: ADR 0005 (tokens), ADR 0006 (the guest cart token), the Bab 4 auth handlers
 
 ## What was built, and where it differs from this request
