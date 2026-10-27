@@ -1,9 +1,11 @@
+import Link from "next/link";
 import { useId, useState } from "react";
 import { formatRupiah } from "@goshop/shared";
 import type { Product } from "@goshop/shared";
 import { Card } from "@/components/ui/Card.tsx";
 import { useLateHeadingFocus } from "@/hooks/useLateHeadingFocus.ts";
 import { AddToCart } from "@/features/cart/components/AddToCart.tsx";
+import { catalogSearch } from "@/features/catalog/catalog-filters.ts";
 import { ProductImage } from "@/features/catalog/components/ProductImage.tsx";
 import { clampQuantity, maxQuantity } from "../quantity.ts";
 import { QuantityStepper } from "./QuantityStepper.tsx";
@@ -58,7 +60,18 @@ export function ProductDetail({ product }: ProductDetailProps) {
     >
       <ProductImage name={product.name} />
       <div className="grid content-start gap-3">
-        <p className="text-muted-foreground">{product.category.name}</p>
+        {/* A link to the category's list: a buyer can browse the rest of
+            it, a crawler finds the category page, and the breadcrumb in
+            the structured data (Katalog › category › product) matches
+            what the page shows (artikel 10). */}
+        <p className="text-muted-foreground">
+          <Link
+            href={`/${catalogSearch({ category: product.category.slug, q: undefined, sort: "newest" })}`}
+            className="text-inherit"
+          >
+            {product.category.name}
+          </Link>
+        </p>
         <h1 ref={headingRef} id={headingId} tabIndex={-1}>
           {product.name}
         </h1>

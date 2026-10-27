@@ -589,6 +589,7 @@ Paths are relative to `apps/web/src` unless they start with another top-level fo
 | 07 | Why an SPA is weak for SEO | the section below; `apps/web/scripts/seo-probe.js` (what a crawler without JavaScript reads) |
 | 08 | Next.js App Router: server vs client components | the section below; `app/` (folders as routes, `layout.tsx`, `(auth)` and `(akun)` route groups, `not-found.tsx`, `error.tsx`, `healthz/route.ts`), `components/layout/` (`Providers`, `SiteFrame`, `client-pages`, `ErrorPage`, `NotFoundPage`), `components/navigation/` (`NavLink`, `Redirect`), `proxy.ts` (CSP nonce), `lib/navigation-state.ts`, `getQueryClient` in `lib/query-client.ts`, `lib/server-config.ts`, `features/theme/useTheme.ts`, `next.config.ts`, `postcss.config.mjs` |
 | 09 | Product pages with SSR and the data cache | the section below; `lib/server-api.ts` (`serverApi`, `REVALIDATE_SECONDS`), `features/product/api/server.ts` (`getProductForPage`, `cache()`), `app/produk/[slug]/page.tsx` (`generateMetadata`, `notFound()`, `HydrationBoundary`), `app/page.tsx` (filters from `searchParams`, the first page and the categories prefetched), the `client` parameter of `productQuery`, `productListQuery` and `categoriesQuery` |
+| 10 | Metadata, Open Graph and structured data | the section below; `siteUrl()` in `lib/server-config.ts` (`SITE_URL`), `generateMetadata` in `app/layout.tsx` (`metadataBase`), `app/page.tsx` and `app/produk/[slug]/page.tsx`; `features/catalog/catalog-metadata.ts` (which catalog URLs are indexed), `features/catalog/api/server.ts`; `features/product/structured-data.ts` (`Product`, `Offer`/`AggregateOffer`, `BreadcrumbList`), `components/JsonLd.tsx` (`serializeJsonLd`), `lib/site-metadata.ts`; the category link in `ProductDetail.tsx` |
 
 ## The full cart page (artikel 01)
 
@@ -850,6 +851,52 @@ Against the seeded API on the same laptop (`next start`, production build; 28 pr
 - **The data cache:** five page views of one product within a minute sent **one** request to the API (its log), and the title and the page together one. The browser sends none for the product, the catalog or the categories after the page loads (only the session's `POST /v1/auth/web/refresh`). Here the API answers in 2 ms; against a database under load, or an API in another region, the miss grows and the hit does not.
 - **The nonce's price:** with a per-request nonce (artikel 08) every page is rendered for each request, about 3.5 ms of server work even when all its data is cached, against 0.7 ms for a file served as it is, which is what a fully static (full-route-cached) page would cost. Under load (10 concurrent clients for 5 s) one Node process served about **540 product pages a second**, against about **6 700** static chunks. For a shop this size the render is cheap and the API is spared by the data cache; a shop that needs a CDN in front of its HTML would trade the nonce for static pages and a weaker CSP, and should measure first.
 - What the crawler gets now (`seo-probe.js`): `/produk/kaos-polos-hitam` answers 200 with 18 KB of HTML, `<title>Kaos Polos Hitam — GoShop</title>`, the description, `<h1>Kaos Polos Hitam</h1>` and the product's text; `/` answers 40 KB with the twelve product cards and 29 links; `/produk/tidak-ada` answers **404**. Before (artikel 07): 1 425 bytes, no h1, no links, 200 everywhere.
+
+## Metadata, Open Graph and structured data (artikel 10)
+
+### The base URL
+
+Every absolute URL a page prints (the canonical link, `og:url`, the structured data, the sitemap in artikel 11) is built on **`SITE_URL`**, the storefront's public origin, read by the server when a page renders (`siteUrl()` in `lib/server-config.ts`). Never from the request's `Host` header: the client chooses that header, and a page must not tell search engines that the shop lives at an attacker's host. The root layout's `generateMetadata` sets it as `metadataBase`, so pages give relative paths. Unset in development means `http://localhost:5173`; unset in production is a configuration error, and pages answer 500 with the reason in the log instead of naming `localhost` as the shop's address. `next build` does not need it.
+
+### What each page tells search engines and link previews
+
+| Page | `<title>` | Canonical | Robots | Open Graph / Twitter |
+|---|---|---|---|---|
+| `/` | Katalog — GoShop | `/` | index | site defaults, `og:url` |
+| `/?kategori=kaos` (exists) | Kaos — GoShop | `/?kategori=kaos` | index | title, description, `og:url` |
+| `/?kategori=kaos&urut=termurah` | Kaos — GoShop | `/?kategori=kaos` (no sort) | index | as above |
+| `/?q=kaos` | Hasil pencarian “kaos” — GoShop | none | `noindex, follow` | no `og:url` |
+| `/?kategori=tidak-ada` | Kategori tidak ditemukan — GoShop | none | `noindex, follow` | no `og:url` |
+| `/?urut=xyz&utm_source=wa` | Katalog — GoShop | `/` | index | `og:url` `/` |
+| `/produk/kaos-polos-hitam?utm_source=wa` | Kaos Polos Hitam — GoShop | `/produk/kaos-polos-hitam` | index | title, description (≤ 160 characters, cut at a word), `og:url`; `og:image` and a large Twitter card once the product has a photo (artikel 12), a small card until then |
+| `/produk/tidak-ada` (404) | Produk tidak ditemukan — GoShop | none | `noindex` (Next.js adds it to a `notFound()` page) | — |
+| `/keranjang`, `/masuk`, `/daftar`, `(akun)` pages | the page's | none | `noindex` (artikel 08) | — |
+
+**The catalog's rule** (`catalogPageMeta`, `features/catalog/catalog-metadata.ts`). Each combination of the three filters is a URL a crawler can find; indexing all of them would split the shop into near-copies of one list.
+
+- **A category** is a real page (its own products, a name buyers search for): indexed, with its own canonical URL. Its title and description come from the categories the server already fetches (`getCategoriesForPage`, once per request, shared with the page).
+- **Sorting** shows the same products in another order: the canonical link points at the unsorted URL, so search engines merge the two. Not `noindex` as well: "index my canonical" and "do not index me" on one page contradict each other.
+- **A search** is the shop's own search engine; Google asks sites to keep internal search results out of its index. `noindex, follow`: the products it links to are still found.
+- **An unknown category** shows the browser's "Kategori ini tidak ada" with status 200; `noindex` keeps that page out.
+- Whatever `readCatalogFilters` ignores (a malformed slug, an unknown sort word, `utm_*` and other parameters) is dropped from the canonical URL, because it is built from the parsed filters.
+- If the API does not answer the categories, the category cannot be checked and the page is treated as one that exists.
+
+Next.js merges metadata one top-level key at a time: a page that sets `openGraph` replaces the layout's, so pages spread `baseOpenGraph` (`lib/site-metadata.ts`: `siteName`, `locale: id_ID`, `type: website`). Next.js' `openGraph` types have no `og:type=product`; `website` is what Open Graph's own spec covers.
+
+### Structured data: Product, Offer, BreadcrumbList
+
+`app/produk/[slug]/page.tsx` renders two JSON-LD blocks with `components/JsonLd.tsx`, from `features/product/structured-data.ts`:
+
+- **`Product`**: `name`, `description`, `url`, `@id`, `category`, `image` (the photo URLs, only when there are photos), and `sku` when there is one variant. **No `brand`** (the catalog has none, and the shop is not the maker), **no rating or reviews** (GoShop has none). Structured data says only what the page shows; search engines compare the two.
+- **The price**: one variant is an **`Offer`** (`price` as the number of whole rupiah, `priceCurrency: "IDR"`, `availability` `InStock`/`OutOfStock` from the stock, `itemCondition: NewCondition`, the seller). Several variants are an **`AggregateOffer`** (`lowPrice`, `highPrice`, `offerCount`, in stock if any variant is) whose `offers` list each variant as its own `Offer` with its SKU, name, price and stock. Not a `ProductGroup` with `hasVariant`: Google requires `variesBy` (size, colour …), and a GoShop variant is a free name ("M", "500 g", "Hitam") with no typed attribute to state truthfully.
+- **`BreadcrumbList`**: Katalog › the product's category (`/?kategori=…`) › the product. The product page now links its category name to that list, so the trail is on the page too, and a crawler finds every category page from its products.
+
+**Serialised safely.** The JSON goes into the HTML as raw text, and `JSON.stringify` leaves `<` alone: a product described as `</script><script>alert(1)</script>` would close the block and start a real script. `serializeJsonLd` writes `<`, `>` and `&` as `\u003c`, `\u003e`, `\u0026` (and U+2028/U+2029 as escapes): the same value for a JSON parser, no markup for the HTML parser. No nonce: a `type="application/ld+json"` block is never run, so `script-src` does not apply to it.
+
+### Checked
+
+- With the description of `kaos-polos-hitam` set to `Kaos katun combed 30s. Uji: </script><script>alert(1)</script> & <!-- komentar --> selesai.` in the database: the block reads `…Uji: \u003c/script\u003e\u003cscript\u003ealert(1)…`, the HTML has as many `</script>` as `<script` elements, the description round-trips exactly through `JSON.parse`, the `<meta name="description">` and `og:description` are HTML-escaped (`&lt;/script&gt;`), and in Chromium no dialog opens and the console stays empty.
+- A scratch check parses every JSON-LD block of a page and compares it with the API's product: the shapes Google documents for product snippets (`name`, an `offers` with `price` as a number, `priceCurrency`, `availability` as a schema.org URL; `AggregateOffer` with `lowPrice`, `highPrice`, `offerCount`), each variant's SKU, price and stock, absolute URLs, breadcrumb positions 1–3, no brand or rating. It passes for a four-variant product (`kaos-polos-hitam`, `AggregateOffer`), another multi-variant one and a single-variant one (`kacang-mete-panggang-250g`, `Offer` with `sku`).
 
 ## Bab 11, articles 01–06: what changed in the storefront
 

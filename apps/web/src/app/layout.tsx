@@ -3,17 +3,34 @@ import { headers } from "next/headers";
 import type { ReactNode } from "react";
 import { Providers } from "@/components/layout/Providers.tsx";
 import { SiteFrame } from "@/components/layout/SiteFrame.tsx";
+import { siteUrl } from "@/lib/server-config.ts";
+import {
+  baseOpenGraph,
+  SITE_DESCRIPTION,
+  SITE_NAME,
+} from "@/lib/site-metadata.ts";
 import "@/index.css";
 
 /**
  * What every page's <head> gets unless the page says otherwise. A page's
  * `title` fills the template: "Keranjang" becomes "Keranjang — GoShop".
+ *
+ * A function, not a constant, because `metadataBase` comes from SITE_URL
+ * when the server runs (artikel 10): every relative URL a page gives (a
+ * canonical "/produk/…", an og:image) is made absolute against it.
  */
-export const metadata: Metadata = {
-  title: { default: "GoShop", template: "%s — GoShop" },
-  description: "GoShop: toko online contoh dari kursus Fullstack Santekno.",
+export const generateMetadata = (): Metadata => ({
+  metadataBase: siteUrl(),
+  title: { default: SITE_NAME, template: `%s — ${SITE_NAME}` },
+  description: SITE_DESCRIPTION,
   icons: { icon: { url: "/favicon.svg", type: "image/svg+xml" } },
-};
+  openGraph: {
+    ...baseOpenGraph,
+    title: SITE_NAME,
+    description: SITE_DESCRIPTION,
+  },
+  twitter: { card: "summary" },
+});
 
 export const viewport: Viewport = {
   // Both themes are supported: before the CSS arrives, the browser paints

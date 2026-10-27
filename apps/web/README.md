@@ -45,6 +45,7 @@ To check it: log in, then DevTools → Application → Cookies → `http://local
 | --------------------- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `NEXT_PUBLIC_API_URL` | at build time, by the browser   | the API as the **browser** reaches it. Written into the JavaScript: public, never a secret; `next build` stops without it; unset in development means `http://localhost:8080` |
 | `API_INTERNAL_URL`    | at run time, by the server only | the API as the storefront's **server** reaches it (`http://api:8080` in Compose); unset means `NEXT_PUBLIC_API_URL`                                                           |
+| `SITE_URL`            | at run time, by the server only | the storefront's public origin, for canonical links, Open Graph and structured data; unset means `http://localhost:5173` in development and a 500 in production               |
 
 Next.js replaces only a literal `process.env.NEXT_PUBLIC_…` in code with its value, at build time, so changing the public URL means building again; the server-only variables are read when the server starts, so one image can run against any API it can reach. `lib/server-config.ts` imports `server-only`: a client component that imported it would fail the build.
 
@@ -95,7 +96,7 @@ src/
 ├── hooks/                         # useOnVisible, useLateHeadingFocus
 ├── lib/
 │   ├── api.ts                     # the browser's API client (packages/shared)
-│   ├── server-config.ts           # server-only settings (API_INTERNAL_URL)
+│   ├── server-config.ts           # server-only settings (API_INTERNAL_URL, SITE_URL)
 │   ├── query-client.ts            # getQueryClient: one per request on the server, one per visit in the browser
 │   ├── navigation-state.ts        # what one page hands the next (React Router's location.state)
 │   ├── api-form-errors.ts         # VALIDATION_FAILED details → form fields

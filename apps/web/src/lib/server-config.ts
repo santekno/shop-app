@@ -22,3 +22,27 @@ export const serverConfig = {
       ? internalApiUrl
       : config.apiUrl,
 } as const;
+
+/** The storefront's own origin when SITE_URL is not set, in development. */
+const DEV_SITE_URL = "http://localhost:5173";
+
+/**
+ * The storefront's public origin (SITE_URL, Bab 11 artikel 10), for every
+ * absolute URL the pages print: the canonical link, og:url, og:image, the
+ * structured data, the sitemap. Read from the configuration, never from
+ * the request's Host header, which the client chooses: a page must not
+ * name an attacker's host as its canonical address.
+ *
+ * Unset is a configuration error in production: the page fails (500, and
+ * the log says why) rather than telling search engines the shop lives at
+ * localhost. Read when a page renders, not when the module loads, so
+ * `next build` runs without it.
+ */
+export const siteUrl = (): URL => {
+  const value = process.env.SITE_URL;
+  if (value !== undefined && value !== "") return new URL(value);
+  if (process.env.NODE_ENV !== "production") return new URL(DEV_SITE_URL);
+  throw new Error(
+    "SITE_URL is not set: the storefront's public origin, such as https://shop.example.com",
+  );
+};
