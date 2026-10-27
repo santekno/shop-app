@@ -131,19 +131,39 @@ describe("registerSchema", () => {
       expect(registerErrors("password", "")[0]).toBe("Buat kata sandi.");
     });
 
+    // Named with $label and $verdict: a positional "%s" would print the
+    // password itself in the place of the verdict.
     it.each([
-      ["7 characters", "a".repeat(7), false],
-      ["8 characters", "a".repeat(8), true],
-      ["128 characters", "a".repeat(128), true],
-      ["129 characters", "a".repeat(129), false],
+      { label: "7 characters", password: "a".repeat(7), verdict: "refused" },
+      { label: "8 characters", password: "a".repeat(8), verdict: "accepted" },
+      {
+        label: "128 characters",
+        password: "a".repeat(128),
+        verdict: "accepted",
+      },
+      {
+        label: "129 characters",
+        password: "a".repeat(129),
+        verdict: "refused",
+      },
       // Code points, as Go counts runes: 8 emoji are 16 UTF-16 units.
-      ["8 emoji", "🔑".repeat(8), true],
-      ["7 emoji (14 UTF-16 units)", "🔑".repeat(7), false],
-      ["128 emoji (256 UTF-16 units)", "🔑".repeat(128), true],
-      ["129 emoji", "🔑".repeat(129), false],
-    ])("with %s: valid %s", (_, password, ok) => {
+      { label: "8 emoji", password: "🔑".repeat(8), verdict: "accepted" },
+      {
+        label: "7 emoji (14 UTF-16 units)",
+        password: "🔑".repeat(7),
+        verdict: "refused",
+      },
+      {
+        label: "128 emoji (256 UTF-16 units)",
+        password: "🔑".repeat(128),
+        verdict: "accepted",
+      },
+      { label: "129 emoji", password: "🔑".repeat(129), verdict: "refused" },
+    ] as const)("$label: $verdict", ({ password, verdict }) => {
       expect(registerErrors("password", password)).toEqual(
-        ok ? [] : ["Kata sandi harus 8 sampai 128 karakter."],
+        verdict === "accepted"
+          ? []
+          : ["Kata sandi harus 8 sampai 128 karakter."],
       );
     });
 
