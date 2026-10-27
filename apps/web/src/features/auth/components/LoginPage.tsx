@@ -4,6 +4,7 @@ import { Link, useLocation, useNavigate } from "react-router";
 import { loginSchema } from "@goshop/shared";
 import type { LoginRequest } from "@goshop/shared";
 import { Card } from "@/components/ui/Card.tsx";
+import { FormAlert } from "@/components/ui/FormAlert.tsx";
 import { TextField } from "@/components/ui/TextField.tsx";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle.ts";
 import { setApiFieldErrors } from "@/lib/api-form-errors.ts";
@@ -86,11 +87,8 @@ export function LoginPage() {
           error={errors.password?.message}
           {...register("password")}
         />
-        {errors.root?.server !== undefined && (
-          <p role="alert" className="error-text">
-            {errors.root.server.message}
-          </p>
-        )}
+        {/* Takes the focus when it appears: the disabled button lost it. */}
+        <FormAlert message={errors.root?.server?.message} />
         <button type="submit" disabled={loginMutation.isPending}>
           {loginMutation.isPending ? "Memproses…" : "Masuk"}
         </button>

@@ -9,6 +9,7 @@ import {
 } from "@goshop/shared";
 import type { RegisterRequest } from "@goshop/shared";
 import { Card } from "@/components/ui/Card.tsx";
+import { FormAlert } from "@/components/ui/FormAlert.tsx";
 import { TextField } from "@/components/ui/TextField.tsx";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle.ts";
 import { setApiFieldErrors } from "@/lib/api-form-errors.ts";
@@ -101,11 +102,8 @@ export function RegisterPage() {
           error={errors.password?.message}
           {...register("password")}
         />
-        {errors.root?.server !== undefined && (
-          <p role="alert" className="error-text">
-            {errors.root.server.message}
-          </p>
-        )}
+        {/* Takes the focus when it appears: the disabled button lost it. */}
+        <FormAlert message={errors.root?.server?.message} />
         <button type="submit" disabled={registerMutation.isPending}>
           {registerMutation.isPending ? "Memproses…" : "Daftar"}
         </button>
