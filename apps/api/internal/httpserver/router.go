@@ -21,6 +21,10 @@ type Options struct {
 	Logger logx.Logger
 	// AllowedOrigins are the browser origins allowed by CORS.
 	AllowedOrigins []string
+	// CredentialedPathPrefix is the one path prefix where CORS allows
+	// credentials (cookies): the web session's auth endpoints
+	// (auth.WebPathPrefix). Empty allows credentials nowhere.
+	CredentialedPathPrefix string
 	// RequestTimeout is the deadline of each request.
 	RequestTimeout time.Duration
 	// HSTS adds Strict-Transport-Security to every response; set it
@@ -62,7 +66,7 @@ func NewRouter(opts Options, mount func(r chi.Router)) http.Handler {
 		// 5. CORS before routing: a browser preflight (OPTIONS) is answered
 		//    here, and error responses carry the CORS headers too, so the
 		//    browser lets the client read the error body.
-		corsMiddleware(opts.AllowedOrigins),
+		corsMiddleware(opts.AllowedOrigins, opts.CredentialedPathPrefix),
 		// 6. A HEAD request runs the GET handler (net/http sends no body),
 		//    so clients can check a resource without a HEAD route of its
 		//    own. After CORS, which answers preflights first.
@@ -114,8 +118,32 @@ func allowedMethods(routes chi.Routes, path string) []string {
 	return allowed
 }
 
-// corsMiddleware allows browser calls from origins only.
-func corsMiddleware(origins []string) func(http.Handler) http.Handler {
+// corsMiddleware allows browser calls from origins only. Requests under
+// credentialedPrefix get their own options, the only ones that allow
+// credentials, so no other endpoint ever answers a credentialed
+// cross-origin request. It picks by path before routing, so preflights
+// get the same choice.
+func corsMiddleware(origins []string, credentialedPrefix string) func(http.Handler) http.Handler {
+	public := cors.New(publicCORS(origins))
+	if credentialedPrefix == "" {
+		return public.Handler
+	}
+	credentialed := cors.New(credentialedCORS(origins))
+	return func(next http.Handler) http.Handler {
+		pub, cred := public.Handler(next), credentialed.Handler(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasPrefix(r.URL.Path, credentialedPrefix) {
+				cred.ServeHTTP(w, r)
+				return
+			}
+			pub.ServeHTTP(w, r)
+		})
+	}
+}
+
+// publicCORS is every route but the web session's: tokens travel in
+// headers, so no credentials.
+func publicCORS(origins []string) cors.Options {
 	o := cors.Options{
 		AllowedOrigins: origins,
 		// HEAD too: GetHead serves it, and browsers send it without a preflight.
@@ -129,10 +157,32 @@ func corsMiddleware(origins []string) func(http.Handler) http.Handler {
 		ExposedHeaders: []string{sdkmw.HeaderRequestID, "Retry-After", "Location", "X-Cart-Token", "Idempotency-Replayed"},
 		MaxAge:         300, // seconds a browser may cache a preflight answer
 	}
-	// go-chi/cors treats an empty AllowedOrigins as "allow every origin".
-	// For GoShop an empty list means the opposite, so say it explicitly.
-	if len(origins) == 0 {
+	denyEmpty(&o)
+	return o
+}
+
+// credentialedCORS is the web session's endpoints (ADR 0008): POST only,
+// with the cookie, and with X-GoShop-Client, the header a page on another
+// origin cannot send without this preflight. go-chi/cors echoes the
+// request's origin, never "*", when credentials are allowed.
+func credentialedCORS(origins []string) cors.Options {
+	o := cors.Options{
+		AllowedOrigins:   origins,
+		AllowedMethods:   []string{http.MethodPost},
+		AllowedHeaders:   []string{"Accept", "Content-Type", sdkmw.HeaderRequestID, "X-GoShop-Client"},
+		ExposedHeaders:   []string{sdkmw.HeaderRequestID, "Retry-After"},
+		AllowCredentials: true,
+		MaxAge:           300,
+	}
+	denyEmpty(&o)
+	return o
+}
+
+// denyEmpty makes an empty origin list deny every origin. go-chi/cors
+// treats an empty AllowedOrigins as "allow every origin"; for GoShop an
+// empty list means the opposite, so say it explicitly.
+func denyEmpty(o *cors.Options) {
+	if len(o.AllowedOrigins) == 0 {
 		o.AllowOriginFunc = func(*http.Request, string) bool { return false }
 	}
-	return cors.Handler(o)
 }

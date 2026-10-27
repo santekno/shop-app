@@ -157,7 +157,14 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 		Limiter:          o.limiter,
 		Clock:            o.clock,
 		TrustedProxyHops: cfg.TrustedProxyHops,
+		WebSession: auth.WebSession{
+			AllowedOrigins: cfg.CORSAllowedOrigins,
+			InsecureCookie: !cfg.Auth.CookieSecure,
+		},
 	})
+	if !cfg.Auth.CookieSecure {
+		logger.Warn("the web session cookie is sent without Secure: APP_AUTH_COOKIE_SECURE=false (development only)")
+	}
 	orderHandler := order.NewHandler(orderService, orderService, orderService, validator).
 		LimitPerBuyer(o.limiter, order.NewLimits(cfg.CheckoutLimitPerMinute))
 	paymentHandler := payment.NewHandler(payment.HandlerDeps{
@@ -176,9 +183,11 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 	router := httpserver.NewRouter(httpserver.Options{
 		Logger:         logger,
 		AllowedOrigins: cfg.CORSAllowedOrigins,
-		RequestTimeout: cfg.RequestTimeout,
-		HSTS:           !cfg.IsDevelopment(),
-		Probes:         func(r chi.Router) { health.Routes(r, healthHandler) },
+		// Only the web session's endpoints take the refresh cookie.
+		CredentialedPathPrefix: auth.WebPathPrefix,
+		RequestTimeout:         cfg.RequestTimeout,
+		HSTS:                   !cfg.IsDevelopment(),
+		Probes:                 func(r chi.Router) { health.Routes(r, healthHandler) },
 	}, func(r chi.Router) {
 		r.Route("/v1", func(r chi.Router) {
 			categoryHandler.Routes(r)

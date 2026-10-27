@@ -253,6 +253,11 @@ type Auth struct {
 	// tokens the API accepts. Required outside development; empty in
 	// development turns Google sign-in off.
 	GoogleClientID string
+	// CookieSecure is APP_AUTH_COOKIE_SECURE (default true): whether the
+	// web session cookie (goshop_refresh, Bab 10) carries Secure. false is
+	// accepted in development only, for a browser that is not in a secure
+	// context (a phone on the LAN over plain HTTP).
+	CookieSecure bool
 }
 
 // Database configures the PostgreSQL connection pool.
@@ -358,6 +363,9 @@ func Load() (Config, error) {
 		DefaultRefreshTokenTTL, time.Hour, 90*24*time.Hour)
 	errs = append(errs, err)
 
+	cfg.Auth.CookieSecure, err = parseCookieSecure(src.String("auth.cookie.secure"), cfg.Env)
+	errs = append(errs, err)
+
 	cfg.RedisURL, err = parseRedisURL(os.Getenv("REDIS_URL"))
 	errs = append(errs, err)
 
@@ -461,6 +469,24 @@ func parseJWTSecret(value, env string) ([]byte, error) {
 		return nil, errors.New("JWT_SECRET: is the placeholder from .env.example, which is allowed in development only; generate one with: openssl rand -base64 48")
 	}
 	return []byte(value), nil
+}
+
+// parseCookieSecure reads APP_AUTH_COOKIE_SECURE: true (the default) or
+// false, and false only in development. A cookie without Secure can travel
+// over plain HTTP, where anyone on the network reads the refresh token, so
+// a deployment never turns it off.
+func parseCookieSecure(value, env string) (bool, error) {
+	switch value {
+	case "", "true":
+		return true, nil
+	case "false":
+		if env != EnvDevelopment {
+			return false, errors.New("APP_AUTH_COOKIE_SECURE: false is allowed in development only; remove it or set true")
+		}
+		return false, nil
+	default:
+		return false, fmt.Errorf("APP_AUTH_COOKIE_SECURE: must be true or false, got %q", value)
+	}
 }
 
 // parseTrustedProxyHops reads APP_TRUSTED_PROXY_HOPS (0-5). Outside
