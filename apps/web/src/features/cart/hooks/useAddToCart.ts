@@ -65,6 +65,11 @@ const ADD_TO_CART = ["cart", "add"] as const;
  * the header's "Masuk". Nothing is written back under the user's key
  * afterwards, neither the rollback nor an answer: onEnd has just removed
  * that user's cart from the cache, and it must stay removed.
+ *
+ * An add clicked while logged in but still waiting in the queue when the
+ * session ends is sent as a guest's: by its turn the buyer is a visitor,
+ * and the item lands in a guest cart whose token is kept. Its guess was
+ * written under the user's key, so onSuccess does not reset it there.
  */
 export const useAddToCart = () => {
   const queryClient = useQueryClient();
@@ -169,8 +174,12 @@ export const useAddToCart = () => {
       // The add created the guest cart. Its token, sent only this once, is
       // kept; the cart is already stored under its key, so the count never
       // drops back to 0 when the token changes. The guess under
-      // ["cart", null] goes back to empty.
-      queryClient.setQueryData(snapshot.key, EMPTY_CART);
+      // ["cart", null] goes back to empty, but only when the guess was a
+      // guest's: an add clicked as a user whose session ended while it
+      // waited made its guess under the user's key, which onEnd removed.
+      if (snapshot.owner === null) {
+        queryClient.setQueryData(snapshot.key, EMPTY_CART);
+      }
       setToken(newCartToken);
     },
 
