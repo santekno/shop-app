@@ -4,9 +4,9 @@ import {
   errorResponse,
   fetchMock,
   requestUrl,
-  tokensResponse,
   user,
   userResponse,
+  webSessionResponse,
 } from "@/test/fake-api.ts";
 import { createTestQueryClient, hookWrapper } from "@/test/render.tsx";
 import { useSession } from "../session-context.ts";
@@ -27,8 +27,8 @@ describe("useLogin", () => {
       wrapper: hookWrapper(),
     });
 
-  it("logs in and keeps the account and the access token in the session", async () => {
-    fetchMock.mockResolvedValue(tokensResponse(user({ name: "Budi" })));
+  it("logs in through the web endpoint and keeps the account and the access token in the session", async () => {
+    fetchMock.mockResolvedValue(webSessionResponse(user({ name: "Budi" })));
     const { result } = setup();
     expect(result.current.session.session).toBeNull();
 
@@ -43,10 +43,16 @@ describe("useLogin", () => {
       user: user({ name: "Budi" }),
       accessToken: "access-token",
     });
+    expect(result.current.session.status).toBe("authenticated");
+    expect(result.current.session.getAccessToken()).toBe("access-token");
     expect(result.current.session.session).not.toHaveProperty("refreshToken");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     const [input, init] = fetchMock.mock.calls[0] ?? [];
-    expect(input && requestUrl(input).pathname).toBe("/v1/auth/login");
+    expect(input && requestUrl(input).pathname).toBe("/v1/auth/web/login");
     expect(init?.body).toBe(JSON.stringify(credentials));
+    // The cookie call: the browser stores the httpOnly refresh cookie.
+    expect(init?.credentials).toBe("include");
+    expect(new Headers(init?.headers).get("X-GoShop-Client")).toBe("web");
   });
 
   it("leaves the session empty when the login fails, and never retries", async () => {
@@ -61,6 +67,7 @@ describe("useLogin", () => {
     });
 
     expect(result.current.session.session).toBeNull();
+    expect(result.current.session.status).toBe("anonymous");
     expect(result.current.login.error).toMatchObject({
       code: "INVALID_CREDENTIALS",
     });
@@ -95,22 +102,32 @@ describe("useRegister", () => {
 });
 
 describe("what the auth mutations keep", () => {
-  it("useLogin's data is only the account and the access token, never the refresh token", async () => {
-    fetchMock.mockResolvedValue(tokensResponse(user({ name: "Budi" })));
-    const { result } = renderHook(() => useLogin(), { wrapper: hookWrapper() });
+  it("useLogin keeps no token at all: its data is empty, and the cache never sees the access token", async () => {
+    fetchMock.mockResolvedValue(webSessionResponse(user({ name: "Budi" })));
+    const queryClient = createTestQueryClient();
+    const { result } = renderHook(
+      () => ({ login: useLogin(), session: useSession() }),
+      { wrapper: hookWrapper(queryClient) },
+    );
 
     act(() => {
-      result.current.mutate(credentials);
+      result.current.login.mutate(credentials);
     });
     await waitFor(() => {
-      expect(result.current.isSuccess).toBe(true);
+      expect(result.current.login.isSuccess).toBe(true);
     });
 
-    expect(result.current.data).toEqual({
-      user: user({ name: "Budi" }),
-      accessToken: "access-token",
-    });
-    expect(JSON.stringify(result.current.data)).not.toContain("refresh");
+    // The session has the token; the mutation (and its cache) does not.
+    expect(result.current.session.getAccessToken()).toBe("access-token");
+    expect(result.current.login.data).toBeUndefined();
+    const kept = JSON.stringify(
+      queryClient
+        .getMutationCache()
+        .getAll()
+        .map((m) => m.state),
+    );
+    expect(kept).not.toContain("access-token");
+    expect(kept).not.toContain("refresh");
   });
 
   /** The mutation cache's entries, once the mutation has succeeded and
@@ -132,7 +149,7 @@ describe("what the auth mutations keep", () => {
   };
 
   it("useLogin leaves nothing in the mutation cache after unmount", async () => {
-    fetchMock.mockResolvedValue(tokensResponse());
+    fetchMock.mockResolvedValue(webSessionResponse());
     const queryClient = createTestQueryClient();
     const { result, unmount } = renderHook(() => useLogin(), {
       wrapper: hookWrapper(queryClient),

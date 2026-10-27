@@ -12,7 +12,8 @@ describe("Section", () => {
 
     const region = screen.getByRole("region", { name: "Produk" });
     expect(region.tagName).toBe("SECTION");
-    expect(region.className).toBe("card catalog__products");
+    expect(region.classList.contains("bg-card")).toBe(true);
+    expect(region.classList.contains("catalog__products")).toBe(true);
     const heading = screen.getByRole("heading", { level: 2, name: "Produk" });
     expect(region.getAttribute("aria-labelledby")).toBe(heading.id);
     expect(region.contains(screen.getByText("Isi"))).toBe(true);

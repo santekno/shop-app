@@ -34,9 +34,8 @@ describe("CartNavLink", () => {
     expect(link().querySelector(".cart-count")?.firstChild?.textContent).toBe(
       "3",
     );
-    expect(link().querySelector(".visually-hidden")?.textContent).toBe(
-      "barang",
-    );
+    // Read by screen readers, hidden from the eye (Tailwind's sr-only).
+    expect(link().querySelector(".sr-only")?.textContent).toBe("barang");
   });
 
   it("marks itself as the current page on /keranjang", () => {

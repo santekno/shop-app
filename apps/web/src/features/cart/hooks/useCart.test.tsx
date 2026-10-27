@@ -10,7 +10,7 @@ import {
   fetchMock,
 } from "@/test/fake-api.ts";
 import { createTestQueryClient, hookWrapper } from "@/test/render.tsx";
-import { useCartToken } from "../cart-token-context.ts";
+import { selectCartToken, useCartStore } from "../cart-store.ts";
 import { useCart } from "./useCart.ts";
 
 vi.mock("@/lib/api.ts", () => import("@/test/fake-api.ts"));
@@ -36,12 +36,12 @@ describe("useCart", () => {
     const cart = cartOf([cartLine("m", { quantity: 2 })]);
     fetchMock.mockResolvedValue(cartResponse(cart));
     const { result } = renderHook(
-      () => ({ cart: useCart(), token: useCartToken() }),
+      () => ({ cart: useCart(), token: useCartStore(selectCartToken) }),
       { wrapper: hookWrapper() },
     );
 
     act(() => {
-      result.current.token.setCartToken("tok");
+      useCartStore.getState().setToken("tok");
     });
 
     await waitFor(() => {
@@ -71,16 +71,16 @@ describe("useCart", () => {
   it("forgets a token whose cart is gone and shows the empty cart, not an error", async () => {
     fetchMock.mockResolvedValue(errorResponse(404, "CART_NOT_FOUND"));
     const { result } = renderHook(
-      () => ({ cart: useCart(), token: useCartToken() }),
+      () => ({ cart: useCart(), token: useCartStore(selectCartToken) }),
       { wrapper: hookWrapper() },
     );
 
     act(() => {
-      result.current.token.setCartToken("old");
+      useCartStore.getState().setToken("old");
     });
 
     await waitFor(() => {
-      expect(result.current.token.cartToken).toBeNull();
+      expect(result.current.token).toBeNull();
     });
     expect(result.current.cart.status).toBe("success");
     expect(result.current.cart.data).toEqual(EMPTY_CART);

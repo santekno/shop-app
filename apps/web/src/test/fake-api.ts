@@ -14,6 +14,7 @@ import type {
   Product,
   ProductVariant,
   User,
+  WebSession,
 } from "@goshop/shared";
 import { vi } from "vitest";
 
@@ -220,6 +221,32 @@ export const tokensResponse = (account: User = user()) =>
       user: account,
     },
   });
+
+/**
+ * A web session as POST /v1/auth/web/login and /web/refresh answer it: the
+ * access token and the account, never a refresh token (that is the
+ * httpOnly cookie). 15 minutes unless told otherwise.
+ */
+export const webSession = (
+  account: User = user(),
+  accessToken = "access-token",
+  expiresIn = 900,
+): WebSession => ({
+  access_token: accessToken,
+  token_type: "Bearer",
+  expires_in: expiresIn,
+  user: account,
+});
+
+/** The body of POST /v1/auth/web/login or /web/refresh. */
+export const webSessionResponse = (
+  account: User = user(),
+  accessToken = "access-token",
+  expiresIn = 900,
+) => Response.json({ data: webSession(account, accessToken, expiresIn) });
+
+/** 204 No Content: /web/refresh without a cookie, /web/logout. */
+export const noContentResponse = () => new Response(null, { status: 204 });
 
 /** The body of POST /v1/auth/register. */
 export const userResponse = (account: User = user()) =>

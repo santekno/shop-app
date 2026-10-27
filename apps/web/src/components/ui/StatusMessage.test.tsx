@@ -26,7 +26,7 @@ describe("EmptyState", () => {
 
     const text = screen.getByText("Belum ada produk.");
     expect(text.tagName).toBe("P");
-    expect(text.className).toBe("muted");
+    expect(text.className).toBe("text-muted-foreground");
     expect(screen.queryByRole("status")).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
   });

@@ -13,7 +13,7 @@ import {
   requestUrl,
 } from "@/test/fake-api.ts";
 import { createTestQueryClient, hookWrapper } from "@/test/render.tsx";
-import { useCartToken } from "../cart-token-context.ts";
+import { selectCartToken, useCartStore } from "../cart-store.ts";
 import { useAddToCart } from "./useAddToCart.ts";
 import { useCart } from "./useCart.ts";
 
@@ -37,7 +37,11 @@ const setup = () => {
     () => {
       const cart = useCart();
       seen.push(cart.data?.item_count);
-      return { add: useAddToCart(), token: useCartToken(), cart };
+      return {
+        add: useAddToCart(),
+        token: useCartStore(selectCartToken),
+        cart,
+      };
     },
     { wrapper: hookWrapper(queryClient) },
   );
@@ -128,13 +132,13 @@ describe("useAddToCart", () => {
     const serverCart = cartOf([cartLine("m", { quantity: 2 })]);
     serveCart(serverCart, serverCart, "tok-new");
     const { result, cartAt, seen } = setup();
-    expect(result.current.token.cartToken).toBeNull();
+    expect(result.current.token).toBeNull();
 
     act(() => {
       result.current.add.mutate(add(2));
     });
     await waitFor(() => {
-      expect(result.current.token.cartToken).toBe("tok-new");
+      expect(result.current.token).toBe("tok-new");
     });
 
     expect(result.current.cart.data).toEqual(serverCart);
@@ -161,7 +165,7 @@ describe("useAddToCart", () => {
     // Already loaded, so setting the token fetches nothing.
     queryClient.setQueryData(["cart", "tok"], before);
     act(() => {
-      result.current.token.setCartToken("tok");
+      useCartStore.getState().setToken("tok");
     });
 
     act(() => {
@@ -172,7 +176,7 @@ describe("useAddToCart", () => {
     });
 
     expect(cartAt("tok")).toEqual(after);
-    expect(result.current.token.cartToken).toBe("tok");
+    expect(result.current.token).toBe("tok");
     expect(
       new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get("X-Cart-Token"),
     ).toBe("tok");
@@ -188,7 +192,7 @@ describe("useAddToCart", () => {
     const { result, cartAt, queryClient } = setup();
     queryClient.setQueryData(["cart", "tok"], before);
     act(() => {
-      result.current.token.setCartToken("tok");
+      useCartStore.getState().setToken("tok");
     });
     // A refetch of the cart is on its way (request 0)…
     act(() => {
@@ -222,7 +226,7 @@ describe("useAddToCart", () => {
     // Already loaded, so setting the token fetches nothing.
     queryClient.setQueryData(["cart", "tok"], before);
     act(() => {
-      result.current.token.setCartToken("tok");
+      useCartStore.getState().setToken("tok");
     });
 
     act(() => {
@@ -256,7 +260,7 @@ describe("useAddToCart", () => {
     await waitFor(() => {
       expect(result.current.cart.data).toEqual(fresh);
     });
-    expect(result.current.token.cartToken).toBe("tok");
+    expect(result.current.token).toBe("tok");
   });
 
   it("puts the empty cart back on screen when the first add fails", async () => {
@@ -276,7 +280,7 @@ describe("useAddToCart", () => {
     await waitFor(() => {
       expect(result.current.cart.data?.item_count).toBe(0);
     });
-    expect(result.current.token.cartToken).toBeNull();
+    expect(result.current.token).toBeNull();
   });
 
   it("forgets a token the API no longer knows (CART_NOT_FOUND), without refetching", async () => {
@@ -286,7 +290,7 @@ describe("useAddToCart", () => {
     // Already loaded, so setting the token fetches nothing.
     queryClient.setQueryData(["cart", "old"], before);
     act(() => {
-      result.current.token.setCartToken("old");
+      useCartStore.getState().setToken("old");
     });
 
     act(() => {
@@ -296,7 +300,7 @@ describe("useAddToCart", () => {
       expect(result.current.add.isError).toBe(true);
     });
 
-    expect(result.current.token.cartToken).toBeNull();
+    expect(result.current.token).toBeNull();
     expect(cartAt("old")).toEqual(before);
     expect(queryClient.getQueryState(["cart", "old"])?.isInvalidated).toBe(
       false,
@@ -327,7 +331,7 @@ describe("useAddToCart's queue", () => {
       () => ({
         first: useAddToCart(),
         second: useAddToCart(),
-        token: useCartToken(),
+        token: useCartStore(selectCartToken),
         cart: useCart(),
       }),
       { wrapper: hookWrapper(queryClient) },
@@ -379,7 +383,7 @@ describe("useAddToCart's queue", () => {
     await waitFor(() => {
       expect(result.current.cart.data).toEqual(both);
     });
-    expect(result.current.token.cartToken).toBe("t1");
+    expect(result.current.token).toBe("t1");
   });
 
   it("rolls a failed add back mid-burst, and the final refetch corrects the cart", async () => {
@@ -388,7 +392,7 @@ describe("useAddToCart's queue", () => {
     const { result, queryClient } = setupTwo();
     queryClient.setQueryData(["cart", "tok"], before);
     act(() => {
-      result.current.token.setCartToken("tok");
+      useCartStore.getState().setToken("tok");
     });
 
     act(() => {
@@ -447,7 +451,7 @@ describe("useAddToCart's queue", () => {
     const { result, queryClient } = setupTwo();
     queryClient.setQueryData(["cart", "old"], cartOf([cartLine("m")]));
     act(() => {
-      result.current.token.setCartToken("old");
+      useCartStore.getState().setToken("old");
     });
 
     act(() => {
@@ -463,6 +467,6 @@ describe("useAddToCart's queue", () => {
     await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
 
     expect(requests()).toEqual(["POST /v1/cart/items"]);
-    expect(result.current.token.cartToken).toBeNull();
+    expect(result.current.token).toBeNull();
   });
 });

@@ -16,7 +16,8 @@ const errorOf = (label: string) => {
   return ids
     .split(" ")
     .map((id) => document.getElementById(id))
-    .find((element) => element?.className === "field__error")?.textContent;
+    .find((element) => element?.classList.contains("field__error"))
+    ?.textContent;
 };
 
 beforeEach(() => {

@@ -13,7 +13,7 @@ import { createMemoryRouter, MemoryRouter, RouterProvider } from "react-router";
 import type { InitialEntry, RouteObject } from "react-router";
 import { routes } from "@/app/routes.tsx";
 import { SessionProvider } from "@/features/auth/SessionProvider.tsx";
-import { CartTokenProvider } from "@/features/cart/CartTokenProvider.tsx";
+import type { Session } from "@/features/auth/session-context.ts";
 import { createQueryClient } from "@/lib/query-client.ts";
 import { LocationProbe } from "./LocationProbe.tsx";
 
@@ -23,11 +23,27 @@ export const currentLocation = () => screen.getByTestId("location").textContent;
 /** A QueryClient for one test: the storefront's defaults, an empty cache. */
 export const createTestQueryClient = () => createQueryClient();
 
-/** The app-wide providers App puts around the router. */
-export const providers = (queryClient: QueryClient, children: ReactNode) => (
+/**
+ * The session a test starts with: a guest (`null`, the default), a logged-in
+ * buyer, or `"restore"` to start "restoring" and ask the (fake) API with
+ * POST /v1/auth/web/refresh, as the app does.
+ */
+export type TestSession = Session | null | "restore";
+
+/**
+ * The app-wide providers App puts around the router. The guest cart's token
+ * needs no provider: it lives in the cart store (vitest.setup.ts resets it).
+ */
+export const providers = (
+  queryClient: QueryClient,
+  children: ReactNode,
+  session: TestSession = null,
+) => (
   <QueryClientProvider client={queryClient}>
-    <SessionProvider>
-      <CartTokenProvider>{children}</CartTokenProvider>
+    <SessionProvider
+      initialSession={session === "restore" ? undefined : session}
+    >
+      {children}
     </SessionProvider>
   </QueryClientProvider>
 );
@@ -40,11 +56,13 @@ export const hookWrapper =
   (
     queryClient: QueryClient = createTestQueryClient(),
     url: InitialEntry = "/",
+    session: TestSession = null,
   ) =>
   ({ children }: { children: ReactNode }) =>
     providers(
       queryClient,
       <MemoryRouter initialEntries={[url]}>{children}</MemoryRouter>,
+      session,
     );
 
 interface RenderOptions {
@@ -53,6 +71,8 @@ interface RenderOptions {
   /** The URL (or history entries) to start at. Default "/". */
   url?: InitialEntry | InitialEntry[];
   queryClient?: QueryClient;
+  /** Who is logged in. Default: a guest, with no restore request. */
+  session?: TestSession;
 }
 
 const entries = (url: InitialEntry | InitialEntry[]) =>
@@ -62,12 +82,13 @@ const mount = (
   routeObjects: RouteObject[],
   url: InitialEntry | InitialEntry[],
   queryClient: QueryClient,
+  session: TestSession = null,
 ) => {
   const router = createMemoryRouter(routeObjects, {
     initialEntries: entries(url),
   });
   const view = render(
-    providers(queryClient, <RouterProvider router={router} />),
+    providers(queryClient, <RouterProvider router={router} />, session),
   );
   return { ...view, router, queryClient };
 };
@@ -83,6 +104,7 @@ export const renderWithProviders = (
     path = "*",
     url = "/",
     queryClient = createTestQueryClient(),
+    session = null,
   }: RenderOptions = {},
 ) =>
   mount(
@@ -100,6 +122,7 @@ export const renderWithProviders = (
     ],
     url,
     queryClient,
+    session,
   );
 
 /**
@@ -112,6 +135,7 @@ export const inRouter = (
   ui: ReactElement,
   queryClient: QueryClient = createTestQueryClient(),
   url: InitialEntry = "/",
+  session: TestSession = null,
 ) =>
   providers(
     queryClient,
@@ -119,10 +143,12 @@ export const inRouter = (
       {ui}
       <LocationProbe />
     </MemoryRouter>,
+    session,
   );
 
 /** Renders the storefront's own route tree (app/routes.tsx) at `url`. */
 export const renderApp = (
   url: InitialEntry | InitialEntry[] = "/",
   queryClient: QueryClient = createTestQueryClient(),
-) => mount(routes, url, queryClient);
+  session: TestSession = null,
+) => mount(routes, url, queryClient, session);

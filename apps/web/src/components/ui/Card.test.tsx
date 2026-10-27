@@ -12,7 +12,10 @@ describe("Card", () => {
 
     const card = container.firstElementChild;
     expect(card?.tagName).toBe("DIV");
-    expect(card?.className).toBe("card");
+    // shadcn/ui's card, from the design tokens: a bordered card surface.
+    expect([...(card?.classList ?? [])]).toEqual(
+      expect.arrayContaining(["rounded-lg", "border", "bg-card", "p-4"]),
+    );
     expect(card?.hasAttribute("aria-labelledby")).toBe(false);
     expect(screen.getByText("Isi").parentElement).toBe(card);
   });
@@ -26,7 +29,7 @@ describe("Card", () => {
     },
   );
 
-  it("adds a className after card and points aria-labelledby at a heading", () => {
+  it("adds a className after its own and points aria-labelledby at a heading", () => {
     render(
       <Card as="section" className="catalog__products" labelledBy="h">
         <h2 id="h">Produk</h2>
@@ -34,7 +37,17 @@ describe("Card", () => {
     );
 
     const region = screen.getByRole("region", { name: "Produk" });
-    expect(region.className).toBe("card catalog__products");
+    expect(region.classList.contains("bg-card")).toBe(true);
+    expect(region.className.endsWith(" catalog__products")).toBe(true);
     expect(region.getAttribute("aria-labelledby")).toBe("h");
+  });
+
+  it("lets the caller's utility win over its own for the same property", () => {
+    const { container } = render(<Card className="p-3">x</Card>);
+
+    const card = container.firstElementChild;
+    expect(card?.classList.contains("p-3")).toBe(true);
+    expect(card?.classList.contains("p-4")).toBe(false);
+    expect(card?.classList.contains("bg-card")).toBe(true);
   });
 });
