@@ -590,6 +590,7 @@ Paths are relative to `apps/web/src` unless they start with another top-level fo
 | 08 | Next.js App Router: server vs client components | the section below; `app/` (folders as routes, `layout.tsx`, `(auth)` and `(akun)` route groups, `not-found.tsx`, `error.tsx`, `healthz/route.ts`), `components/layout/` (`Providers`, `SiteFrame`, `client-pages`, `ErrorPage`, `NotFoundPage`), `components/navigation/` (`NavLink`, `Redirect`), `proxy.ts` (CSP nonce), `lib/navigation-state.ts`, `getQueryClient` in `lib/query-client.ts`, `lib/server-config.ts`, `features/theme/useTheme.ts`, `next.config.ts`, `postcss.config.mjs` |
 | 09 | Product pages with SSR and the data cache | the section below; `lib/server-api.ts` (`serverApi`, `REVALIDATE_SECONDS`), `features/product/api/server.ts` (`getProductForPage`, `cache()`), `app/produk/[slug]/page.tsx` (`generateMetadata`, `notFound()`, `HydrationBoundary`), `app/page.tsx` (filters from `searchParams`, the first page and the categories prefetched), the `client` parameter of `productQuery`, `productListQuery` and `categoriesQuery` |
 | 10 | Metadata, Open Graph and structured data | the section below; `siteUrl()` in `lib/server-config.ts` (`SITE_URL`), `generateMetadata` in `app/layout.tsx` (`metadataBase`), `app/page.tsx` and `app/produk/[slug]/page.tsx`; `features/catalog/catalog-metadata.ts` (which catalog URLs are indexed), `features/catalog/api/server.ts`; `features/product/structured-data.ts` (`Product`, `Offer`/`AggregateOffer`, `BreadcrumbList`), `components/JsonLd.tsx` (`serializeJsonLd`), `lib/site-metadata.ts`; the category link in `ProductDetail.tsx` |
+| 11 | Sitemap and robots.txt | the section below; `app/sitemap.ts` (canonical paths from `catalogPageMeta`, `force-dynamic`), `listProductsForSitemap`, `SITEMAP_PRODUCT_LIMIT` and `SITEMAP_REVALIDATE_SECONDS` in `features/catalog/api/server.ts`; `app/robots.ts` |
 
 ## The full cart page (artikel 01)
 
@@ -897,6 +898,53 @@ Next.js merges metadata one top-level key at a time: a page that sets `openGraph
 
 - With the description of `kaos-polos-hitam` set to `Kaos katun combed 30s. Uji: </script><script>alert(1)</script> & <!-- komentar --> selesai.` in the database: the block reads `…Uji: \u003c/script\u003e\u003cscript\u003ealert(1)…`, the HTML has as many `</script>` as `<script` elements, the description round-trips exactly through `JSON.parse`, the `<meta name="description">` and `og:description` are HTML-escaped (`&lt;/script&gt;`), and in Chromium no dialog opens and the console stays empty.
 - A scratch check parses every JSON-LD block of a page and compares it with the API's product: the shapes Google documents for product snippets (`name`, an `offers` with `price` as a number, `priceCurrency`, `availability` as a schema.org URL; `AggregateOffer` with `lowPrice`, `highPrice`, `offerCount`), each variant's SKU, price and stock, absolute URLs, breadcrumb positions 1–3, no brand or rating. It passes for a four-variant product (`kaos-polos-hitam`, `AggregateOffer`), another multi-variant one and a single-variant one (`kacang-mete-panggang-250g`, `Offer` with `sku`).
+
+## Sitemap and robots.txt (artikel 11)
+
+### `/sitemap.xml` (`app/sitemap.ts`)
+
+The sitemap lists **exactly the URLs artikel 10 lets search engines index**, so a crawler finds every product without following links and never spends a visit on a `noindex` page:
+
+- the catalog root `/`;
+- each category's list, with the canonical path `catalogPageMeta` gives it (`/?kategori=<slug>`): the same function decides what is indexed and what is listed, so the two cannot drift apart. No sort orders, no searches;
+- every active product, `/produk/<slug>`, from `GET /v1/products` page by page (`listProductsForSitemap` in `features/catalog/api/server.ts`): 100 per request (the API's maximum `limit`), following `next_cursor` until it is `null`, stopping if the API ever repeated a cursor.
+
+Every URL is absolute, on `SITE_URL` (`siteUrl()`), never the request's host.
+
+- **No `lastModified`.** The API's public `Product` has `created_at` and no `updated_at`; a creation date would say that a product repriced yesterday last changed a year ago, and Google stops trusting a site's `lastmod` once it finds it wrong. It is added when the API exposes `updated_at` (requested from backend-engineer). No `changeFrequency` or `priority` either: Google ignores both.
+- **Rendered per request, the data cached for an hour.** `export const dynamic = "force-dynamic"`: a sitemap prerendered by `next build` would need the API during the image build and would freeze `SITE_URL` at build time. The walk through the catalog goes through the data cache for an hour (`SITEMAP_REVALIDATE_SECONDS`, tags `products` and `sitemap`), the categories for five minutes: `/sitemap.xml` is public, and a walk costs one API request per hundred products, so it is paid at most once an hour however often anyone fetches it. An hour suits a crawler, which reads a sitemap every few hours at most; a new product is also linked from the catalog's first page at once. Measured: five fetches in a row sent no request to the API; a fetch takes 10 ms.
+- **A failure is a 500**, not an empty sitemap: an empty one would tell the crawler the shop has no pages; a 500 makes it try again later.
+
+**The 50 000-URL limit.** One sitemap file may list at most 50 000 URLs and weigh 50 MB uncompressed. `listProductsForSitemap` stops at 49 000 products (the root and the categories take the rest) and logs a warning. Past that, the sitemap must be split: Next.js' `generateSitemaps()` serves `/sitemap/0.xml`, `/sitemap/1.xml`… and a sitemap index. With cursor pagination a file cannot jump to "products 49 000–97 999" without walking the ones before it, so the split would want either an API listing by a stable key range (for example by `created_at` month, or `GET /v1/products/slugs?after=…`) or a sitemap per category. The example catalog has 28 products; the guard exists so a growing shop fails loudly, not silently.
+
+### `/robots.txt` (`app/robots.ts`)
+
+```text
+User-Agent: *
+Allow: /
+Disallow: /keranjang
+Disallow: /checkout
+Disallow: /pembayaran
+Disallow: /pesanan
+Disallow: /akun
+Disallow: /masuk
+Disallow: /daftar
+Disallow: /*?q=
+Disallow: /*&q=
+
+Sitemap: https://<SITE_URL>/sitemap.xml
+```
+
+robots.txt controls **crawling**, not indexing: keeping a page out of results is `noindex` (artikel 10), which a crawler only reads on a page it may fetch.
+
+- **Private pages** (cart, checkout, payment, orders, account, login, register) are disallowed: they are personal, render only in the browser (a crawler gets "Memuat GoShop…"), and carry `noindex` anyway; not crawling them keeps the crawl for products.
+- **Search results** (`q`, written as `?q=` or, after a category, `&q=`) are disallowed: every typed word is a new URL, an endless space of thin pages, and Google's guidelines ask sites to keep internal search out of the crawl with robots.txt. Their `noindex` stays as the second line of defence.
+- **Sorted lists and unknown categories stay crawlable**: a sorted list must be fetched for its canonical link to the unsorted list to be read, an unknown category for its `noindex` to be seen.
+- Rendered per request too (`force-dynamic`), so the `Sitemap:` line follows `SITE_URL` at run time.
+
+### Checked (`next start`, `SITE_URL=http://localhost:34173`)
+
+A scratch script fetched `/sitemap.xml` and every URL in it: **42 URLs** (the root, 13 categories, 28 products), no duplicates, each answering 200 with a canonical link equal to itself and no `noindex`; the list equals the root plus every category and every product the API returns; robots.txt blocks none of them, blocks `/?q=kaos`, `/?kategori=kaos&q=polos`, `/checkout`, `/pesanan/…/pembayaran`, `/masuk?kembali=…` and `/keranjang`, and leaves `/?kategori=kaos&urut=termurah`, `/?kategori=tidak-ada` and the product pages crawlable. The paging loop ran one page here (28 products); a test with a fake API covers several pages and a repeated cursor.
 
 ## Bab 11, articles 01–06: what changed in the storefront
 
