@@ -17,11 +17,20 @@ const HOVER_DELAY_MS = 100;
  *
  * - Mouse: after resting HOVER_DELAY_MS on the link.
  * - Keyboard: on focus, since Tab to a link often precedes Enter.
- * - Touch: never on pointer events. A tap sends pointerenter right before
- *   the click, so prefetching then gains nothing (and on a phone each
- *   needless request costs data). `pointerType` tells them apart, where a
+ * - Touch: no hover prefetch. A tap sends pointerenter right before the
+ *   click, so a hover timer gains nothing (and on a phone each needless
+ *   request costs data). `pointerType` tells them apart, where a
  *   "(hover: hover)" media query would also skip a laptop's touch screen
  *   used with a mouse.
+ *
+ * Focus is not only the keyboard's: pressing a link with the mouse
+ * (Chromium focuses it on mouse-down) or tapping it on a phone focuses it
+ * too, so onFocus also prefetches then, a few milliseconds before the
+ * click navigates. That costs no extra request: they are the requests the
+ * click makes anyway, and the page reuses them (the query is already in
+ * the cache or in flight under the same key, and import() returns the
+ * module it is already loading). It gains little, and needs no special
+ * case.
  *
  * queryClient.query fetches into the cache unless the cached copy is
  * still fresh: a product fetched less than 30 seconds ago is not fetched
