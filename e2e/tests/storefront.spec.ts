@@ -5,8 +5,10 @@ import { expect, test } from "@playwright/test";
 import type { Locator } from "@playwright/test";
 import { watchBrowser } from "../support/browser.ts";
 import {
+  FIRST_PAGE_QUERY,
   PAGE_SIZE,
   countApiRequests,
+  disableAutoLoad,
   expectNoProblems,
   productCards,
   productSection,
@@ -86,6 +88,9 @@ test("loads each endpoint with one request and no retries", async ({
   const problems = await watchBrowser(page);
   const calls = countApiRequests(page, BROWSER_API_URL);
 
+  // No automatic loading: the sentinel could otherwise fetch page 2 as
+  // soon as it is near the viewport.
+  await disableAutoLoad(page);
   await page.goto("/");
   await expect(
     page.getByRole("region", { name: "Kategori" }).getByRole("list").first(),
@@ -93,14 +98,15 @@ test("loads each endpoint with one request and no retries", async ({
   await expect(productCards(page)).toHaveCount(PAGE_SIZE);
   await expect(
     productSection(page).getByRole("button", { name: "Muat lebih banyak" }),
-  ).toBeVisible();
+  ).toBeEnabled();
 
   // One GET per endpoint: the production build runs each effect once
   // (StrictMode doubles them in dev only), a successful answer is never
-  // retried, and the catalog asks for one page of PAGE_SIZE.
+  // retried, and the catalog asks for one page of PAGE_SIZE in the
+  // default order.
   expect(Object.fromEntries(calls)).toEqual({
     "/v1/categories": ["GET /v1/categories"],
-    "/v1/products": [`GET /v1/products?limit=${PAGE_SIZE}`],
+    "/v1/products": [`GET /v1/products?${FIRST_PAGE_QUERY}`],
   });
   expectNoProblems(problems);
 });

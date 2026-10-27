@@ -1,29 +1,57 @@
-import { render, screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
+import { currentLocation, renderWithProviders } from "@/test/render.tsx";
 import { SiteHeader } from "./SiteHeader.tsx";
 
-describe("SiteHeader", () => {
-  it("names the page GoShop in the h1, through a button", () => {
-    render(<SiteHeader onHome={vi.fn()} />);
+const nav = () => screen.getByRole("navigation", { name: "Utama" });
 
-    const heading = screen.getByRole("heading", { level: 1, name: "GoShop" });
-    const brand = screen.getByRole("button", { name: "GoShop" });
-    expect(heading.contains(brand)).toBe(true);
-    expect(brand.getAttribute("type")).toBe("button");
-    expect(screen.getByRole("banner").contains(heading)).toBe(true);
+describe("SiteHeader", () => {
+  it("shows the GoShop brand as a link to the catalog, inside the banner", () => {
+    renderWithProviders(<SiteHeader />);
+
+    const brand = screen.getByRole("link", { name: "GoShop" });
+    expect(brand.getAttribute("href")).toBe("/");
+    expect(screen.getByRole("banner").contains(brand)).toBe(true);
     expect(
       screen.getByText("Toko online contoh dari kursus Fullstack Santekno."),
     ).toBeTruthy();
   });
 
-  it("calls onHome when the brand is clicked", async () => {
+  it("links to the cart and the account pages in the main navigation", () => {
+    renderWithProviders(<SiteHeader />);
+
+    const links = within(nav()).getAllByRole("link");
+    expect(
+      links.map((link) => [link.textContent, link.getAttribute("href")]),
+    ).toEqual([
+      ["Keranjang", "/keranjang"],
+      ["Masuk", "/masuk"],
+      ["Daftar", "/daftar"],
+    ]);
+  });
+
+  it("marks the link of the current page with aria-current", () => {
+    renderWithProviders(<SiteHeader />, { url: "/masuk" });
+
+    expect(
+      within(nav())
+        .getByRole("link", { name: "Masuk" })
+        .getAttribute("aria-current"),
+    ).toBe("page");
+    expect(
+      within(nav())
+        .getByRole("link", { name: "Daftar" })
+        .hasAttribute("aria-current"),
+    ).toBe(false);
+  });
+
+  it("goes to the catalog when the brand is clicked", async () => {
     const user = userEvent.setup();
-    const onHome = vi.fn();
-    render(<SiteHeader onHome={onHome} />);
+    renderWithProviders(<SiteHeader />, { url: "/keranjang" });
 
-    await user.click(screen.getByRole("button", { name: "GoShop" }));
+    await user.click(screen.getByRole("link", { name: "GoShop" }));
 
-    expect(onHome).toHaveBeenCalledTimes(1);
+    expect(currentLocation()).toBe("/");
   });
 });

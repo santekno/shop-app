@@ -5,9 +5,11 @@ import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { watchBrowser } from "../support/browser.ts";
 import {
+  FIRST_PAGE_QUERY,
   PAGE_SIZE,
   SEEDED_SLUGS,
   countApiRequests,
+  disableAutoLoad,
   expectNoProblems,
   fetchAllProducts,
   productCards,
@@ -33,6 +35,9 @@ test("shows the first page, then loads more until every product is there", async
     expect.arrayContaining([...SEEDED_SLUGS]),
   );
 
+  // The button path: with the automatic loading off, only a click loads
+  // the next page, so each round below is one click and one page.
+  await disableAutoLoad(page);
   await page.goto("/");
   await expect(page).toHaveTitle("Katalog — GoShop");
   const section = productSection(page);
@@ -44,7 +49,9 @@ test("shows the first page, then loads more until every product is there", async
   expect(await cardNames(page)).toEqual(pages[0]?.map((p) => p.name));
 
   for (const [index, apiPage] of pages.slice(1).entries()) {
-    await expect(more).toBeVisible();
+    // Disabled while the list refetches in the background: never clicked
+    // then.
+    await expect(more).toBeEnabled();
     await expect(done).toHaveCount(0);
     await more.click();
     const shown = pages
@@ -68,10 +75,10 @@ test("shows the first page, then loads more until every product is there", async
   // the cursor of the page before it.
   const productCalls = calls.get("/v1/products") ?? [];
   expect(productCalls).toHaveLength(pages.length);
-  expect(productCalls[0]).toBe(`GET /v1/products?limit=${PAGE_SIZE}`);
+  expect(productCalls[0]).toBe(`GET /v1/products?${FIRST_PAGE_QUERY}`);
   for (const call of productCalls.slice(1)) {
     expect(call).toMatch(
-      new RegExp(`^GET /v1/products\\?limit=${PAGE_SIZE}&cursor=[^&]+$`),
+      new RegExp(`^GET /v1/products\\?${FIRST_PAGE_QUERY}&cursor=[^&]+$`),
     );
   }
   expect(new Set(productCalls).size).toBe(productCalls.length);

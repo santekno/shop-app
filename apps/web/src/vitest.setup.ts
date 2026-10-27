@@ -8,3 +8,13 @@ import { afterEach } from "vitest";
 afterEach(() => {
   cleanup();
 });
+
+// jsdom has no scrolling: window.scrollTo only reports "Not implemented".
+// The router's ScrollRestoration calls it on every navigation.
+window.scrollTo = () => undefined;
+
+// No unit test reaches the network: the API module is mocked with the
+// fake API, or the test stubs fetch itself. A request that slips through
+// fails at once instead of trying a real server.
+globalThis.fetch = () =>
+  Promise.reject(new TypeError("unit tests must not reach the network"));

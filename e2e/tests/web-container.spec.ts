@@ -103,10 +103,11 @@ test("a deep link gets index.html (SPA fallback)", async ({ request }) => {
 test("the app boots from a deep link", async ({ page }) => {
   const problems = await watchBrowser(page);
   await page.goto("/produk/kaos-polos-hitam");
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("GoShop");
-  await expect(
-    page.getByRole("region", { name: "Kategori" }).getByRole("list").first(),
-  ).toBeVisible();
+  // The router renders the product page itself, not the catalog.
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText(
+    "Kaos Polos Hitam",
+  );
+  await expect(page.getByRole("region", { name: "Kategori" })).toHaveCount(0);
   expect(problems.consoleErrors).toEqual([]);
   expect(problems.pageErrors).toEqual([]);
   expect(problems.cspViolations).toEqual([]);

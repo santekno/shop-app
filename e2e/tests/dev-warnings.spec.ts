@@ -65,6 +65,8 @@ test("the development build logs no warning or error across the storefront", asy
         headers: {
           ...response.headers(),
           "access-control-allow-origin": origin,
+          // What the API's CORS lets a browser read on its own origins.
+          "access-control-expose-headers": "X-Request-ID, X-Cart-Token",
         },
       });
     });
@@ -98,10 +100,10 @@ test("the development build logs no warning or error across the storefront", asy
     });
     await article.getByRole("radio", { name: /^L/ }).check();
     await article.getByRole("button", { name: "Tambah jumlah" }).click();
-    await page.getByRole("button", { name: "← Kembali ke katalog" }).click();
+    await page.getByRole("link", { name: "← Kembali ke katalog" }).click();
     await expect(productSection(page)).toBeVisible();
 
-    // A sold-out variant and the brand button.
+    // A sold-out variant and the brand link.
     await openProduct(page, "Rengginang Terasi 250 g");
     await page
       .getByRole("article", { name: "Rengginang Terasi 250 g" })
@@ -109,18 +111,70 @@ test("the development build logs no warning or error across the storefront", asy
       .check();
     await page
       .getByRole("banner")
-      .getByRole("button", { name: "GoShop", exact: true })
+      .getByRole("link", { name: "GoShop", exact: true })
       .click();
     await expect(productSection(page)).toBeVisible();
 
+    // Bab 9's flows: a category, the sort, a search.
+    await page
+      .getByRole("region", { name: "Kategori" })
+      .getByRole("link", { name: "Makanan & Minuman", exact: true })
+      .click();
+    await expect(page).toHaveURL(/kategori=makanan-minuman/);
+    await productSection(page)
+      .getByLabel("Urutkan")
+      .selectOption({ label: "Harga tertinggi" });
+    const search = productSection(page).getByRole("searchbox");
+    await search.fill("kopi");
+    await search.press("Enter");
+    await expect(page).toHaveURL(/q=kopi/);
+
+    // Into the cart, and the cart page.
+    await openProduct(page, "Kopi Arabika Gayo 250 g");
+    const kopi = page.getByRole("article", { name: "Kopi Arabika Gayo 250 g" });
+    await kopi.getByRole("button", { name: "Tambah ke keranjang" }).click();
+    await kopi.getByRole("link", { name: "Lihat keranjang" }).click();
+    await expect(page.locator(".cart-line")).toHaveCount(1);
+
+    // The forms, with their client-side errors.
+    const nav = page.getByRole("navigation", { name: "Utama" });
+    await nav.getByRole("link", { name: "Masuk" }).click();
+    await page.getByRole("button", { name: "Masuk" }).click();
+    await expect(page.getByText("Masukkan email Anda.")).toBeVisible();
+    await nav.getByRole("link", { name: "Daftar" }).click();
+    await page.getByRole("button", { name: "Daftar" }).click();
+    await expect(page.getByText("Masukkan nama Anda.")).toBeVisible();
+
+    // An unknown address and a product that does not exist: both end on
+    // the 404 page, in the app (pushState), not through a reload.
+    for (const path of ["/tidak-ada", "/produk/produk-yang-tidak-ada"]) {
+      await page.evaluate((url) => {
+        window.history.pushState({}, "", url);
+        window.dispatchEvent(new PopStateEvent("popstate"));
+      }, path);
+      await expect(
+        page.getByRole("heading", {
+          level: 1,
+          name: "Halaman tidak ditemukan",
+        }),
+      ).toBeVisible();
+    }
+
     // React 19 reports a missing or duplicate key with console.error in
     // development ("Each child in a list should have a unique key prop").
-    expect(messages).toEqual([]);
+    // The one line allowed is Chrome's own for the missing product's 404,
+    // the answer under test; the expected NOT_FOUND is not logged.
+    expect(messages).toEqual([
+      "error: Failed to load resource: the server responded with a status of 404 (Not Found)",
+    ]);
   } catch (error) {
     throw new Error(`${String(error)}\n--- vite output ---\n${output}`, {
       cause: error,
     });
   } finally {
+    // A request still in flight when the test ends (a background refetch)
+    // must not fail the next test from its route handler.
+    await page.unrouteAll({ behavior: "ignoreErrors" });
     vite?.kill("SIGTERM");
   }
 });

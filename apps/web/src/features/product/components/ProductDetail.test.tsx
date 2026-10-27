@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import { product, rupiah, variant } from "@/test/fake-api.ts";
+import { inRouter } from "@/test/render.tsx";
 import { ProductDetail } from "./ProductDetail.tsx";
 
 const kaos = (variants = defaultVariants) =>
@@ -41,11 +42,11 @@ beforeEach(() => {
 
 describe("ProductDetail", () => {
   it("shows the product's category, name, description and a photo placeholder", () => {
-    render(<ProductDetail product={kaos()} />);
+    render(inRouter(<ProductDetail product={kaos()} />));
 
     const article = screen.getByRole("article", { name: "Kaos Polos" });
     expect(
-      screen.getByRole("heading", { level: 2, name: "Kaos Polos" }),
+      screen.getByRole("heading", { level: 1, name: "Kaos Polos" }),
     ).toBeTruthy();
     expect(article.textContent).toContain("Kaos");
     expect(screen.getByText("Katun 100%.")).toBeTruthy();
@@ -53,7 +54,7 @@ describe("ProductDetail", () => {
   });
 
   it("names the tab after the product while it is open", () => {
-    const { unmount } = render(<ProductDetail product={kaos()} />);
+    const { unmount } = render(inRouter(<ProductDetail product={kaos()} />));
     expect(document.title).toBe("Kaos Polos — GoShop");
 
     unmount();
@@ -61,7 +62,7 @@ describe("ProductDetail", () => {
   });
 
   it("starts on the first variant in stock", () => {
-    render(<ProductDetail product={kaos()} />);
+    render(inRouter(<ProductDetail product={kaos()} />));
 
     expect(checkedVariant()).toBe("M");
     expect(price()).toBe(rupiah(89_000));
@@ -69,12 +70,14 @@ describe("ProductDetail", () => {
 
   it("starts on the first variant when every one is sold out", () => {
     render(
-      <ProductDetail
-        product={kaos([
-          variant("s", { name: "S", stock: 0 }),
-          variant("m", { name: "M", stock: 0 }),
-        ])}
-      />,
+      inRouter(
+        <ProductDetail
+          product={kaos([
+            variant("s", { name: "S", stock: 0 }),
+            variant("m", { name: "M", stock: 0 }),
+          ])}
+        />,
+      ),
     );
 
     expect(checkedVariant()).toBe("S");
@@ -82,20 +85,20 @@ describe("ProductDetail", () => {
 
   it("shows the price of the variant the buyer picks", async () => {
     const user = userEvent.setup();
-    render(<ProductDetail product={kaos()} />);
+    render(inRouter(<ProductDetail product={kaos()} />));
 
     await user.click(screen.getByRole("radio", { name: /^XL/ }));
 
     expect(checkedVariant()).toBe("XL");
     expect(price()).toBe(rupiah(99_000));
-    expect(screen.getByRole("heading", { level: 2 }).textContent).toBe(
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(
       "Kaos Polos",
     );
   });
 
   it("shows Stok habis and no stepper for a sold-out variant", async () => {
     const user = userEvent.setup();
-    render(<ProductDetail product={kaos()} />);
+    render(inRouter(<ProductDetail product={kaos()} />));
     expect(screen.getByRole("group", { name: "Jumlah" })).toBeTruthy();
     expect(screen.queryByText("Stok habis")).toBeNull();
 
@@ -107,7 +110,7 @@ describe("ProductDetail", () => {
   });
 
   it("renders without a price or stepper when there is no variant", () => {
-    render(<ProductDetail product={kaos([])} />);
+    render(inRouter(<ProductDetail product={kaos([])} />));
 
     expect(price()).toBeUndefined();
     expect(screen.queryByRole("group", { name: "Jumlah" })).toBeNull();
@@ -116,7 +119,7 @@ describe("ProductDetail", () => {
 
   it("shows the subtotal as price times quantity", async () => {
     const user = userEvent.setup();
-    render(<ProductDetail product={kaos()} />);
+    render(inRouter(<ProductDetail product={kaos()} />));
     expect(subtotal()).toBe(rupiah(89_000));
 
     await user.click(screen.getByRole("button", { name: "Tambah jumlah" }));
@@ -130,7 +133,7 @@ describe("ProductDetail", () => {
 
   it("caps the quantity at the stock of a variant picked later", async () => {
     const user = userEvent.setup();
-    render(<ProductDetail product={kaos()} />);
+    render(inRouter(<ProductDetail product={kaos()} />));
     for (let i = 0; i < 3; i++) {
       await user.click(screen.getByRole("button", { name: "Tambah jumlah" }));
     }
@@ -149,9 +152,11 @@ describe("ProductDetail", () => {
 
   it("offers at most 99 even when there is more stock", () => {
     render(
-      <ProductDetail
-        product={kaos([variant("m", { name: "M", stock: 500 })])}
-      />,
+      inRouter(
+        <ProductDetail
+          product={kaos([variant("m", { name: "M", stock: 500 })])}
+        />,
+      ),
     );
 
     expect(screen.getByText("Maks. 99")).toBeTruthy();
@@ -160,12 +165,14 @@ describe("ProductDetail", () => {
   it("keeps the capped quantity when the buyer switches back", async () => {
     const user = userEvent.setup();
     render(
-      <ProductDetail
-        product={kaos([
-          variant("m", { name: "M", stock: 20 }),
-          variant("l", { name: "L", stock: 8 }),
-        ])}
-      />,
+      inRouter(
+        <ProductDetail
+          product={kaos([
+            variant("m", { name: "M", stock: 20 }),
+            variant("l", { name: "L", stock: 8 }),
+          ])}
+        />,
+      ),
     );
     for (let i = 1; i < 12; i++) {
       await user.click(screen.getByRole("button", { name: "Tambah jumlah" }));
@@ -182,7 +189,7 @@ describe("ProductDetail", () => {
 
   it("stores 0 for a sold-out variant and 1 when switching back to one in stock", async () => {
     const user = userEvent.setup();
-    render(<ProductDetail product={kaos()} />);
+    render(inRouter(<ProductDetail product={kaos()} />));
     for (let i = 1; i < 4; i++) {
       await user.click(screen.getByRole("button", { name: "Tambah jumlah" }));
     }
@@ -198,12 +205,14 @@ describe("ProductDetail", () => {
 
   it("starts at 0, sold out, when every variant is sold out", () => {
     render(
-      <ProductDetail
-        product={kaos([
-          variant("s", { name: "S", stock: 0 }),
-          variant("m", { name: "M", stock: 0 }),
-        ])}
-      />,
+      inRouter(
+        <ProductDetail
+          product={kaos([
+            variant("s", { name: "S", stock: 0 }),
+            variant("m", { name: "M", stock: 0 }),
+          ])}
+        />,
+      ),
     );
 
     expect(screen.getByText("Stok habis")).toBeTruthy();

@@ -3,6 +3,8 @@ import { formatRupiah } from "@goshop/shared";
 import type { Product } from "@goshop/shared";
 import { Card } from "@/components/ui/Card.tsx";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle.ts";
+import { useLateHeadingFocus } from "@/hooks/useLateHeadingFocus.ts";
+import { AddToCart } from "@/features/cart/components/AddToCart.tsx";
 import { ProductImage } from "@/features/catalog/components/ProductImage.tsx";
 import { clampQuantity, maxQuantity } from "../quantity.ts";
 import { QuantityStepper } from "./QuantityStepper.tsx";
@@ -22,6 +24,9 @@ interface ProductDetailProps {
 export function ProductDetail({ product }: ProductDetailProps) {
   useDocumentTitle(`${product.name} — GoShop`);
   const headingId = useId();
+
+  // The heading arrives with the product, after the navigation.
+  const headingRef = useLateHeadingFocus();
   const { variants } = product;
   // The first variant in stock, or the first one when all are sold out.
   // The contract promises at least one variant (minItems: 1).
@@ -50,7 +55,9 @@ export function ProductDetail({ product }: ProductDetailProps) {
       <ProductImage name={product.name} />
       <div className="product-detail__info">
         <p className="muted">{product.category.name}</p>
-        <h2 id={headingId}>{product.name}</h2>
+        <h1 ref={headingRef} id={headingId} tabIndex={-1}>
+          {product.name}
+        </h1>
         {variant !== undefined && (
           <p className="price price--large">{formatRupiah(variant.price)}</p>
         )}
@@ -79,6 +86,11 @@ export function ProductDetail({ product }: ProductDetailProps) {
                   })}
                 </strong>
               </p>
+              <AddToCart
+                variantId={variant.id}
+                unitPrice={variant.price}
+                quantity={quantity}
+              />
             </>
           ) : (
             <p className="badge">Stok habis</p>

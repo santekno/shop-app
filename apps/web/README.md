@@ -1,6 +1,6 @@
 # apps/web — GoShop storefront
 
-The storefront for buyers: a Vite + React 19 + TypeScript single-page app. In Bab 7 it has one page, the category list from `GET /v1/categories`, loaded through the typed client in `packages/shared`.
+The storefront for buyers: a Vite + React 19 + TypeScript single-page app. Bab 7 set it up with one page, the category list. Bab 8 added the catalog and the product page in plain React. Bab 9 adds pages with React Router (`/`, `/produk/:slug`, `/keranjang`, `/masuk`, `/daftar`, a 404), server data with TanStack Query, a guest cart, and the login and registration forms with React Hook Form and Zod. `docs/web/README.md` maps every chapter to the code.
 
 ## Run it
 
@@ -70,13 +70,29 @@ docker run --rm -e PORT=8080 -p 127.0.0.1:5173:8080 goshop-web
 src/
 ├── main.tsx                       # mounts <App /> in StrictMode
 ├── config.ts                      # VITE_API_URL, checked once
-├── app/App.tsx                    # page layout
+├── app/
+│   ├── App.tsx                    # QueryClient, session and cart providers, the router
+│   ├── routes.tsx                 # every route: layouts, lazy pages, error boundaries
+│   ├── RootLayout.tsx             # header + <Outlet />, focus and scroll on navigation
+│   └── …                          # SiteHeader, NotFoundPage, RouteErrorPage, NavigationProgress
+├── components/ui/                 # Card, Section, StatusMessage, TextField
+├── hooks/                         # useDocumentTitle, useOnVisible, useLateHeadingFocus
 ├── lib/
 │   ├── api.ts                     # the one API client (packages/shared)
+│   ├── query-client.ts            # the one QueryClient and its defaults
+│   ├── api-form-errors.ts         # VALIDATION_FAILED details → form fields
 │   └── error-message.ts           # ApiError → Indonesian text
-└── features/catalog/
-    ├── hooks/useCategoryTree.ts   # load, abort on unmount, reload
-    └── components/                # CategorySection, CategoryTree
+└── features/
+    ├── catalog/                   # "/": filters in the URL, infinite product list, categories
+    ├── product/                   # "/produk/:slug" (lazy), prefetch on hover
+    ├── cart/                      # guest cart token, add (optimistic), header count, "/keranjang"
+    └── auth/                      # "/masuk", "/daftar" (lazy), in-memory session
 ```
 
+Each feature keeps its own `components/`, `hooks/` and `api/` (query keys and options).
+
 `@/…` is an alias for `src/…` (`tsconfig.app.json` `paths` and `vite.config.ts` `resolve.alias`).
+
+Every route works as a deep link: Caddy answers `index.html` for any path that is not a file, and the router picks the page. The dev server does the same.
+
+In development, the TanStack Query devtools button sits in the bottom-left corner; a production build leaves the devtools out of the bundle.

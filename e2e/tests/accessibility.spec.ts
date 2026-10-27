@@ -1,5 +1,5 @@
 // An accessibility smoke test of the catalog and the product page: every
-// button has a name, the variant picker and the stepper are named groups,
+// button and link has a name, the variant picker and the stepper are named groups,
 // and the stepper's buttons are disabled at their bounds.
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
@@ -11,31 +11,39 @@ import {
   openProduct,
 } from "../support/catalog.ts";
 
-/** Every visible button on the page has an accessible name. */
-const expectNamedButtons = async (page: Page): Promise<number> => {
-  const buttons = await page.getByRole("button").all();
-  expect(buttons.length).toBeGreaterThan(0);
-  for (const button of buttons) {
-    await expect(button).toHaveAccessibleName(/\S/);
+/** Every visible button and link on the page has an accessible name. */
+const expectNamedControls = async (page: Page): Promise<number> => {
+  const controls = await page
+    .getByRole("button")
+    .or(page.getByRole("link"))
+    .all();
+  expect(controls.length).toBeGreaterThan(0);
+  for (const control of controls) {
+    await expect(control).toHaveAccessibleName(/\S/);
   }
-  return buttons.length;
+  return controls.length;
 };
 
-test("every button in the catalog and on a product page has a name", async ({
+test("every button and link in the catalog and on a product page has a name", async ({
   page,
 }) => {
   const problems = await watchBrowser(page);
   await page.goto("/");
   await loadEverything(page);
-  // Brand, one per product card, and no unnamed icon button.
-  expect(await expectNamedButtons(page)).toBeGreaterThan(1);
+  // The header's links, one per product card, the category links.
+  expect(await expectNamedControls(page)).toBeGreaterThan(1);
   // The page has one top-level heading and the sections are named.
   await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
   await expect(page.getByRole("region", { name: "Kategori" })).toBeVisible();
   await expect(page.getByRole("region", { name: "Produk" })).toBeVisible();
 
   await openProduct(page, "Kaos Polos Hitam");
-  expect(await expectNamedButtons(page)).toBeGreaterThan(1);
+  // Collected once the product is on screen, not while it loads.
+  await expect(
+    page.getByRole("article", { name: "Kaos Polos Hitam" }),
+  ).toBeVisible();
+  expect(await expectNamedControls(page)).toBeGreaterThan(1);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
   expectNoProblems(problems);
 });
 

@@ -2,12 +2,14 @@
   "name": "@goshop/shared",
   "version": "0.0.0",
   "private": true,
-  "description": "Code shared by the GoShop web, admin and mobile apps: API types and the API client",
+  "description": "Code shared by the GoShop web, admin and mobile apps: API types, the API client and validation schemas",
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
   },
-  "sideEffects": false,
+  "sideEffects": [
+    "./src/schemas/zod.ts"
+  ],
   "scripts": {
     "gen": "openapi-typescript ../../api/openapi.yaml --output src/api/schema.gen.ts",
     "gen:check": "openapi-typescript ../../api/openapi.yaml --output src/api/schema.gen.ts --check",
@@ -15,6 +17,9 @@
     "lint": "eslint --max-warnings=0 . && prettier --check .",
     "format": "prettier --write . && eslint --fix .",
     "test:unit": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@eslint/js": "catalog:",

@@ -1,3 +1,5 @@
+import { Link, useSearchParams } from "react-router";
+import { isApiError } from "@goshop/shared";
 import { Section } from "@/components/ui/Section.tsx";
 import {
   EmptyState,
@@ -5,57 +7,125 @@ import {
   LoadingState,
 } from "@/components/ui/StatusMessage.tsx";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle.ts";
-import { useProducts } from "../hooks/useProducts.ts";
+import {
+  catalogSearch,
+  catalogSearchParams,
+  readCatalogFilters,
+} from "../catalog-filters.ts";
+import type { CatalogFilters } from "../catalog-filters.ts";
+import { useProductList } from "../hooks/useProductList.ts";
+import { CatalogToolbar } from "./CatalogToolbar.tsx";
 import { CategorySection } from "./CategorySection.tsx";
 import { ProductGrid } from "./ProductGrid.tsx";
+import { ProductListFooter } from "./ProductListFooter.tsx";
 
 /** Products per page: a grid of 3 or 4 columns fills evenly. */
 const PAGE_SIZE = 12;
 
-interface CatalogPageProps {
-  /** Called with a product's slug when the buyer opens it. */
-  onSelectProduct: (slug: string) => void;
-}
-
-/** The storefront's home: categories beside the newest products. */
-export function CatalogPage({ onSelectProduct }: CatalogPageProps) {
+/**
+ * The storefront's home, at "/": categories beside the products, filtered
+ * by the query string (/?kategori=kaos&q=polos&urut=termurah).
+ *
+ * The filters live in the URL, not in useState: the URL is state that
+ * survives a reload, can be bookmarked and shared, and moves with Back
+ * and Forward. useSearchParams reads it like useState and writes it with
+ * setSearchParams, which navigates to the new URL.
+ *
+ * The page cursor is the one piece of list state kept out of the URL. It
+ * is opaque, valid only with the filters it came from, and names one page,
+ * while the screen shows every page loaded so far; so the URL holds the
+ * filters, and a change of filters starts another list from page one.
+ */
+export function CatalogPage() {
   useDocumentTitle("Katalog — GoShop");
-  const { products, phase, error, hasMore, loadMore, retry } = useProducts({
-    limit: PAGE_SIZE,
-  });
-  return (
-    <div className="catalog">
-      <aside className="catalog__aside">
-        <CategorySection />
-      </aside>
-      <Section title="Produk" className="catalog__products">
-        {products.length > 0 && (
-          <ProductGrid products={products} onSelectProduct={onSelectProduct} />
-        )}
+  const [searchParams, setSearchParams] = useSearchParams();
+  const filters = readCatalogFilters(searchParams);
+  const {
+    data,
+    products,
+    status,
+    error,
+    isFetching,
+    isFetchingNextPage,
+    isFetchNextPageError,
+    hasNextPage,
+    fetchNextPage,
+    refetch,
+  } = useProductList({ ...filters, limit: PAGE_SIZE });
 
-        <div className="catalog__footer">
-          {phase === "loading" && (
-            <LoadingState>
-              {products.length === 0
-                ? "Memuat produk…"
-                : "Memuat produk berikutnya…"}
-            </LoadingState>
+  const setFilters = (next: CatalogFilters) => {
+    setSearchParams(catalogSearchParams(next));
+  };
+
+  // Whether any page has arrived. It decides what this page shows, not
+  // `status`: when a *later* page fails, status becomes "error" too, yet
+  // `data` keeps every page loaded before it (isFetchNextPageError is
+  // true). Those products stay on screen, and the footer offers to retry
+  // that one page. Only without any data is the error the whole list's.
+  const hasPages = data !== undefined;
+
+  return (
+    <div className="page">
+      <h1 tabIndex={-1}>Katalog</h1>
+      <div className="catalog">
+        <aside className="catalog__aside">
+          <CategorySection filters={filters} />
+        </aside>
+        <Section title="Produk" className="catalog__products">
+          <CatalogToolbar filters={filters} onChange={setFilters} />
+          {filters.q !== undefined && (
+            <p className="muted">Hasil pencarian untuk “{filters.q}”.</p>
           )}
-          {phase === "error" && <ErrorState error={error} onRetry={retry} />}
-          {phase === "ready" && hasMore && (
-            <button type="button" onClick={loadMore}>
-              Muat lebih banyak
-            </button>
+
+          {!hasPages && (status === "pending" || isFetching) && (
+            <div className="catalog__footer">
+              <LoadingState>Memuat produk…</LoadingState>
+            </div>
           )}
-          {phase === "ready" && !hasMore && (
-            <EmptyState>
-              {products.length === 0
-                ? "Belum ada produk."
-                : "Semua produk sudah ditampilkan."}
-            </EmptyState>
+          {!hasPages &&
+            status === "error" &&
+            !isFetching &&
+            // A slug that looks right but names no category: say so,
+            // instead of offering a retry that would fail the same way.
+            (isApiError(error, "UNKNOWN_CATEGORY") ? (
+              <EmptyState>
+                Kategori ini tidak ada.{" "}
+                <Link
+                  to={`/${catalogSearch({ ...filters, category: undefined })}`}
+                >
+                  Lihat semua produk
+                </Link>
+              </EmptyState>
+            ) : (
+              <ErrorState
+                error={error}
+                onRetry={() => {
+                  void refetch();
+                }}
+              />
+            ))}
+
+          {hasPages && (
+            <>
+              {products.length > 0 && <ProductGrid products={products} />}
+              <ProductListFooter
+                count={products.length}
+                filtered={
+                  filters.q !== undefined || filters.category !== undefined
+                }
+                hasNextPage={hasNextPage}
+                isFetching={isFetching}
+                isFetchingNextPage={isFetchingNextPage}
+                isFetchNextPageError={isFetchNextPageError}
+                error={error}
+                fetchNextPage={() => {
+                  void fetchNextPage();
+                }}
+              />
+            </>
           )}
-        </div>
-      </Section>
+        </Section>
+      </div>
     </div>
   );
 }

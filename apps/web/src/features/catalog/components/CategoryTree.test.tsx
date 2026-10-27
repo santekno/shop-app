@@ -2,6 +2,7 @@ import { buildCategoryTree } from "@goshop/shared";
 import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { category } from "@/test/fake-api.ts";
+import { inRouter } from "@/test/render.tsx";
 import { CategoryTree } from "./CategoryTree.tsx";
 
 const tree = buildCategoryTree([
@@ -12,9 +13,12 @@ const tree = buildCategoryTree([
   category("5", "Kaos Polos", "3"),
 ]);
 
+const hrefFor = (slug: string) => `/?kategori=${slug}`;
+const props = { nodes: tree, activeSlug: undefined, hrefFor };
+
 describe("CategoryTree", () => {
   it("renders the top level as one list, in order", () => {
-    render(<CategoryTree nodes={tree} />);
+    render(inRouter(<CategoryTree {...props} />));
 
     const [top] = screen.getAllByRole("list");
     if (!top) throw new Error("no list rendered");
@@ -28,7 +32,7 @@ describe("CategoryTree", () => {
   });
 
   it("nests the children of a node in a list inside its item", () => {
-    render(<CategoryTree nodes={tree} />);
+    render(inRouter(<CategoryTree {...props} />));
 
     const pakaian = screen.getByText("Pakaian").closest("li");
     if (!pakaian) throw new Error("Pakaian has no list item");
@@ -45,7 +49,7 @@ describe("CategoryTree", () => {
   });
 
   it("renders no inner list for a leaf", () => {
-    render(<CategoryTree nodes={tree} />);
+    render(inRouter(<CategoryTree {...props} />));
 
     for (const leaf of ["Elektronik", "Kemeja", "Kaos Polos"]) {
       const item = screen.getByText(leaf).closest("li");
@@ -55,8 +59,31 @@ describe("CategoryTree", () => {
   });
 
   it("renders an empty list for no nodes", () => {
-    render(<CategoryTree nodes={[]} />);
+    render(inRouter(<CategoryTree {...props} nodes={[]} />));
 
     expect(screen.getByRole("list").children).toHaveLength(0);
+  });
+
+  it("links every category to the catalog filtered by its slug", () => {
+    render(inRouter(<CategoryTree {...props} />));
+
+    expect(
+      screen.getAllByRole("link").map((link) => link.getAttribute("href")),
+    ).toEqual([
+      "/?kategori=pakaian",
+      "/?kategori=kaos",
+      "/?kategori=kaos polos",
+      "/?kategori=kemeja",
+      "/?kategori=elektronik",
+    ]);
+  });
+
+  it("marks only the active category, at any depth, with aria-current", () => {
+    render(inRouter(<CategoryTree {...props} activeSlug="kaos polos" />));
+
+    const current = screen
+      .getAllByRole("link")
+      .filter((link) => link.getAttribute("aria-current") === "true");
+    expect(current.map((link) => link.textContent)).toEqual(["Kaos Polos"]);
   });
 });

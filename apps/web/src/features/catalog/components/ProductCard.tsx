@@ -1,7 +1,10 @@
 import { memo } from "react";
+import { Link } from "react-router";
 import { formatRupiah } from "@goshop/shared";
 import type { Product } from "@goshop/shared";
 import { Card } from "@/components/ui/Card.tsx";
+import { usePrefetchProduct } from "@/features/product/hooks/usePrefetchProduct.ts";
+import { FROM_CATALOG, productPath } from "@/features/product/paths.ts";
 import { ProductImage } from "./ProductImage.tsx";
 
 /**
@@ -10,8 +13,6 @@ import { ProductImage } from "./ProductImage.tsx";
  */
 interface ProductCardProps {
   product: Product;
-  /** Called with the product's slug when the buyer opens it. */
-  onSelect: (slug: string) => void;
 }
 
 /**
@@ -19,16 +20,14 @@ interface ProductCardProps {
  *
  * Wrapped in memo: React skips rendering a card again when its props are
  * the same objects as last time. "Muat lebih banyak" re-renders the grid
- * (CatalogPage owns useProducts) with 12 more products; with memo, the
- * cards already on screen are left alone, because `product` keeps its
- * identity (useProducts appends pages without copying products) and
- * `onSelect` comes from App, which did not render. App renders again when
- * a product opens and when the buyer goes back; then it is useCallback
- * that keeps `onSelect` the same function, so the cards still skip.
+ * with 12 more products; with memo, the cards already on screen are left
+ * alone. It works because `product` keeps its identity: the list appends
+ * pages without copying the products already loaded. (In Bab 8 the card
+ * also took an onSelect callback, which App had to keep stable with
+ * useCallback; a link needs no callback at all.)
  */
 export const ProductCard = memo(function ProductCard({
   product,
-  onSelect,
 }: ProductCardProps) {
   // Destructuring renames the API's snake_case fields to camelCase locals.
   const { name, category, variants } = product;
@@ -37,27 +36,27 @@ export const ProductCard = memo(function ProductCard({
   const hasPriceRange = variants.some(
     (variant) => variant.price.amount !== priceFrom.amount,
   );
+  // Hover (with a mouse) or focus starts loading the product page.
+  const prefetchHandlers = usePrefetchProduct(product.slug);
 
   return (
     <Card as="article" className="product-card">
       <ProductImage name={name} />
       <h3 className="product-card__name">
-        {/* A real <button>: it is reachable with Tab, opens with Enter or
-            Space, and its name for screen readers is the product name.
-            onClick receives a function to call later; writing
-            onClick={onSelect(product.slug)} would call it during render. */}
-        <button
-          type="button"
-          className="link-button"
-          // App looks the button up by this attribute to give it the focus
-          // back when the buyer returns from the product page.
+        {/* A link, because opening a product is going to another page:
+            it has a real href, so it opens in a new tab, can be copied
+            and shared, and is announced as a link. The router catches a
+            plain click and renders the product route without a reload. */}
+        <Link
+          to={productPath(product.slug)}
+          state={FROM_CATALOG}
+          {...prefetchHandlers}
+          // useRouteFocus looks the link up by this attribute to give it
+          // the focus back when the buyer returns from the product page.
           data-product-slug={product.slug}
-          onClick={() => {
-            onSelect(product.slug);
-          }}
         >
           {name}
-        </button>
+        </Link>
       </h3>
       <p className="muted">{category.name}</p>
       <p className="price">

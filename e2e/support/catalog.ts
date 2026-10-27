@@ -56,6 +56,12 @@ export interface ProductRow {
 export const PAGE_SIZE = 12;
 
 /**
+ * The query of the catalog's first page with no filter in the URL: the
+ * default sort is sent explicitly, then the page size.
+ */
+export const FIRST_PAGE_QUERY = `sort=newest&limit=${PAGE_SIZE}`;
+
+/**
  * Every product slug make seed writes (apps/api/cmd/seed/catalog.go). The
  * Compose database may hold more, so specs check that these are there, and
  * compare everything else with what the API returns.
@@ -91,12 +97,20 @@ export const SEEDED_SLUGS: readonly string[] = [
   "rengginang-terasi-250g",
 ];
 
-/** Every page of GET /v1/products?limit=12, in order, following next_cursor. */
-export const fetchAllProducts = async (): Promise<ProductRow[][]> => {
+/**
+ * Every page of GET /v1/products?limit=12, in order, following
+ * next_cursor; filters (category, q, sort) are added to every request.
+ */
+export const fetchAllProducts = async (
+  filters: Readonly<Record<string, string>> = {},
+): Promise<ProductRow[][]> => {
   const pages: ProductRow[][] = [];
   let cursor: string | null = null;
   do {
     const url = new URL(`${API_URL}/v1/products`);
+    for (const [name, value] of Object.entries(filters)) {
+      url.searchParams.set(name, value);
+    }
     url.searchParams.set("limit", String(PAGE_SIZE));
     if (cursor !== null) url.searchParams.set("cursor", cursor);
     const response = await fetch(url);
@@ -136,18 +150,59 @@ export const productSection = (page: Page): Locator =>
 export const productCards = (page: Page): Locator =>
   productSection(page).locator(".product-grid > li > article");
 
-/** Clicks "Muat lebih banyak" until the end message shows. */
+/** What opens a product from its card: the name, as a link or a button. */
+export const cardOpener = (page: Page, name: string): Locator =>
+  productSection(page)
+    .locator(".product-card__name")
+    .getByRole("link", { name, exact: true })
+    .or(
+      productSection(page)
+        .locator(".product-card__name")
+        .getByRole("button", { name, exact: true }),
+    );
+
+/**
+ * Loads every page until "Semua produk sudah ditampilkan." shows. The list
+ * may load the next page by itself when its sentinel scrolls into view, so
+ * the "Muat lebih banyak" button can disappear just before a click; each
+ * round therefore clicks it when it is there, or scrolls the last card into
+ * view, and then only waits for more cards or the end.
+ */
 export const loadEverything = async (page: Page): Promise<void> => {
   const section = productSection(page);
   const more = section.getByRole("button", { name: "Muat lebih banyak" });
   const done = section.getByText("Semua produk sudah ditampilkan.");
-  await expect(more.or(done)).toBeVisible();
-  while (await more.isVisible()) {
+  await expect(productCards(page).first()).toBeVisible();
+  while (!(await done.isVisible())) {
     const before = await productCards(page).count();
-    await more.click();
-    await expect(productCards(page)).not.toHaveCount(before);
-    await expect(more.or(done)).toBeVisible();
+    if (await more.isVisible()) {
+      // The button is disabled while the list refetches in the background;
+      // click() waits for it to be enabled. It may also vanish because the
+      // sentinel loaded the page first, which the poll below accepts.
+      await more.click({ timeout: 5000 }).catch(() => undefined);
+    } else {
+      await productCards(page).last().scrollIntoViewIfNeeded();
+    }
+    await expect
+      .poll(
+        async () =>
+          (await done.isVisible()) ||
+          (await productCards(page).count()) > before,
+      )
+      .toBe(true);
   }
+};
+
+/**
+ * Turns the catalog's automatic loading off for the page: without an
+ * IntersectionObserver the sentinel does nothing, and "Muat lebih banyak"
+ * is the only way to the next page (the fallback the storefront keeps for
+ * browsers that lack the observer). Call it before page.goto.
+ */
+export const disableAutoLoad = async (page: Page): Promise<void> => {
+  await page.addInitScript(() => {
+    Reflect.deleteProperty(window, "IntersectionObserver");
+  });
 };
 
 /**
@@ -155,13 +210,10 @@ export const loadEverything = async (page: Page): Promise<void> => {
  * first when the card is not on the ones already shown.
  */
 export const openProduct = async (page: Page, name: string): Promise<void> => {
-  const button = productSection(page).getByRole("button", {
-    name,
-    exact: true,
-  });
+  const opener = cardOpener(page, name);
   await expect(productCards(page).first()).toBeVisible();
-  if ((await button.count()) === 0) await loadEverything(page);
-  await button.click();
+  if ((await opener.count()) === 0) await loadEverything(page);
+  await opener.click();
 };
 
 /** Counts the requests the page sends, per API path (query left out). */
