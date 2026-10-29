@@ -756,7 +756,7 @@ From this article the storefront is a Next.js 16 app (App Router, `next` 16.4.3 
 | anything else | `app/not-found.tsx` | on the server, **status 404** |
 | `/healthz` | `app/healthz/route.ts` | a route handler: `ok` |
 
-The URLs are the Vite app's, so links, bookmarks and the e2e suite's paths still work. `(auth)` and `(akun)` are **route groups**: the parentheses keep the folder out of the URL; each gives its pages one layout and one `robots` setting (`noindex`).
+The URLs are the Vite app's, so links, bookmarks and the e2e suite's paths still work. `(auth)` and `(akun)` are **route groups**: the parentheses keep the folder out of the URL; each gives its pages one layout and one `robots` setting (`noindex`; `(akun)` adds `nofollow`).
 
 ### Server components and client components
 
@@ -875,7 +875,8 @@ Every absolute URL a page prints (the canonical link, `og:url`, the structured d
 | `/?urut=xyz&utm_source=wa` | Katalog — GoShop | `/` | index | `og:url` `/` |
 | `/produk/kaos-polos-hitam?utm_source=wa` | Kaos Polos Hitam — GoShop | `/produk/kaos-polos-hitam` | index | title, description (≤ 160 characters, cut at a word), `og:url`; `og:image` and a large Twitter card once the product has a photo (artikel 12), a small card until then |
 | `/produk/tidak-ada` (404) | Produk tidak ditemukan — GoShop | none | `noindex` (Next.js adds it to a `notFound()` page) | — |
-| `/keranjang`, `/masuk`, `/daftar`, `(akun)` pages | the page's | none | `noindex` (artikel 08) | — |
+| `/keranjang`, `/masuk`, `/daftar` | the page's | none | `noindex` (artikel 08) | — |
+| `(akun)` pages (checkout, payment, orders, account) | the page's | none | `noindex, nofollow` (artikel 08) | — |
 
 **The catalog's rule** (`catalogPageMeta`, `features/catalog/catalog-metadata.ts`). Each combination of the three filters is a URL a crawler can find; indexing all of them would split the shop into near-copies of one list.
 
