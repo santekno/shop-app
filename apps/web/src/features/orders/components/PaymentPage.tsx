@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { formatRupiah, isApiError } from "@goshop/shared";
@@ -43,7 +43,9 @@ const timeFormat = new Intl.DateTimeFormat("id-ID", { timeStyle: "medium" });
  * - TanStack Query does not poll a hidden tab, and asks at once when the
  *   tab is shown again (`staleTime: 0` makes the cached answer stale, so
  *   the focus refetch runs);
- * - "Periksa lagi" starts a new round after the page stopped by itself.
+ * - "Periksa lagi" starts a new round after the page stopped by itself,
+ *   from the fast end of the backoff again: a buyer presses it because
+ *   they have just paid.
  *
  * Polling, not a push channel: an order is paid once, the answer arrives
  * within seconds of the webhook, and a handful of GETs costs less than a
@@ -59,12 +61,16 @@ export function PaymentPage() {
   const { session, authApi } = useSession();
   // RequireAuth renders this page only when someone is logged in.
   const userId = session?.user.id ?? "";
-  // When the current round of polling started. State, set from an event
-  // ("Periksa lagi"), never read from the clock during a render.
-  const [roundStart, setRoundStart] = useState(() => Date.now());
+  // When the current round of polling started, and how many answers the
+  // query had by then (the backoff counts this round's answers only).
+  // State, set from an event ("Periksa lagi"), never read from the clock
+  // during a render.
+  const [round, setRound] = useState(() => ({ start: Date.now(), answers: 0 }));
 
+  const queryClient = useQueryClient();
+  const orderOptions = orderQuery(authApi, userId, id);
   const order = useQuery({
-    ...orderQuery(authApi, userId, id),
+    ...orderOptions,
     enabled: session !== null,
     staleTime: 0,
     refetchInterval: (query) => {
@@ -72,8 +78,10 @@ export function PaymentPage() {
       if (data === undefined || paymentOutcome(data) !== "pending") {
         return false;
       }
-      if (query.state.dataUpdatedAt - roundStart > POLL_LIMIT_MS) return false;
-      return pollDelay(query.state.dataUpdateCount);
+      if (query.state.dataUpdatedAt - round.start > POLL_LIMIT_MS) {
+        return false;
+      }
+      return pollDelay(query.state.dataUpdateCount - round.answers);
     },
   });
 
@@ -91,7 +99,7 @@ export function PaymentPage() {
 
   const pending =
     order.status === "success" && paymentOutcome(order.data) === "pending";
-  const stopped = pending && order.dataUpdatedAt - roundStart > POLL_LIMIT_MS;
+  const stopped = pending && order.dataUpdatedAt - round.start > POLL_LIMIT_MS;
 
   return (
     <Card>
@@ -144,7 +152,13 @@ export function PaymentPage() {
               className="justify-self-start"
               disabled={order.isFetching}
               onClick={() => {
-                setRoundStart(Date.now());
+                setRound({
+                  start: Date.now(),
+                  // The query's own count (useQuery's result has none).
+                  answers:
+                    queryClient.getQueryState(orderOptions.queryKey)
+                      ?.dataUpdateCount ?? 0,
+                });
                 void order.refetch();
               }}
             >

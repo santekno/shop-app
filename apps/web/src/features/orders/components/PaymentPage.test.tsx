@@ -371,11 +371,15 @@ describe("PaymentPage", () => {
     expect(gets()).toBe(stoppedAt + 1);
     expect(screen.queryByRole("button", { name: "Periksa lagi" })).toBeNull();
     expect(screen.getByText(/^Diperiksa otomatis\./)).toBeDefined();
-    // The new round goes on at the slowest pace the last one reached (the
-    // delay follows the query's answer count, which a round does not reset).
-    await advance(30_000);
+    // The new round starts from the fast end of the backoff again: the
+    // buyer pressed it because they have just paid.
+    await advance(2_000);
     expect(gets()).toBe(stoppedAt + 2);
-    await advance(POLL_LIMIT_MS);
+    await advance(2_000);
+    expect(gets()).toBe(stoppedAt + 3);
+    await advance(3_000);
+    expect(gets()).toBe(stoppedAt + 4);
+    await advance(POLL_LIMIT_MS + 60_000);
     expect(screen.getByText(/^Pemeriksaan otomatis berhenti\./)).toBeDefined();
   });
 
