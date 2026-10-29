@@ -60,6 +60,41 @@ describe("ProductGrid", () => {
     expect(currentLocation()).toBe("/produk/b");
   });
 
+  it("loads the first row's photos with the page and the rest lazily", () => {
+    const withPhoto = (slug: string) =>
+      product(slug, {
+        images: [
+          {
+            id: `img-${slug}`,
+            url: `https://cdn.example.com/${slug}/800.jpg`,
+            alt: "",
+            width: 800,
+            height: 800,
+            variants: [],
+          },
+        ],
+      });
+    render(
+      inRouter(
+        <ProductGrid
+          products={["a", "b", "c", "d", "e", "f"].map(withPhoto)}
+        />,
+      ),
+    );
+
+    const loading = within(screen.getByRole("list"))
+      .getAllByRole("img")
+      .map((img) => img.getAttribute("loading"));
+    expect(loading).toEqual([
+      "eager",
+      "eager",
+      "eager",
+      "eager",
+      "lazy",
+      "lazy",
+    ]);
+  });
+
   it("renders an empty list for no products", () => {
     render(inRouter(<ProductGrid products={[]} />));
 
