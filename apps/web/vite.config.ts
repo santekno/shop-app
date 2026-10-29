@@ -28,6 +28,16 @@ export default defineConfig({
     // coverage thresholds belong to the test stage (test-engineer).
     environment: "jsdom",
     setupFiles: ["./src/vitest.setup.ts"],
+    // The storefront's variables, empty whatever the shell exports (the
+    // e2e stack's NEXT_PUBLIC_API_URL, say): every one falls back to its
+    // development default, and a test that needs a value stubs it.
+    env: {
+      NEXT_PUBLIC_API_URL: "",
+      API_INTERNAL_URL: "",
+      SITE_URL: "",
+      IMAGE_ORIGIN: "",
+      GA_MEASUREMENT_ID: "",
+    },
     // vi.stubEnv and vi.stubGlobal last for one test only.
     unstubEnvs: true,
     unstubGlobals: true,
