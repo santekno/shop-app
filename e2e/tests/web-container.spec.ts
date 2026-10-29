@@ -16,6 +16,7 @@ import {
   stackImageOrigin,
   waitForOk,
 } from "../support/stack.ts";
+import { publishedPort, stackWeb } from "../support/web-instance.ts";
 
 /** The headers next.config.ts sends with every response. */
 const SECURITY_HEADERS: Readonly<Record<string, string>> = {
@@ -67,27 +68,6 @@ const builtScripts = (html: string): string[] =>
   [...html.matchAll(/<script[^>]+src="(\/_next\/static\/[^"]+\.js)"/g)].map(
     (m) => m[1] ?? "",
   );
-
-/** The web container's image and Compose network, for docker run. */
-const stackWeb = (): { image: string; network: string } => {
-  const id = compose("ps", "-q", "web").trim();
-  const [image = "", network = ""] = docker(
-    "inspect",
-    "-f",
-    "{{.Config.Image}} {{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}",
-    id,
-  )
-    .trim()
-    .split(" ");
-  return { image, network };
-};
-
-/** The host port docker published for a container's port. */
-const publishedPort = (container: string, port: number): string => {
-  const published = /:(\d+)\s*$/m.exec(docker("port", container, String(port)));
-  expect(published, "the container's published port").toBeTruthy();
-  return published?.[1] ?? "";
-};
 
 test("GET /healthz answers 200 ok from a route handler, never cached", async ({
   request,
