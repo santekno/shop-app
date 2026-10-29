@@ -39,6 +39,7 @@ type productOut struct {
 	InStock     bool           `json:"in_stock"`
 	Variants    []variantOut   `json:"variants"`
 	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
 }
 
 type adminVariantOut struct {
@@ -114,6 +115,7 @@ func assertProduct(t *testing.T, raw json.RawMessage, what string) productOut {
 	object(t, obj["category"], "Category", what+".category")
 	assertMoney(t, obj["price_from"], what+".price_from")
 	assertTimestamp(t, obj["created_at"], what+".created_at")
+	assertTimestamp(t, obj["updated_at"], what+".updated_at")
 	if s := string(obj["in_stock"]); s != "true" && s != "false" {
 		t.Errorf("%s.in_stock = %s, want a boolean", what, s)
 	}
