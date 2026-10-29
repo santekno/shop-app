@@ -10,6 +10,7 @@ import {
   address,
   addressResponse,
   addressesResponse,
+  jsonBody,
 } from "@/test/checkout-fixtures.ts";
 import {
   detailedErrorResponse,
@@ -85,9 +86,7 @@ const fillForm = async (
 
 const posted = () => {
   const call = fetchMock.mock.calls.find(([, init]) => init?.method === "POST");
-  return call === undefined
-    ? undefined
-    : (JSON.parse(String(call[1]?.body)) as unknown);
+  return call === undefined ? undefined : jsonBody(call[1]);
 };
 
 beforeEach(() => {

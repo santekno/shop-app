@@ -5,8 +5,8 @@ vi.mock("@/lib/api.ts", () => import("@/test/fake-api.ts"));
 
 describe("loadCheckoutPage", () => {
   it("loads the module that exports CheckoutPage", async () => {
-    const module = await loadCheckoutPage();
-    expect(typeof module.CheckoutPage).toBe("function");
-    expect(module.CheckoutPage.name).toBe("CheckoutPage");
+    const loaded = await loadCheckoutPage();
+    expect(typeof loaded.CheckoutPage).toBe("function");
+    expect(loaded.CheckoutPage.name).toBe("CheckoutPage");
   });
 });

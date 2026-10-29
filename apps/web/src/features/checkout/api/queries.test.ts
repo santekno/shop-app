@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   address,
   addressesResponse,
+  jsonBody,
   preview,
   previewResponse,
   quote,
@@ -82,7 +83,7 @@ describe("addressesQuery", () => {
     fetchMock.mockResolvedValue(addressesResponse([address("a1")]));
     const client = createTestQueryClient();
 
-    const addresses = await client.fetchQuery(addressesQuery(api, "u1"));
+    const addresses = await client.query(addressesQuery(api, "u1"));
 
     expect(addresses.map((a) => a.id)).toEqual(["a1"]);
     expect(lastRequest().url.pathname).toBe("/v1/me/addresses");
@@ -95,9 +96,7 @@ describe("shippingQuotesQuery", () => {
     fetchMock.mockResolvedValue(quotesResponse([quote()]));
     const client = createTestQueryClient();
 
-    const quotes = await client.fetchQuery(
-      shippingQuotesQuery(api, "u1", "a1"),
-    );
+    const quotes = await client.query(shippingQuotesQuery(api, "u1", "a1"));
 
     expect(quotes.quotes[0]?.service).toBe("REG");
     const { url } = lastRequest();
@@ -117,7 +116,7 @@ describe("previewQuery", () => {
       service: "REG",
     } as const;
 
-    const answer = await client.fetchQuery(
+    const answer = await client.query(
       previewQuery(api, "u1", "v1:1:89000", choice),
     );
 
@@ -125,7 +124,7 @@ describe("previewQuery", () => {
     const { url, init } = lastRequest();
     expect(url.pathname).toBe("/v1/checkout/preview");
     expect(init?.method).toBe("POST");
-    expect(JSON.parse(String(init?.body))).toEqual(choice);
+    expect(jsonBody(init)).toEqual(choice);
     expect(
       client.getQueryData(checkoutKeys.preview("u1", "v1:1:89000", choice)),
     ).toBe(answer);

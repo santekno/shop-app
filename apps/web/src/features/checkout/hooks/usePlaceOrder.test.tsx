@@ -5,6 +5,7 @@ import { cartKeys } from "@/features/cart/api/queries.ts";
 import { orderKeys } from "@/features/orders/api/queries.ts";
 import {
   address,
+  jsonBody,
   order,
   orderResponse,
   problem,
@@ -37,7 +38,7 @@ const checkouts = () =>
     .filter(([input]) => requestUrl(input).pathname === "/v1/checkout")
     .map(([, init]) => ({
       key: new Headers(init?.headers).get("Idempotency-Key"),
-      body: JSON.parse(String(init?.body)) as unknown,
+      body: jsonBody(init),
     }));
 
 const mount = () => {

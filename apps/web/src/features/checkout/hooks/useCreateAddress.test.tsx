@@ -7,6 +7,7 @@ import {
   address,
   addressResponse,
   addressesResponse,
+  jsonBody,
 } from "@/test/checkout-fixtures.ts";
 import {
   deferred,
@@ -51,7 +52,7 @@ describe("useCreateAddress", () => {
   it("POSTs the address and settles only once the list has it", async () => {
     const refetch = deferred<Response>();
     let listRequests = 0;
-    fetchMock.mockImplementation((request, init) => {
+    fetchMock.mockImplementation((_, init) => {
       if (init?.method === "POST") {
         return Promise.resolve(addressResponse(address("a2")));
       }
@@ -90,7 +91,7 @@ describe("useCreateAddress", () => {
       ([, init]) => init?.method === "POST",
     );
     expect(requestUrl(post?.[0] ?? "").pathname).toBe("/v1/me/addresses");
-    expect(JSON.parse(String(post?.[1]?.body))).toEqual(input);
+    expect(jsonBody(post?.[1])).toEqual(input);
   });
 
   it("fails without refetching the list", async () => {

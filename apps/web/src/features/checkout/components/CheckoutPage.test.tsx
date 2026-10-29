@@ -1,17 +1,16 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type {
-  Address,
   Cart,
   CheckoutPreviewRequest,
   PaymentSession,
-  ShippingQuote,
 } from "@goshop/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { navigationStateFor } from "@/lib/navigation-state.ts";
 import {
   address,
   addressesResponse,
+  jsonBody,
   order,
   orderResponse,
   paymentResponse,
@@ -115,9 +114,7 @@ const serveCheckout = (overrides: Partial<Api> = {}) => {
       case "GET /v1/checkout/shipping-quotes":
         return api.quotes(url.searchParams.get("address_id") ?? "");
       case "POST /v1/checkout/preview":
-        return api.preview(
-          JSON.parse(String(init?.body)) as CheckoutPreviewRequest,
-        );
+        return api.preview(jsonBody(init) as CheckoutPreviewRequest);
       case "POST /v1/checkout":
         return api.checkout();
       case "POST /v1/orders/order-1/pay":
@@ -136,7 +133,7 @@ const requests = (route: string) =>
   );
 
 const bodies = (route: string) =>
-  requests(route).map(([, init]) => JSON.parse(String(init?.body)) as unknown);
+  requests(route).map(([, init]) => jsonBody(init));
 
 const gtag = vi.fn();
 const events = () =>
@@ -449,7 +446,7 @@ describe("CheckoutPage", () => {
     await user.click(placeButton());
 
     expect(
-      (await screen.findByText(/sudah dibuat/)).textContent?.replace(
+      (await screen.findByText(/sudah dibuat/)).textContent.replace(
         / {2,}|\n/g,
         " ",
       ),

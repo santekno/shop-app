@@ -6,6 +6,7 @@ import type { CheckoutPreviewRequest } from "@goshop/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useSession } from "@/features/auth/session-context.ts";
 import {
+  jsonBody,
   preview,
   previewResponse,
   problem,
@@ -86,7 +87,7 @@ describe("SummaryStep", () => {
 
   it("shows the voucher in use from the preview, and prices without it after Hapus voucher", async () => {
     fetchMock.mockImplementation((_, init) => {
-      const body = JSON.parse(String(init?.body)) as CheckoutPreviewRequest;
+      const body = jsonBody(init) as CheckoutPreviewRequest;
       return Promise.resolve(
         previewResponse(
           body.voucher_code === undefined
@@ -136,7 +137,7 @@ describe("SummaryStep", () => {
 
   it("offers Hapus voucher when the voucher in use is refused, and prices without it", async () => {
     fetchMock.mockImplementation((_, init) => {
-      const body = JSON.parse(String(init?.body)) as CheckoutPreviewRequest;
+      const body = jsonBody(init) as CheckoutPreviewRequest;
       return Promise.resolve(
         body.voucher_code === undefined
           ? previewResponse(preview(lines, { subtotal: 89_000 }))

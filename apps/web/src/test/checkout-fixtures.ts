@@ -202,3 +202,9 @@ export const apiError = (
   code: string,
   details: Record<string, unknown> = {},
 ) => new ApiError({ status, code, message: "boom", details });
+
+/** The JSON body a fake fetch received, or undefined without one. */
+export const jsonBody = (init: RequestInit | undefined): unknown =>
+  typeof init?.body === "string"
+    ? (JSON.parse(init.body) as unknown)
+    : undefined;

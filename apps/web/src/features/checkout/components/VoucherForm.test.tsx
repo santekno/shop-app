@@ -5,7 +5,12 @@ import { useState } from "react";
 import type { AppliedVoucher, CheckoutPreviewRequest } from "@goshop/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useSession } from "@/features/auth/session-context.ts";
-import { preview, previewResponse, voucher } from "@/test/checkout-fixtures.ts";
+import {
+  jsonBody,
+  preview,
+  previewResponse,
+  voucher,
+} from "@/test/checkout-fixtures.ts";
 import {
   cartLine,
   deferred,
@@ -74,12 +79,12 @@ function Harness() {
 /** Every preview body sent. */
 const previews = () =>
   fetchMock.mock.calls.map(
-    ([, init]) => JSON.parse(String(init?.body)) as CheckoutPreviewRequest,
+    ([, init]) => jsonBody(init) as CheckoutPreviewRequest,
   );
 
 const serveVouchers = () => {
   fetchMock.mockImplementation((_, init) => {
-    const body = JSON.parse(String(init?.body)) as CheckoutPreviewRequest;
+    const body = jsonBody(init) as CheckoutPreviewRequest;
     const code = body.voucher_code;
     if (code === undefined) {
       return Promise.resolve(previewResponse(preview([cartLine("v1")])));
