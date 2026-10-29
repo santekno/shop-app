@@ -70,7 +70,7 @@ describe("the root layout's metadata", () => {
 
     const metadata = generateMetadata();
 
-    expect(metadata.metadataBase?.href).toBe("https://shop.example.com/");
+    expect(String(metadata.metadataBase)).toBe("https://shop.example.com/");
     expect(metadata.title).toEqual({
       default: "GoShop",
       template: "%s — GoShop",
