@@ -1,6 +1,7 @@
-// Moving between the catalog and a product with React Router: a card opens
-// the product at /produk/<slug>, and "Kembali" and the brand go back to
-// the catalog at /, which comes back from TanStack Query's cache with every
+// Moving between the catalog and a product with Next.js' router (Bab 11;
+// React Router before): a card opens the product at /produk/<slug>, its
+// data rendered by the server, and "Kembali" and the brand go back to the
+// catalog at /, which comes back from TanStack Query's cache with every
 // page the buyer loaded, the focus on the card they opened, and that card
 // on screen.
 import { expect, test } from "@playwright/test";
@@ -107,10 +108,9 @@ test("a card opens its product at /produk/<slug>, with its title", async ({
   // The catalog is gone, not hidden below the product.
   await expect(productSection(page)).toHaveCount(0);
 
-  // The product was fetched by its slug, once.
-  expect(calls.get(`/v1/products/${product.slug}`)).toEqual([
-    `GET /v1/products/${product.slug}`,
-  ]);
+  // The product came with the page from the server (Bab 11 artikel 09):
+  // the browser did not ask the API for it.
+  expect(calls.get(`/v1/products/${product.slug}`)).toBeUndefined();
   expectNoProblems(problems);
 });
 
@@ -142,9 +142,9 @@ test("Kembali returns to the catalog from the cache, at the opened card", async 
   ).toBeVisible();
   await expect(detail(page, name)).toHaveCount(0);
   // Within the 30 s stale time nothing is fetched again: not page 1, not
-  // the categories.
+  // the categories (which the server rendered: the browser never asks).
   expect(calls.get("/v1/products")).toHaveLength(listCalls);
-  expect(calls.get("/v1/categories")).toHaveLength(1);
+  expect(calls.get("/v1/categories")).toBeUndefined();
   expectNoProblems(problems);
 });
 
@@ -213,7 +213,6 @@ test("after the 30 s stale time the catalog still shows at once, and refreshes i
   await openProduct(page, product.name);
   await expect(detail(page, product.name)).toBeVisible();
   const lists = calls.get("/v1/products")?.length ?? 0;
-  const categories = calls.get("/v1/categories")?.length ?? 0;
 
   await page.clock.fastForward("00:31");
   await backLink(page).click();
@@ -221,9 +220,9 @@ test("after the 30 s stale time the catalog still shows at once, and refreshes i
   await expect(productCards(page)).toHaveCount(PAGE_SIZE);
   await expect(productSection(page).getByText("Memuat produk…")).toHaveCount(0);
   // … while the stale list is fetched again behind it. The categories
-  // (5 minutes) are still fresh.
+  // (5 minutes) are still fresh, so the browser still never asked for them.
   await expect.poll(() => calls.get("/v1/products")?.length).toBe(lists + 1);
-  expect(calls.get("/v1/categories")).toHaveLength(categories);
+  expect(calls.get("/v1/categories")).toBeUndefined();
   await expect(cardOpener(page, product.name)).toBeFocused();
   expectNoProblems(problems);
 });

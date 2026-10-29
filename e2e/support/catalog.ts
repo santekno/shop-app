@@ -232,6 +232,18 @@ export const countApiRequests = (
   return calls;
 };
 
+/**
+ * text as React writes it into server-rendered HTML (escapeTextForBrowser),
+ * to look for an API value in a page's source.
+ */
+export const asHtml = (text: string): string =>
+  text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#x27;");
+
 /** Fails on any console error, uncaught exception or CSP violation. */
 export const expectNoProblems = (problems: BrowserProblems): void => {
   expect(problems.consoleErrors).toEqual([]);

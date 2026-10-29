@@ -1,21 +1,29 @@
 // The storefront when the API is down: the api container is stopped for
-// real, so the browser's fetch fails the way it does in production (no
-// answer at all), and started again to check that each "Coba lagi"
-// recovers its own part of the page without a reload.
+// real, so every fetch fails the way it does in production (no answer at
+// all), and started again to check that the page recovers. Since Bab 11
+// the storefront's server fetches first (artikel 09): the catalog's
+// failed server fetch is swallowed and the browser asks again, so each
+// "Coba lagi" still recovers its own part of the page without a reload; a
+// product page the server cannot fetch is an error page (HTTP 500), never
+// a 200 or a 404 a crawler would index. What the server has fetched before
+// stays in its data cache and is served through an outage, so each test
+// starts a fresh web container (an empty cache: each container keeps its
+// own, artikel 14).
 import { expect, test } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
-import { watchBrowser } from "../support/browser.ts";
+import { clientNavigate, watchBrowser } from "../support/browser.ts";
 import type { BrowserProblems } from "../support/browser.ts";
 import {
   PAGE_SIZE,
   disableAutoLoad,
-  openProduct,
+  fetchAllProducts,
   productCards,
   productSection,
 } from "../support/catalog.ts";
 import {
   API_URL,
   BROWSER_API_URL,
+  WEB_URL,
   compose,
   waitForOk,
 } from "../support/stack.ts";
@@ -106,6 +114,15 @@ const expectOnlyOutageErrors = (problems: BrowserProblems): void => {
   expect(problems.cspViolations).toEqual([]);
 };
 
+/**
+ * Recreates the web container, so its data cache is empty: the server
+ * then has to ask the API for every page, as on a fresh deploy.
+ */
+const freshWeb = async (): Promise<void> => {
+  compose("up", "-d", "--no-deps", "--force-recreate", "--wait", "web");
+  await waitForOk(`${WEB_URL}/healthz`);
+};
+
 /** Stops the api container for run, and always starts it again. */
 const withApiDown = async (run: () => Promise<void>): Promise<void> => {
   compose("stop", "api");
@@ -134,6 +151,7 @@ test("the catalog's two sections fail on their own and each Coba lagi recovers i
   // No automatic loading, so "Muat lebih banyak" stays on screen once
   // the first page is back.
   await disableAutoLoad(page);
+  await freshWeb();
 
   await withApiDown(async () => {
     // The error state comes after the backoff, never before it.
@@ -197,52 +215,67 @@ test("the catalog's two sections fail on their own and each Coba lagi recovers i
   expectOnlyOutageErrors(problems);
 });
 
-test("a product that cannot be loaded shows the error, and Coba lagi loads it", async ({
+test("a product the server cannot fetch is an error page, and a reload shows it once the API is back", async ({
   page,
 }) => {
   test.setTimeout(180_000);
   const problems = await watchBrowser(page);
-  const failures = recordFailures(page);
+  // The last product of the catalog: not on its first page, so neither
+  // the catalog nor a prefetch made the fresh server fetch it.
+  const product = (await fetchAllProducts()).flat().at(-1);
+  expect(product, "the catalog has products").toBeDefined();
+  const name = product?.name ?? "";
+  const path = `/produk/${product?.slug ?? ""}`;
+  await freshWeb();
 
   await page.goto("/");
   await expect(productCards(page)).toHaveCount(PAGE_SIZE);
-  const name =
-    (await productCards(page)
-      .first()
-      .locator(".product-card__name")
-      .textContent()) ?? "";
-  const productPage = page.locator(".product-page");
-  const retry = productPage.getByRole("button", { name: "Coba lagi" });
-  let path = "";
+  const heading = page.getByRole("heading", {
+    level: 1,
+    name: "Terjadi kesalahan",
+  });
+  const reload = page.getByRole("button", { name: "Muat ulang halaman" });
 
   await withApiDown(async () => {
-    const elapsed = await timeToError(() => openProduct(page, name), retry);
-    expect(elapsed).toBeGreaterThanOrEqual(BACKOFF_MS);
-    await expect(productPage.getByRole("alert")).toContainText(
-      "Tidak dapat terhubung ke server GoShop",
-    );
-    // The way back is there while the product does not load, and the
-    // focus is on the new page.
+    // Inside the app: the router asks the server for the page, whose
+    // fetch fails, and app/error.tsx renders in its place.
+    await clientNavigate(page, path);
+    await expect(heading).toBeVisible({ timeout: WORST_CASE_MS + 5000 });
+    await expect(page).toHaveURL(path);
+    await expect(page).toHaveTitle("Terjadi kesalahan — GoShop");
+    await expect(heading).toBeFocused();
+    await expect(reload).toBeVisible();
+    // The way back is there while the product does not load.
     await expect(
-      page.getByRole("link", { name: "← Kembali ke katalog" }),
-    ).toBeVisible();
-    await expect(page.locator("main")).toBeFocused();
+      page.getByRole("main").getByRole("link", { name: "Kembali ke katalog" }),
+    ).toHaveAttribute("href", "/");
 
-    const productFailures = [...failures.entries()].filter(([p]) =>
-      p.startsWith("/v1/products/"),
-    );
-    expect(productFailures).toHaveLength(1);
-    path = productFailures[0]?.[0] ?? "";
-    await expect.poll(() => failedCount(failures, path)).toBe(RETRIES + 1);
-    expectQuickFailures(failures.get(path) ?? []);
+    // Loaded directly: HTTP 500, so a search engine retries later instead
+    // of indexing an error or dropping the product as missing.
+    const response = await page.request.get(path);
+    expect(response.status()).toBe(500);
   });
 
-  await retry.click();
+  // Back up: the error page's reload renders the product from the server.
+  await reload.click();
   await expect(page.getByRole("article", { name })).toBeVisible();
   await expect(page).toHaveTitle(`${name} — GoShop`);
-  await expect(productPage.getByRole("alert")).toHaveCount(0);
-  expect(failedCount(failures, path)).toBe(RETRIES + 1);
-  // The catalog was loaded before the outage and never failed.
-  expect(failedCount(failures, "/v1/products")).toBe(0);
-  expectOnlyOutageErrors(problems);
+  await expect(heading).toHaveCount(0);
+  // The browser saw the server's 500 (the router's request), React's report
+  // of the server's error (error #441: a Server Components error, its
+  // message withheld in production), once logged by React and once by
+  // reportCaughtError, and the stopped API (the session check). Nothing
+  // else may appear.
+  const reactReports = problems.consoleErrors.filter((text) =>
+    text.startsWith("Error: Minified React error #441;"),
+  );
+  expect(reactReports).toHaveLength(2);
+  const unexpected = problems.consoleErrors.filter(
+    (text) =>
+      !reactReports.includes(text) &&
+      !text.startsWith(
+        "Failed to load resource: the server responded with a status of 500",
+      ),
+  );
+  expectOnlyOutageErrors({ ...problems, consoleErrors: unexpected });
 });
