@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { isApiError } from "@goshop/shared";
 import type { PaymentSession } from "@goshop/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { MockInstance } from "vitest";
 import { navigationStateFor } from "@/lib/navigation-state.ts";
 import {
   order,
@@ -37,7 +38,7 @@ const paymentTypes = () =>
     .map(([, , params]) => (params as { payment_type: string }).payment_type);
 
 let location: ReturnType<typeof stubLocation>;
-let listens: ReturnType<typeof vi.spyOn<Window, "addEventListener">>;
+let listens: MockInstance<typeof window.addEventListener>;
 
 beforeEach(() => {
   fetchMock.mockReset();
