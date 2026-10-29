@@ -52,11 +52,11 @@ describe("listAddresses", () => {
     await expect(listAddresses(api)).resolves.toEqual([]);
   });
 
-  it("throws UNAUTHENTICATED without a valid access token", async () => {
-    const { api } = setup(() => apiError(401, "UNAUTHENTICATED"));
+  it("throws UNAUTHORIZED without a valid access token", async () => {
+    const { api } = setup(() => apiError(401, "UNAUTHORIZED"));
 
     const error: unknown = await listAddresses(api).catch((e: unknown) => e);
-    expect(isApiError(error, "UNAUTHENTICATED")).toBe(true);
+    expect(isApiError(error, "UNAUTHORIZED")).toBe(true);
   });
 
   it("passes the caller's signal on", async () => {
