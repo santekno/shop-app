@@ -1,6 +1,7 @@
-// Checkout data the way the API sends it (Bab 11 artikel 02–04), for the
-// tests of src/features/checkout. Each builder gives a complete, valid
-// value; a test overrides only the fields it is about.
+// Checkout and order data the way the API sends it (Bab 11 artikel 02–06),
+// for the tests of src/features/checkout and src/features/orders. Each
+// builder gives a complete, valid value; a test overrides only the fields
+// it is about.
 import { ApiError } from "@goshop/shared";
 import type {
   Address,
@@ -9,6 +10,8 @@ import type {
   CheckoutPreview,
   CheckoutProblem,
   Order,
+  OrderLatestPayment,
+  OrderSummary,
   PaymentSession,
   ShippingQuote,
 } from "@goshop/shared";
@@ -208,3 +211,41 @@ export const jsonBody = (init: RequestInit | undefined): unknown =>
   typeof init?.body === "string"
     ? (JSON.parse(init.body) as unknown)
     : undefined;
+
+/** The order's last payment attempt (artikel 05), with its status. */
+export const latestPayment = (
+  status: OrderLatestPayment["status"],
+  overrides: Partial<OrderLatestPayment> = {},
+) =>
+  ({
+    status,
+    expires_at: "2026-10-31T00:00:00Z",
+    updated_at: "2026-10-30T00:05:00Z",
+    ...overrides,
+  }) satisfies OrderLatestPayment;
+
+/** The body of GET /v1/orders/{id}. */
+export const orderDetailResponse = (detail: Order) =>
+  Response.json({ data: detail });
+
+/** An order as the history lists it (artikel 06): waiting for payment. */
+export const orderSummary = (
+  id: string,
+  overrides: Partial<OrderSummary> = {},
+) =>
+  ({
+    id,
+    code: `GS-20261030-${id.toUpperCase()}`,
+    status: "pending_payment",
+    total: idr(107_000),
+    payment_expires_at: "2026-10-31T00:00:00Z",
+    created_at: "2026-10-30T05:00:00Z",
+    updated_at: "2026-10-30T05:00:00Z",
+    ...overrides,
+  }) satisfies OrderSummary;
+
+/** The body of GET /v1/orders: one page and the cursor of the next one. */
+export const ordersResponse = (
+  orders: OrderSummary[],
+  nextCursor: string | null = null,
+) => Response.json({ data: orders, page: { next_cursor: nextCursor } });
