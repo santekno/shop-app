@@ -1,6 +1,6 @@
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 import { listCategories, listProducts } from "@goshop/shared";
-import type { ListProductsQuery } from "@goshop/shared";
+import type { ApiClient, ListProductsQuery } from "@goshop/shared";
 import { api } from "@/lib/api.ts";
 
 /**
@@ -37,11 +37,15 @@ const CATEGORIES_STALE_TIME_MS = 5 * 60_000;
  * TanStack Query hands queryFn an AbortSignal. Passing it to the API
  * client keeps Bab 8's rule: a request nobody waits for any more (the
  * page was left before it answered) is aborted, not left running.
+ *
+ * `client` is the browser's API client unless a server component passes
+ * its own (lib/server-api.ts, Bab 11 artikel 09): the same key, so what
+ * the server fetched is what the browser's cache finds.
  */
-export const categoriesQuery = () =>
+export const categoriesQuery = (client: ApiClient = api) =>
   queryOptions({
     queryKey: catalogKeys.categories,
-    queryFn: ({ signal }) => listCategories(api, { signal }),
+    queryFn: ({ signal }) => listCategories(client, { signal }),
     staleTime: CATEGORIES_STALE_TIME_MS,
   });
 
@@ -63,12 +67,15 @@ export type ProductListFilters = Omit<ListProductsQuery, "cursor">;
  * object can be written fresh on every render: keys are compared by
  * value, not by identity.
  */
-export const productListQuery = (filters: ProductListFilters) =>
+export const productListQuery = (
+  filters: ProductListFilters,
+  client: ApiClient = api,
+) =>
   infiniteQueryOptions({
     queryKey: catalogKeys.productList(filters),
     queryFn: ({ pageParam, signal }) =>
       listProducts(
-        api,
+        client,
         { ...filters, cursor: pageParam ?? undefined },
         { signal },
       ),

@@ -42,6 +42,10 @@ type Product struct {
 	// Images are the photos the storefront shows, in order.
 	Images    []Image
 	CreatedAt time.Time
+	// UpdatedAt is the last admin save of the product (its fields, its
+	// variants or its status). Stock taken by a checkout and photo changes
+	// do not move it. The storefront's sitemap uses it as lastmod.
+	UpdatedAt time.Time
 }
 
 // InStock reports whether at least one sellable variant has stock. It is

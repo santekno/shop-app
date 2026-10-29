@@ -23,7 +23,7 @@ Start with the [repository README](../README.md) to run the project, then read t
 | [`../CLAUDE.md`](../CLAUDE.md) | The verified gate and the agents that run it |
 | [sdk-gaps.md](sdk-gaps.md) | Concerns santekno/sdk does not cover yet, and GoShop's adapters |
 | [web/README.md](web/README.md) | JS/TS for Go developers: the Bab 7 concepts mapped to files in `packages/shared` and `apps/web` |
-| [`../apps/web/README.md`](../apps/web/README.md) | Running, building and configuring the storefront (`VITE_API_URL`, the container) |
+| [`../apps/web/README.md`](../apps/web/README.md) | Running, building and configuring the storefront (`NEXT_PUBLIC_API_URL` at build time; `SITE_URL`, `IMAGE_ORIGIN`, `GA_MEASUREMENT_ID` at run time; the container) |
 
 ## Chapter records
 

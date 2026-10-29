@@ -1,5 +1,5 @@
 import { lazy, Suspense, useRef, useState } from "react";
-import { NavLink } from "react-router";
+import { NavLink } from "@/components/navigation/NavLink.tsx";
 import { useSession } from "../session-context.ts";
 
 // Loaded the first time a logged-in header renders (see AccountMenu).
@@ -33,7 +33,7 @@ export function AccountNav() {
       <>
         <li>
           <NavLink
-            to="/masuk"
+            href="/masuk"
             // A ref callback runs when the link is attached to the page.
             ref={(link) => {
               if (link === null || !focusLoginLink.current) return;
@@ -45,7 +45,7 @@ export function AccountNav() {
           </NavLink>
         </li>
         <li>
-          <NavLink to="/daftar">Daftar</NavLink>
+          <NavLink href="/daftar">Daftar</NavLink>
         </li>
       </>
     );

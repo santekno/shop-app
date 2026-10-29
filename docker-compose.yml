@@ -47,11 +47,14 @@ x-app-environment: &app-environment
   MIDTRANS_CLIENT_KEY: ${MIDTRANS_CLIENT_KEY:-}
   MIDTRANS_IS_PRODUCTION: "false"
   APP_PAYMENT_TIMEOUT: ${APP_PAYMENT_TIMEOUT:-10s}
+  # The storefront Snap sends buyers back to (<web>/pembayaran/selesai).
+  APP_WEB_URL: ${APP_WEB_URL:-http://localhost:5173}
   # Image storage (ADR 0007). The API reaches SeaweedFS as "storage";
-  # browsers upload to, and read images from, localhost:8333, so the
-  # presigned URLs are signed for that host.
+  # browsers upload to, and read images from, S3_PRESIGN_ENDPOINT
+  # (localhost:8333 unless set), so the presigned URLs are signed for that
+  # host.
   S3_ENDPOINT: http://storage:8333
-  S3_PRESIGN_ENDPOINT: http://localhost:8333
+  S3_PRESIGN_ENDPOINT: ${S3_PRESIGN_ENDPOINT:-http://localhost:8333}
   S3_BUCKET: ${S3_BUCKET:-goshop}
   S3_ACCESS_KEY: ${S3_ACCESS_KEY:-goshop}
   S3_SECRET_KEY: ${S3_SECRET_KEY:-goshop-secret}
@@ -206,19 +209,36 @@ services:
     # Room for running tasks to finish (APP_SHUTDOWN_TIMEOUT).
     stop_grace_period: 30s
 
-  # GoShop storefront (Bab 7): the Vite build served by Caddy. VITE_API_URL
-  # is baked in at build time and is the API as the *browser* reaches it, so
-  # it is localhost, not the Compose service name. Published on 5173, the
-  # same origin as `pnpm dev` and the one the API's CORS default allows:
-  # run one of the two at a time.
+  # GoShop storefront: the Next.js standalone server (Bab 11 artikel 14;
+  # Bab 7–10 served a Vite build with Caddy). It reaches the API twice:
+  # - the browser, at NEXT_PUBLIC_API_URL, baked in at build time: the API
+  #   as the *host* sees it, so localhost, not the service name;
+  # - the server (server components, the sitemap), at API_INTERNAL_URL:
+  #   the service name on the Compose network.
+  # Published on 5173, the same origin as `pnpm dev` and the one the API's
+  # CORS default allows: run one of the two at a time.
   web:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
       args:
-        VITE_API_URL: ${VITE_API_URL:-http://localhost:8080}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
     environment:
       PORT: "8080"
+      API_INTERNAL_URL: http://api:8080
+      # The storefront's public origin, for canonical links, Open Graph and
+      # the sitemap (artikel 10–11).
+      SITE_URL: ${SITE_URL:-http://localhost:5173}
+      # Where the browser loads product photos from: the storage as the
+      # host sees it, the S3_PRESIGN_ENDPOINT above (artikel 12).
+      IMAGE_ORIGIN: ${IMAGE_ORIGIN:-${S3_PRESIGN_ENDPOINT:-http://localhost:8333}}
+      # Empty: no analytics (artikel 13).
+      GA_MEASUREMENT_ID: ${GA_MEASUREMENT_ID:-}
+    depends_on:
+      # Pages are rendered from the API's data: without it, every product
+      # page is an error.
+      api:
+        condition: service_healthy
     ports:
       - "127.0.0.1:5173:8080"
     healthcheck:

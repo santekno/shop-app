@@ -55,5 +55,23 @@ export const createQueryClient = () =>
     },
   });
 
-/** The storefront's one QueryClient. */
-export const queryClient = createQueryClient();
+/** The browser's one QueryClient, created on first use. */
+let browserQueryClient: QueryClient | undefined;
+
+/**
+ * The QueryClient for where this code runs (Bab 11 artikel 08).
+ *
+ * - **On the server**, a new client every time: one request, one cache.
+ *   A module-level client would live as long as the server process and
+ *   be shared by every visitor; buyer A's cart or orders could end up in
+ *   the HTML sent to buyer B. Server components prefetch into their own
+ *   client and hand the result to the browser with dehydrate().
+ * - **In the browser**, one client for the whole visit, as in Bab 9–10:
+ *   the cache must outlive a navigation, and the session's cleanup
+ *   (Providers) must reach the same cache the pages read.
+ */
+export const getQueryClient = (): QueryClient => {
+  if (typeof window === "undefined") return createQueryClient();
+  browserQueryClient ??= createQueryClient();
+  return browserQueryClient;
+};

@@ -64,26 +64,111 @@ export type { LoginInput, RegisterInput } from "./schemas/auth.ts";
 
 export { getMe } from "./api/me.ts";
 
-export { EMPTY_CART, addCartItem, getCart, mergeCart } from "./api/cart.ts";
+export {
+  EMPTY_CART,
+  addCartItem,
+  getCart,
+  mergeCart,
+  removeCartItem,
+  updateCartItem,
+} from "./api/cart.ts";
 export type { AddCartItemResult, CartRequestOptions } from "./api/cart.ts";
 
+export { createAddress, listAddresses } from "./api/addresses.ts";
+export {
+  checkoutProblems,
+  getShippingQuotes,
+  previewCheckout,
+} from "./api/checkout.ts";
+
+export { getOrder, listOrders, payOrder, placeOrder } from "./api/orders.ts";
+export type { ListOrdersQuery, PlaceOrderOptions } from "./api/orders.ts";
+
+export {
+  ANALYTICS_CURRENCY,
+  addPaymentInfoEvent,
+  addShippingInfoEvent,
+  addToCartEvent,
+  beginCheckoutEvent,
+  cartLineItem,
+  orderLineItem,
+  productItem,
+  purchaseEvent,
+  removeFromCartEvent,
+  shippingTier,
+  viewItemEvent,
+  viewItemListEvent,
+} from "./analytics/ecommerce.ts";
 export type {
+  AnalyticsItem,
+  AnalyticsList,
+  AnalyticsOrder,
+  EcommerceEvent,
+  EcommerceEventName,
+} from "./analytics/ecommerce.ts";
+
+export {
+  VOUCHER_CODE_MAX_LENGTH,
+  VOUCHER_CODE_MIN_LENGTH,
+  voucherSchema,
+} from "./schemas/voucher.ts";
+export type { VoucherInput, VoucherOutput } from "./schemas/voucher.ts";
+
+export {
+  ADDRESS_LABEL_MAX_LENGTH,
+  ID_PHONE_PATTERN,
+  ID_POSTAL_CODE_PATTERN,
+  RECIPIENT_NAME_MAX_LENGTH,
+  REGION_MAX_LENGTH,
+  STREET_MAX_LENGTH,
+  addressSchema,
+} from "./schemas/address.ts";
+export type { AddressInput } from "./schemas/address.ts";
+
+export type {
+  Address,
+  AddressCreate,
+  AddressDetail,
+  AddressList,
+  AppliedVoucher,
   Cart,
   CartAddResult,
   CartDetail,
   CartItemAdd,
+  CartItemPatch,
   CartLine,
   Category,
   CategoryList,
+  CheckoutPreview,
+  CheckoutPreviewDetail,
+  CheckoutPreviewRequest,
+  CheckoutProblem,
+  CheckoutRequest,
   ErrorBody,
   ListProductsQuery,
   LoginRequest,
   Money,
+  Order,
+  OrderDetail,
+  OrderItem,
+  OrderLatestPayment,
+  OrderList,
+  OrderStatus,
+  OrderSummary,
+  OrderTotals,
+  PaymentSession,
+  PaymentSessionDetail,
+  PaymentStatus,
+  ImageVariant,
   Product,
   ProductDetail,
+  ProductImage,
   ProductList,
   ProductVariant,
   RegisterRequest,
+  ShippingQuote,
+  ShippingQuotes,
+  ShippingQuotesDetail,
   TokenPair,
   TokenPairDetail,
   User,

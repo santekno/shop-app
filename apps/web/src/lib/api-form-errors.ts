@@ -37,6 +37,17 @@ const FIELD_MESSAGES: readonly [RegExp, (match: RegExpMatchArray) => string][] =
       () =>
         "Kata sandi ini terlalu umum dan mudah ditebak. Pilih kata sandi lain.",
     ],
+    // Addresses (Bab 11 artikel 02): the sdk's Indonesian rules.
+    [
+      /^must be an Indonesian phone number/,
+      () =>
+        "Masukkan nomor telepon Indonesia, misalnya 081234567890 atau +6281234567890.",
+    ],
+    [
+      /^must be a 5-digit Indonesian postal code$/,
+      () =>
+        "Kode pos terdiri dari 5 angka dan tidak diawali 0, misalnya 40111.",
+    ],
     [
       /^must be valid UTF-8 text without NUL characters$/,
       () => "Berisi karakter yang tidak didukung.",

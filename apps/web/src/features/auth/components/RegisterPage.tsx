@@ -1,6 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
-import { Link, useNavigate } from "react-router";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
@@ -11,10 +12,10 @@ import type { RegisterRequest } from "@goshop/shared";
 import { Card } from "@/components/ui/Card.tsx";
 import { FormAlert } from "@/components/ui/FormAlert.tsx";
 import { TextField } from "@/components/ui/TextField.tsx";
-import { useDocumentTitle } from "@/hooks/useDocumentTitle.ts";
 import { setApiFieldErrors } from "@/lib/api-form-errors.ts";
 import { authErrorMessage } from "../auth-errors.ts";
 import { useRegister } from "../hooks/useRegister.ts";
+import { setNavigationState } from "@/lib/navigation-state.ts";
 import { registeredState } from "../navigation-state.ts";
 import { Button } from "@/components/ui/Button.tsx";
 
@@ -31,8 +32,7 @@ import { Button } from "@/components/ui/Button.tsx";
  * again, and its answer is what counts.
  */
 export function RegisterPage() {
-  useDocumentTitle("Daftar — GoShop");
-  const navigate = useNavigate();
+  const router = useRouter();
   const registerMutation = useRegister();
   const {
     register,
@@ -47,7 +47,8 @@ export function RegisterPage() {
   const onSubmit = (account: RegisterRequest) => {
     registerMutation.mutate(account, {
       onSuccess: (user) => {
-        void navigate("/masuk", { state: registeredState(user.email) });
+        setNavigationState("/masuk", registeredState(user.email));
+        router.push("/masuk");
       },
       onError: (error) => {
         // 400 VALIDATION_FAILED: under each field the API refused. The
@@ -112,7 +113,7 @@ export function RegisterPage() {
         </Button>
       </form>
       <p>
-        Sudah punya akun? <Link to="/masuk">Masuk</Link>
+        Sudah punya akun? <Link href="/masuk">Masuk</Link>
       </p>
     </Card>
   );

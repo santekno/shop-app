@@ -42,15 +42,13 @@ const productsSection = () => screen.getByRole("region", { name: "Produk" });
 
 beforeEach(() => {
   fetchMock.mockReset();
-  document.title = "GoShop";
 });
 
 describe("CatalogPage", () => {
-  it("names the tab Katalog — GoShop and shows categories beside products", async () => {
+  it("shows categories beside products", async () => {
     serveCatalog();
     renderWithProviders(<CatalogPage />, { path: "/" });
 
-    expect(document.title).toBe("Katalog — GoShop");
     expect(screen.getByRole("region", { name: "Kategori" })).toBeTruthy();
     expect(await screen.findByText("Pakaian")).toBeTruthy();
   });
@@ -142,7 +140,7 @@ describe("CatalogPage", () => {
     expect(await screen.findByRole("link", { name: "Produk a" })).toBeTruthy();
   });
 
-  it("opens a product at /produk/:slug", async () => {
+  it("opens a product at /produk/[slug]", async () => {
     const user = userEvent.setup();
     const { answer } = serveCatalog();
     renderWithProviders(<CatalogPage />, { path: "/" });

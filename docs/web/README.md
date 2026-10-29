@@ -533,7 +533,7 @@ Paths are relative to `apps/web/src` unless they start with another top-level fo
 | 11 | Context for the logged-in user | `features/auth/session-context.ts` (`SessionValue` as a discriminated union on `status`, `useSession`, why context and not a store), `features/auth/SessionProvider.tsx` (a memoised value, stable functions, `getAccessToken` handed through from the session manager, which holds the current token), `features/auth/components/AccountNav.tsx` (narrowing on `status`) |
 | 12 | Access and refresh tokens, safely: httpOnly cookie vs memory | `webLogin`/`webRefresh`/`webLogout` and the `credentials` option in `packages/shared` (`api/auth.ts`, `api/client.ts`); `features/auth/session-manager.ts` (restore, login, logout, single-flight refresh), `refresh-lock.ts` (Web Locks), `SessionProvider.tsx` (`"restoring"`), `hooks/useLogin.ts`, `components/AccountNav.tsx` (logout); the guest cart merge in `features/cart/merge-guest-cart.ts`, wired in `app/App.tsx`; the user's cart in `features/cart/api/queries.ts`, `hooks/useCart.ts`, `hooks/useAddToCart.ts`; the API's side: ADR 0008 and `docs/web/bab-10-auth-cookie-contract.md` |
 | 13 | Protected routes and the redirect to login | `features/auth/components/RequireAuth.tsx` (wait while restoring, `<Navigate replace>`), `features/auth/return-to.ts` (`safeReturnPath`, `loginPathFor`), `features/auth/components/LoginPage.tsx` (`?kembali=`, `<Navigate>` once logged in), `features/account/` (`/akun`, `GET /v1/me` via `getMe` in `packages/shared/src/api/me.ts`), the `RequireAuth` layout route in `app/routes.tsx`, "Akun saya" in `AccountMenu.tsx` |
-| 14 | Automatic refresh-token interceptor | `features/auth/auth-client.ts` (`createAuthClient`: fresh token before, one refresh and one retry after a `401`), `features/auth/session-manager.ts` (`refreshMarginMs`, `ensureFreshToken`, `refreshAfterUnauthorized`, the single-flight `refresh`, ending the session), `authApi` in `SessionProvider.tsx`, the cleanup in `onSessionEnd` (`app/App.tsx`) |
+| 14 | Automatic refresh-token interceptor | `features/auth/auth-client.ts` (`createAuthClient`: fresh token before, one refresh and one retry after a `401`), `features/auth/session-manager.ts` (`refreshMarginMs`, `ensureFreshToken`, `refreshAfterUnauthorized`, the single-flight `refresh`, ending the session), `authApi` in `SessionProvider.tsx`, the cleanup in `onSessionEnd` (`app/App.tsx`; `components/layout/Providers.tsx` since artikel 08) |
 | 15 | Recap and challenge | the two sections below; no code |
 
 ## Bab 10 recap (artikel 15)
@@ -558,3 +558,596 @@ Clicking "Keranjang" in the header goes to `/keranjang`, a whole page. Most shop
 7. **During the start-up restore** the cart is not fetched (artikel 12). Make sure the drawer says "Memuat keranjang…" rather than "empty" in that moment, and that it shows the user's cart, merged, right after a login in another part of the page.
 8. **Test it like the rest:** the dialog has a name (`aria-labelledby` on its heading), Tab stays inside, Escape closes, the focus comes back, no CSP violation and no console error in the e2e suite, and a screen reader hears the count change after an add (a live region that exists before it changes, artikel 07).
 
+
+# Bab 11: checkout, payment and SEO
+
+Bab 11 lets a buyer finish what the earlier chapters started: change the cart, choose an address and a courier, see the order's totals and apply a voucher, place the order, pay it with Midtrans, follow the payment until the API has decided, and find the order again later. Articles 01–06 do it in the Vite single-page app of Bab 7–10; from artikel 07 the storefront moves to the Next.js App Router for SEO, keeping these components.
+
+The Bab 7–10 sections above describe the code as those chapters left it. The sections below say what Bab 11 changed.
+
+## The mental model
+
+| Idea | What it means | Go comparison |
+|---|---|---|
+| **The server computes the money** | Every amount a buyer is charged (shipping, discount, total) comes from the API's preview or order; the page only formats it. The cart's subtotal is a hint, as the contract says | The handler never trusts a total in the request body; the client mirrors that by never making one |
+| **A retry is the same request** | A checkout carries an `Idempotency-Key`; a retry after a timeout sends the same key and body, and the API answers the first order instead of making a second | A request ID that makes a write safe to repeat, like an upsert keyed by it |
+| **The browser is told, the server decides** | Midtrans' return page says "paid" in its query string; the storefront ignores it and asks the API, which only believes Midtrans' signed notification and status API | Never trust input; act on the source of truth |
+| **Polling ends** | The payment page asks again while the order waits, slower each time, never while the tab is hidden, and stops on a final status | A ticker with backoff that stops on `ctx.Done()` |
+
+## Where each Bab 11 article's ideas live
+
+Paths are relative to `apps/web/src` unless they start with another top-level folder.
+
+| Article | Concept | Where to read it |
+|---|---|---|
+| 01 | The full cart page | `features/cart/components/CartPage.tsx` (focus and announcement after a removal), `CartLineItem.tsx` (stepper, remove, the fix for each `problem`), `hooks/useChangeCartLine.ts` (PATCH/DELETE in the cart's queue, owner fixed at the click, optimistic quantity), `optimistic-cart.ts` (`withLineQuantity`), `cart-errors.ts` (`cartLineErrorMessage`), `CART_MUTATIONS` in `hooks/useAddToCart.ts`; `updateCartItem`, `removeCartItem` in `packages/shared/src/api/cart.ts` |
+| 02 | Address form and courier choice | `features/checkout/components/CheckoutPage.tsx` (page state, derived choices, `RequireAuth` route), `AddressStep.tsx` (radio group in a `<fieldset>`, focus after save or cancel), `AddressForm.tsx` (React Hook Form + `addressSchema`, `autoComplete` tokens, API field errors), `CourierStep.tsx` (quotes, `SHIPPING_UNAVAILABLE` vs `UPSTREAM_UNAVAILABLE`), `shipping.ts` (`chosenAddressId`, `validShippingChoice`, `formatEtd`), `api/queries.ts` (`checkoutKeys`), `hooks/useCreateAddress.ts`, `checkout-errors.ts`; the "Lanjut ke checkout" button in `features/cart/components/CartPage.tsx`; `listAddresses`, `createAddress` (`packages/shared/src/api/addresses.ts`), `getShippingQuotes` (`api/checkout.ts`), `addressSchema` (`schemas/address.ts`) |
+| 03 | Order summary and voucher | `features/checkout/components/SummaryStep.tsx` (each preview error's answer), `OrderSummary.tsx` (the API's `totals`, no arithmetic, `aria-busy` while a new preview loads), `CheckoutProblemList.tsx`, `VoucherForm.tsx` (apply through a preview, the cache seeded, focus after apply and remove), `previewQuery` and `cartSignature` in `api/queries.ts` (`keepPreviousData`), `voucherErrorMessage` in `checkout-errors.ts`; `previewCheckout` and `checkoutProblems` (`packages/shared/src/api/checkout.ts`), `voucherSchema` (`schemas/voucher.ts`) |
+| 04 | Midtrans Snap in the frontend | `features/checkout/hooks/usePlaceOrder.ts` (the Idempotency-Key's lifetime, retries with the same key), `components/PlaceOrder.tsx`, `onPlace` and the placed state in `components/CheckoutPage.tsx`; `features/orders/hooks/usePayOrder.ts` (redirect flow, `isMidtransUrl`, the fake provider), `components/PayButton.tsx`, `components/PaymentPage.tsx`, `components/FakePaymentHint.tsx`, `components/PaymentReturnPage.tsx`, `payment-state.ts`, `payment-errors.ts`, `paths.ts`; the payment comment beside the CSP (`apps/web/Caddyfile` until artikel 08, `src/proxy.ts` since); `placeOrder`, `payOrder`, `getOrder` (`packages/shared/src/api/orders.ts`) |
+| 05 | Payment status page with polling | `features/orders/components/PaymentPage.tsx` (`refetchInterval` as a function, `staleTime: 0`, the round and "Periksa lagi"), `payment-polling.ts` (`POLL_DELAYS_MS`, `POLL_LIMIT_MS`, `pollDelay`), `components/PaymentStatus.tsx` (one live region), `order-status.ts` (`paymentOutcome`, `canStartPayment`, the status labels) |
+| 06 | Order history and detail | `features/orders/components/OrdersPage.tsx` (infinite query, "Muat lebih banyak", focus on the first new order, "Bayar" for an unpaid order), `OrderDetailPage.tsx` (the order's own snapshots, timeline, `PayButton`), `OrderStatusBadge.tsx`, `ordersQuery` in `api/queries.ts` (`staleTime: 0`), `orderStatusText` and `ORDER_STATUS_LABEL` in `order-status.ts`; "Pesanan saya" in `features/auth/components/AccountMenu.tsx`; the `muted` variant in `components/ui/Badge.tsx`; `listOrders` (`packages/shared/src/api/orders.ts`) |
+| 07 | Why an SPA is weak for SEO | the section below; `apps/web/scripts/seo-probe.js` (what a crawler without JavaScript reads) |
+| 08 | Next.js App Router: server vs client components | the section below; `app/` (folders as routes, `layout.tsx`, `(auth)` and `(akun)` route groups, `not-found.tsx`, `error.tsx`, `healthz/route.ts`), `components/layout/` (`Providers`, `SiteFrame`, `client-pages`, `ErrorPage`, `NotFoundPage`), `components/navigation/` (`NavLink`, `Redirect`), `proxy.ts` (CSP nonce), `lib/navigation-state.ts`, `getQueryClient` in `lib/query-client.ts`, `lib/server-config.ts`, `features/theme/useTheme.ts`, `next.config.ts`, `postcss.config.mjs` |
+| 09 | Product pages with SSR and the data cache | the section below; `lib/server-api.ts` (`serverApi`, `REVALIDATE_SECONDS`), `features/product/api/server.ts` (`getProductForPage`, `cache()`), `app/produk/[slug]/page.tsx` (`generateMetadata`, `notFound()`, `ServerDataBoundary` in `lib/server-data-boundary.tsx`), `app/page.tsx` (filters from `searchParams`, the first page and the categories prefetched), the `client` parameter of `productQuery`, `productListQuery` and `categoriesQuery` |
+| 10 | Metadata, Open Graph and structured data | the section below; `siteUrl()` in `lib/server-config.ts` (`SITE_URL`), `generateMetadata` in `app/layout.tsx` (`metadataBase`), `app/page.tsx` and `app/produk/[slug]/page.tsx`; `features/catalog/catalog-metadata.ts` (which catalog URLs are indexed), `features/catalog/api/server.ts`; `features/product/structured-data.ts` (`Product`, `Offer`/`AggregateOffer`, `BreadcrumbList`), `components/JsonLd.tsx` (`serializeJsonLd`), `lib/site-metadata.ts`; the category link in `ProductDetail.tsx` |
+| 11 | Sitemap and robots.txt | the section below; `app/sitemap.ts` (canonical paths from `catalogPageMeta`, `force-dynamic`), `listProductsForSitemap`, `SITEMAP_PRODUCT_LIMIT` and `SITEMAP_REVALIDATE_SECONDS` in `features/catalog/api/server.ts`; `app/robots.ts` |
+| 12 | Product photos and Core Web Vitals | the section below; `features/catalog/components/ProductImage.tsx` (`srcset` from `variants`, `width`/`height`, `ImageLoading`), `CARD_IMAGE_SIZES` in `ProductCard.tsx`, `EAGER_IMAGES` in `ProductGrid.tsx`, the main photo in `features/product/components/ProductDetail.tsx` (`loading="priority"`); `imageOrigin()` in `lib/server-config.ts` (`IMAGE_ORIGIN`) and `img-src` in `proxy.ts`; `ProductImage`, `ImageVariant` in `packages/shared/src/api/types.ts` |
+| 13 | Analytics and e-commerce events | the section below; `packages/shared/src/analytics/ecommerce.ts` (`EcommerceEvent`, the item and event builders, no PII); `lib/analytics.ts` (`track`); `features/analytics/` (`gtag-init.ts`: the inline script and Consent Mode's default, `consent.ts`: the stored answer and `consent update`, `components/AnalyticsConsent.tsx`: the banner and "Pengaturan analytics", `useTrackOnce.ts`, `purchase.ts`: `trackPurchaseOnce`); `analyticsId()` in `lib/server-config.ts` (`GA_MEASUREMENT_ID`), the Google hosts in `proxy.ts`, the scripts in `app/layout.tsx`, the footer in `components/layout/SiteFrame.tsx`; each event's call site in the table below |
+| 14 | Deploying the storefront | the section below; `apps/web/Dockerfile` (the standalone server on `node:24-alpine`), `output: "standalone"` in `next.config.ts`, the `web` service in `docker-compose.yml`, `deploy/railway/web.json`, `app/healthz/route.ts`; `apps/web/Caddyfile` is gone |
+| 15 | Recap and challenge | the two sections below; no code |
+
+## The full cart page (artikel 01)
+
+- **Every line can be changed where it is.** A stepper per line (`PATCH /v1/cart/items/{variant_id}` with the new quantity, capped at the stock and 99), a remove button (`DELETE`), and one fix for each `problem` the API reports: "Pakai harga baru" saves the same quantity again, which is how the contract accepts a changed price; "Ubah jadi N" lowers a line to the stock; an `unavailable` line can only be removed.
+- **One queue for every write to the cart.** A line change runs in the add's `scope` (`"cart"`), so the writes of the whole storefront are sent one after another: two quick presses on + send 3 and then 4, never 4 first. `isMutating({ mutationKey: ["cart"] })` counts the add and the line changes together, so only the last write of a burst refetches the cart.
+- **The buyer is fixed at the click.** A change clicked by a logged-in buyer whose session ends before its turn fails with `401` instead of being sent as a guest's, the same rule as Bab 10's add (artikel 14).
+- **Optimistic quantity, computed from the cache at the click.** The guess is written synchronously in the hook's `change`, not in `onMutate` (which starts after an `await`), and a press on + or − is a *step* turned into a quantity from the cache as it is at that moment. Three presses faster than a render send 3, 4 and 5; computed from the quantity on screen, all three would have sent 3 (found in the browser). An error puts that press's snapshot back.
+- **Confirmed removal.** A removal waits for the API, with the line marked busy (`aria-busy`, "Menghapus…"), because an optimistic removal would unmount the line and its error message with it.
+- **Focus after a removal or a fix.** The removed line's button disappears with the line; the focus moves to the page's heading and a status line says which product was removed. "Pakai harga baru" and "Ubah jadi N" disappear with the problem they fix; the focus moves to the line's product link. The stepper's and the remove button's accessible names include the product and variant ("Tambah jumlah Kaos Polos, M"), so a list of buttons can tell five "+" apart.
+- **The subtotal is a hint.** It moves with an optimistic change and is replaced by the API's answer. Shipping, the voucher and the total are the API's at checkout (artikel 03).
+
+## Address and courier (artikel 02)
+
+- **`/checkout` needs a login.** It is a lazy route under Bab 10's `RequireAuth`: a guest who presses "Lanjut ke checkout" goes to `/masuk?kembali=%2Fcheckout`, and the login merges the guest cart into theirs before coming back. The cart page disables the button (with the reason, through `aria-describedby`) while a line has a `problem`, because checkout would refuse it with `CHECKOUT_PROBLEMS`.
+- **Choices are page state, and everything shown is derived.** The page keeps two `useState`s, the address the buyer picked and the courier service they picked (with the address it was picked for). `chosenAddressId` falls back to the default address (the API lists it first), and `validShippingChoice` drops a courier choice made for another address or no longer quoted. There is no effect that "selects the default" or "resets the courier" after a list arrives, so no render where the two disagree.
+- **Addresses are radio buttons in a `<fieldset>`.** Native radios give one Tab stop for the group, arrow keys inside it and the legend as its name, with no JavaScript; each option shows the whole address, because "Rumah" alone does not say which house.
+- **The form is the shared schema.** `addressSchema` in `packages/shared` mirrors the API's handler (trimmed text, lengths in characters, the sdk's `id_phone` and `id_postal` patterns) and is checked against the contract's `AddressCreate` with `satisfies`. It cleans a phone number typed with spaces or dashes before sending it. `autoComplete` uses the HTML tokens (`street-address`, `address-level2` for the city, `address-level1` for the province, `postal-code`, `tel`) so a browser can fill a saved address, and `inputMode` brings up a digit keyboard. The API's own field errors land under their fields (`setApiFieldErrors`, with the phone and postal code messages in Indonesian); `ADDRESS_LIMIT_REACHED` goes above the button.
+- **Focus after the form closes.** Saving selects the new address and focuses its radio; "Batal" returns the focus to "Tambah alamat baru". Both through a ref read by an effect after the list is back on screen.
+- **Quotes are hints.** The courier step shows `GET /v1/checkout/shipping-quotes` for the chosen address as the API priced it; checkout asks the courier again. `SHIPPING_UNAVAILABLE` (no courier serves the postal code) has no retry button, because only another address helps; `UPSTREAM_UNAVAILABLE` (the rates service did not answer) has one. Preview, quotes and checkout share one rate limit per buyer (30 a minute), so quotes stay fresh for the storefront's default half minute instead of being asked for on every render. The courier's estimate is in English ("2-3 days"); `formatEtd` translates only the unit.
+- **A logout forgets it.** `onSessionEnd` (`app/App.tsx`; `components/layout/Providers.tsx` since artikel 08) removes every `["checkout", …]` query, as it does the cart and the account.
+
+## Order summary and voucher (artikel 03)
+
+- **The browser never adds up money.** The summary shows `POST /v1/checkout/preview`'s `totals` (subtotal, discount, shipping fee, total) as the API computed them, in whole rupiah with a percent discount rounded once on the server (ADR 0006). A total added up on the page could disagree with the one charged by a rupiah, or by a courier fee that changed since the quote. The only arithmetic left in the storefront is the cart page's optimistic hint (artikel 01), which the contract calls a hint.
+- **The preview is a query, although it is a POST.** It writes nothing and its answer is data the page shows, so it lives in TanStack Query's cache under `["checkout", userId, "preview", cartSignature, choice]`: the same choice twice costs one request, and another cart (changed on another tab or device) is another preview. The choice holds only what the buyer has chosen (`address_id`, then `courier` and `service`, then `voucher_code`). `keepPreviousData` keeps the last totals on screen, dimmed and `aria-busy`, while a new choice is priced. The first preview waits for the address list, so it is not priced once without the default address and again with it.
+- **Each preview error has its own answer.** `CHECKOUT_PROBLEMS` lists the refused lines (read with `checkoutProblems` from `packages/shared`, a run-time check of `details.lines`, because an `ApiError`'s details are `unknown` until checked), named from the cart, with a link to the cart page where each is fixed; `VOUCHER_NOT_APPLICABLE` for a voucher already in use says why and offers "Hapus voucher"; anything else says what happened and offers "Coba lagi".
+- **A voucher is applied by asking the API first.** "Pakai" sends a preview with the code; only an accepted code becomes part of the choice, and that preview is written into the cache under the key the page asks for next, so the summary shows the discount without a second request (preview, quotes and checkout share one rate limit per buyer). A refused code stays in the field with its reason (`not_found` also covers a promo that has not started, by the API's design; `expired`, `exhausted`, `per_user_limit`, `min_spend` with the amount). `voucherSchema` checks the shape (3–32 letters and digits) and sends it in capitals.
+- **Focus.** After "Pakai" the field disappears and the confirmation ("Voucher POTONG15RB dipakai (Rp 15.000)") takes the focus; after "Hapus voucher" the field comes back and takes it. A refused code focuses the field with its error.
+
+## Placing the order and paying with Midtrans Snap (artikel 04)
+
+### Snap's redirect, not Snap.js
+
+Midtrans offers Snap two ways: **Snap.js**, a script loaded into our page that opens the payment in a pop-up (`snap.pay(token)`, with `client_key`), and the **redirect**, a top-level navigation to the transaction's `redirect_url` on Midtrans' own hosted page. `POST /v1/orders/{id}/pay` answers both. The storefront uses the redirect:
+
+- **No third-party script next to the token.** The access token lives in memory (Bab 10). Snap.js would run Midtrans' code, and whatever it loads, inside our page with full access to it; it is versioned by Midtrans, not us, so it cannot be pinned with Subresource Integrity. The redirect never runs Midtrans code on our origin.
+- **No CSP change.** Snap.js needs Midtrans in `script-src`, its pop-up in `frame-src`, its calls in `connect-src` (and the exact list depends on the payment methods it loads, which we do not control). A top-level navigation is governed by no CSP directive, so the policy stays `script-src 'self'`, no `frame-src` beyond `default-src 'self'`, `connect-src` the API only. `Permissions-Policy: payment=()` stays too: nothing uses the browser's Payment Request API. The decision is written beside the policy (in `apps/web/Caddyfile` at the time; in `src/proxy.ts` since artikel 08).
+- **The same flow as the mobile app** (Bab 13+), which opens `redirect_url` in the system browser.
+- **The cost:** the buyer leaves the shop for Midtrans' page instead of a pop-up over it, and returns through Midtrans' "Finish Redirect URL", configured in the Midtrans dashboard as `<storefront>/pembayaran/selesai`.
+
+Before leaving, `usePayOrder` replaces the current history entry with the order's payment page (so Back from Midtrans returns there, not to the emptied checkout) and remembers `{ orderId, code }` in sessionStorage. The return page reads only `order_id` from Midtrans' query string (`GS-…-K3D9QX`, our order code plus a suffix, ADR 0007), finds the remembered order whose code it starts with, and goes to that order's payment page. `transaction_status=settlement` in the URL is ignored: anyone can type it; the payment page asks the API, which trusts only Midtrans' signed notification confirmed by its status API. `redirect_url` itself is checked to be HTTPS on `midtrans.com` before the browser is sent there (`isMidtransUrl`).
+
+### The test gateway (`APP_PAYMENT_PROVIDER=fake`)
+
+Local development and the e2e stack run the API with the fake gateway (Bab 6, `make up` uses it). Its answer has `provider: "fake"`, a `token` of `fake-<uuid>`, a `redirect_url` on `fake-payment.invalid` (a reserved domain that never resolves), and `client_key: "goshop-fake-client-key"`. The storefront branches on `provider`, never on the URL: with `"fake"` it does not navigate anywhere outside, it goes to the order's payment page with `state: { fakeProvider: true }` (since artikel 08, `setNavigationState`: Next.js' router passes no history state), which shows how to pay from a terminal (`make fake-pay order=GS-…`, optionally `status=expire` or `status=deny`). The page then sees the result exactly as with Midtrans, by asking the API (artikel 05). The whole flow is demoable without a Midtrans account.
+
+### One press: order, then payment
+
+"Buat pesanan & bayar" sends `POST /v1/checkout`, then `POST /v1/orders/{id}/pay`. Once the order exists the checkout page shows it ("Pesanan GS-… sudah dibuat. Membuka pembayaran…") instead of the steps: the ordered lines have left the cart, and the refetched, empty cart must not replace the page. If the payment cannot be started (`PAYMENTS_DISABLED`, `PAYMENT_WINDOW_CLOSED`, Midtrans not answering), the order still exists: the buyer goes to its payment page with the reason and a "Bayar sekarang" button. The button is disabled with its reason (`aria-describedby`) until an address and a courier are chosen and the preview has answered; an error takes the focus (`FormAlert`); `CHECKOUT_PROBLEMS` lists the lines again and refetches the cart and the preview, `CART_CHANGED` refetches them, `VALIDATION_FAILED` and `SHIPPING_UNAVAILABLE` refetch the quotes.
+
+### The Idempotency-Key
+
+- **One key per checkout attempt**: created (`crypto.randomUUID()`) at the first press for a given body (address, courier, service, voucher), kept in a ref of the page, in memory only.
+- **The same key for every retry of that body**: TanStack Query's automatic retries (up to 3, after 1 s, 2 s and 4 s) after a network failure, a client timeout, `IDEMPOTENCY_IN_PROGRESS`, `UPSTREAM_UNAVAILABLE` or a 502/503/504; the auth client's one retry after a refreshed token; and the buyer pressing the button again after an error. A checkout whose order was made but whose answer was lost gets that order back on the retry (the stored 201, `Idempotency-Replayed: true`), never a second one. Checked in the browser by letting the first request reach the API and dropping its answer: the retry carried the same key, got the replay, and the buyer has one order.
+- **A new key when the body changes**: the same key with another body is `422 IDEMPOTENCY_KEY_REUSED`. A failed checkout frees its key on the server, so a change after a `409` or `422` is safe.
+- **Dropped after success**: the next order is another attempt.
+- **Not kept across a reload.** After an order went through, its lines have left the cart in the same transaction, so a reload with a new key finds `CART_EMPTY`, never a second order. The server's cart is the second guard (ADR 0006); the key covers everything the page retries by itself.
+- The request may take 20 s (`placeOrder`'s `timeoutMs`), longer than the API's own 15 s: a checkout calls the courier and runs a transaction. Giving up earlier would still be safe, only slower.
+
+## The payment status page (artikel 05)
+
+`/pesanan/:id/pembayaran` shows what the API has decided about the order, by asking `GET /v1/orders/{id}` again while the order waits for its payment. The order moves only when the webhook (Midtrans' signed notification, confirmed by its status API) or the reconciler applies Midtrans' answer (ADR 0007); the page follows, it never decides.
+
+| Order | Payment outcome (`paymentOutcome`) | The page says | Polling |
+|---|---|---|---|
+| `pending_payment` | `pending` | "Menunggu pembayaran" (or why the last payment ended, below), the deadline, a pay button while more than two minutes are left | yes |
+| `pending_payment` past `payment_expires_at` | `pending` | "Batas waktu pembayaran sudah lewat. Menunggu konfirmasi akhir…" (the expiry job has not run yet) | yes |
+| `paid`, `processing`, `shipped`, `completed` | `paid` | "Pembayaran diterima", with `paid_at` | stops |
+| `cancelled` with `payment_expired` | `expired` | "Waktu pembayaran habis", stock returned | stops |
+| `cancelled`, another reason | `cancelled` | "Pesanan ini dibatalkan" | stops |
+
+**The polling policy** (`payment-polling.ts`):
+
+- **Backoff:** 2 s, 2 s, 3 s, 5 s, 8 s, 13 s, 21 s, then every 30 s. Often at first, when a buyer back from Midtrans has usually just paid and the webhook lands within seconds; rarely later, because a virtual account can stay unpaid for hours and an open tab must not ask every 2 seconds all that time. Measured in the browser: requests at 0.5, 2.5, 4.5, 7.6 and 12.6 s.
+- **Visibility:** TanStack Query does not run `refetchInterval` in a hidden tab (`refetchIntervalInBackground` stays `false`), and refetches a stale query when the tab is shown again. The query has `staleTime: 0`, so showing the tab asks at once. Measured: no request in 10 s hidden, one immediately on showing it.
+- **Final states stop it:** `refetchInterval` is a function of the query that returns `false` once the outcome is not `pending`. Measured: no request in the 8 s after "Pembayaran diterima".
+- **A limit:** a round lasts 15 minutes (`POLL_LIMIT_MS`, measured between the round's start and the last answer, so the render never reads the clock); then the page says "Pemeriksaan otomatis berhenti" and offers "Periksa lagi", which starts a new round from the fast end of the backoff again (2 s, 2 s, 3 s…): a buyer presses it because they have just paid. The backoff counts the round's own answers: the query's `dataUpdateCount` minus the count when the round began, read from the query cache (`useQuery`'s result does not carry it).
+- **Polling, not a push channel:** an order is paid once and the answer arrives within seconds of the webhook; a handful of GETs costs less than an SSE or WebSocket endpoint held open by every buyer on this page.
+
+**Announced once.** The outcome sentence is the only text in a `role="status"` region that is always rendered: a poll that brings the same answer renders the same text and nothing is read out; the change to "Pembayaran diterima" is. "Terakhir diperiksa 16.36.20", which changes at every poll, sits outside it.
+
+**Why an order still waits** (`latest_payment`, `paymentAttempt` in `order-status.ts`). A payment Midtrans **denied**, that failed, that the buyer cancelled at Midtrans, or whose own Snap window closed leaves the order `pending_payment` (ADR 0007: the buyer may pay again until the order's deadline). The order's `latest_payment` (status, `expires_at`, `updated_at`, `null` before the first attempt; no token, no gateway id, no amount) says which, and the page says it while the order may still be paid:
+
+| `latest_payment.status` | `paymentAttempt` | The page says | The button |
+|---|---|---|---|
+| none yet | `none` | "Menunggu pembayaran." | "Bayar sekarang" |
+| `pending`, `challenge` | `open` | "Menunggu pembayaran." | "Lanjutkan pembayaran" |
+| `paid` (the order has not caught up) | `confirming` | "Pembayaran sedang dikonfirmasi…" | none: a second payment would charge twice |
+| `denied` | `denied` | "Pembayaran ditolak. Coba lagi, dengan metode pembayaran lain bila perlu." (a warning icon) | "Coba bayar lagi" |
+| `failed` | `failed` | "Pembayaran gagal diproses. Silakan coba lagi." | "Coba bayar lagi" |
+| `cancelled` | `cancelled` | "Pembayaran dibatalkan. Anda masih bisa membayar pesanan ini." | "Coba bayar lagi" |
+| `expired` | `expired` | "Sesi pembayaran sebelumnya habis waktunya. Anda masih bisa membayar pesanan ini." | "Coba bayar lagi" |
+
+The order's `status` still decides: `latest_payment` is read just after the order, so it may be newer, never older. A refused payment does not stop the polling (the buyer may pay again from another tab); past the order's deadline the page says what the table above says, whatever the last attempt was. The order's page (`/pesanan/:id`) uses the same button text (`payButtonText`).
+
+## Order history and detail (artikel 06)
+
+- **`/pesanan`** lists the buyer's orders, newest first, ten per page, from `GET /v1/orders` with cursor pagination: an infinite query, as the catalog's (Bab 9), whose next page parameter is `page.next_cursor` until it is null. "Muat lebih banyak" is a button, not infinite scroll: a history is short and rarely read, and the footer must stay reachable by keyboard. When the next page arrives the focus moves to its first order, where reading continues (the button disappears with the last page). The query has `staleTime: 0`, so opening the list always asks again: an order paid a moment ago on the payment page must not show "Menunggu pembayaran" here for half a minute.
+- **Statuses** have one label each (`ORDER_STATUS_LABEL`: Menunggu pembayaran, Dibayar, Diproses penjual, Dikirim, Selesai, Dibatalkan) and a badge: waiting for payment, the one status that asks something of the buyer, stands out; a cancelled order is red; the rest are quiet (a new `muted` badge variant, `foreground` on `muted`). The colour only repeats the text. A cancelled order says why (`payment_expired`, `buyer_cancelled`, `seller_cancelled`).
+- **An unpaid order** has "Bayar" in the list (a link to its payment page, named "Bayar pesanan GS-…" for a screen reader) and, on its page, "Bayar sekarang" (the same `PayButton`, while more than two minutes are left) and "Lihat status pembayaran".
+- **`/pesanan/:id`** shows the order's own copy made at checkout (ADR 0006): product and variant names, unit prices, the voucher code, the shipping address, the courier and service, the airway bill once shipped, the totals, and the moments that happened (created, paid, shipped, completed, cancelled). It never looks the products up again: a product renamed or repriced since does not change a past order. Another buyer's order, or an id that is not a UUID, is the API's `404`, shown as "Pesanan ini tidak ditemukan".
+- **Reached from** "Pesanan saya" in the account menu, the order code on the payment page, the Midtrans return page when it cannot tell which order it was, and checkout's `TOO_MANY_PENDING_ORDERS` message. A logout removes every `["orders", …]` query.
+
+## Why a single-page app is weak for SEO (artikel 07)
+
+Until artikel 08 the storefront is the Vite single-page app of Bab 7–10. Its server (Caddy, or `vite preview`) sends **the same `index.html` for every path**: an empty `<div id="root">`, one script and one stylesheet. Everything a buyer reads is drawn later in the browser by JavaScript that asks the API. A buyer does not notice; a crawler does.
+
+### What a crawler gets, measured
+
+`apps/web/scripts/seo-probe.js` fetches one URL the way a search engine's first pass does (Googlebot's user agent, no JavaScript) and reports what the HTML carries. Against the SPA (built with `VITE_API_URL` pointing at the seeded API, served by `vite preview`):
+
+Its report, without the `url`, `time (ms)` and `robots` lines:
+
+```text
+$ node apps/web/scripts/seo-probe.js http://localhost:34173/produk/kaos-polos-hitam
+status                 200
+HTML (bytes)           1425
+title                  GoShop
+description            GoShop: toko online contoh dari kursus Fullstack Santekno.
+canonical              —
+og:title               —
+og:image               —
+h1                     —
+links (<a href>)       0
+images (<img>)         0
+JSON-LD                —
+visible text (chars)   6
+visible text (start)   GoShop
+```
+
+The catalog (`/`) answers the same 1 425 bytes, and so does `/produk/tidak-ada`, **with status 200**. A headless Chromium with JavaScript disabled finds no `<h1>` on either page. With JavaScript, on a phone profile (412×823, 4× CPU slowdown, 150 ms latency, 1.6 Mbit/s; median of 5 runs, Playwright), the product's `<h1>` appears after about 2.0 s and the largest paint is at 1.6 s, after 12 requests: HTML, then the bundle, then the API.
+
+| What the HTML lacks | What it costs |
+|---|---|
+| A title and description per page | every result in a search engine reads "GoShop" with the same sentence; the per-page `document.title` (`useDocumentTitle`) exists only after JavaScript ran |
+| Content | Googlebot renders JavaScript, but in a second wave, queued after the crawl, on a budget; the API call must succeed from Google's renderer within its time limits. Bing, DuckDuckGo's crawler and most others render less or not at all |
+| Links | a crawler discovers pages by following `<a href>`; with 0 links in the HTML, the products are found only after rendering, or through a sitemap (artikel 11) |
+| A real 404 | a missing product answers 200 with an error drawn by JavaScript: a "soft 404" that Google may index as a page, and that wastes crawl budget |
+| Open Graph tags | WhatsApp, Facebook, X, Telegram and Slack never run JavaScript: a shared product link shows no name, no price and no photo |
+| Fast first content | the LCP waits for the HTML, the JavaScript bundle, its parse and run, and an API round trip, one after another |
+
+### What stays a client-rendered page
+
+Only public pages need to be found: the catalog and the product pages. The cart, checkout, payment, orders and account pages are behind a login or private to one browser, must never be indexed, and depend on the buyer's session, which lives in the browser (the access token in memory, the refresh cookie on the API's path, Bab 10). They keep rendering in the browser after the move; they get `noindex` (artikel 10) instead of server rendering.
+
+So the move to Next.js (artikel 08) is about **where the first HTML is made** for public pages, not about rewriting the shop: the same components render on the server for the catalog and the products, and in the browser for everything personal.
+
+## Next.js App Router: server and client components (artikel 08)
+
+From this article the storefront is a Next.js 16 app (App Router, `next` 16.4.3 pinned in the pnpm catalog). The components of Bab 7–11 are kept; what moved is **routing** (React Router's route objects became folders under `src/app/`) and **where the first HTML is made**.
+
+### The routes, as folders
+
+| URL | File | Rendered |
+|---|---|---|
+| `/` | `app/page.tsx` → `CatalogPage` | on the server, then hydrated |
+| `/produk/[slug]` | `app/produk/[slug]/page.tsx` → `ProductDetailPage` (+ its own `not-found.tsx`) | on the server, then hydrated |
+| `/keranjang` | `app/keranjang/page.tsx` | browser only |
+| `/masuk`, `/daftar` | `app/(auth)/…/page.tsx` inside `app/(auth)/layout.tsx` (`AuthLayout`) | browser only |
+| `/akun`, `/checkout`, `/pesanan`, `/pesanan/[id]`, `/pesanan/[id]/pembayaran`, `/pembayaran/selesai` | `app/(akun)/…/page.tsx` inside `app/(akun)/layout.tsx` (`RequireAuth`) | browser only |
+| anything else | `app/not-found.tsx` | on the server, **status 404** |
+| `/healthz` | `app/healthz/route.ts` | a route handler: `ok` |
+
+The URLs are the Vite app's, so links, bookmarks and the e2e suite's paths still work. `(auth)` and `(akun)` are **route groups**: the parentheses keep the folder out of the URL; each gives its pages one layout and one `robots` setting (`noindex`; `(akun)` adds `nofollow`).
+
+### Server components and client components
+
+- **A server component** (the default: every `page.tsx` and `layout.tsx` here) runs on the server for each request, can be `async` and read the request (`headers()`), and sends HTML; its code never reaches the browser. It cannot hold state, run effects or handle a click.
+- **A client component** starts with `"use client"`. It renders on the server too (for the first HTML), then again in the browser, where it is **hydrated**: React attaches state and event handlers to the HTML that is already there. Everything it imports is part of the browser's JavaScript.
+- The boundary is the file with `"use client"`: `components/layout/Providers.tsx` (TanStack Query, the session), `SiteFrame.tsx` (skip link, header, focus after navigation), `CatalogPage.tsx`, `ProductDetailPage.tsx`, `NotFoundPage.tsx`, `ErrorPage.tsx`/`app/error.tsx`, `RequireAuth.tsx`, `NavLink`, `Redirect`, `client-pages.tsx`. The components they import (the cards, the forms, `components/ui`) need no directive: they are client code because a client component imports them.
+- A server component can render a client component and pass it server-rendered `children`: the root layout renders `<Providers><SiteFrame>{children}</SiteFrame></Providers>` and the page stays a server component.
+
+### Rendered on the server, or in the browser only
+
+The catalog and the product pages are public: rendered on the server, they give a crawler the HTML artikel 07 found missing (artikel 09 fills it with the API's data). Every other page depends on what only the browser has: the session (the access token in memory, restored from the `HttpOnly` cookie that is sent to the API's path, never to this server, Bab 10), the guest cart token in `localStorage`, the remembered payment in `sessionStorage`. On the server they could only say "Memeriksa sesi Anda…". So `components/layout/client-pages.tsx` loads each with `dynamic(…, { ssr: false })`, Next.js' `lazy()`: the server sends "Memuat GoShop…", the page's code is a chunk of its own (the same `lazy.ts` loaders the React Router routes used), and the component renders in the browser exactly as before. The web session, the refresh interceptor, the Web Locks, the guest cart merge, `RequireAuth`'s wait-then-redirect, and TanStack Query for everything personal are unchanged.
+
+### What replaced React Router
+
+| React Router (Bab 9–10) | Next.js (Bab 11) |
+|---|---|
+| `routes.tsx`, `createBrowserRouter` | folders under `src/app/` |
+| `<Outlet />` in a layout route | `children` of `layout.tsx` |
+| `<Link to>` | `<Link href>` from `next/link` |
+| `<NavLink>` (sets `aria-current`) | `components/navigation/NavLink.tsx` (`usePathname`) |
+| `useNavigate()` | `useRouter().push/replace/back` from `next/navigation` |
+| `<Navigate replace>` | `components/navigation/Redirect.tsx` (browser decisions); `redirect()` on the server |
+| `useParams`, `useSearchParams` | the same names from `next/navigation` (`useSearchParams` is read-only; a filter change is `router.push`), or `params` given to the page |
+| `useLocation().state` | `lib/navigation-state.ts` (below) |
+| `lazy` routes | automatic per-page code splitting; `dynamic()` for the browser-only pages |
+| a route's `ErrorBoundary` | `app/error.tsx` (`ErrorPage`) |
+| the `*` route, a soft 404 | `app/not-found.tsx` and `notFound()`, with HTTP status 404 |
+| `useDocumentTitle` | `metadata` in each `page.tsx` (`title` template `%s — GoShop` in the root layout) |
+| `ScrollRestoration` | built in |
+| `NavigationProgress` (`useNavigation`) | removed; see below |
+
+- **Navigation state.** React Router could attach `state` to a history entry; Next.js' router keeps `history.state` for itself. Four small hand-overs used it: the catalog card telling the product page it came from the list (so "Kembali ke katalog" is `history.back()`), the register page passing the new email to `/masuk`, and checkout or "Bayar" passing "fake gateway" or "the payment could not start" to the payment page. `lib/navigation-state.ts` keeps one such value in `sessionStorage` under the path it is meant for: it survives a reload of that page, and the next navigation to another path forgets it (`SiteFrame`). A render reads it with `useSyncExternalStore`, whose server snapshot is "nothing", so the HTML and the first browser render agree.
+- **Midtrans' Back button.** The Vite app awaited the router before leaving for Midtrans, so Back returned to the payment page. Next.js' `router.replace` returns nothing to await; `usePayOrder` now switches the history entry with `history.replaceState` (Next.js keeps its router in step with it) and reloads the page if the browser restores the old one from its back/forward cache.
+- **No navigation progress bar.** Next.js has no global "navigating" state; the usual answer, a `loading.tsx`, streams the page behind a Suspense boundary, and a page that has started streaming can no longer answer 404: a missing product would be a 200 again. The product and catalog pages answer quickly from the data cache (artikel 09); a `loading.tsx` may be added under `(akun)`, where no status matters.
+- **Focus after a navigation** stays ours (`useRouteFocus`, now with `usePathname`): Next.js scrolls to the top and announces the new title, but moves no focus.
+
+### The QueryClient on the server
+
+`getQueryClient()` (`lib/query-client.ts`) returns a **new client on every server call** and **one client for the whole visit in the browser**. A module-level client on the server would live as long as the process and be shared by every visitor: one buyer's cart or orders could reach another buyer's HTML. The Zustand cart store is still a module-level singleton; on the server it never holds a token (`safeLocalStorage` finds no `localStorage` and the store starts empty), and nothing personal is rendered on the server.
+
+### Theme, CSP and the nonce (the decision)
+
+A server-rendered Next.js page carries **inline scripts**: the React Server Components payload React hydrates from (`self.__next_f.push(…)`). Bab 7–10's `script-src 'self'` refuses them. The choices:
+
+| Option | Inline scripts | Cost |
+|---|---|---|
+| `'unsafe-inline'` | allowed, ours and any injected one | the CSP no longer stops script injection: rejected |
+| hashes, or the experimental SRI build option | only for files known at build time; the RSC payload differs per page and request | not workable for dynamic pages |
+| **a nonce per request** (chosen) | only those carrying this request's nonce | every page renders per request: no full-route cache, no static HTML on a CDN |
+
+`src/proxy.ts` (Next.js 16's name for middleware) makes a random nonce per request, sends `Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-…'; style-src 'self' 'nonce-…'; img-src 'self' data:; connect-src 'self' <API origin>; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'`, and passes the nonce to the page in the request headers, where Next.js puts it on its own scripts. In development it adds `'unsafe-eval'` (React rebuilds server error stacks with `eval`) and `style-src 'unsafe-inline'` (hot reload's `<style>` elements). No `'strict-dynamic'`: with it browsers ignore `'self'`, and every script Next.js loads later would need the nonce too. The other headers Caddy sent (`X-Content-Type-Options`, `X-Frame-Options: DENY`, `Referrer-Policy`, `Permissions-Policy`) come from `headers()` in `next.config.ts`; `X-Powered-By` is off.
+
+**The theme stays a file.** With a nonce available, an inline script would be allowed, but `public/theme.js` keeps working under any CSP, is cached, and needs no change: the root layout renders `<script src="/theme.js">` in `<head>` (synchronous on purpose, so the `@next/next/no-sync-scripts` rule is silenced on that line with the reason), and `<html suppressHydrationWarning>` accepts the `data-theme` it sets before React hydrates. `useTheme` reads the choice and the device's preference with `useSyncExternalStore` and a server snapshot ("no choice, light"), so the server's HTML and the first browser render agree and the button corrects itself right after; the colours never wait, because the CSS reads `data-theme` and the media query.
+
+The cost of the nonce is measured in artikel 09: about 3.5 ms of rendering per page, with the data still cached.
+
+### Configuration
+
+- `NEXT_PUBLIC_API_URL` (build time, public): the API as the browser reaches it; `next build` refuses to run without it (`next.config.ts`), as Vite did with `VITE_API_URL`. Unset in development means `http://localhost:8080`.
+- `API_INTERNAL_URL` (run time, server only, `lib/server-config.ts` with `import "server-only"`): the API as the storefront's server reaches it (`http://api:8080` in Compose); unset means the public URL.
+- `next dev` runs on port 5173, the origin the API's CORS default allows.
+- `next.config.ts`: `output: "standalone"` (artikel 14), `outputFileTracingRoot` and `turbopack.root` at the workspace root and `transpilePackages: ["@goshop/shared"]` (the shared package ships TypeScript), `poweredByHeader: false`.
+- Tailwind CSS v4 runs as a PostCSS plugin (`postcss.config.mjs`, `@tailwindcss/postcss`) instead of the Vite plugin; `src/index.css`, the tokens and dark mode are unchanged.
+- ESLint adds `@next/eslint-plugin-next`'s Core Web Vitals rules; `eslint-plugin-react-refresh` (a Vite concern) is gone. `next-env.d.ts` is generated by `next typegen` (run by `typecheck`) and ignored by git.
+- `vite.config.ts` now only configures Vitest, with two aliases for what Next.js provides at build time: `server-only` (a no-op in tests) and `next/dynamic`. The unit tests render pages through an in-memory `next/navigation` (`src/test/memory-router.ts`) instead of React Router's `MemoryRouter`, and `tsconfig.test.json` checks them, so `pnpm typecheck` and ESLint cover the tests as well.
+
+## Product pages from the server: SSR and the data cache (artikel 09)
+
+The catalog and the product pages now fetch the API **on the server**, so the HTML a crawler (or a slow phone) receives already holds the products.
+
+### The data flow
+
+1. **The server fetches**, through `serverApi` (`lib/server-api.ts`, `import "server-only"`): the same `@goshop/shared` client as the browser's, pointed at `API_INTERNAL_URL`, with a `fetch` that passes `next: { revalidate, tags }`. Next.js keeps each GET answer in its **data cache**, shared by every request this server handles: within `revalidate` seconds no visitor's page reaches the API; after it the cached answer is still served at once and refreshed in the background (stale-while-revalidate, ISR applied to the data). Only public data goes through it, never a request with a buyer's token.
+2. **The page renders with it.** `app/produk/[slug]/page.tsx` is an `async` server component: `getProductForPage(slug)` (`features/product/api/server.ts`) returns the product, or `null` for the API's `NOT_FOUND`, and `null` is `notFound()`: **HTTP 404** with `produk/[slug]/not-found.tsx`. Any other error is thrown: **500** with `app/error.tsx`, so a search engine retries later instead of indexing an error. `generateMetadata` gives the page the product's name as its `<title>` and the start of its description; `getProductForPage` is wrapped in React's `cache()`, so the metadata and the page share one fetch per request (Next.js' own memoisation of equal fetches does not apply: the client passes an `AbortSignal` for its timeout).
+3. **The browser reuses it.** The client components still read the data with TanStack Query. The server fills a QueryClient of its own (`getQueryClient()`, one per request) under the same keys, and `<HydrationBoundary state={dehydrate(queryClient)}>` sends that cache inside the page's payload: `useQuery(productQuery(slug))` and `useInfiniteQuery(productListQuery(…))` start with the server's data, fresh for the storefront's 30 s stale time. The pages wrap it in `ServerDataBoundary` (`lib/server-data-boundary.tsx`), which hydrates only the queries the browser does not hold yet: the server fetches again on every navigation, also on a `<Link>` back to the catalog, and a plain `HydrationBoundary` would write its newer page 1 over the pages the buyer already scrolled through. The query options take the client as a parameter (`productQuery(slug, client)`), which is how the server and the browser agree on the keys while fetching from different addresses.
+4. **The catalog** (`app/page.tsx`) reads the filters from `searchParams` with the same `readCatalogFilters` as the browser, and fetches the first page (`CATALOG_PAGE_SIZE`, 12) and the categories. The next pages ("Muat lebih banyak", infinite scroll) still come from the browser. A failed prefetch is swallowed: nothing is dehydrated, and the browser asks again and shows its error with a retry, as before (a category that does not exist is still the client's message, with status 200; artikel 10 keeps such pages out of the index).
+
+| Data | `revalidate` | Tags | Why that long |
+|---|---|---|---|
+| a product | 60 s | `products`, `product:<slug>` | price and stock change, but a minute late is fine on a product page: the cart and checkout ask the API themselves, and the checkout preview decides price and stock |
+| a page of products | 60 s | `products` | the same |
+| the categories | 300 s | `categories` | an admin adds one now and then |
+
+The tags are for `revalidateTag()` when Bab 12's admin changes a product. The data cache lives in `.next/cache/fetch-cache` on the server's disk: it survives a restart of the process, but each container has its own (artikel 14).
+
+### Measured
+
+Against the seeded API on the same laptop (`next start`, production build; 28 products, each visited once with an empty data cache, then three more times):
+
+| Request | Median | p95 |
+|---|---|---|
+| product page, data cache **miss** (first visit of a slug) | 9.1 ms | 23.7 ms |
+| product page, data cache **hit** | 3.5 ms | 5.1 ms |
+| the API's `GET /v1/products/{slug}` alone | 2.0 ms | 5.7 ms |
+| a static file (`/theme.js`, a `_next/static` chunk) | 0.7 ms | 1.2 ms |
+
+- **The data cache:** five page views of one product within a minute sent **one** request to the API (its log), and the title and the page together one. The browser sends none for the product, the catalog or the categories after the page loads (only the session's `POST /v1/auth/web/refresh`). Here the API answers in 2 ms; against a database under load, or an API in another region, the miss grows and the hit does not.
+- **The nonce's price:** with a per-request nonce (artikel 08) every page is rendered for each request, about 3.5 ms of server work even when all its data is cached, against 0.7 ms for a file served as it is, which is what a fully static (full-route-cached) page would cost. Under load (10 concurrent clients for 5 s) one Node process served about **540 product pages a second**, against about **6 700** static chunks. For a shop this size the render is cheap and the API is spared by the data cache; a shop that needs a CDN in front of its HTML would trade the nonce for static pages and a weaker CSP, and should measure first.
+- What the crawler gets now (`seo-probe.js`): `/produk/kaos-polos-hitam` answers 200 with 18 KB of HTML (24 KB from artikel 10, with the metadata and structured data), `<title>Kaos Polos Hitam — GoShop</title>`, the description, `<h1>Kaos Polos Hitam</h1>` and the product's text; `/` answers 40 KB with the twelve product cards and 29 links; `/produk/tidak-ada` answers **404**. Before (artikel 07): 1 425 bytes, no h1, no links, 200 everywhere.
+
+## Metadata, Open Graph and structured data (artikel 10)
+
+### The base URL
+
+Every absolute URL a page prints (the canonical link, `og:url`, the structured data, the sitemap in artikel 11) is built on **`SITE_URL`**, the storefront's public origin, read by the server when a page renders (`siteUrl()` in `lib/server-config.ts`). Never from the request's `Host` header: the client chooses that header, and a page must not tell search engines that the shop lives at an attacker's host. The root layout's `generateMetadata` sets it as `metadataBase`, so pages give relative paths. Unset in development means `http://localhost:5173`; unset in production is a configuration error, and pages answer 500 with the reason in the log instead of naming `localhost` as the shop's address. `next build` does not need it.
+
+### What each page tells search engines and link previews
+
+| Page | `<title>` | Canonical | Robots | Open Graph / Twitter |
+|---|---|---|---|---|
+| `/` | Katalog — GoShop | `/` | index | site defaults, `og:url` |
+| `/?kategori=kaos` (exists) | Kaos — GoShop | `/?kategori=kaos` | index | title, description, `og:url` |
+| `/?kategori=kaos&urut=termurah` | Kaos — GoShop | `/?kategori=kaos` (no sort) | index | as above |
+| `/?q=kaos` | Hasil pencarian “kaos” — GoShop | none | `noindex, follow` | no `og:url` |
+| `/?kategori=tidak-ada` | Kategori tidak ditemukan — GoShop | none | `noindex, follow` | no `og:url` |
+| `/?urut=xyz&utm_source=wa` | Katalog — GoShop | `/` | index | `og:url` `/` |
+| `/produk/kaos-polos-hitam?utm_source=wa` | Kaos Polos Hitam — GoShop | `/produk/kaos-polos-hitam` | index | title, description (≤ 160 characters, cut at a word), `og:url`; `og:image` and a large Twitter card once the product has a photo (artikel 12), a small card until then |
+| `/produk/tidak-ada` (404) | Produk tidak ditemukan — GoShop | none | `noindex` (Next.js adds it to a `notFound()` page) | — |
+| `/keranjang`, `/masuk`, `/daftar` | the page's | none | `noindex` (artikel 08) | — |
+| `(akun)` pages (checkout, payment, orders, account) | the page's | none | `noindex, nofollow` (artikel 08) | — |
+
+**The catalog's rule** (`catalogPageMeta`, `features/catalog/catalog-metadata.ts`). Each combination of the three filters is a URL a crawler can find; indexing all of them would split the shop into near-copies of one list.
+
+- **A category** is a real page (its own products, a name buyers search for): indexed, with its own canonical URL. Its title and description come from the categories the server already fetches (`getCategoriesForPage`, once per request, shared with the page).
+- **Sorting** shows the same products in another order: the canonical link points at the unsorted URL, so search engines merge the two. Not `noindex` as well: "index my canonical" and "do not index me" on one page contradict each other.
+- **A search** is the shop's own search engine; Google asks sites to keep internal search results out of its index. `noindex, follow`: the products it links to are still found.
+- **An unknown category** shows the browser's "Kategori ini tidak ada" with status 200; `noindex` keeps that page out.
+- Whatever `readCatalogFilters` ignores (a malformed slug, an unknown sort word, `utm_*` and other parameters) is dropped from the canonical URL, because it is built from the parsed filters.
+- If the API does not answer the categories, the category cannot be checked and the page is treated as one that exists.
+
+Next.js merges metadata one top-level key at a time: a page that sets `openGraph` replaces the layout's, so pages spread `baseOpenGraph` (`lib/site-metadata.ts`: `siteName`, `locale: id_ID`, `type: website`). Next.js' `openGraph` types have no `og:type=product`; `website` is what Open Graph's own spec covers.
+
+### Structured data: Product, Offer, BreadcrumbList
+
+`app/produk/[slug]/page.tsx` renders two JSON-LD blocks with `components/JsonLd.tsx`, from `features/product/structured-data.ts`:
+
+- **`Product`**: `name`, `description`, `url`, `@id`, `category`, `image` (the photo URLs, only when there are photos), and `sku` when there is one variant. **No `brand`** (the catalog has none, and the shop is not the maker), **no rating or reviews** (GoShop has none). Structured data says only what the page shows; search engines compare the two.
+- **The price**: one variant is an **`Offer`** (`price` as the number of whole rupiah, `priceCurrency: "IDR"`, `availability` `InStock`/`OutOfStock` from the stock, `itemCondition: NewCondition`, the seller). Several variants are an **`AggregateOffer`** (`lowPrice`, `highPrice`, `offerCount`, in stock if any variant is) whose `offers` list each variant as its own `Offer` with its SKU, name, price and stock. Not a `ProductGroup` with `hasVariant`: Google requires `variesBy` (size, colour …), and a GoShop variant is a free name ("M", "500 g", "Hitam") with no typed attribute to state truthfully.
+- **`BreadcrumbList`**: Katalog › the product's category (`/?kategori=…`) › the product. The product page now links its category name to that list, so the trail is on the page too, and a crawler finds every category page from its products.
+
+**Serialised safely.** The JSON goes into the HTML as raw text, and `JSON.stringify` leaves `<` alone: a product described as `</script><script>alert(1)</script>` would close the block and start a real script. `serializeJsonLd` writes `<`, `>` and `&` as `\u003c`, `\u003e`, `\u0026` (and U+2028/U+2029 as escapes): the same value for a JSON parser, no markup for the HTML parser. No nonce: a `type="application/ld+json"` block is never run, so `script-src` does not apply to it.
+
+### Checked
+
+- With the description of `kaos-polos-hitam` set to `Kaos katun combed 30s. Uji: </script><script>alert(1)</script> & <!-- komentar --> selesai.` in the database: the block reads `…Uji: \u003c/script\u003e\u003cscript\u003ealert(1)…`, the HTML has as many `</script>` as `<script` elements, the description round-trips exactly through `JSON.parse`, the `<meta name="description">` and `og:description` are HTML-escaped (`&lt;/script&gt;`), and in Chromium no dialog opens and the console stays empty.
+- A scratch check parses every JSON-LD block of a page and compares it with the API's product: the shapes Google documents for product snippets (`name`, an `offers` with `price` as a number, `priceCurrency`, `availability` as a schema.org URL; `AggregateOffer` with `lowPrice`, `highPrice`, `offerCount`), each variant's SKU, price and stock, absolute URLs, breadcrumb positions 1–3, no brand or rating. It passes for a four-variant product (`kaos-polos-hitam`, `AggregateOffer`), another multi-variant one and a single-variant one (`kacang-mete-panggang-250g`, `Offer` with `sku`).
+
+## Sitemap and robots.txt (artikel 11)
+
+### `/sitemap.xml` (`app/sitemap.ts`)
+
+The sitemap lists **exactly the URLs artikel 10 lets search engines index**, so a crawler finds every product without following links and never spends a visit on a `noindex` page:
+
+- the catalog root `/`;
+- each category's list, with the canonical path `catalogPageMeta` gives it (`/?kategori=<slug>`): the same function decides what is indexed and what is listed, so the two cannot drift apart. No sort orders, no searches;
+- every active product, `/produk/<slug>`, from `GET /v1/products` page by page (`listProductsForSitemap` in `features/catalog/api/server.ts`): 100 per request (the API's maximum `limit`), following `next_cursor` until it is `null`, stopping if the API ever repeated a cursor.
+
+Every URL is absolute, on `SITE_URL` (`siteUrl()`), never the request's host.
+
+- **`lastModified` from `updated_at`, products only.** The API's public `Product` carries `updated_at`, the last time an admin saved the product (fields, variants or status), and each product's `<lastmod>` is that date. Never `created_at`: it would say that a product repriced yesterday last changed a year ago, and Google stops trusting a site's `lastmod` once it finds it wrong. A sale (stock is not an edit) and a new photo do not move it. The catalog pages get no `lastmod`, because no single date says when a list last changed. No `changeFrequency` or `priority` either: Google ignores both.
+- **Rendered per request, the data cached for an hour.** `export const dynamic = "force-dynamic"`: a sitemap prerendered by `next build` would need the API during the image build and would freeze `SITE_URL` at build time. The walk through the catalog goes through the data cache for an hour (`SITEMAP_REVALIDATE_SECONDS`, tags `products` and `sitemap`), the categories for five minutes: `/sitemap.xml` is public, and a walk costs one API request per hundred products, so it is paid at most once an hour however often anyone fetches it. An hour suits a crawler, which reads a sitemap every few hours at most; a new product is also linked from the catalog's first page at once. Measured: five fetches in a row sent no request to the API; a fetch takes 10 ms.
+- **A failure is a 500**, not an empty sitemap: an empty one would tell the crawler the shop has no pages; a 500 makes it try again later.
+
+**The 50 000-URL limit.** One sitemap file may list at most 50 000 URLs and weigh 50 MB uncompressed. `listProductsForSitemap` stops at 49 000 products (the root and the categories take the rest) and logs a warning. Past that, the sitemap must be split: Next.js' `generateSitemaps()` serves `/sitemap/0.xml`, `/sitemap/1.xml`… and a sitemap index. With cursor pagination a file cannot jump to "products 49 000–97 999" without walking the ones before it, so the split would want either an API listing by a stable key range (for example by `created_at` month, or `GET /v1/products/slugs?after=…`) or a sitemap per category. The example catalog has 28 products; the guard exists so a growing shop fails loudly, not silently.
+
+### `/robots.txt` (`app/robots.ts`)
+
+```text
+User-Agent: *
+Allow: /
+Disallow: /keranjang
+Disallow: /checkout
+Disallow: /pembayaran
+Disallow: /pesanan
+Disallow: /akun
+Disallow: /masuk
+Disallow: /daftar
+Disallow: /*?q=
+Disallow: /*&q=
+
+Sitemap: https://<SITE_URL>/sitemap.xml
+```
+
+robots.txt controls **crawling**, not indexing: keeping a page out of results is `noindex` (artikel 10), which a crawler only reads on a page it may fetch.
+
+- **Private pages** (cart, checkout, payment, orders, account, login, register) are disallowed: they are personal, render only in the browser (a crawler gets "Memuat GoShop…"), and carry `noindex` anyway; not crawling them keeps the crawl for products.
+- **Search results** (`q`, written as `?q=` or, after a category, `&q=`) are disallowed: every typed word is a new URL, an endless space of thin pages, and Google's guidelines ask sites to keep internal search out of the crawl with robots.txt. Their `noindex` stays as the second line of defence.
+- **Sorted lists and unknown categories stay crawlable**: a sorted list must be fetched for its canonical link to the unsorted list to be read, an unknown category for its `noindex` to be seen.
+- Rendered per request too (`force-dynamic`), so the `Sitemap:` line follows `SITE_URL` at run time.
+
+### Checked (`next start`, `SITE_URL=http://localhost:34173`)
+
+A scratch script fetched `/sitemap.xml` and every URL in it: **42 URLs** (the root, 13 categories, 28 products), no duplicates, each answering 200 with a canonical link equal to itself and no `noindex`; the list equals the root plus every category and every product the API returns; robots.txt blocks none of them, blocks `/?q=kaos`, `/?kategori=kaos&q=polos`, `/checkout`, `/pesanan/…/pembayaran`, `/masuk?kembali=…` and `/keranjang`, and leaves `/?kategori=kaos&urut=termurah`, `/?kategori=tidak-ada` and the product pages crawlable. The paging loop ran one page here (28 products); a test with a fake API covers several pages and a repeated cursor.
+
+## Product photos and Core Web Vitals (artikel 12)
+
+The API has sent `images` with every product since Bab 6; Bab 8–10 drew the "Belum ada foto" placeholder instead. From artikel 12 the catalog card and the product page show the first ready photo; a product without one keeps the placeholder. The cart and the orders have no photo: the contract's `CartLine` and order lines carry none.
+
+### Core Web Vitals, and what a photo does to each
+
+| Metric | What it measures | Good | What the photos change |
+|---|---|---|---|
+| **LCP**, Largest Contentful Paint | when the largest element in the first screen is drawn | ≤ 2.5 s | the product page's photo becomes its largest element, so the page is as fast as that file |
+| **CLS**, Cumulative Layout Shift | how far visible content jumps while the page loads | ≤ 0.1 | an `<img>` without a size is 0 px tall until its file arrives, then pushes everything below it down |
+| **INP**, Interaction to Next Paint | how long a click or key waits for the next frame | ≤ 200 ms | nothing directly; a JPEG decoded on the main thread could delay one, so decoding is async |
+
+Google reads them from real Chrome users (the Chrome UX Report, at the 75th percentile) as one of its page-experience signals; Lighthouse and the `PerformanceObserver` below measure them in a lab.
+
+### A plain `<img>` with the API's variants, not `next/image`
+
+The worker already resizes every photo to 400 and 800 pixel wide JPEGs (quality 82, ADR 0007) and the storage serves them with `Cache-Control: public, max-age=31536000, immutable`. `next/image`'s optimiser would download them again through the storefront's server, resize them a second time with sharp, and keep a second cache in every container: CPU and disk spent on work already done. A custom `next/image` loader could only map a width to a file by guessing the storage's key layout, where `variants` is the contract. WebP or AVIF, the one thing `next/image` would add, belongs in the worker (ADR 0007 records why it writes JPEG for now).
+
+What the browser gets is what `next/image` would give it:
+
+- **`srcset` + `sizes`.** `srcset` lists the variants with their widths (`…/400.jpg 400w, …/800.jpg 800w`); `sizes` says how wide the image is drawn per layout, so the browser can choose **before any CSS has loaded**. It takes the smallest variant at least as wide as that width times the screen's pixel density. A card on a 412 px phone at 2× is about 141 px wide, so 282 device pixels: the 400 (16 KB instead of the 800's 75 KB). The product page's photo on the same phone is about 346 px, so 692: the 800. `CARD_IMAGE_SIZES` follows the grid (2 columns, 3 from `sm`, 3 beside the category sidebar from `md`, 4 from `lg`, at most 11rem once the page stops growing); approximate is enough.
+- **`width` and `height` from the API.** The browser reserves the box from their ratio before the file arrives, so nothing below it moves (CLS). The square frame is still CSS (`aspect-square`, `object-cover`).
+- **`alt`**: the photo's own, or the product's name when it is empty (the contract's rule).
+- **`decoding="async"`**: decoding the JPEG does not hold up the main thread.
+
+### Which photo loads when (`ImageLoading`)
+
+| Value | Attributes | Used for | Why |
+|---|---|---|---|
+| `lazy` | `loading="lazy"` | catalog cards from the fifth on | fetched only as they near the screen: a visitor who never scrolls never pays for them |
+| `eager` | `loading="eager"` | the first four cards of a grid (one row at its widest) | on screen at once; lazy-loading them would only start them late |
+| `priority` | `loading="eager"`, `fetchpriority="high"` | the product page's photo | its LCP element: the browser requests it ahead of the scripts it would otherwise fetch first |
+
+Only one image per page gets `priority`: marking several high tells the browser nothing. Chrome's lazy-load margin is generous (about 1250–2500 px), so on a short catalog page every card loads anyway; the saving shows on a long list.
+
+### The image origin in the CSP
+
+Photos come from the image storage, another origin, so `img-src` must allow it, and only it: `img-src 'self' data: <IMAGE_ORIGIN>`, never `https:` (any host). `imageOrigin()` reads `IMAGE_ORIGIN` when the server starts and keeps only its origin (`new URL(value).origin`; a value that is not a URL fails loudly). It is the host in the API's image URLs: `S3_PUBLIC_URL` (a CDN or the bucket's public URL) in production, `S3_PRESIGN_ENDPOINT` (`http://localhost:8333`) with `make up`. Unset, development falls back to `http://localhost:8333`, and production allows no image origin at all: the photos are blocked with a CSP report in the console until it is set, rather than allowed from anywhere.
+
+### Checked (`next start` against the `goshop-b11` stack, `IMAGE_ORIGIN=http://localhost:33333`)
+
+- The HTML carries each `<img>` with `srcSet`, `sizes`, `width="800" height="800"`, the alt text; the first four cards `loading="eager"`, the fifth on `loading="lazy"`, the product photo `fetchPriority="high"`. The CSP header reads `img-src 'self' data: http://localhost:33333`. No CSP violation in the console.
+- **Phone, 412×915 at 2×, fresh browser profile:** the catalog requested twelve `400.jpg` and no `800.jpg`; the product page requested one `800.jpg`. In a profile that had opened the product page first, the catalog card of that product showed the cached `800.jpg`: Chrome may reuse a larger candidate it already has rather than download a smaller one.
+- **LCP and CLS** (a `PerformanceObserver` on `largest-contentful-paint` and `layout-shift`, local network): the product page's LCP element is the photo, at 0.49 s on the phone and 0.09 s on a 1366×900 desktop; the catalog's is the first card's photo (0.10 s). CLS is 0 to 0.004 on every page measured, far under 0.1.
+
+## Analytics and e-commerce events (artikel 13)
+
+GoShop can send Google Analytics 4 the e-commerce events GA4 builds its funnel and item reports from. It is **opt-in**: without `GA_MEASUREMENT_ID` the storefront loads no Google script, shows no banner and keeps the CSP of artikel 12, and `track` only logs each event with `console.debug` in development (`next dev`), so the events can be read without a GA4 property.
+
+### The measurement ID
+
+`analyticsId()` (`lib/server-config.ts`) reads `GA_MEASUREMENT_ID` when a page renders, like `SITE_URL`: a runtime, server-only variable, not `NEXT_PUBLIC_*`, so one image runs with or without analytics, or against another property, without a rebuild. The ID is not a secret (every visitor's browser sees it), but it is printed into an inline script, so it must look like `G-` followed by letters or digits; any other value (a Universal Analytics `UA-…`, a typo) throws, and every page answers 500 with the reason in the log, instead of being written into the page.
+
+### The events
+
+The contract lives in `packages/shared` (`src/analytics/ecommerce.ts`), so the mobile app (Bab 17) sends the same names and parameters: `EcommerceEvent` is a union discriminated by `name`, and a builder makes each event from the API's own types. Every amount is whole rupiah as the API sends it (`currency: "IDR"`, integers, never a formatted string). An item's `item_name` is the product's name in every event, so GA4 can follow one product from the list to the purchase; `item_id` is the variant's SKU and appears only once a variant is known (cart, checkout, order).
+
+| Event | When | Where | Key parameters |
+|---|---|---|---|
+| `view_item_list` | the first page of a list is on screen, once per set of filters (the later pages are not new lists) | `features/catalog/components/CatalogPage.tsx` (`useTrackOnce`, keyed by the filters) | `item_list_id`/`item_list_name`: `katalog`/`Katalog`, the category's slug/name, or `pencarian`/`Hasil pencarian` (the search text is not sent); `items` with `index`, `price` = `price_from` |
+| `view_item` | a product page shows its product, once per product | `features/product/components/ProductDetailPage.tsx` (`useTrackOnce`, keyed by the product's id) | `value` = `price_from`, one item without `item_id` |
+| `add_to_cart` | the API **accepted** the add (`onSuccess`), never the optimistic guess | `features/cart/hooks/useAddToCart.ts` | the line from the API's answer (its SKU and price), `quantity` = what this add added, `value` = price × quantity |
+| `remove_from_cart` | the API **confirmed** a line's removal; lowering a quantity is not one | `features/cart/hooks/useChangeCartLine.ts` (the line is captured at the click, in `removed`) | the whole line |
+| `begin_checkout` | the checkout page knows the cart's lines, once per visit | `features/checkout/components/CheckoutPage.tsx` (`useTrackOnce`) | `value` = the cart's subtotal, the lines |
+| `add_shipping_info` | the buyer picks a courier service (each new pick) | `onSelect` of `CourierStep` in `CheckoutPage.tsx` | `shipping_tier` = courier and service codes (`JNE REG`), `coupon` if a voucher is applied, the lines |
+| `add_payment_info` | `POST /v1/orders/{id}/pay` was accepted, just before the buyer leaves for Midtrans (or the fake gateway's page) | the mutation's `onSuccess` in `features/orders/hooks/usePayOrder.ts` (from checkout, the payment page and the order page) | `value` = the order's total, the order's lines, `coupon`, `payment_type` = `midtrans_snap` or `fake_gateway` (the method is chosen on Midtrans' page; the storefront never learns it) |
+| `purchase` | the payment page sees the order paid (the API's word: the webhook or the reconciler, never Midtrans' return URL), once per order | `features/orders/components/PaymentPage.tsx` → `trackPurchaseOnce` (`features/analytics/purchase.ts`) | `transaction_id` = the order's code, `value` = its total, `shipping` = its shipping fee, `coupon` = its voucher code, `items` = the order's own lines (the prices it was sold at) |
+
+**Fired once, at the moment the fact is known.** A view is sent from an effect, not from the render (a component renders again for every poll and state change, and twice in development); `useTrackOnce` keeps the last key it sent in a ref, so a background refetch is not a second view, and Strict Mode's extra mount sends nothing twice. A write is sent from the mutation's own `onSuccess`, which runs even when the component that started it has unmounted. **Page views** are not sent by the storefront: `config` sends the first, and GA4's enhanced measurement ("page changes based on browser history events", on by default in a web stream) counts each client-side navigation.
+
+**Never personal data.** Google's terms forbid sending anything that identifies a person, and a GA4 property is read by more people than the order database. The events carry catalog data (product and variant names, SKUs, categories, prices) and an order's code; never an email, a name, a phone number, an address, a user id or a token. The types are closed, and no builder takes a user or an address, so adding one is a visible change to the contract, not a stray field. The catalog's search text is left out too: it is whatever the buyer typed.
+
+### `track`
+
+`track(event)` (`lib/analytics.ts`) does nothing on the server, never throws (analytics is the one feature a buyer did not ask for; a bug in it must not break "Tambah ke keranjang"), logs the event in development, and calls `gtag('event', name, params)` when `gtag` exists. `gtag` is defined by the inline script below before React hydrates, as a queue (`dataLayer`): an event sent while gtag.js is still downloading waits there and is sent, in order, when it arrives.
+
+### Loading Google's tag, under the CSP
+
+| Script | How | Why |
+|---|---|---|
+| the init script: `dataLayer`, `gtag()`, Consent Mode's default, `js`, `config` | a plain inline `<script>` in `<head>` (`gtagInitScript`, `features/analytics/gtag-init.ts`), with the request's nonce | it runs while the HTML is parsed, before React hydrates and before the page's first events (`view_item_list` and `view_item` fire at hydration); `next/script`'s `afterInteractive` would run it after them |
+| gtag.js (`https://www.googletagmanager.com/gtag/js?id=…`) | `next/script`, `strategy="afterInteractive"`, `nonce` | a large script nobody needs to wait for; the queue holds every call until it runs |
+
+Both carry the nonce of artikel 08, so `script-src` gains a host, never `'unsafe-inline'`. When the ID is set, `proxy.ts` adds the hosts Google documents for GA4 (developers.google.com/tag-platform/security/guides/csp), and nothing else changes:
+
+- `script-src` + `https://*.googletagmanager.com`
+- `img-src` + `https://*.google-analytics.com https://*.googletagmanager.com`
+- `connect-src` + `https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com`
+
+Not `@next/third-parties`' `<GoogleAnalytics>`: it sends `config` from its own script after hydration, so Consent Mode's default (which must come first) and the hydration-time events would need a second script anyway, and it adds a dependency.
+
+### Consent Mode v2, with a banner
+
+1. **Default, before `config`:** `ad_storage`, `ad_user_data` and `ad_personalization` are always `denied` (GoShop runs no ads, and no event of ours should reach an advertising product); `analytics_storage` is the buyer's stored answer, or `denied`. The init script reads the answer from `localStorage` itself, synchronously, so a buyer who said "Izinkan" yesterday is counted with a cookie from the first hit, not after an update.
+2. **The banner** (`features/analytics/components/AnalyticsConsent.tsx`) appears only when GA is configured and no answer is stored: "Izinkan analytics?", what is collected (and what is not), "Izinkan" and "Tolak". An answer is applied at once with `gtag('consent', 'update', { analytics_storage })` and stored in `localStorage` under `goshop:analytics-consent` (`granted` or `denied`, every access in `try`/`catch`: blocked storage means the banner asks again next visit). Another tab's answer reaches this tab through the `storage` event and is applied here too.
+3. **Changing it later:** "Pengaturan analytics" in the footer (the footer exists only when analytics is on) opens the banner again with the current answer; `Esc` or "Tutup" closes it.
+
+**Accessible, and out of the way.** The banner is a `<section>` named by its heading (a region in the landmarks list), with real buttons. It does not take the focus when it appears by itself: a buyer typing an address is not interrupted, and may answer later or never (no answer is `denied`). Opened from the footer button it takes the focus, because the buyer asked for it, and gives it back to that button when it closes. It is fixed to the bottom of the screen (a small card in the corner from `md`), and a spacer of its measured height sits under the page, so the last thing on a page, such as checkout's pay button on a phone, can always be scrolled above it. Fixed rather than inserted into the page: a banner pushed in after hydration would move everything below it, a layout shift (CLS, artikel 12). It is not in the server's HTML: the stored answer is only known in the browser (`useSyncExternalStore` with a server snapshot of "not known yet").
+
+**Advanced, not basic, consent mode.** In **basic** mode nothing of Google's loads until the buyer says yes: the stricter choice, with no request to Google at all before consent, and the one to use if a legal review asks for it (render the scripts only once `goshop:analytics-consent` is `granted`). GoShop uses **advanced** mode: gtag.js loads for everyone, and before consent (or after "Tolak") it writes no cookie and sends **cookieless pings** (no client id), which GA4 only uses for modelled totals. The shop still learns roughly how many people reach checkout and buy, without identifying anyone, and the banner can stay non-modal. The banner's text says so: "Bila ditolak, tidak ada cookie analytics; Google hanya menerima hitungan tanpa cookie."
+
+### `purchase`: once per order, and its limit
+
+The payment page sees "paid" whenever it is opened for a paid order: a reload, Back from Midtrans, a link from the order history. GA4's own de-duplication by `transaction_id` is limited and not something a report should rest on, so `trackPurchaseOnce` keeps the codes already sent in `localStorage` (`goshop:analytics-purchases`, the last 20) and sends nothing for a code it holds. Blocked storage falls back to the page's memory: a reload might send it again, the lesser harm than never sending it. Without `GA_MEASUREMENT_ID` nothing is stored.
+
+**The known gap:** the purchase is counted only if the buyer comes back to the payment page. A buyer who pays at Midtrans and closes the tab, or whose order is paid on another device, is never counted in this browser (and one who opens a paid order's payment page on a second device is counted there again). The reliable fix is **server-side**: when the payment webhook marks an order paid, the API sends `purchase` with GA4's **Measurement Protocol** (`POST https://www.google-analytics.com/mp/collect` with the measurement ID and an API secret), once, in the same place the order changes; the browser's event would then be dropped or kept only for the client id. Not built in GoShop; a candidate for a later challenge.
+
+`add_payment_info` is sent just before the browser leaves for Midtrans; delivering a hit queued that late is gtag.js' business (it flushes queued hits when the page is hidden), not verified here against a real property.
+
+### Checked
+
+Against the `goshop-b11` stack, `next start` on port 33175 (`API_INTERNAL_URL=http://localhost:33080`, `SITE_URL=http://localhost:33175`, `IMAGE_ORIGIN=http://localhost:33333`), a production build; browser checks with Playwright's Chromium on a phone profile (412×915), Google's collection hits aborted by the test so nothing reached a property.
+
+- **Without `GA_MEASUREMENT_ID`:** the CSP header is artikel 12's exactly (no Google host); the HTML has no `googletagmanager`; in the browser there is no `window.gtag` or `dataLayer`, no banner, no footer, no request to a Google host, no CSP violation, and no `goshop:analytics-*` key in `localStorage`.
+- **With `GA_MEASUREMENT_ID=G-TEST123456`:** the CSP header carries the hosts above; the HTML's `<script id="gtag-init">` carries the same nonce as the header; the gtag.js element that `next/script` adds carries that nonce too (`script.nonce` equals the init script's), and the real gtag.js loaded (`window.google_tag_manager` exists).
+- **Consent:** on a first visit `dataLayer` starts with `consent default` (all four `denied`), before `js` and `config`; the banner is visible and the focus stays on `<body>`. "Izinkan" pushes `consent update` with `analytics_storage: granted`, stores `granted`, and hides the banner; after a reload the *default* is `granted` and there is no banner. "Pengaturan analytics" reopens it with the focus on it and "Pilihan Anda sekarang: diizinkan"; "Tolak" pushes `update` `denied` and returns the focus to the button; after a reload the default is `denied`, no banner. Scrolled to the end of the catalog on the phone profile, the bottom of `<main>` (666 px) is above the banner's top (726 px; the banner is 189 px tall).
+- **Events in `dataLayer`:** `view_item_list` once on `/` (`katalog`, 12 items with `index`, `price` = `price_from`); `view_item` once on a product page, and once more after a client-side navigation to another product. `add_to_cart` and `remove_from_cart` were exercised as a guest with the test answering the browser's CORS checks (this stack's API only allows another origin) and forwarding the requests to the API: no `add_to_cart` before the click, one after "Ditambahkan ke keranjang" with the API's SKU (`KPH-S`), price 89 000 and the quantity added (2); one `remove_from_cart` only after the API confirmed the removal.
+- **Not exercised in a browser:** `begin_checkout`, `add_shipping_info`, `add_payment_info` and `purchase` (checkout needs a buyer with a verified email, which this stack has none of) and `trackPurchaseOnce`'s storage; their builders were run with Node on a sample cart and order (values, `shipping_tier: "JNE REG"`, `coupon`, `transaction_id`, `shipping`), and the call sites type-check.
+- **Seen, and left as decided:** with the test ID, gtag.js also tried `https://www.google.com/g/collect` (with and without consent), which the CSP refuses (a console error per hit). Google's CSP guide lists `*.google.com` only for Google Signals; the hits to `www.google-analytics.com/g/collect` are allowed.
+- A malformed `GA_MEASUREMENT_ID` (`UA-12345-1`) makes `/` answer 500 with "GA_MEASUREMENT_ID is not a GA4 measurement ID" in the log.
+
+## Deploying the storefront (artikel 14)
+
+Until artikel 08 the storefront was static files: Vite built `dist/`, Caddy served it. From artikel 08 it is a **server**: every page renders per request (the CSP nonce), product pages read the API, `/sitemap.xml` walks the catalog. A static host cannot run it any more; it needs a Node.js process. `apps/web/Caddyfile` is deleted: its headers moved to `next.config.ts` and `src/proxy.ts` in artikel 08.
+
+### The image (`apps/web/Dockerfile`)
+
+- **Build stage**, from the repository root as context (as Railway builds it): `pnpm fetch` from the lockfile alone (a layer reused until the lockfile changes), then the workspace's `packages/` and `apps/web/`, `pnpm install --offline` for `@goshop/web` and what it depends on, and `next build`. `NEXT_PUBLIC_API_URL` is a **build argument**, required: Next.js writes it into the browser's JavaScript, so it cannot change at run time.
+- **`output: "standalone"`** makes `next build` write `.next/standalone/`: `apps/web/server.js` and only the `node_modules` files the server imports, traced from the workspace root (`outputFileTracingRoot`), so `packages/shared` is in it too. Next.js leaves two folders out on purpose, because a CDN usually serves them: `.next/static` (the hashed browser files) and `public/`. The Dockerfile copies both next to `server.js`, so this one container serves everything.
+- **Run stage**: the same `node:24.22.1-alpine`, nothing installed, the traced files only (image 207 MB, most of it Node.js itself). It runs as the image's `node` user (uid 1000), which owns none of the files: the server only reads them. `PORT` defaults to 8080 (Railway sets its own); `HOSTNAME=0.0.0.0`, because `server.js` binds to `HOSTNAME` and Docker sets that variable to the container's id, an address the health check on 127.0.0.1 cannot reach. `HEALTHCHECK` asks `GET /healthz`, which touches neither the API nor a file.
+- **Run-time settings**, read by the server when it starts, so one image serves any environment its build argument fits: `API_INTERNAL_URL`, `SITE_URL` (required in production), `IMAGE_ORIGIN`, `GA_MEASUREMENT_ID` (`apps/web/README.md`, Configuration).
+
+### Docker Compose (`make up`)
+
+The `web` service builds the image with `NEXT_PUBLIC_API_URL=http://localhost:8080` (the API as the *host's* browser reaches it) and runs it with `API_INTERNAL_URL=http://api:8080` (the API as the *container* reaches it, by service name), `SITE_URL=http://localhost:5173`, `IMAGE_ORIGIN=http://localhost:8333` (the storage as the browser reaches it, the API's `S3_PRESIGN_ENDPOINT`) and an empty `GA_MEASUREMENT_ID` unless the host's environment sets one. It starts after the API is healthy: its pages are the API's data. Published on 5173, the origin the API's CORS default allows.
+
+### Railway (`deploy/railway/web.json`)
+
+Railway builds `apps/web/Dockerfile` from the repository root, rebuilds when the storefront, `packages/` or the lockfile change (`watchPatterns`), and waits for `/healthz` before switching traffic. The service's variables, set in Railway's dashboard:
+
+| Variable | Value | Why |
+|---|---|---|
+| `NEXT_PUBLIC_API_URL` | the API service's public URL, `https://${{api.RAILWAY_PUBLIC_DOMAIN}}` | Railway passes a service variable whose name matches a Dockerfile `ARG` to the build; changing it means a new build |
+| `API_INTERNAL_URL` | `http://${{api.RAILWAY_PRIVATE_DOMAIN}}:${{api.PORT}}`, with `PORT` set explicitly on the API service (for example 8080) so the reference resolves | server-to-API calls stay on Railway's private network, without TLS or the public edge |
+| `SITE_URL` | the storefront's public URL (its custom domain, or `https://${{RAILWAY_PUBLIC_DOMAIN}}`) | canonical links, Open Graph, the sitemap; without it production answers 500 |
+| `IMAGE_ORIGIN` | the origin of the API's `S3_PUBLIC_URL` (the bucket's public URL or its CDN) | the CSP's `img-src`; without it no photo loads |
+| `GA_MEASUREMENT_ID` | the GA4 property's ID, or unset | analytics, opt-in |
+
+The API's `APP_CORS_ALLOWED_ORIGINS` must include `SITE_URL`'s origin, and its `APP_WEB_URL` (where Midtrans returns the buyer, Bab 11 artikel 04) must be the same address. TLS ends at Railway's edge; the container speaks plain HTTP, so `Strict-Transport-Security` belongs to the edge or the custom domain's settings, as it did with Caddy.
+
+### Vercel, compared
+
+Vercel builds Next.js without a Dockerfile: it reads the framework, runs each page as a serverless function and puts `.next/static` and `public/` on its CDN. For this storefront:
+
+- **What carries over**: the code. `proxy.ts` runs as Vercel's routing middleware, the data cache and `revalidate` work through Vercel's own cache, and the environment variables are the same (set per environment: Production, Preview, Development).
+- **What changes**: the monorepo needs the project's Root Directory set to `apps/web` (Vercel installs the pnpm workspace from the root by itself); `output: "standalone"` is ignored there; the API and the worker cannot run on Vercel (a long-running Go process, a queue worker), so they stay on Railway, and `API_INTERNAL_URL` becomes the API's public URL, since there is no private network between the two; every function's cold start reaches the API over the internet.
+- **Why GoShop deploys the container**: every GoShop service already runs on Railway from a Dockerfile, so one platform, one private network and one log view cover the API, the worker and the storefront, and the same image runs under `make up`. Vercel would buy a CDN in front of the static files and preview deployments per pull request; both are worth it for a team shipping the storefront often, and the code needs no change to move.
+
+### Checked (`docker build` on colima, the container on the `goshop-b11` network)
+
+- `docker build -f apps/web/Dockerfile --build-arg NEXT_PUBLIC_API_URL=http://localhost:33080 .`: 2 min 19 s from a warm pnpm store, image 207 MB.
+- Run with `API_INTERNAL_URL=http://api:8080`, `SITE_URL=http://localhost:33177`, `IMAGE_ORIGIN=http://localhost:33333`, published on 33177: `healthy` within seconds; the process is `uid=1000(node)`; `/`, a product page (its `<h1>` and canonical link from the API, through the internal URL), `/sitemap.xml` (42 URLs), `/robots.txt`, `/keranjang`, `/healthz` and `/theme.js` answer 200, an unknown path 404; a `/_next/static/…` file has `Cache-Control: public, max-age=31536000, immutable`; the CSP and the other headers are present, `X-Powered-By` is not.
+- In Chromium: the catalog hydrated, a click on a product navigated on the client, its photo loaded, and the console had no error apart from the API's CORS refusal of this ad-hoc origin.
+- `docker stop` took 0.3 s: Node.js, as PID 1, ends on `SIGTERM` (exit code 143) instead of waiting 10 s to be killed.
+
+## Bab 11 recap (artikel 15)
+
+- **A buyer can finish:** the full cart page with optimistic quantities and one queue for every write (artikel 01); address and courier as page state with everything else derived (02); a summary whose every rupiah comes from the API's preview, and vouchers applied by asking it first (03); one press that places the order with an Idempotency-Key and starts Midtrans Snap by redirect, keeping Midtrans' code off our origin (04); a payment page that polls with backoff, stops on a final status, and believes only the API (05); the order history and each order's own snapshot (06).
+- **Crawlers can read it:** measured what a crawler gets from the single-page app (07); moved to the Next.js App Router with server and client components and a nonce-based CSP (08); product and catalog pages rendered on the server from the API through the data cache, ISR applied to the data (09); metadata, Open Graph and `Product` structured data from `SITE_URL` (10); a sitemap and robots.txt that list exactly what may be indexed (11).
+- **Fast, measured, deployed:** product photos with `srcset` from the API's variants, reserved boxes, the LCP photo first, and one image origin in the CSP (12); GA4 e-commerce events from one contract in `packages/shared`, behind Consent Mode and a banner, with no personal data (13); the standalone Next.js server in a non-root container, on Compose and Railway, with Vercel compared (14).
+
+What Bab 11 leaves open on purpose: a purchase is counted only when the buyer sees the payment page (the server-side fix is in artikel 13); the admin who will change prices, and so the reason to drop cached data on demand, arrives in Bab 12.
+
+### The Bab 10 challenge, after the move
+
+The mini cart drawer is still a challenge with no solution in the code, and two of its steps read differently now. The four questions about where state lives are in `components/layout/Providers.tsx` (`app/App.tsx` is gone). And the CSP's `style-src` is `'self'` plus this request's nonce (`src/proxy.ts`): the `<style>` element `react-remove-scroll` inserts carries no nonce, so a modal Radix dialog is still refused, and the constraint stands: no `'unsafe-inline'`.
+
+## Challenge: a promo page with ISR
+
+GoShop wants campaign pages, such as `/promo/kopi-nusantara`: a banner text, the voucher to use, and the products of one category, found by search engines and shared on WhatsApp. The API has no promotions endpoint, so the campaigns live in the storefront as data. Build it; there is no solution in the code, and each step names the article it leans on.
+
+1. **Campaigns as data** (artikel 03, 09). A file such as `features/promo/campaigns.ts` exports a list: `slug`, `title`, `description`, `voucherCode`, `categorySlug`, `startsAt`, `endsAt`. Type it, and parse it once with a Zod schema (as `packages/shared/src/schemas/` does for forms) where the file is loaded, so a typo in a date fails loudly instead of showing a wrong page.
+2. **The route** (artikel 08–09). `app/promo/[slug]/page.tsx`, a server component: find the campaign, `notFound()` for an unknown slug, fetch the category's products through `serverApi` with `revalidate` and the tags artikel 09 uses, and render the grid with the existing `ProductGrid`, the first row's photos eager (artikel 12). A campaign before `startsAt` is a 404; after `endsAt` the page stays (people still have the link) but says "Promo sudah berakhir" and hides the voucher.
+3. **The ISR question** (artikel 08–09). Try `export const revalidate = 300` on the page and `generateStaticParams` for the campaigns, then run `next build` and read its route table: the page is still `ƒ (Dynamic)`. Find out why (the root layout reads `headers()` for the CSP nonce) and write down what whole-page ISR would cost here: a page HTML cached once carries one nonce for every visitor. Then make the data the cached part, as artikel 09 does, and explain in a comment why that is ISR in the sense that matters for this page.
+4. **On-demand revalidation** (artikel 09, 14). Add `app/api/revalidate/route.ts`: a `POST` that takes a tag, checks a `REVALIDATE_SECRET` sent in a header (compared in constant time, never logged), and calls `revalidateTag`. Answer 401 without the secret, 400 for an unknown tag. Add the variable to `apps/web/.env.example`, the Compose `web` service and the Railway table. Who would call it? Write down the answer Bab 12's admin will need.
+5. **Search engines and link previews** (artikel 10–11). `generateMetadata` with the campaign's title and description, a canonical URL on `SITE_URL`, an Open Graph image (the first product's photo); list active campaigns in `app/sitemap.ts`, with no `lastModified` you cannot back with data; an ended campaign gets `noindex`.
+6. **Analytics** (artikel 13). GA4 has `view_promotion` and `select_promotion`; add them to the event contract in `packages/shared` (with `promotion_id` and `promotion_name`, still no personal data) and fire `view_promotion` once per page view, `select_promotion` when a product card on the page is opened.
+7. **Check it like the rest:** the page answers 200 with the products in the HTML before any JavaScript runs (artikel 07's `seo-probe.js`), a second request within `revalidate` sends no request to the API (watch its log), the revalidate route drops the cache (the next request does reach the API), no CSP violation in the console, and the Lighthouse LCP element is a product photo, not the banner text, or explain why not.
+
+## Bab 11, articles 01–06: what changed in the storefront
+
+The state after artikel 06, before the move to Next.js; artikel 07 onwards is described above.
+
+
+- New routes, all lazy and behind `RequireAuth` except the cart: `/checkout`, `/pesanan`, `/pesanan/:id`, `/pesanan/:id/pembayaran`, `/pembayaran/selesai`.
+- New shared code in `packages/shared` (for the web now and the mobile app from Bab 13): `updateCartItem`, `removeCartItem`, `listAddresses`, `createAddress`, `getShippingQuotes`, `previewCheckout`, `checkoutProblems`, `placeOrder`, `payOrder`, `getOrder`, `listOrders`; `addressSchema` and `voucherSchema`; the contract's types for addresses, quotes, the preview, orders and payment sessions.
+- The CSP and every other header in `apps/web/Caddyfile` are unchanged (artikel 04 explains why the payment needs nothing there).
+- Still to come in Bab 11: the move to the Next.js App Router, server rendering and SEO for product pages (artikel 07 onwards), and real product photos (`docs/bab-8.md`, Deferred).

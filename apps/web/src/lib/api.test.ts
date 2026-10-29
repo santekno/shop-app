@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const fetchMock = vi.hoisted(() => {
   const mock = vi.fn<typeof fetch>();
   vi.stubGlobal("fetch", mock);
-  vi.stubEnv("VITE_API_URL", "https://api.example.com");
+  vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.example.com");
   return mock;
 });
 
@@ -28,7 +28,7 @@ afterEach(() => {
 });
 
 describe("the storefront's API client", () => {
-  it("sends requests to VITE_API_URL", async () => {
+  it("sends requests to NEXT_PUBLIC_API_URL", async () => {
     fetchMock.mockResolvedValue(Response.json({ data: [] }));
 
     await api.request("/v1/categories");

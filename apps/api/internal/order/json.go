@@ -35,22 +35,31 @@ type shipmentJSON struct {
 	Address        addressJSON `json:"address"`
 }
 
+// latestPaymentJSON is OrderLatestPayment in api/openapi.yaml.
+type latestPaymentJSON struct {
+	Status    string    `json:"status"`
+	ExpiresAt time.Time `json:"expires_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 type orderJSON struct {
-	ID               string       `json:"id"`
-	Code             string       `json:"code"`
-	Status           string       `json:"status"`
-	CancelReason     *string      `json:"cancel_reason"`
-	Items            []itemJSON   `json:"items"`
-	Totals           totalsJSON   `json:"totals"`
-	VoucherCode      *string      `json:"voucher_code"`
-	Shipping         shipmentJSON `json:"shipping"`
-	PaymentExpiresAt time.Time    `json:"payment_expires_at"`
-	PaidAt           *time.Time   `json:"paid_at"`
-	ShippedAt        *time.Time   `json:"shipped_at"`
-	CompletedAt      *time.Time   `json:"completed_at"`
-	CancelledAt      *time.Time   `json:"cancelled_at"`
-	CreatedAt        time.Time    `json:"created_at"`
-	UpdatedAt        time.Time    `json:"updated_at"`
+	ID           string       `json:"id"`
+	Code         string       `json:"code"`
+	Status       string       `json:"status"`
+	CancelReason *string      `json:"cancel_reason"`
+	Items        []itemJSON   `json:"items"`
+	Totals       totalsJSON   `json:"totals"`
+	VoucherCode  *string      `json:"voucher_code"`
+	Shipping     shipmentJSON `json:"shipping"`
+	// LatestPayment is null when the order has no payment yet.
+	LatestPayment    *latestPaymentJSON `json:"latest_payment"`
+	PaymentExpiresAt time.Time          `json:"payment_expires_at"`
+	PaidAt           *time.Time         `json:"paid_at"`
+	ShippedAt        *time.Time         `json:"shipped_at"`
+	CompletedAt      *time.Time         `json:"completed_at"`
+	CancelledAt      *time.Time         `json:"cancelled_at"`
+	CreatedAt        time.Time          `json:"created_at"`
+	UpdatedAt        time.Time          `json:"updated_at"`
 }
 
 func toOrderJSON(o Order) orderJSON {
@@ -67,6 +76,9 @@ func toOrderJSON(o Order) orderJSON {
 		PaymentExpiresAt: o.PaymentExpiresAt.UTC(), PaidAt: utc(o.PaidAt), ShippedAt: utc(o.ShippedAt),
 		CompletedAt: utc(o.CompletedAt), CancelledAt: utc(o.CancelledAt),
 		CreatedAt: o.CreatedAt.UTC(), UpdatedAt: o.UpdatedAt.UTC(),
+	}
+	if p := o.LatestPayment; p != nil {
+		out.LatestPayment = &latestPaymentJSON{Status: p.Status, ExpiresAt: p.ExpiresAt.UTC(), UpdatedAt: p.UpdatedAt.UTC()}
 	}
 	for _, it := range o.Items {
 		out.Items = append(out.Items, itemJSON{

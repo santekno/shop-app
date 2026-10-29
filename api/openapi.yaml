@@ -263,6 +263,7 @@ paths:
                             height: 800
                             url: http://localhost:8333/goshop/products/0192f3a1-5e6f-7a8b-9c0d-1e2f3a4b5c6d/0192f3b2-0a1b-7c2d-8e3f-4a5b6c7d8e9f/800.jpg
                     created_at: "2026-11-01T08:00:00Z"
+                    updated_at: "2026-11-03T10:15:00Z"
                 page:
                   next_cursor: eyJjIjoiMjAyNi0xMS0wMVQwODowMDowMFoiLCJpZCI6IjAxOTJmM2ExIn0
         "400":
@@ -314,6 +315,7 @@ paths:
                       stock: 12
                   images: []
                   created_at: "2026-11-01T08:00:00Z"
+                  updated_at: "2026-11-03T10:15:00Z"
         "404":
           $ref: "#/components/responses/NotFound"
         "500":
@@ -2241,7 +2243,7 @@ components:
 
     Product:
       type: object
-      required: [id, slug, name, description, category, price_from, in_stock, variants, images, created_at]
+      required: [id, slug, name, description, category, price_from, in_stock, variants, images, created_at, updated_at]
       additionalProperties: false
       properties:
         id:
@@ -2280,6 +2282,10 @@ components:
         created_at:
           type: string
           format: date-time
+        updated_at:
+          type: string
+          format: date-time
+          description: The last time an admin saved the product (its fields, variants or status). Stock taken by checkouts and photo changes do not move it. The storefront uses it as the sitemap's lastmod (Bab 11).
 
     ProductImage:
       type: object
@@ -3410,7 +3416,7 @@ components:
 
     Order:
       type: object
-      required: [id, code, status, cancel_reason, items, totals, voucher_code, shipping, payment_expires_at, paid_at, shipped_at, completed_at, cancelled_at, created_at, updated_at]
+      required: [id, code, status, cancel_reason, items, totals, voucher_code, shipping, latest_payment, payment_expires_at, paid_at, shipped_at, completed_at, cancelled_at, created_at, updated_at]
       additionalProperties: false
       properties:
         id:
@@ -3437,6 +3443,19 @@ components:
           type: [string, "null"]
         shipping:
           $ref: "#/components/schemas/OrderShipping"
+        latest_payment:
+          description: |
+            The order's newest payment, open or not; `null` until the buyer
+            first starts paying (always `null` in the answer of
+            `POST /v1/checkout`). It explains why a `pending_payment` order
+            still waits: a `denied`, `cancelled`, `failed` or `expired`
+            payment leaves the order payable again until
+            `payment_expires_at`. The order's `status` decides: this is read
+            just after the order, so it may be newer than `status`, never
+            older.
+          oneOf:
+            - $ref: "#/components/schemas/OrderLatestPayment"
+            - type: "null"
         payment_expires_at:
           type: string
           format: date-time
@@ -3459,6 +3478,31 @@ components:
         updated_at:
           type: string
           format: date-time
+
+    OrderLatestPayment:
+      type: object
+      description: |
+        What happened to an order's last attempt to pay, without the
+        gateway's token, IDs or amounts.
+      required: [status, expires_at, updated_at]
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          description: |
+            `pending` and `challenge` are open (Midtrans still decides);
+            `paid` means money arrived; `denied`, `cancelled`, `failed` and
+            `expired` ended without money; `refunded` and
+            `partially_refunded` returned money.
+          enum: [pending, challenge, paid, denied, cancelled, failed, expired, refunded, partially_refunded]
+        expires_at:
+          type: string
+          format: date-time
+          description: When Snap stops taking money for this payment.
+        updated_at:
+          type: string
+          format: date-time
+          description: When the payment's status last changed.
 
     OrderDetail:
       type: object

@@ -1,4 +1,4 @@
-import { useState, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 import { currentThemeChoice, setThemeChoice } from "./theme.ts";
 import type { ThemeChoice } from "./theme.ts";
 
@@ -22,6 +22,26 @@ const subscribe = (onChange: () => void) => {
 };
 const deviceIsDark = () => darkQuery()?.matches ?? false;
 
+// The saved choice lives on <html> (data-theme), set by public/theme.js
+// before React ran and by the toggle afterwards. The toggle tells every
+// reader through these listeners.
+const choiceListeners = new Set<() => void>();
+const subscribeChoice = (onChange: () => void) => {
+  choiceListeners.add(onChange);
+  return () => {
+    choiceListeners.delete(onChange);
+  };
+};
+
+// The server knows neither the saved choice nor the device: it renders
+// "no choice, light device". While hydrating, React uses these same
+// server values, so the HTML and the first browser render agree; right
+// after, it reads the real ones and renders again if they differ (Bab 11
+// artikel 08). The colours never wait for that: the CSS reads data-theme
+// and the media query itself.
+const serverChoice = (): ThemeChoice | null => null;
+const serverDeviceDark = () => false;
+
 /**
  * Whether the page is dark now, and a toggle for the header's button.
  *
@@ -33,9 +53,16 @@ const deviceIsDark = () => darkQuery()?.matches ?? false;
  * followed. One button, no "system" menu to explain.
  */
 export const useTheme = () => {
-  // Starts from <html>, which public/theme.js set before React ran.
-  const [choice, setChoice] = useState<ThemeChoice | null>(currentThemeChoice);
-  const deviceDark = useSyncExternalStore(subscribe, deviceIsDark);
+  const choice = useSyncExternalStore(
+    subscribeChoice,
+    currentThemeChoice,
+    serverChoice,
+  );
+  const deviceDark = useSyncExternalStore(
+    subscribe,
+    deviceIsDark,
+    serverDeviceDark,
+  );
   const isDark = choice === null ? deviceDark : choice === "dark";
 
   const toggle = () => {
@@ -43,7 +70,7 @@ export const useTheme = () => {
     const device: ThemeChoice = deviceDark ? "dark" : "light";
     const saved = next === device ? null : next;
     setThemeChoice(saved);
-    setChoice(saved);
+    for (const onChange of choiceListeners) onChange();
   };
 
   return { isDark, toggle };

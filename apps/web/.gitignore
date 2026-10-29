@@ -1,0 +1,3 @@
+# Written by `next dev` and `next build` (it points at the route types in
+# .next/, which differ between the two), so it is generated, not committed.
+next-env.d.ts

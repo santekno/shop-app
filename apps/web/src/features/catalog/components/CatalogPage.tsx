@@ -1,15 +1,21 @@
-import { Link, useSearchParams } from "react-router";
-import { isApiError } from "@goshop/shared";
+"use client";
+
+import { useQuery } from "@tanstack/react-query";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { isApiError, viewItemListEvent } from "@goshop/shared";
+import type { AnalyticsList, Category } from "@goshop/shared";
 import { Section } from "@/components/ui/Section.tsx";
 import {
   EmptyState,
   ErrorState,
   LoadingState,
 } from "@/components/ui/StatusMessage.tsx";
-import { useDocumentTitle } from "@/hooks/useDocumentTitle.ts";
+import { useTrackOnce } from "@/features/analytics/useTrackOnce.ts";
+import { categoriesQuery } from "../api/queries.ts";
 import {
+  CATALOG_PAGE_SIZE,
   catalogSearch,
-  catalogSearchParams,
   readCatalogFilters,
 } from "../catalog-filters.ts";
 import type { CatalogFilters } from "../catalog-filters.ts";
@@ -19,8 +25,28 @@ import { CategorySection } from "./CategorySection.tsx";
 import { ProductGrid } from "./ProductGrid.tsx";
 import { ProductListFooter } from "./ProductListFooter.tsx";
 
-/** Products per page: a grid of 3 or 4 columns fills evenly. */
-const PAGE_SIZE = 12;
+/**
+ * Which list the buyer is looking at, for analytics (artikel 13): a
+ * category by its slug and name, a search, or the whole catalog. The
+ * search text itself is not sent: it is whatever a buyer typed, and it
+ * could be anything, a name or a phone number included.
+ */
+const analyticsList = (
+  filters: CatalogFilters,
+  categories: readonly Category[] | undefined,
+): AnalyticsList => {
+  if (filters.q !== undefined) {
+    return { item_list_id: "pencarian", item_list_name: "Hasil pencarian" };
+  }
+  if (filters.category !== undefined) {
+    const category = categories?.find((c) => c.slug === filters.category);
+    return {
+      item_list_id: filters.category,
+      item_list_name: category?.name ?? filters.category,
+    };
+  }
+  return { item_list_id: "katalog", item_list_name: "Katalog" };
+};
 
 /**
  * The storefront's home, at "/": categories beside the products, filtered
@@ -28,8 +54,9 @@ const PAGE_SIZE = 12;
  *
  * The filters live in the URL, not in useState: the URL is state that
  * survives a reload, can be bookmarked and shared, and moves with Back
- * and Forward. useSearchParams reads it like useState and writes it with
- * setSearchParams, which navigates to the new URL.
+ * and Forward. useSearchParams (next/navigation) reads it; a change of
+ * filters is a navigation to the new URL (router.push), so the server
+ * renders the new list too (Bab 11 artikel 09).
  *
  * The page cursor is the one piece of list state kept out of the URL. It
  * is opaque, valid only with the filters it came from, and names one page,
@@ -37,8 +64,8 @@ const PAGE_SIZE = 12;
  * filters, and a change of filters starts another list from page one.
  */
 export function CatalogPage() {
-  useDocumentTitle("Katalog — GoShop");
-  const [searchParams, setSearchParams] = useSearchParams();
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const filters = readCatalogFilters(searchParams);
   const {
     data,
@@ -51,10 +78,25 @@ export function CatalogPage() {
     hasNextPage,
     fetchNextPage,
     refetch,
-  } = useProductList({ ...filters, limit: PAGE_SIZE });
+  } = useProductList({ ...filters, limit: CATALOG_PAGE_SIZE });
 
+  // view_item_list (artikel 13): the first page of each set of filters,
+  // once, as soon as it is on screen (from the server's HTML, it is there
+  // at hydration). The later pages are not new lists. The categories
+  // give the list its name; the server fetched them too.
+  const categories = useQuery(categoriesQuery());
+  const firstPage = data?.pages[0]?.data;
+  useTrackOnce(
+    firstPage === undefined || firstPage.length === 0 || categories.isPending
+      ? null
+      : viewItemListEvent(analyticsList(filters, categories.data), firstPage),
+    JSON.stringify(filters),
+  );
+
+  // scroll: false keeps the buyer where they are: the toolbar they just
+  // used stays in view.
   const setFilters = (next: CatalogFilters) => {
-    setSearchParams(catalogSearchParams(next));
+    router.push(`/${catalogSearch(next)}`, { scroll: false });
   };
 
   // Whether any page has arrived. It decides what this page shows, not
@@ -95,7 +137,7 @@ export function CatalogPage() {
               <EmptyState>
                 Kategori ini tidak ada.{" "}
                 <Link
-                  to={`/${catalogSearch({ ...filters, category: undefined })}`}
+                  href={`/${catalogSearch({ ...filters, category: undefined })}`}
                 >
                   Lihat semua produk
                 </Link>

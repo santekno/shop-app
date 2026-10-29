@@ -116,6 +116,18 @@ type Item struct {
 	LineTotal   int64
 }
 
+// LatestPayment is the newest payment of an order, as the buyer's order
+// page shows it: what happened to the last attempt to pay (Bab 11). Only
+// its status and times: tokens, gateway IDs and amounts stay in the
+// payment package.
+type LatestPayment struct {
+	// Status is a payments_status_check value: pending, challenge, paid,
+	// denied, cancelled, failed, expired, refunded or partially_refunded.
+	Status    string
+	ExpiresAt time.Time
+	UpdatedAt time.Time
+}
+
 // Order is a placed order with its lines.
 type Order struct {
 	ID     string
@@ -131,6 +143,11 @@ type Order struct {
 	TrackingNumber *string
 	Address        ShippingAddress
 	Items          []Item
+	// LatestPayment is the order's newest payment, nil when it has none.
+	// Read just after the order, so it may be newer than the order's
+	// status, never older: the order's status decides, and this only
+	// explains a pending_payment order.
+	LatestPayment *LatestPayment
 
 	PaymentExpiresAt time.Time
 	PaidAt           *time.Time

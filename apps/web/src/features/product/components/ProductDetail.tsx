@@ -1,10 +1,11 @@
+import Link from "next/link";
 import { useId, useState } from "react";
 import { formatRupiah } from "@goshop/shared";
 import type { Product } from "@goshop/shared";
 import { Card } from "@/components/ui/Card.tsx";
-import { useDocumentTitle } from "@/hooks/useDocumentTitle.ts";
 import { useLateHeadingFocus } from "@/hooks/useLateHeadingFocus.ts";
 import { AddToCart } from "@/features/cart/components/AddToCart.tsx";
+import { catalogSearch } from "@/features/catalog/catalog-filters.ts";
 import { ProductImage } from "@/features/catalog/components/ProductImage.tsx";
 import { clampQuantity, maxQuantity } from "../quantity.ts";
 import { QuantityStepper } from "./QuantityStepper.tsx";
@@ -23,7 +24,6 @@ interface ProductDetailProps {
  * the product into state after it arrives.
  */
 export function ProductDetail({ product }: ProductDetailProps) {
-  useDocumentTitle(`${product.name} — GoShop`);
   const headingId = useId();
 
   // The heading arrives with the product, after the navigation.
@@ -58,9 +58,28 @@ export function ProductDetail({ product }: ProductDetailProps) {
       className="grid w-full gap-6 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]"
       labelledBy={headingId}
     >
-      <ProductImage name={product.name} />
+      {/* The page's largest element, so its Largest Contentful Paint:
+          requested at once and first (artikel 12). Full width on a
+          phone, two fifths of the card from md, at most 26rem. */}
+      <ProductImage
+        image={product.images[0]}
+        productName={product.name}
+        sizes="(min-width: 72rem) 26rem, (min-width: 48rem) 36vw, calc(100vw - 4rem)"
+        loading="priority"
+      />
       <div className="grid content-start gap-3">
-        <p className="text-muted-foreground">{product.category.name}</p>
+        {/* A link to the category's list: a buyer can browse the rest of
+            it, a crawler finds the category page, and the breadcrumb in
+            the structured data (Katalog › category › product) matches
+            what the page shows (artikel 10). */}
+        <p className="text-muted-foreground">
+          <Link
+            href={`/${catalogSearch({ category: product.category.slug, q: undefined, sort: "newest" })}`}
+            className="text-inherit"
+          >
+            {product.category.name}
+          </Link>
+        </p>
         <h1 ref={headingRef} id={headingId} tabIndex={-1}>
           {product.name}
         </h1>

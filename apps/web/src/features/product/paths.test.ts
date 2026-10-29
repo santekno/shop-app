@@ -1,14 +1,14 @@
-import { matchPath } from "react-router";
 import { describe, expect, it } from "vitest";
+import { routeFor } from "@/test/app-routes.ts";
 import {
   FROM_CATALOG,
-  PRODUCT_ROUTE,
   cameFromCatalog,
   productPath,
+  productSlugFromPath,
 } from "./paths.ts";
 
 describe("productPath", () => {
-  it("builds /produk/:slug", () => {
+  it("builds /produk/[slug]", () => {
     expect(productPath("kaos-polos")).toBe("/produk/kaos-polos");
   });
 
@@ -16,10 +16,29 @@ describe("productPath", () => {
     expect(productPath("a/b?c#d")).toBe("/produk/a%2Fb%3Fc%23d");
   });
 
-  it("matches PRODUCT_ROUTE with the slug as its parameter", () => {
-    expect(
-      matchPath(PRODUCT_ROUTE, productPath("kaos-polos-hitam"))?.params.slug,
-    ).toBe("kaos-polos-hitam");
+  it.each(["kaos-polos-hitam", "a/b?c#d"])(
+    "opens app/produk/[slug] with %s as the slug",
+    (slug) => {
+      const match = routeFor(productPath(slug));
+
+      expect(match?.route.pattern).toBe("/produk/[slug]");
+      expect(match?.params.slug).toBe(slug);
+    },
+  );
+});
+
+describe("productSlugFromPath", () => {
+  it("gives back the slug productPath encoded", () => {
+    expect(productSlugFromPath(productPath("a/b?c#d"))).toBe("a/b?c#d");
+  });
+
+  it.each([
+    ["another page", "/keranjang"],
+    ["the bare prefix", "/produk/"],
+    ["a deeper path", "/produk/kaos/ulasan"],
+    ["a broken escape", "/produk/%E0%A4%A"],
+  ])("is undefined for %s", (_, path) => {
+    expect(productSlugFromPath(path)).toBeUndefined();
   });
 });
 

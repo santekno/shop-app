@@ -22,12 +22,21 @@ export const API_URL = trimSlash(
 );
 
 /**
- * The API as the browser reaches it: the VITE_API_URL the web image was
- * built with (docker-compose.yml's default), which also ends up in the
- * Content-Security-Policy's connect-src.
+ * The API as the browser reaches it: the NEXT_PUBLIC_API_URL the web image
+ * was built with (docker-compose.yml's default; Bab 7–10's VITE_API_URL),
+ * which also ends up in the Content-Security-Policy's connect-src.
  */
 export const BROWSER_API_URL = trimSlash(
-  process.env.VITE_API_URL ?? "http://localhost:8080",
+  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080",
+);
+
+/**
+ * The storefront's public origin the web container runs with (SITE_URL,
+ * docker-compose.yml's default): canonical links, Open Graph and the
+ * sitemap name it.
+ */
+export const SITE_URL = trimSlash(
+  process.env.SITE_URL ?? "http://localhost:5173",
 );
 
 /** The repository root, where docker-compose.yml lives. */
@@ -73,6 +82,37 @@ export const composeWith = (
 
 /** composeWith with the defaults. */
 export const compose = (...args: string[]): string => composeWith({}, ...args);
+
+/**
+ * Runs SQL in the stack's Postgres (psql -At: unaligned, no headers) and
+ * returns its output, one row per line, columns separated by "|". For
+ * what the API has no endpoint for (a verified email, a product's stock
+ * put back). Only values the specs make themselves (UUIDs, generated
+ * emails, slugs) are written into the statement.
+ */
+export const psql = (sql: string): string =>
+  compose(
+    "exec",
+    "-T",
+    "postgres",
+    "psql",
+    "-U",
+    "goshop",
+    "-d",
+    "goshop",
+    "-v",
+    "ON_ERROR_STOP=1",
+    "-At",
+    "-c",
+    sql,
+  ).trim();
+
+/**
+ * The IMAGE_ORIGIN the running web container was started with: where the
+ * browser loads product photos from (docker-compose.yml).
+ */
+export const stackImageOrigin = (): string =>
+  compose("exec", "-T", "web", "printenv", "IMAGE_ORIGIN").trim();
 
 /** Runs one docker CLI command and returns its stdout. */
 export const docker = (...args: string[]): string =>

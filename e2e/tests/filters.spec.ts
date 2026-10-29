@@ -1,9 +1,11 @@
 // The catalog's filters live in the URL (?kategori=, ?q=, ?urut=): choosing
-// one updates the address and reloads the list from the API with the
-// matching query, keeping the focus on the control in use; a reload or a
-// shared link shows the same list, Back returns to the previous filter,
-// and a URL the API cannot serve falls back cleanly instead of breaking
-// the page.
+// one updates the address and shows the list for it, keeping the focus on
+// the control in use; a reload or a shared link shows the same list, Back
+// returns to the previous filter, and a URL the API cannot serve falls
+// back cleanly instead of breaking the page. Since Bab 11 (artikel 09) the
+// server fetches each filter's first page, also after a client navigation
+// (the new page's server payload carries it), so the browser asks the API
+// only for later pages, or again when the server's request failed.
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { watchBrowser } from "../support/browser.ts";
@@ -63,11 +65,8 @@ test("a category link filters the list through the URL, and Back undoes it", asy
   expect(new Set(pakaian.map((p) => p.category.slug))).toEqual(
     new Set(["kaos", "kemeja", "celana"]),
   );
-  expect(queries.at(-1)).toEqual({
-    category: "pakaian",
-    sort: "newest",
-    limit: "12",
-  });
+  // Fetched by the server for the new URL: the browser asked nothing.
+  expect(queries).toEqual([]);
   await expect(
     categories(page).getByRole("link", { name: "Pakaian", exact: true }),
   ).toHaveAttribute("aria-current", "true");
@@ -107,7 +106,7 @@ test("sort and search update the URL and the list, and survive a reload", async 
   await expect
     .poll(() => firstPageNames(page))
     .toEqual(cheapest.map((p) => p.name));
-  expect(queries.at(-1)).toEqual({ sort: "price_asc", limit: "12" });
+  expect(queries).toEqual([]);
   // A change of query string leaves the focus on the control in use.
   await expect(sort).toBeFocused();
 
@@ -126,7 +125,7 @@ test("sort and search update the URL and the list, and survive a reload", async 
   await expect
     .poll(() => firstPageNames(page))
     .toEqual(kopi.map((p) => p.name));
-  expect(queries.at(-1)).toEqual({ q: "kopi", sort: "price_asc", limit: "12" });
+  expect(queries).toEqual([]);
 
   // A reload (or the same link shared) shows the same list and controls.
   await page.reload();
@@ -191,11 +190,15 @@ test("filters the URL cannot express are ignored, not sent to the API", async ({
 }) => {
   const problems = await watchBrowser(page);
   const queries = listQueries(page);
+  const [newest = []] = await fetchAllProducts({ sort: "newest" });
   // Not a slug, an unknown sort and a search of only spaces.
   await page.goto("/?kategori=Bukan%20Slug!&urut=acak&q=%20%20%20");
 
+  // The plain first page, from the server: the API would have answered
+  // 400 to the first two, and then the browser would have asked again.
   await expect(productCards(page)).toHaveCount(12);
-  expect(queries).toEqual([{ sort: "newest", limit: "12" }]);
+  expect(await firstPageNames(page)).toEqual(newest.map((p) => p.name));
+  expect(queries).toEqual([]);
   await expect(productSection(page).getByLabel("Urutkan")).toHaveValue(
     "newest",
   );

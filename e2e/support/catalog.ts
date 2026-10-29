@@ -50,6 +50,8 @@ export interface ProductRow {
   images: ImageRow[];
   /** RFC 3339. */
   created_at: string;
+  /** RFC 3339: the last time an admin saved the product (the sitemap's lastmod). */
+  updated_at: string;
 }
 
 /** The storefront's page size (CatalogPage's PAGE_SIZE). */
@@ -231,6 +233,18 @@ export const countApiRequests = (
   });
   return calls;
 };
+
+/**
+ * text as React writes it into server-rendered HTML (escapeTextForBrowser),
+ * to look for an API value in a page's source.
+ */
+export const asHtml = (text: string): string =>
+  text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#x27;");
 
 /** Fails on any console error, uncaught exception or CSP violation. */
 export const expectNoProblems = (problems: BrowserProblems): void => {

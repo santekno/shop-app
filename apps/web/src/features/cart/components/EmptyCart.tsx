@@ -1,4 +1,4 @@
-import { Link } from "react-router";
+import Link from "next/link";
 import { ShoppingCart } from "lucide-react";
 import { Button } from "@/components/ui/Button.tsx";
 
@@ -29,7 +29,7 @@ export function EmptyCart() {
       {/* A link that looks like a button is still a link: it goes to
           another page. Full width on a phone, an easy target. */}
       <Button asChild className="mt-2 w-full sm:w-auto">
-        <Link to="/">Lihat katalog</Link>
+        <Link href="/">Lihat katalog</Link>
       </Button>
     </div>
   );

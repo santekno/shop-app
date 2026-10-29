@@ -1,6 +1,13 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ApiError, EMPTY_CART, addCartItem, isApiError } from "@goshop/shared";
+import {
+  ApiError,
+  EMPTY_CART,
+  addCartItem,
+  addToCartEvent,
+  isApiError,
+} from "@goshop/shared";
 import type { CartItemAdd, Money } from "@goshop/shared";
+import { track } from "@/lib/analytics.ts";
 import { useSession } from "@/features/auth/session-context.ts";
 import { api } from "@/lib/api.ts";
 import { cartKeys, cartQuery, userCartQuery } from "../api/queries.ts";
@@ -15,8 +22,15 @@ export interface AddToCartVariables {
   unitPrice: Money;
 }
 
+/**
+ * The key prefix of every write to the cart: an add here, a line change on
+ * the cart page (useChangeCartLine, Bab 11). `isMutating` matches keys by
+ * prefix, so it counts both.
+ */
+export const CART_MUTATIONS = ["cart"] as const;
+
 /** Every add to the cart, wherever it is made: one queue, one key. */
-const ADD_TO_CART = ["cart", "add"] as const;
+const ADD_TO_CART = [...CART_MUTATIONS, "add"] as const;
 
 /**
  * Adds a variant to the cart (POST /v1/cart/items), optimistically: the
@@ -166,7 +180,15 @@ export const useAddToCart = () => {
       if (isApiError(error, "CART_NOT_FOUND")) forgetCart();
     },
 
-    onSuccess: ({ cart, key, owner, newCartToken }, _variables, snapshot) => {
+    onSuccess: ({ cart, key, owner, newCartToken }, { item }, snapshot) => {
+      // add_to_cart (artikel 13): here, once the API has accepted the add,
+      // never in onMutate's guess (an add that fails was not an add).
+      // The line comes from the API's answer, so its price is the one the
+      // cart holds; the quantity is what this add added, not the line's
+      // new total. Before the session check below: the add did happen.
+      const line = cart.lines.find((l) => l.variant_id === item.variant_id);
+      if (line !== undefined) track(addToCartEvent(line, item.quantity));
+
       // The session ended after the API answered: same reason as onError.
       if (!mayWrite(owner)) return;
       queryClient.setQueryData(key, cart);
@@ -186,9 +208,10 @@ export const useAddToCart = () => {
     onSettled: (_data, error) => {
       // A cart that is gone has nothing to refetch; onError forgot it.
       if (isApiError(error, "CART_NOT_FOUND")) return;
-      // isMutating counts this add too: 1 means no other add is waiting.
+      // isMutating counts this add too: 1 means no other write to the
+      // cart (an add, or a line change on the cart page) is waiting.
       // Not awaited: the message and the button do not wait for it.
-      if (queryClient.isMutating({ mutationKey: ADD_TO_CART }) === 1) {
+      if (queryClient.isMutating({ mutationKey: CART_MUTATIONS }) === 1) {
         void queryClient.invalidateQueries({ queryKey: cartKeys.all });
       }
     },

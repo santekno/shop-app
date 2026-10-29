@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { product, rupiah, variant } from "@/test/fake-api.ts";
 import { inRouter } from "@/test/render.tsx";
 import { ProductDetail } from "./ProductDetail.tsx";
@@ -36,10 +36,6 @@ const stepperValue = () =>
   screen.getByRole("group", { name: "Jumlah" }).querySelector("output")
     ?.textContent;
 
-beforeEach(() => {
-  document.title = "GoShop";
-});
-
 describe("ProductDetail", () => {
   it("shows the product's category, name, description and a photo placeholder", () => {
     render(inRouter(<ProductDetail product={kaos()} />));
@@ -51,14 +47,6 @@ describe("ProductDetail", () => {
     expect(article.textContent).toContain("Kaos");
     expect(screen.getByText("Katun 100%.")).toBeTruthy();
     expect(screen.getByText("Belum ada foto")).toBeTruthy();
-  });
-
-  it("names the tab after the product while it is open", () => {
-    const { unmount } = render(inRouter(<ProductDetail product={kaos()} />));
-    expect(document.title).toBe("Kaos Polos — GoShop");
-
-    unmount();
-    expect(document.title).toBe("GoShop");
   });
 
   it("starts on the first variant in stock", () => {

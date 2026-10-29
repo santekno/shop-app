@@ -5,7 +5,7 @@ import { z } from "zod";
 
 // jitless: Zod normally checks whether it may compile a fast parser with
 // `new Function`. The storefront's Content-Security-Policy forbids eval
-// (script-src 'self', apps/web/Caddyfile), so that probe fails; Zod
+// (script-src has no 'unsafe-eval', apps/web/src/proxy.ts), so that probe fails; Zod
 // catches the error, but Chrome still reports a securitypolicyviolation
 // (blockedURI "eval") on every page that loads a schema. Zod's own source
 // says so where it skips the probe (zod/v4/core/util.js, allowsEval).

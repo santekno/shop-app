@@ -1,5 +1,5 @@
 import { useId, useState } from "react";
-import { Link } from "react-router";
+import Link from "next/link";
 import { Section } from "@/components/ui/Section.tsx";
 import {
   EmptyState,
@@ -69,7 +69,7 @@ export function CategorySection({ filters }: CategorySectionProps) {
               <p className="mb-2">
                 <Link
                   className={categoryLinkClasses}
-                  to={hrefFor(undefined)}
+                  href={hrefFor(undefined)}
                   aria-current={
                     filters.category === undefined ? "true" : undefined
                   }

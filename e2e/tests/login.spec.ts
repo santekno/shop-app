@@ -6,7 +6,7 @@
 import { expect, test } from "@playwright/test";
 import { BUYER } from "../support/accounts.ts";
 import { authPosts, expectOnlyStatusErrors, nav } from "../support/auth.ts";
-import { watchBrowser } from "../support/browser.ts";
+import { watchBrowser, pageAlerts } from "../support/browser.ts";
 import { BROWSER_API_URL } from "../support/stack.ts";
 
 /** A URL under the refresh cookie's Path, where the browser sends it. */
@@ -88,12 +88,10 @@ test("a wrong password gets INVALID_CREDENTIALS as a message on the form", async
   await page.getByLabel("Kata sandi").fill("bukan-kata-sandinya");
   await page.getByRole("button", { name: "Masuk" }).click();
 
-  await expect(page.getByRole("alert")).toHaveText(
-    "Email atau kata sandi salah.",
-  );
+  await expect(pageAlerts(page)).toHaveText("Email atau kata sandi salah.");
   // The clicked button was disabled while the request ran, which drops
   // the focus; the message takes it instead of <body>.
-  await expect(page.getByRole("alert")).toBeFocused();
+  await expect(pageAlerts(page)).toBeFocused();
   await expect(page).toHaveURL("/masuk");
   expect((await logins[0]?.response())?.status()).toBe(401);
   await expect(nav(page).getByRole("link", { name: "Masuk" })).toBeVisible();
@@ -108,7 +106,7 @@ test("with the keyboard only, INVALID_CREDENTIALS takes the focus on every try, 
   // An address with no account gets the same INVALID_CREDENTIALS, and its
   // own per-email rate limit: BUYER's attempts stay for the other tests.
   const email = "e2e-tidak-terdaftar@goshop.local";
-  const message = page.getByRole("alert");
+  const message = pageAlerts(page);
 
   await page.goto("/masuk");
   await page.getByLabel("Email").fill(email);

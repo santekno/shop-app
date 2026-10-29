@@ -118,6 +118,44 @@ func TestCreateTransaction_StartTimeIsWIBWhateverTheZone(t *testing.T) {
 	testx.AssertEqual(t, expiry["start_time"], any("2026-10-25 11:30:00 +0700"))
 }
 
+// Bab 11 artikel-04: with a finish URL (APP_WEB_URL), Snap sends the buyer
+// back to the storefront; without one, callbacks is left out so the
+// dashboard's Finish Redirect URL applies.
+func TestCreateTransaction_FinishURL(t *testing.T) {
+	const finish = "https://shop.example.com/pembayaran/selesai"
+	tests := []struct {
+		name       string
+		opts       []Option
+		wantFinish string // "" = no callbacks in the body
+	}{
+		{name: "set", opts: []Option{WithFinishURL(finish)}, wantFinish: finish},
+		{name: "empty changes nothing", opts: []Option{WithFinishURL("")}},
+		{name: "not given", opts: nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv, got := snapServer(t, http.StatusCreated, `{"token":"t","redirect_url":"https://r"}`)
+			c := newTestClient(srv.URL, srv.URL, tt.opts...)
+
+			_, err := c.CreateTransaction(context.Background(), snapRequest1())
+			testx.AssertNoError(t, err)
+			body := (*got)[0].body
+			callbacks, present := body["callbacks"]
+			if tt.wantFinish == "" {
+				testx.AssertFalse(t, present, "callbacks sent without a finish URL: %v", callbacks)
+				testx.AssertEqual(t, len(body), 2, "body %v", body)
+				return
+			}
+			// Only finish: no error or unfinish page, which Snap would
+			// otherwise use for those outcomes too.
+			cb, _ := callbacks.(map[string]any)
+			testx.AssertEqual(t, len(cb), 1, "callbacks %v", callbacks)
+			testx.AssertEqual(t, cb["finish"], any(finish))
+			testx.AssertEqual(t, len(body), 3, "body %v", body)
+		})
+	}
+}
+
 func TestCreateTransaction_BadAnswers(t *testing.T) {
 	tests := []struct {
 		name   string

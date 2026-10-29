@@ -1,4 +1,4 @@
-import { NavLink } from "react-router";
+import { NavLink } from "@/components/navigation/NavLink.tsx";
 import type { Cart } from "@goshop/shared";
 import { useCart } from "../hooks/useCart.ts";
 import { Badge } from "@/components/ui/Badge.tsx";
@@ -11,7 +11,7 @@ export function CartNavLink() {
   // when, say, a price in the cart does.
   const { data: count = 0 } = useCart(selectItemCount);
   return (
-    <NavLink to="/keranjang">
+    <NavLink href="/keranjang">
       Keranjang
       {/* {" "}: a real space, not only the badge's CSS margin; without it
           some engines read "Keranjang3 barang" as the link's name. */}

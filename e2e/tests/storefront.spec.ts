@@ -1,12 +1,14 @@
 // The storefront as a buyer gets it: the web container's build, in a real
-// browser, calling the real API across origins (localhost:5173 ->
-// localhost:8080), with the CSP the container sends.
+// browser, with the CSP the container sends. Since Bab 11 (artikel 09) the
+// catalog's categories and first page come with the HTML, fetched by the
+// server; the browser calls the real API across origins (localhost:5173 ->
+// localhost:8080) for what is personal, such as the session.
 import { expect, test } from "@playwright/test";
 import type { Locator } from "@playwright/test";
 import { watchBrowser } from "../support/browser.ts";
 import {
-  FIRST_PAGE_QUERY,
   PAGE_SIZE,
+  asHtml,
   countApiRequests,
   disableAutoLoad,
   expectNoProblems,
@@ -42,13 +44,20 @@ const readTree = (section: Locator): Promise<NamedNode[]> =>
     return top ? walk(top) : [];
   });
 
-test("renders the seeded category tree from the API", async ({ page }) => {
+test("renders the seeded category tree from the API, in the server's HTML", async ({
+  page,
+  request,
+}) => {
   const problems = await watchBrowser(page);
   const rows = await fetchCategories();
   const expected = nestByParent(rows);
 
-  const categoriesResponse = page.waitForResponse(
-    (response) => new URL(response.url()).pathname === "/v1/categories",
+  // In the HTML already, before any JavaScript runs.
+  const html = await (await request.get("/")).text();
+  for (const row of rows) expect(html, row.name).toContain(asHtml(row.name));
+
+  const refreshResponse = page.waitForResponse(
+    `${BROWSER_API_URL}/v1/auth/web/refresh`,
   );
   await page.goto("/");
   await expect(page).toHaveTitle("Katalog — GoShop");
@@ -73,9 +82,11 @@ test("renders the seeded category tree from the API", async ({ page }) => {
     );
   }
 
-  // The browser call crossed origins and CORS let the page read it.
-  const response = await categoriesResponse;
-  expect(response.status()).toBe(200);
+  // The browser's own call (does it hold a session?) crossed origins, and
+  // CORS let the page read it, with the credentials it needs.
+  const response = await refreshResponse;
+  expect(response.status()).toBe(204);
+  expect(response.headers()["access-control-allow-credentials"]).toBe("true");
   expect(response.headers()["access-control-allow-origin"]).toBe(WEB_URL);
   expect(response.headers()["x-request-id"]).toMatch(/^[0-9a-f]{32}$/);
 
@@ -84,7 +95,7 @@ test("renders the seeded category tree from the API", async ({ page }) => {
   expect(problems.cspViolations).toEqual([]);
 });
 
-test("loads each endpoint with one request and no retries", async ({
+test("the browser asks the API once, for the session, and never retries", async ({
   page,
 }) => {
   const problems = await watchBrowser(page);
@@ -106,15 +117,14 @@ test("loads each endpoint with one request and no retries", async ({
     productSection(page).getByRole("button", { name: "Muat lebih banyak" }),
   ).toBeEnabled();
 
-  // One request per endpoint: the production build runs each effect once
-  // (StrictMode doubles them in dev only), a successful answer is never
-  // retried, and the catalog asks for one page of PAGE_SIZE in the
-  // default order. Since Bab 10 every page load also asks once whether
-  // the browser holds a session (204 for a visitor who is not logged in).
+  // One request in all: the production build runs each effect once
+  // (StrictMode doubles them in dev only) and a successful answer is never
+  // retried. The categories and the first page came with the HTML (the
+  // browser starts with the server's data, Bab 11 artikel 09), so the only
+  // call left is the one every page load makes since Bab 10: does the
+  // browser hold a session (204 for a visitor who is not logged in)?
   expect(Object.fromEntries(calls)).toEqual({
     "/v1/auth/web/refresh": ["POST /v1/auth/web/refresh"],
-    "/v1/categories": ["GET /v1/categories"],
-    "/v1/products": [`GET /v1/products?${FIRST_PAGE_QUERY}`],
   });
   expectNoProblems(problems);
 });

@@ -16,11 +16,12 @@ import (
 
 func TestGroupProducts(t *testing.T) {
 	created := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	updated := time.Date(2026, 10, 3, 2, 30, 0, 0, time.UTC)
 	parent := "cat-pakaian"
 	row := func(id, variantID string, stock int32) productRow {
 		return productRow{
 			ID: id, Slug: "slug-" + id, Name: "Name " + id, Description: "Desc " + id,
-			PriceFrom: sql.NullInt64{Int64: 89000, Valid: true}, CreatedAt: created,
+			PriceFrom: sql.NullInt64{Int64: 89000, Valid: true}, CreatedAt: created, UpdatedAt: updated,
 			CategoryID: "cat-kaos", CategorySlug: "kaos", CategoryName: "Kaos", CategoryParentID: &parent,
 			VariantID: variantID, VariantSku: "SKU-" + variantID, VariantName: "V " + variantID,
 			VariantPrice: 89000, VariantStock: stock,
@@ -53,6 +54,7 @@ func TestGroupProducts(t *testing.T) {
 	testx.AssertEqual(t, b.Description, "Desc b")
 	testx.AssertEqual(t, b.PriceFrom, int64(89000))
 	testx.AssertTrue(t, b.CreatedAt.Equal(created))
+	testx.AssertTrue(t, b.UpdatedAt.Equal(updated), "UpdatedAt %v", b.UpdatedAt)
 	testx.AssertEqual(t, b.Category.ID, "cat-kaos")
 	testx.AssertEqual(t, b.Category.Slug, "kaos")
 	testx.AssertEqual(t, b.Category.Name, "Kaos")

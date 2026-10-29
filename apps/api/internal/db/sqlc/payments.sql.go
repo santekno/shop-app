@@ -55,6 +55,34 @@ func (q *Queries) FlagPaymentForRefund(ctx context.Context, arg FlagPaymentForRe
 	return err
 }
 
+const getLatestPaymentOfOrder = `-- name: GetLatestPaymentOfOrder :one
+SELECT status, expires_at, updated_at
+FROM payments
+WHERE order_id = $1
+ORDER BY created_at DESC, id DESC
+LIMIT 1
+`
+
+type GetLatestPaymentOfOrderRow struct {
+	Status    string
+	ExpiresAt time.Time
+	UpdatedAt time.Time
+}
+
+// The order's newest payment, open or not, for the order page (Bab 11): it
+// tells the buyer why an order still waits (a denied card, an expired
+// virtual account). The caller has already read the order scoped to its
+// owner, so this is never the first read of someone else's order. Served by
+// payments_order_created_idx (order_id, created_at DESC): an index scan of
+// one order's few payments, stopped after the first created_at; id only
+// breaks a tie there (an incremental sort of that one group).
+func (q *Queries) GetLatestPaymentOfOrder(ctx context.Context, orderID string) (GetLatestPaymentOfOrderRow, error) {
+	row := q.db.QueryRowContext(ctx, getLatestPaymentOfOrder, orderID)
+	var i GetLatestPaymentOfOrderRow
+	err := row.Scan(&i.Status, &i.ExpiresAt, &i.UpdatedAt)
+	return i, err
+}
+
 const getOpenPayment = `-- name: GetOpenPayment :one
 
 SELECT id, order_id, provider, provider_order_id, amount, status, snap_token, redirect_url,

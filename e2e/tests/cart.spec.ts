@@ -5,7 +5,7 @@
 // the token, which the cart store saves in localStorage.
 import { expect, test } from "@playwright/test";
 import type { Page, Request, Route } from "@playwright/test";
-import { watchBrowser } from "../support/browser.ts";
+import { watchBrowser, pageAlerts } from "../support/browser.ts";
 import type { BrowserProblems } from "../support/browser.ts";
 import {
   expectNoProblems,
@@ -391,7 +391,7 @@ test("a cart token the API does not know is forgotten, and /keranjang shows an e
   await expectCount(page, 0);
   await cartLink(page).click();
   await expect(page.getByText("Keranjang Anda masih kosong.")).toBeVisible();
-  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(pageAlerts(page)).toHaveCount(0);
   expect(gets).toEqual([unknown]);
   // Since Bab 10 the cart page says why the cart is empty, in a live
   // region, until the buyer closes the notice; the saved token is gone.

@@ -11,8 +11,9 @@ import { cn } from "@/lib/utils.ts";
  *
  * modal is false by default here, unlike Radix. A modal menu locks the
  * page's scrolling with react-remove-scroll, which inserts a <style>
- * element; the storefront's Content-Security-Policy (style-src 'self',
- * apps/web/Caddyfile) blocks that element and reports a violation. A
+ * element; the storefront's Content-Security-Policy (style-src 'self' and
+ * a nonce that element does not carry, src/proxy.ts) blocks it and
+ * reports a violation. A
  * non-modal menu has no scroll lock, so nothing is injected; it still
  * closes on Escape, on a click outside and when the focus leaves.
  */

@@ -105,7 +105,8 @@ func (r *PostgresRepository) Place(ctx context.Context, in PlaceInput) (Response
 	return resp, err
 }
 
-// readOrder reads the new order back through the transaction.
+// readOrder reads the new order back through the transaction. A new order
+// has no payment yet, so LatestPayment stays nil without a query.
 func readOrder(ctx context.Context, q *sqlc.Queries, userID, orderID string) (Order, error) {
 	row, err := q.GetOrderForUser(ctx, sqlc.GetOrderForUserParams{ID: orderID, UserID: userID})
 	if err != nil {

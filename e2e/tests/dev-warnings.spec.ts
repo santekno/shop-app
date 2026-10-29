@@ -1,12 +1,15 @@
 // React's development warnings, such as a list item without a unique
-// `key`, exist only in a development build: the production bundle the web
-// container serves strips them. So this spec starts the Vite dev server,
-// walks the same flows as the other specs (catalog, every page, a product,
-// its choices, back), and fails on any console error or warning.
+// `key` or a hydration mismatch, exist only in a development build: the
+// production bundle the web container serves strips them. So this spec
+// starts the Next.js dev server (`next dev`, the Vite dev server until Bab
+// 11), walks the same flows as the other specs (catalog, every page, a
+// product, its choices, back), and fails on any console error or warning.
 //
-// The dev server has an origin of its own, which the API's CORS does not
-// allow, so each API call is passed through Playwright to the real API and
-// handed back with Access-Control-Allow-Origin added. The data is real.
+// The dev server's own server components call the API directly (no CORS
+// on the server). The browser's page has an origin of its own, which the
+// API's CORS does not allow, so each API call from the browser is passed
+// through Playwright to the real API and handed back with
+// Access-Control-Allow-Origin added. The data is real.
 // The web session endpoints (Bab 10) also refuse an Origin they do not
 // know, so the call is forwarded with the stack's own storefront origin,
 // and their answer allows credentials, as the API's does for that origin.
@@ -22,10 +25,13 @@ import {
   productCards,
   productSection,
 } from "../support/catalog.ts";
+import { clientNavigate } from "../support/browser.ts";
 import {
+  API_URL,
   BROWSER_API_URL,
   REPO_ROOT,
   WEB_URL,
+  stackImageOrigin,
   waitForOk,
 } from "../support/stack.ts";
 
@@ -44,27 +50,37 @@ test("the development build logs no warning or error across the storefront", asy
   test.setTimeout(180_000);
   const webDir = path.join(REPO_ROOT, "apps", "web");
   const port = await freePort();
-  const origin = `http://127.0.0.1:${port}`;
-  let vite: ChildProcess | undefined;
+  // localhost, not 127.0.0.1: next dev refuses its development files to
+  // an origin it was not started for (allowedDevOrigins).
+  const origin = `http://localhost:${port}`;
+  let next: ChildProcess | undefined;
   let output = "";
 
   try {
-    vite = spawn(
-      path.join(webDir, "node_modules", ".bin", "vite"),
-      ["--host", "127.0.0.1", "--port", String(port), "--strictPort"],
+    next = spawn(
+      path.join(webDir, "node_modules", ".bin", "next"),
+      ["dev", "--hostname", "localhost", "--port", String(port)],
       {
         cwd: webDir,
+        // Its own process group, so the dev server's workers stop with it.
+        detached: true,
         env: {
           ...process.env,
-          VITE_API_URL: BROWSER_API_URL,
+          NODE_ENV: "development",
+          NEXT_PUBLIC_API_URL: BROWSER_API_URL,
+          API_INTERNAL_URL: API_URL,
+          // The stack's image storage, so the photos pass the CSP.
+          IMAGE_ORIGIN: stackImageOrigin(),
+          NEXT_TELEMETRY_DISABLED: "1",
           FORCE_COLOR: "0",
         },
         stdio: ["ignore", "pipe", "pipe"],
       },
     );
-    vite.stdout?.on("data", (chunk: Buffer) => (output += chunk.toString()));
-    vite.stderr?.on("data", (chunk: Buffer) => (output += chunk.toString()));
-    await waitForOk(`${origin}/`, 60_000);
+    next.stdout?.on("data", (chunk: Buffer) => (output += chunk.toString()));
+    next.stderr?.on("data", (chunk: Buffer) => (output += chunk.toString()));
+    // The first request compiles the page, which takes a while.
+    await waitForOk(`${origin}/healthz`, 90_000);
 
     await page.route(`${BROWSER_API_URL}/**`, async (route) => {
       const request = route.request();
@@ -86,19 +102,33 @@ test("the development build logs no warning or error across the storefront", asy
       });
     });
 
-    // The first visit makes Vite pre-bundle the dependencies, which may
-    // reload the page once; only the second visit is checked.
+    // next dev compiles each page on its first request, and may reload an
+    // open page when it compiles more: every page the walk visits is
+    // requested once first, then the catalog is opened twice; only the
+    // second visit is checked.
+    for (const path of [
+      "/",
+      "/produk/kaos-oversize-abu-abu",
+      "/keranjang",
+      "/masuk",
+      "/daftar",
+      "/tidak-ada",
+    ]) {
+      await fetch(`${origin}${path}`);
+    }
     await page.goto(origin);
     await expect(productCards(page).first()).toBeVisible({ timeout: 60_000 });
 
+    // Each message is labelled with the step that caused it.
+    let step = "catalog";
     const messages: string[] = [];
     page.on("console", (message) => {
       if (message.type() === "error" || message.type() === "warning") {
-        messages.push(`${message.type()}: ${message.text()}`);
+        messages.push(`${step}: ${message.type()}: ${message.text()}`);
       }
     });
     page.on("pageerror", (error) =>
-      messages.push(`pageerror: ${String(error)}`),
+      messages.push(`${step}: pageerror: ${String(error)}`),
     );
 
     await page.reload();
@@ -109,6 +139,7 @@ test("the development build logs no warning or error across the storefront", asy
     await loadEverything(page);
 
     // A product with several variants: pick one, step the quantity, back.
+    step = "variants";
     await openProduct(page, "Kaos Oversize Abu-abu");
     const article = page.getByRole("article", {
       name: "Kaos Oversize Abu-abu",
@@ -119,6 +150,7 @@ test("the development build logs no warning or error across the storefront", asy
     await expect(productSection(page)).toBeVisible();
 
     // A sold-out variant and the brand link.
+    step = "sold out";
     await openProduct(page, "Rengginang Terasi 250 g");
     await page
       .getByRole("article", { name: "Rengginang Terasi 250 g" })
@@ -131,6 +163,7 @@ test("the development build logs no warning or error across the storefront", asy
     await expect(productSection(page)).toBeVisible();
 
     // Bab 9's flows: a category, the sort, a search.
+    step = "filters";
     await page
       .getByRole("region", { name: "Kategori" })
       .getByRole("link", { name: "Makanan & Minuman", exact: true })
@@ -145,6 +178,7 @@ test("the development build logs no warning or error across the storefront", asy
     await expect(page).toHaveURL(/q=kopi/);
 
     // Into the cart, and the cart page.
+    step = "cart";
     await openProduct(page, "Kopi Arabika Gayo 250 g");
     const kopi = page.getByRole("article", { name: "Kopi Arabika Gayo 250 g" });
     await kopi.getByRole("button", { name: "Tambah ke keranjang" }).click();
@@ -152,6 +186,7 @@ test("the development build logs no warning or error across the storefront", asy
     await expect(page.locator(".cart-line")).toHaveCount(1);
 
     // The forms, with their client-side errors.
+    step = "forms";
     const nav = page.getByRole("navigation", { name: "Utama" });
     await nav.getByRole("link", { name: "Masuk" }).click();
     await page.getByRole("button", { name: "Masuk" }).click();
@@ -161,35 +196,45 @@ test("the development build logs no warning or error across the storefront", asy
     await expect(page.getByText("Masukkan nama Anda.")).toBeVisible();
 
     // An unknown address and a product that does not exist: both end on
-    // the 404 page, in the app (pushState), not through a reload.
-    for (const path of ["/tidak-ada", "/produk/produk-yang-tidak-ada"]) {
-      await page.evaluate((url) => {
-        window.history.pushState({}, "", url);
-        window.dispatchEvent(new PopStateEvent("popstate"));
-      }, path);
-      await expect(
-        page.getByRole("heading", {
-          level: 1,
-          name: "Halaman tidak ditemukan",
-        }),
-      ).toBeVisible();
+    // a 404 page, reached through Next.js' router (which loads an
+    // address no route matches as a new page).
+    for (const [path, text] of [
+      [
+        "/produk/produk-yang-tidak-ada",
+        "Produk ini tidak ada atau sudah tidak dijual.",
+      ],
+      ["/tidak-ada", "Alamat ini tidak ada di GoShop."],
+    ] as const) {
+      step = path;
+      await clientNavigate(page, path);
+      await expect(page).toHaveURL(`${origin}${path}`);
+      await expect(page.getByText(text)).toBeVisible();
     }
 
     // React 19 reports a missing or duplicate key with console.error in
-    // development ("Each child in a list should have a unique key prop").
-    // The one line allowed is Chrome's own for the missing product's 404,
-    // the answer under test; the expected NOT_FOUND is not logged.
-    expect(messages).toEqual([
-      "error: Failed to load resource: the server responded with a status of 404 (Not Found)",
-    ]);
+    // development ("Each child in a list should have a unique key prop"),
+    // and a hydration mismatch the same way. The only lines allowed are
+    // Chrome's own for the 404 answers of the last two steps, the answers
+    // under test; the expected NOT_FOUND is not logged.
+    const notFound = (line: string) =>
+      /^(\/tidak-ada|\/produk\/produk-yang-tidak-ada): error: Failed to load resource: the server responded with a status of 404 \(Not Found\)$/.test(
+        line,
+      );
+    expect(messages.filter((line) => !notFound(line))).toEqual([]);
   } catch (error) {
-    throw new Error(`${String(error)}\n--- vite output ---\n${output}`, {
+    throw new Error(`${String(error)}\n--- next dev output ---\n${output}`, {
       cause: error,
     });
   } finally {
     // A request still in flight when the test ends (a background refetch)
     // must not fail the next test from its route handler.
     await page.unrouteAll({ behavior: "ignoreErrors" });
-    vite?.kill("SIGTERM");
+    if (next?.pid !== undefined) {
+      try {
+        process.kill(-next.pid, "SIGTERM");
+      } catch {
+        // Already gone.
+      }
+    }
   }
 });

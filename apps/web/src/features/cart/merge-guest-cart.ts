@@ -6,7 +6,7 @@ import { getCartToken, useCartStore } from "./cart-store.ts";
 
 /**
  * Moves the guest cart into the user's cart, right after a login or a
- * restore (SessionProvider's onStart, wired in App.tsx), before the header
+ * restore (SessionProvider's onStart, wired in components/layout/Providers.tsx), before the header
  * switches to the user's cart: POST /v1/cart/merge with the guest token,
  * sent by `client`, which already carries the new access token.
  *

@@ -136,6 +136,7 @@ func storefrontProduct() product.Product {
 			{ID: "0190c8a0-0000-7000-8000-000000000003", SKU: "KPH-M", Name: "M", Price: 99000, Stock: 4},
 		},
 		CreatedAt: time.Date(2026, 10, 1, 19, 0, 0, 0, time.FixedZone("WIB", 7*3600)),
+		UpdatedAt: time.Date(2026, 10, 3, 9, 30, 0, 0, time.FixedZone("WIB", 7*3600)),
 	}
 }
 
@@ -171,6 +172,7 @@ func TestHandler_List_Defaults(t *testing.T) {
 				} `json:"price"`
 			} `json:"variants"`
 			CreatedAt string `json:"created_at"`
+			UpdatedAt string `json:"updated_at"`
 		} `json:"data"`
 		Page struct {
 			NextCursor *string `json:"next_cursor"`
@@ -190,6 +192,8 @@ func TestHandler_List_Defaults(t *testing.T) {
 	testx.AssertEqual(t, len(p.Variants), 2)
 	testx.AssertEqual(t, p.Variants[1].Price.Amount, int64(99000))
 	testx.AssertEqual(t, p.CreatedAt, "2026-10-01T12:00:00Z", "times are sent in UTC")
+	// Bab 11: the last admin save, the storefront's sitemap lastmod.
+	testx.AssertEqual(t, p.UpdatedAt, "2026-10-03T02:30:00Z", "updated_at is its own column, in UTC")
 	testx.AssertTrue(t, resp.Page.NextCursor != nil && *resp.Page.NextCursor == "abc", "next_cursor = %v", resp.Page.NextCursor)
 }
 

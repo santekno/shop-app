@@ -1,30 +1,44 @@
-// Prefetch on intent: a mouse resting on a product card for more than
-// 100 ms fetches the product's data and its page chunk, so the click that
-// follows needs no request at all; a mouse that only sweeps across cards
-// fetches nothing; and keyboard focus prefetches at once.
+// Prefetching the products the buyer may open. Bab 9–10 fetched a
+// product's data and page chunk when a mouse rested on its card
+// (usePrefetchProduct). Since Bab 11 the card is a next/link and the
+// product page is rendered by the server, so the job moved: Next.js
+// prefetches the route of every product link that comes into view (its
+// server payload, as a request with the Next-Router-Prefetch header), and
+// opening one then asks the storefront's server for the page, which holds
+// the product, and the API for nothing.
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { chunkName } from "../support/assets.ts";
 import { watchBrowser } from "../support/browser.ts";
 import {
   cardOpener,
+  countApiRequests,
   expectNoProblems,
   fetchAllProducts,
   productCards,
 } from "../support/catalog.ts";
-import { BROWSER_API_URL } from "../support/stack.ts";
+import { BROWSER_API_URL, WEB_URL } from "../support/stack.ts";
 
-/** Every request for product data or a JS chunk, in order. */
-const intentRequests = (page: Page): string[] => {
-  const seen: string[] = [];
+/** The product routes Next.js asked its server for, prefetch or not. */
+interface RouteRequests {
+  prefetched: Set<string>;
+  rendered: string[];
+}
+
+const routeRequests = (page: Page): RouteRequests => {
+  const seen: RouteRequests = { prefetched: new Set(), rendered: [] };
   page.on("request", (request) => {
     const url = new URL(request.url());
-    if (request.url().startsWith(`${BROWSER_API_URL}/v1/products/`)) {
-      seen.push(`api ${decodeURIComponent(url.pathname)}`);
-    } else {
-      const chunk = chunkName(url.pathname);
-      if (chunk !== undefined) seen.push(`js ${chunk}`);
+    const headers = request.headers();
+    // A router request carries the RSC header; a page load does not.
+    if (
+      !request.url().startsWith(`${WEB_URL}/produk/`) ||
+      headers.rsc !== "1"
+    ) {
+      return;
     }
+    const slug = decodeURIComponent(url.pathname.slice("/produk/".length));
+    if (headers["next-router-prefetch"] === "1") seen.prefetched.add(slug);
+    else seen.rendered.push(slug);
   });
   return seen;
 };
@@ -32,93 +46,71 @@ const intentRequests = (page: Page): string[] => {
 const openCatalog = async (page: Page) => {
   const [first = []] = await fetchAllProducts({ sort: "newest" });
   expect(first.length).toBeGreaterThanOrEqual(4);
+  // Not disableAutoLoad: Next.js finds the links in view with the same
+  // IntersectionObserver the catalog's sentinel uses.
   await page.goto("/");
   await expect(productCards(page).first()).toBeVisible();
   return first;
 };
 
-test("a resting hover fetches the product and its chunk, and the click then needs nothing", async ({
+test("the cards in view are prefetched, and a click then needs only the server's page, not the API", async ({
   page,
 }) => {
   const problems = await watchBrowser(page);
-  const seen = intentRequests(page);
+  const routes = routeRequests(page);
+  const calls = countApiRequests(page, BROWSER_API_URL);
   const [product] = await openCatalog(page);
   const name = product?.name ?? "";
   const slug = product?.slug ?? "";
-  seen.length = 0;
 
-  await cardOpener(page, name).hover();
-  await expect
-    .poll(() => seen)
-    .toEqual(
-      expect.arrayContaining([
-        `api /v1/products/${slug}`,
-        "js ProductDetailPage",
-      ]),
-    );
-  expect(seen.filter((line) => line.startsWith("api"))).toEqual([
-    `api /v1/products/${slug}`,
-  ]);
+  // The first card is on screen as the page loads: prefetched at once,
+  // before any hover.
+  await expect.poll(() => routes.prefetched.has(slug)).toBe(true);
+  expect(routes.rendered).toEqual([]);
 
-  // The click: the page shows from the cache and the loaded chunk.
-  const before = seen.length;
   await cardOpener(page, name).click();
   await expect(page.getByRole("heading", { level: 1, name })).toBeVisible();
-  expect(seen.slice(before)).toEqual([]);
+  // One request to the storefront for the page (rendered with the product
+  // by the server), none to the API for it.
+  expect(routes.rendered).toEqual([slug]);
+  expect(calls.get(`/v1/products/${slug}`)).toBeUndefined();
   expectNoProblems(problems);
 });
 
-test("a quick sweep across the cards fetches nothing", async ({ page }) => {
+test("a card below the fold is prefetched when it scrolls into view, not before", async ({
+  page,
+}) => {
   const problems = await watchBrowser(page);
-  const seen = intentRequests(page);
+  const routes = routeRequests(page);
   const first = await openCatalog(page);
-  seen.length = 0;
+  await page.waitForLoadState("networkidle");
 
-  const [a, b, c, rest] = first;
-  expect(rest).toBeDefined();
+  // The last card of the first page, under the fold at this window size.
+  const last = first.at(-1);
+  const opener = cardOpener(page, last?.name ?? "");
+  await expect(opener).not.toBeInViewport();
+  expect(routes.prefetched.has(last?.slug ?? "")).toBe(false);
 
-  // Across three cards in a row, a few milliseconds on each.
-  for (const product of [a, b, c]) {
-    if (product === undefined) continue;
-    const box = await cardOpener(page, product.name).boundingBox();
-    expect(box).not.toBeNull();
-    await page.mouse.move(
-      (box?.x ?? 0) + (box?.width ?? 0) / 2,
-      (box?.y ?? 0) + (box?.height ?? 0) / 2,
-    );
-  }
-  // Then rest on a fourth card: its prefetch fires 100 ms after the mouse
-  // arrived, later than any timer the sweep could have left running, so
-  // once its request is seen, a prefetch from the sweep would be too.
-  await cardOpener(page, rest?.name ?? "").hover();
-  await expect
-    .poll(() => seen.filter((line) => line.startsWith("api")))
-    .toEqual([`api /v1/products/${rest?.slug ?? ""}`]);
+  await opener.scrollIntoViewIfNeeded();
+  await expect.poll(() => routes.prefetched.has(last?.slug ?? "")).toBe(true);
+  // A prefetch only: nothing was opened.
+  expect(routes.rendered).toEqual([]);
   expectNoProblems(problems);
 });
 
-test("keyboard focus on a card prefetches at once", async ({ page }) => {
+test("a card opened from the keyboard needs no API request either", async ({
+  page,
+}) => {
   const problems = await watchBrowser(page);
-  const seen = intentRequests(page);
+  const routes = routeRequests(page);
+  const calls = countApiRequests(page, BROWSER_API_URL);
   const [product] = await openCatalog(page);
-  seen.length = 0;
+  const name = product?.name ?? "";
 
-  await cardOpener(page, product?.name ?? "").focus();
-  await expect
-    .poll(() => seen)
-    .toEqual(
-      expect.arrayContaining([
-        `api /v1/products/${product?.slug ?? ""}`,
-        "js ProductDetailPage",
-      ]),
-    );
-
-  // Enter opens it with nothing left to fetch.
-  const before = seen.length;
+  await cardOpener(page, name).focus();
   await page.keyboard.press("Enter");
-  await expect(
-    page.getByRole("heading", { level: 1, name: product?.name ?? "" }),
-  ).toBeFocused();
-  expect(seen.slice(before)).toEqual([]);
+  await expect(page.getByRole("heading", { level: 1, name })).toBeFocused();
+  expect(routes.rendered).toEqual([product?.slug]);
+  expect(calls.get(`/v1/products/${product?.slug ?? ""}`)).toBeUndefined();
   expectNoProblems(problems);
 });

@@ -14,7 +14,7 @@ import type { Page, Request } from "@playwright/test";
 import { registerBuyer } from "../support/accounts.ts";
 import type { Account } from "../support/accounts.ts";
 import { expectOnlyStatusErrors } from "../support/auth.ts";
-import { watchBrowser } from "../support/browser.ts";
+import { watchBrowser, pageAlerts } from "../support/browser.ts";
 import {
   WEB_REFRESH_URL,
   accessTokenOf,
@@ -128,7 +128,7 @@ test("a 401 is retried once with a refreshed token, and the page never shows it"
   await expect(page.getByRole("main").locator("dd").first()).toHaveText(
     account.name,
   );
-  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(pageAlerts(page)).toHaveCount(0);
 
   expect(me).toHaveLength(2);
   const [expired, retried] = me;

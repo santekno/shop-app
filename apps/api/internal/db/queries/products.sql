@@ -27,7 +27,7 @@
 -- sort=newest, served by products_active_newest_idx (or
 -- products_active_category_newest_idx with a category).
 WITH page AS (
-    SELECT p.id, p.category_id, p.slug, p.name, p.description, p.price_from, p.created_at
+    SELECT p.id, p.category_id, p.slug, p.name, p.description, p.price_from, p.created_at, p.updated_at
     FROM products p
     WHERE p.status = 'active'
       AND (sqlc.narg('category_ids')::uuid[] IS NULL
@@ -38,7 +38,7 @@ WITH page AS (
     ORDER BY p.created_at DESC, p.id DESC
     LIMIT @page_size
 )
-SELECT page.id, page.slug, page.name, page.description, page.price_from, page.created_at,
+SELECT page.id, page.slug, page.name, page.description, page.price_from, page.created_at, page.updated_at,
        c.id AS category_id, c.slug AS category_slug, c.name AS category_name, c.parent_id AS category_parent_id,
        v.id AS variant_id, v.sku AS variant_sku, v.name AS variant_name, v.price AS variant_price, v.stock AS variant_stock
 FROM page
@@ -49,7 +49,7 @@ ORDER BY page.created_at DESC, page.id DESC, v.price, v.position, v.id;
 -- name: ListProductsPriceAsc :many
 -- sort=price_asc, served by products_active_price_idx.
 WITH page AS (
-    SELECT p.id, p.category_id, p.slug, p.name, p.description, p.price_from, p.created_at
+    SELECT p.id, p.category_id, p.slug, p.name, p.description, p.price_from, p.created_at, p.updated_at
     FROM products p
     WHERE p.status = 'active'
       AND (sqlc.narg('category_ids')::uuid[] IS NULL
@@ -60,7 +60,7 @@ WITH page AS (
     ORDER BY p.price_from, p.id
     LIMIT @page_size
 )
-SELECT page.id, page.slug, page.name, page.description, page.price_from, page.created_at,
+SELECT page.id, page.slug, page.name, page.description, page.price_from, page.created_at, page.updated_at,
        c.id AS category_id, c.slug AS category_slug, c.name AS category_name, c.parent_id AS category_parent_id,
        v.id AS variant_id, v.sku AS variant_sku, v.name AS variant_name, v.price AS variant_price, v.stock AS variant_stock
 FROM page
@@ -71,7 +71,7 @@ ORDER BY page.price_from, page.id, v.price, v.position, v.id;
 -- name: ListProductsPriceDesc :many
 -- sort=price_desc, served by products_active_price_idx scanned backwards.
 WITH page AS (
-    SELECT p.id, p.category_id, p.slug, p.name, p.description, p.price_from, p.created_at
+    SELECT p.id, p.category_id, p.slug, p.name, p.description, p.price_from, p.created_at, p.updated_at
     FROM products p
     WHERE p.status = 'active'
       AND (sqlc.narg('category_ids')::uuid[] IS NULL
@@ -82,7 +82,7 @@ WITH page AS (
     ORDER BY p.price_from DESC, p.id DESC
     LIMIT @page_size
 )
-SELECT page.id, page.slug, page.name, page.description, page.price_from, page.created_at,
+SELECT page.id, page.slug, page.name, page.description, page.price_from, page.created_at, page.updated_at,
        c.id AS category_id, c.slug AS category_slug, c.name AS category_name, c.parent_id AS category_parent_id,
        v.id AS variant_id, v.sku AS variant_sku, v.name AS variant_name, v.price AS variant_price, v.stock AS variant_stock
 FROM page
@@ -93,7 +93,7 @@ ORDER BY page.price_from DESC, page.id DESC, v.price, v.position, v.id;
 -- name: GetActiveProductBySlug :many
 -- One active product with its sellable variants, cheapest first. No rows
 -- means there is no active product with that slug.
-SELECT p.id, p.slug, p.name, p.description, p.price_from, p.created_at,
+SELECT p.id, p.slug, p.name, p.description, p.price_from, p.created_at, p.updated_at,
        c.id AS category_id, c.slug AS category_slug, c.name AS category_name, c.parent_id AS category_parent_id,
        v.id AS variant_id, v.sku AS variant_sku, v.name AS variant_name, v.price AS variant_price, v.stock AS variant_stock
 FROM products p

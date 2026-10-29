@@ -29,7 +29,6 @@ const renderCart = (withToken = true) => {
 
 beforeEach(() => {
   fetchMock.mockReset();
-  document.title = "GoShop";
 });
 
 describe("CartPage", () => {
@@ -40,7 +39,6 @@ describe("CartPage", () => {
     expect(
       screen.getByRole("heading", { level: 1, name: "Keranjang" }),
     ).toBeTruthy();
-    expect(document.title).toBe("Keranjang — GoShop");
     expect(
       await screen.findByText("Keranjang Anda masih kosong."),
     ).toBeTruthy();

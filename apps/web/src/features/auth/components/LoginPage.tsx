@@ -1,15 +1,17 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
-import { Link, Navigate, useLocation, useSearchParams } from "react-router";
+import Link from "next/link";
+import { Redirect } from "@/components/navigation/Redirect.tsx";
+import { useSearchParams } from "next/navigation";
 import { loginSchema } from "@goshop/shared";
 import type { LoginRequest } from "@goshop/shared";
 import { Card } from "@/components/ui/Card.tsx";
 import { FormAlert } from "@/components/ui/FormAlert.tsx";
 import { TextField } from "@/components/ui/TextField.tsx";
-import { useDocumentTitle } from "@/hooks/useDocumentTitle.ts";
 import { setApiFieldErrors } from "@/lib/api-form-errors.ts";
 import { authErrorMessage } from "../auth-errors.ts";
 import { useLogin } from "../hooks/useLogin.ts";
+import { useNavigationState } from "@/lib/navigation-state.ts";
 import { registeredEmailFrom } from "../navigation-state.ts";
 import { RETURN_TO_PARAM, safeReturnPath } from "../return-to.ts";
 import { useSession } from "../session-context.ts";
@@ -34,16 +36,14 @@ import { Button } from "@/components/ui/Button.tsx";
  * them here: `?kembali=/akun`, set by RequireAuth. The value is checked by
  * safeReturnPath first (a path on this site only, never another host: an
  * open redirect), and anything else means the catalog. The redirect is a
- * <Navigate> rendered once the session is there, so it also covers a buyer
+ * <Redirect> rendered once the session is there, so it also covers a buyer
  * who opens /masuk while already logged in.
  */
 export function LoginPage() {
-  useDocumentTitle("Masuk — GoShop");
-  const location = useLocation();
-  const [searchParams] = useSearchParams();
+  const searchParams = useSearchParams();
   const returnTo = safeReturnPath(searchParams.get(RETURN_TO_PARAM));
   const { status } = useSession();
-  const registeredEmail = registeredEmailFrom(location.state);
+  const registeredEmail = registeredEmailFrom(useNavigationState("/masuk"));
   const loginMutation = useLogin();
   const {
     register,
@@ -57,7 +57,7 @@ export function LoginPage() {
 
   const onSubmit = (credentials: LoginRequest) => {
     loginMutation.mutate(credentials, {
-      // On success the session changes and the <Navigate> below takes
+      // On success the session changes and the <Redirect> below takes
       // the buyer on. The API's answer, shown where it belongs: a field's own problem
       // under that field, anything else (INVALID_CREDENTIALS, the
       // network) above the button, as the form's `root` error.
@@ -69,7 +69,7 @@ export function LoginPage() {
   };
 
   // replace: Back from the page reached should not reopen the login form.
-  if (status === "authenticated") return <Navigate to={returnTo} replace />;
+  if (status === "authenticated") return <Redirect to={returnTo} />;
 
   return (
     <Card>
@@ -108,7 +108,7 @@ export function LoginPage() {
         </Button>
       </form>
       <p>
-        Belum punya akun? <Link to="/daftar">Daftar</Link>
+        Belum punya akun? <Link href="/daftar">Daftar</Link>
       </p>
     </Card>
   );

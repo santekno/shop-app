@@ -36,3 +36,38 @@ export const cartErrorMessage = (error: unknown): string => {
   }
   return "Barang belum masuk ke keranjang. Coba lagi.";
 };
+
+/**
+ * An Indonesian sentence for a failed change to one line of the cart page
+ * (a new quantity, accepting a new price, removing it). Unlike an add, the
+ * quantity sent replaces the line's, so `available` is the whole stock.
+ */
+export const cartLineErrorMessage = (error: unknown): string => {
+  if (isApiError(error, "INSUFFICIENT_STOCK")) {
+    const { available } = error.details;
+    return typeof available === "number"
+      ? `Stok tidak cukup. Tersedia ${available}.`
+      : "Stok tidak cukup untuk jumlah ini.";
+  }
+  if (isApiError(error, "VARIANT_UNAVAILABLE")) {
+    return "Varian ini sudah tidak dijual. Hapus dari keranjang.";
+  }
+  if (isApiError(error, "NOT_FOUND", "CART_NOT_FOUND")) {
+    return "Barang ini sudah tidak ada di keranjang Anda.";
+  }
+  if (isApiError(error, "UNAUTHORIZED")) {
+    return "Sesi Anda sudah berakhir. Masuk lagi, lalu ubah keranjang Anda.";
+  }
+  if (
+    isApiError(
+      error,
+      "NETWORK_ERROR",
+      "CLIENT_TIMEOUT",
+      "TIMEOUT",
+      "RATE_LIMITED",
+    )
+  ) {
+    return errorMessage(error);
+  }
+  return "Keranjang belum berubah. Coba lagi.";
+};

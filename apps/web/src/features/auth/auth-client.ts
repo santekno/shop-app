@@ -65,7 +65,7 @@ export interface TokenSource {
  *    retries with the new one.
  * 4. When the refresh says the session is over (204, or 401 from the
  *    refresh endpoint), the session manager has already ended the session
- *    (and App.tsx dropped the user's cart and account); the original 401
+ *    (and Providers.tsx dropped the user's cart and account); the original 401
  *    is thrown, and a protected page redirects to /masuk. The proactive
  *    refresh in (1) ends the same way: ensureFreshToken rejects with 401
  *    UNAUTHORIZED and the request is not sent at all. It must not go out

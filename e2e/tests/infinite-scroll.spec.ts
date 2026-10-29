@@ -1,7 +1,9 @@
 // The catalog's infinite scroll against the real API: the sentinel below
 // the grid loads the next page as it nears the viewport, a failed later
 // page keeps the products already shown and retries only that page, and a
-// next_cursor the API repeats ends the list instead of looping.
+// next_cursor the API repeats ends the list instead of looping. The first
+// page comes with the HTML (the server fetched it, Bab 11 artikel 09), so
+// the browser's requests start at page 2.
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { watchBrowser } from "../support/browser.ts";
@@ -57,9 +59,10 @@ test("scrolling to the end loads every page without a click", async ({
   // the next page arrives by itself.
   await scrollToEnd(page);
   await expect(productCards(page)).toHaveCount(all.length);
-  // One request per page, each with the cursor of the page before it.
-  expect(cursors).toHaveLength(pages.length);
-  expect(cursors[0]).toBe("");
+  // One request per later page, each with the cursor of the page before
+  // it; none for page 1, which the server rendered.
+  expect(cursors).toHaveLength(pages.length - 1);
+  expect(cursors).not.toContain("");
   expect(new Set(cursors).size).toBe(cursors.length);
   expectNoProblems(problems);
 });
@@ -163,9 +166,10 @@ test("a next_cursor the API repeats ends the list instead of loading forever", a
   await expect(productCards(page)).toHaveCount(PAGE_SIZE);
   await scrollToEnd(page);
   await expect(productCards(page)).toHaveCount(2 * PAGE_SIZE);
-  // Give the sentinel time to misbehave: still exactly two requests.
+  // Give the sentinel time to misbehave: still exactly one request, for
+  // page 2 (page 1 came from the server).
   await page.mouse.wheel(0, 4000);
   await page.waitForTimeout(500);
-  expect(cursors).toEqual(["", nextCursor]);
+  expect(cursors).toEqual([nextCursor]);
   expectNoProblems(problems);
 });

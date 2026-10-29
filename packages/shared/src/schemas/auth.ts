@@ -1,4 +1,5 @@
 import { z } from "./zod.ts";
+import { characters, hasNoNul } from "./text.ts";
 import type { LoginRequest, RegisterRequest } from "../api/types.ts";
 
 // The rules of POST /v1/auth/register and /v1/auth/login, as Zod schemas.
@@ -20,13 +21,6 @@ export const NAME_MAX_LENGTH = 100;
 const LOGIN_PASSWORD_MAX_LENGTH = 1024;
 
 /**
- * Characters as the API counts them. Go's validator and CheckPassword
- * count runes (code points); a JavaScript string's `length` counts UTF-16
- * units, so "🔑" is 2 there. Array.from splits by code point.
- */
-const characters = (value: string): number => Array.from(value).length;
-
-/**
  * An ASCII email address as the API's `email` rule accepts it: a dot-atom
  * before the @ (no leading, trailing or double dot), then domain labels
  * that do not start or end with a hyphen, at least two of them, the last
@@ -38,9 +32,6 @@ const characters = (value: string): number => Array.from(value).length;
  */
 const EMAIL_PATTERN =
   /^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z](?:[A-Za-z0-9-]*[A-Za-z])?$/;
-
-/** Text PostgreSQL can store: the API refuses a NUL character. */
-const hasNoNul = (value: string): boolean => !value.includes("\u0000");
 
 /**
  * The email of a new account. `trim()` comes first, like the API's

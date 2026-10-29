@@ -262,7 +262,8 @@ func WorkerMailer(cfg config.Config, logger logx.Logger) mail.Mailer {
 // PaymentGateway is the fake when APP_PAYMENT_PROVIDER=fake (its
 // transactions in rdb, shared by the API, the worker and api fake-pay),
 // Midtrans when MIDTRANS_SERVER_KEY is set, and nil (payments off)
-// otherwise (ADR 0007).
+// otherwise (ADR 0007). Midtrans sends buyers back to cfg.FinishURL when it
+// is set (APP_WEB_URL); the fake has no hosted page to come back from.
 func PaymentGateway(cfg config.Payment, logger logx.Logger, rdb redis.UniversalClient) payment.Gateway {
 	if cfg.Provider == config.PaymentFake {
 		logger.Warn("payments go to the fake gateway (APP_PAYMENT_PROVIDER=fake): no money moves")
@@ -271,7 +272,8 @@ func PaymentGateway(cfg config.Payment, logger logx.Logger, rdb redis.UniversalC
 	if cfg.MidtransServerKey == "" {
 		return nil
 	}
-	return midtrans.New(cfg.MidtransServerKey, cfg.MidtransClientKey, cfg.Timeout, midtrans.WithLogger(logger))
+	return midtrans.New(cfg.MidtransServerKey, cfg.MidtransClientKey, cfg.Timeout,
+		midtrans.WithLogger(logger), midtrans.WithFinishURL(cfg.FinishURL))
 }
 
 // ObjectStore is the S3 bucket of cfg, or nil when S3_ENDPOINT is empty.

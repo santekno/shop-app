@@ -105,12 +105,18 @@ test("the saved theme does not wait for the app: with its JavaScript blocked the
   await page.evaluate(() => {
     window.localStorage.setItem("goshop:theme", "dark");
   });
-  // Every hashed bundle fails to load; only theme.js (not under /assets/)
-  // and the stylesheet run. What is dark now was made dark by theme.js.
-  await page.route(/\/assets\/.*\.js$/, (route) => route.abort());
+  // Every hashed bundle fails to load; only theme.js (not under
+  // /_next/static/) and the stylesheet run. What is dark now was made dark
+  // by theme.js.
+  await page.route(/\/_next\/static\/.*\.js$/, (route) => route.abort());
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-  await expect(page.locator("#root")).toBeEmpty();
+  // The server's HTML is there (Bab 11), but Next.js never started: its
+  // runtime, which sets window.next, did not load, so nothing hydrated.
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Katalog" }),
+  ).toBeVisible();
+  expect(await page.evaluate(() => "next" in window)).toBe(false);
   expect(await pageBackground(page)).not.toBe(light);
 });
 

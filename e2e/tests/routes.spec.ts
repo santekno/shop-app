@@ -3,7 +3,7 @@
 // where a keyboard user expects it, and an unknown URL shows the 404 page.
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { watchBrowser } from "../support/browser.ts";
+import { clientNavigate, watchBrowser } from "../support/browser.ts";
 import {
   cardOpener,
   expectNoProblems,
@@ -50,29 +50,53 @@ test("an unknown URL shows the 404 page, and its link leads home", async ({
   await page.goto("/");
   await expect(productCards(page).first()).toBeVisible();
 
-  // Followed inside the app, so the router (not the server) answers it.
-  await page.evaluate(() => {
-    window.history.pushState({}, "", "/tidak-ada/sama-sekali");
-    window.dispatchEvent(new PopStateEvent("popstate"));
-  });
+  // Followed inside the app: Next.js' router asks the server for the URL,
+  // and since no route matches it, loads it as a new page (Bab 7–10's
+  // React Router rendered its 404 route in place). The server answers
+  // HTTP 404 with the not-found page.
+  const load = page.waitForResponse(
+    (response) =>
+      response.request().resourceType() === "document" &&
+      new URL(response.url()).pathname === "/tidak-ada/sama-sekali",
+  );
+  await clientNavigate(page, "/tidak-ada/sama-sekali");
+  expect((await load).status()).toBe(404);
   const notFound = heading(page, "Halaman tidak ditemukan");
   await expect(notFound).toBeVisible();
   await expect(page).toHaveTitle("Halaman tidak ditemukan — GoShop");
   await expect(page.getByText("Alamat ini tidak ada di GoShop.")).toBeVisible();
-  // A route change moves the focus to the new page's heading.
-  await expect(notFound).toBeFocused();
+  // A page load, so the focus starts at the top, where the first Tab
+  // reaches the skip link.
+  await page.keyboard.press("Tab");
+  await expect(
+    page.getByRole("link", { name: "Langsung ke konten utama" }),
+  ).toBeFocused();
 
   await page
     .getByRole("main")
     .getByRole("link", { name: "Kembali ke katalog" })
     .click();
+  // A route change inside the app: the focus moves to the new heading.
   await expect(page).toHaveURL("/");
   await expect(heading(page, "Katalog")).toBeFocused();
 
-  // Loaded directly, the server's SPA fallback hands it to the router too.
-  await page.goto("/tidak-ada");
+  // Loaded directly, the server renders the same page, with status 404
+  // (Bab 7–10's SPA fallback answered 200).
+  const response = await page.goto("/tidak-ada");
+  expect(response?.status()).toBe(404);
   await expect(notFound).toBeVisible();
-  expectNoProblems(problems);
+  await expect(page).toHaveTitle("Halaman tidak ditemukan — GoShop");
+  // Chrome logs each 404 answer (the router's request, the two page loads)
+  // as a failed resource load: the answers under test. Nothing else.
+  expectNoProblems({
+    ...problems,
+    consoleErrors: problems.consoleErrors.filter(
+      (text) =>
+        !text.startsWith(
+          "Failed to load resource: the server responded with a status of 404",
+        ),
+    ),
+  });
 });
 
 test("Back and Forward move between the catalog and a product, focus included", async ({

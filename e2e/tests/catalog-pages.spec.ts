@@ -1,6 +1,7 @@
-// The catalog's pages against the real, seeded API: the first page, then
-// "Muat lebih banyak" following next_cursor until the end, with every
-// product shown once and in the API's order.
+// The catalog's pages against the real, seeded API: the first page,
+// rendered by the server (Bab 11 artikel 09), then "Muat lebih banyak"
+// following next_cursor from the browser until the end, with every product
+// shown once and in the API's order.
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { watchBrowser } from "../support/browser.ts";
@@ -8,6 +9,7 @@ import {
   FIRST_PAGE_QUERY,
   PAGE_SIZE,
   SEEDED_SLUGS,
+  asHtml,
   countApiRequests,
   disableAutoLoad,
   expectNoProblems,
@@ -21,8 +23,9 @@ import { BROWSER_API_URL } from "../support/stack.ts";
 const cardNames = (page: Page) =>
   productCards(page).locator(".product-card__name").allTextContents();
 
-test("shows the first page, then loads more until every product is there", async ({
+test("shows the first page from the server, then loads more until every product is there", async ({
   page,
+  request,
 }) => {
   const problems = await watchBrowser(page);
   const calls = countApiRequests(page, BROWSER_API_URL);
@@ -34,6 +37,12 @@ test("shows the first page, then loads more until every product is there", async
   expect(all.map((p) => p.slug)).toEqual(
     expect.arrayContaining([...SEEDED_SLUGS]),
   );
+
+  // The first page is in the HTML itself, before any JavaScript runs.
+  const html = await (await request.get("/")).text();
+  for (const product of pages[0] ?? []) {
+    expect(html, product.name).toContain(asHtml(product.name));
+  }
 
   // The button path: with the automatic loading off, only a click loads
   // the next page, so each round below is one click and one page.
@@ -71,12 +80,12 @@ test("shows the first page, then loads more until every product is there", async
   expect(names).toHaveLength(all.length);
   expect(new Set(names).size).toBe(names.length);
 
-  // One request per page: the first without a cursor, each later one with
-  // the cursor of the page before it.
+  // The browser asked for none of the first page (the server's data came
+  // with the HTML), and once for each later page, with the cursor of the
+  // page before it.
   const productCalls = calls.get("/v1/products") ?? [];
-  expect(productCalls).toHaveLength(pages.length);
-  expect(productCalls[0]).toBe(`GET /v1/products?${FIRST_PAGE_QUERY}`);
-  for (const call of productCalls.slice(1)) {
+  expect(productCalls).toHaveLength(pages.length - 1);
+  for (const call of productCalls) {
     expect(call).toMatch(
       new RegExp(`^GET /v1/products\\?${FIRST_PAGE_QUERY}&cursor=[^&]+$`),
     );

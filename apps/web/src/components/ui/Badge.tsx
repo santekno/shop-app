@@ -3,7 +3,7 @@ import type { VariantProps } from "class-variance-authority";
 import type { ComponentProps } from "react";
 import { cn } from "@/lib/utils.ts";
 
-/** From shadcn/ui's Badge; GoShop uses the default and destructive looks. */
+/** From shadcn/ui's Badge; GoShop uses the default, destructive and muted looks (muted: an order status, Bab 11). */
 const badgeVariants = cva(
   "inline-flex w-fit shrink-0 items-center justify-center rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap",
   {
@@ -11,6 +11,7 @@ const badgeVariants = cva(
       variant: {
         default: "border-transparent bg-primary text-primary-foreground",
         destructive: "border-destructive text-destructive",
+        muted: "border-border bg-muted text-foreground",
       },
     },
     defaultVariants: { variant: "default" },
