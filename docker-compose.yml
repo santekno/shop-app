@@ -230,7 +230,7 @@ services:
       SITE_URL: ${SITE_URL:-http://localhost:5173}
       # Where the browser loads product photos from: the storage as the
       # host sees it, the S3_PRESIGN_ENDPOINT above (artikel 12).
-      IMAGE_ORIGIN: ${IMAGE_ORIGIN:-http://localhost:8333}
+      IMAGE_ORIGIN: ${IMAGE_ORIGIN:-${S3_PRESIGN_ENDPOINT:-http://localhost:8333}}
       # Empty: no analytics (artikel 13).
       GA_MEASUREMENT_ID: ${GA_MEASUREMENT_ID:-}
     depends_on:
