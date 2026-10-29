@@ -103,6 +103,19 @@ describe("listProductsForSitemap", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("stops when the API leads back to a cursor it gave before", async () => {
+    fetchMock
+      .mockResolvedValueOnce(productsResponse([product("a")], "A"))
+      .mockResolvedValueOnce(productsResponse([product("b")], "B"))
+      .mockResolvedValueOnce(productsResponse([product("c")], "A"))
+      .mockResolvedValue(productsResponse([product("again")], "B"));
+
+    const products = await listProductsForSitemap();
+
+    expect(products.map((p) => p.slug)).toEqual(["a", "b", "c"]);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
   it("is empty for an empty catalog", async () => {
     fetchMock.mockResolvedValue(productsResponse([], null));
 

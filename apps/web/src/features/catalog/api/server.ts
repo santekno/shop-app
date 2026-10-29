@@ -48,8 +48,9 @@ export const SITEMAP_REVALIDATE_SECONDS = 3_600;
  * whole catalog costs one API request per hundred products, so it is paid
  * at most once an hour however often the sitemap is fetched.
  *
- * Stops at SITEMAP_PRODUCT_LIMIT, and if the API ever answered the same
- * cursor twice (the guard the catalog's infinite query has too).
+ * Stops at SITEMAP_PRODUCT_LIMIT, and if the API ever answered a cursor
+ * it had answered before: a loop (A, B, A) would otherwise walk to the
+ * limit, listing the same products again and again.
  */
 export const listProductsForSitemap = async (): Promise<Product[]> => {
   const client = serverApi({
@@ -58,6 +59,7 @@ export const listProductsForSitemap = async (): Promise<Product[]> => {
   });
   const products: Product[] = [];
   let cursor: string | undefined;
+  const seen = new Set<string>();
   for (;;) {
     const page = await listProducts(client, {
       limit: SITEMAP_PAGE_SIZE,
@@ -65,7 +67,8 @@ export const listProductsForSitemap = async (): Promise<Product[]> => {
     });
     products.push(...page.data);
     const next = page.page.next_cursor;
-    if (next === null || next === cursor) break;
+    if (next === null || seen.has(next)) break;
+    seen.add(next);
     if (products.length >= SITEMAP_PRODUCT_LIMIT) {
       console.warn(
         `sitemap: the catalog has more than ${String(SITEMAP_PRODUCT_LIMIT)} products; split the sitemap (generateSitemaps)`,
