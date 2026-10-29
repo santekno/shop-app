@@ -331,13 +331,14 @@ type orderOut struct {
 			PostalCode    string `json:"postal_code"`
 		} `json:"address"`
 	} `json:"shipping"`
-	PaymentExpiresAt time.Time  `json:"payment_expires_at"`
-	PaidAt           *time.Time `json:"paid_at"`
-	ShippedAt        *time.Time `json:"shipped_at"`
-	CompletedAt      *time.Time `json:"completed_at"`
-	CancelledAt      *time.Time `json:"cancelled_at"`
-	CreatedAt        time.Time  `json:"created_at"`
-	UpdatedAt        time.Time  `json:"updated_at"`
+	LatestPayment    *latestPaymentOut `json:"latest_payment"`
+	PaymentExpiresAt time.Time         `json:"payment_expires_at"`
+	PaidAt           *time.Time        `json:"paid_at"`
+	ShippedAt        *time.Time        `json:"shipped_at"`
+	CompletedAt      *time.Time        `json:"completed_at"`
+	CancelledAt      *time.Time        `json:"cancelled_at"`
+	CreatedAt        time.Time         `json:"created_at"`
+	UpdatedAt        time.Time         `json:"updated_at"`
 }
 
 var (
@@ -345,6 +346,17 @@ var (
 	cancelReasons = []string{"payment_expired", "buyer_cancelled", "seller_cancelled"}
 	orderCode     = regexp.MustCompile(`^GS-[0-9]{8}-[0-9A-Z]{6}$`)
 )
+
+// latestPaymentOut is OrderLatestPayment (Bab 11): the order's newest
+// payment, null until the buyer first starts paying.
+type latestPaymentOut struct {
+	Status    string    `json:"status"`
+	ExpiresAt time.Time `json:"expires_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// paymentStatuses are OrderLatestPayment.status's enum.
+var paymentStatuses = []string{"pending", "challenge", "paid", "denied", "cancelled", "failed", "expired", "refunded", "partially_refunded"}
 
 // assertNullableTime checks a [string, null] date-time.
 func assertNullableTime(t *testing.T, raw json.RawMessage, what string) {
@@ -367,6 +379,15 @@ func assertOrder(t *testing.T, raw json.RawMessage, what string) orderOut {
 	assertTimestamp(t, obj["updated_at"], what+".updated_at")
 	for _, k := range []string{"paid_at", "shipped_at", "completed_at", "cancelled_at"} {
 		assertNullableTime(t, obj[k], what+"."+k)
+	}
+	if raw := obj["latest_payment"]; raw != nil && string(raw) != "null" {
+		lp := object(t, raw, "OrderLatestPayment", what+".latest_payment")
+		assertTimestamp(t, lp["expires_at"], what+".latest_payment.expires_at")
+		assertTimestamp(t, lp["updated_at"], what+".latest_payment.updated_at")
+		var status string
+		if err := json.Unmarshal(lp["status"], &status); err != nil || !slices.Contains(paymentStatuses, status) {
+			t.Errorf("%s.latest_payment.status = %s, want one of %v", what, lp["status"], paymentStatuses)
+		}
 	}
 	var subtotal int64
 	for i, it := range array(t, obj["items"], what+".items") {
