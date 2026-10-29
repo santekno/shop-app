@@ -4,11 +4,10 @@
 // ever a path on this site: anything that would leave it, or loop back to
 // an auth page, ends on the catalog.
 import { expect, test } from "@playwright/test";
-import type { Page } from "@playwright/test";
 import { registerBuyer } from "../support/accounts.ts";
 import type { Account } from "../support/accounts.ts";
 import { expectOnlyStatusErrors } from "../support/auth.ts";
-import { watchBrowser } from "../support/browser.ts";
+import { clientNavigate, watchBrowser } from "../support/browser.ts";
 import { greeting, submitLogin } from "../support/session.ts";
 import { BROWSER_API_URL, WEB_URL } from "../support/stack.ts";
 
@@ -17,13 +16,6 @@ let account: Account;
 test.beforeAll(async () => {
   account = await registerBuyer("kembali");
 });
-
-/** Navigates inside the app (no reload), as a link would. */
-const pushPath = (page: Page, path: string): Promise<void> =>
-  page.evaluate((url) => {
-    window.history.pushState({}, "", url);
-    window.dispatchEvent(new PopStateEvent("popstate"));
-  }, path);
 
 test("/akun sends a guest to Masuk, and the login comes back to /akun", async ({
   page,
@@ -93,14 +85,14 @@ test("a ?kembali= that leaves the site, or loops to an auth page, lands on the c
     "/" + "a".repeat(2048),
   ];
   for (const kembali of attempts) {
-    await pushPath(page, `/masuk?kembali=${encodeURIComponent(kembali)}`);
+    await clientNavigate(page, `/masuk?kembali=${encodeURIComponent(kembali)}`);
     await expect(page, `kembali=${kembali.slice(0, 40)}`).toHaveURL(
       `${WEB_URL}/`,
     );
     expect(new URL(page.url()).origin).toBe(WEB_URL);
   }
   // And a real path on the site is kept, with its query and hash.
-  await pushPath(
+  await clientNavigate(
     page,
     `/masuk?kembali=${encodeURIComponent("/keranjang?dari=e2e#ringkasan")}`,
   );
