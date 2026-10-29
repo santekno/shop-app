@@ -172,6 +172,13 @@ describe("RootLayout", () => {
     ).toBe(false);
   });
 
+  it("fails the page itself in production without SITE_URL, not only its <head>", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("SITE_URL", "");
+
+    await expect(renderLayout()).rejects.toThrow(/SITE_URL is not set/);
+  });
+
   it("fails on a malformed GA_MEASUREMENT_ID rather than printing it into a script", async () => {
     vi.stubEnv("GA_MEASUREMENT_ID", "G-x</script>");
 

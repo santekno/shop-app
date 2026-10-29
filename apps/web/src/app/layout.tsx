@@ -63,6 +63,11 @@ export default async function RootLayout({
   const nonce = (await headers()).get("x-nonce") ?? undefined;
   // Google Analytics 4 (artikel 13), only when GA_MEASUREMENT_ID is set.
   const measurementId = analyticsId();
+  // SITE_URL, unset in production, fails every page here, in the render:
+  // generateMetadata's own failure (metadataBase) is streamed after the
+  // page has started, so the catalog would answer 200 with no title and
+  // no canonical link instead of a 500 that names the missing variable.
+  siteUrl();
 
   return (
     // suppressHydrationWarning: theme.js sets data-theme on <html> before
