@@ -132,6 +132,37 @@ describe("ProductDetailPage", () => {
     expect(router.lastAction).toBe("back");
   });
 
+  it("follows its link to / when sessionStorage is blocked, without breaking the page", async () => {
+    const user = userEvent.setup();
+    fetchMock.mockReturnValue(new Promise(() => undefined));
+    // Site data blocked: reading window.sessionStorage itself throws.
+    const real = Object.getOwnPropertyDescriptor(window, "sessionStorage");
+    Object.defineProperty(window, "sessionStorage", {
+      configurable: true,
+      get() {
+        throw new DOMException("blocked", "SecurityError");
+      },
+    });
+    try {
+      // The catalog card's click: the hint is lost, not the navigation.
+      expect(openedFromCatalog).not.toThrow();
+      const { router } = renderWithProviders(
+        <ProductDetailPage slug="kaos" />,
+        {
+          path: "/produk/[slug]",
+          url: ["/?kategori=kaos&urut=termurah", "/produk/kaos"],
+        },
+      );
+
+      await user.click(back());
+
+      expect(currentLocation()).toBe("/");
+      expect(router.lastAction).toBe("push");
+    } finally {
+      if (real) Object.defineProperty(window, "sessionStorage", real);
+    }
+  });
+
   it("follows its link to / when the product was opened some other way", async () => {
     const user = userEvent.setup();
     fetchMock.mockReturnValue(new Promise(() => undefined));
