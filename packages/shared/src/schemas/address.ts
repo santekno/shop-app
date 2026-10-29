@@ -37,7 +37,7 @@ const text = (max: number, empty: string, tooLong: string) =>
 
 /**
  * The phone number. A buyer often types it with spaces or dashes
- * ("0812-3456-7890"); the API accepts digits only, so they are removed
+ * ("0812-3456-7890"); the API accepts no spaces or dashes, so they are removed
  * before the check, and the request carries the cleaned number (the
  * schema's output is what is sent).
  */
