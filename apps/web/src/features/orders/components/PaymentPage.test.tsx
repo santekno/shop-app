@@ -1,6 +1,7 @@
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { focusManager } from "@tanstack/react-query";
+import type { QueryClient } from "@tanstack/react-query";
 import type { Order } from "@goshop/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setNavigationState } from "@/lib/navigation-state.ts";
@@ -18,7 +19,7 @@ import {
   rupiah,
   user,
 } from "@/test/fake-api.ts";
-import { renderWithProviders } from "@/test/render.tsx";
+import { createTestQueryClient, renderWithProviders } from "@/test/render.tsx";
 import { stubLocation } from "@/test/window-location.ts";
 import { POLL_LIMIT_MS } from "../payment-polling.ts";
 import { PaymentPage } from "./PaymentPage.tsx";
@@ -73,11 +74,12 @@ const serveOrder = (
   });
 };
 
-const mount = () =>
+const mount = (queryClient?: QueryClient) =>
   renderWithProviders(<PaymentPage />, {
     path: "/pesanan/[id]/pembayaran",
     url: PAGE,
     session,
+    ...(queryClient === undefined ? {} : { queryClient }),
   });
 
 const status = () => screen.getByRole("status").textContent;
@@ -167,6 +169,28 @@ describe("PaymentPage", () => {
     }
 
     expect(seen).toEqual([1, 2, 2, 3, 3, 4, 4, 5, 5, 6]);
+  });
+
+  // The order's cache entry outlives the page; a round counts its own
+  // answers, so a page opened again in the same visit starts at 2 s, not
+  // at the 30 s its last visit had reached.
+  it("starts at 2 s again when the page is opened again in the same visit", async () => {
+    serveOrder([{}]);
+    const queryClient = createTestQueryClient();
+    const first = mount(queryClient);
+    await tick(0);
+    for (const wait of [2_000, 2_000, 3_000, 5_000, 8_000, 13_000, 21_000]) {
+      await tick(wait);
+    }
+    expect(gets()).toBe(8);
+    first.unmount();
+
+    mount(queryClient);
+    await tick(0);
+    const opened = gets();
+    await tick(2_000);
+
+    expect(gets()).toBe(opened + 1);
   });
 
   it("stops asking once the order is paid, and reports the purchase once", async () => {

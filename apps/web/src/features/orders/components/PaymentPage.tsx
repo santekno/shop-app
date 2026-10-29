@@ -61,14 +61,23 @@ export function PaymentPage() {
   const { session, authApi } = useSession();
   // RequireAuth renders this page only when someone is logged in.
   const userId = session?.user.id ?? "";
-  // When the current round of polling started, and how many answers the
-  // query had by then (the backoff counts this round's answers only).
-  // State, set from an event ("Periksa lagi"), never read from the clock
-  // during a render.
-  const [round, setRound] = useState(() => ({ start: Date.now(), answers: 0 }));
-
   const queryClient = useQueryClient();
   const orderOptions = orderQuery(authApi, userId, id);
+  // How many answers the order's query has had in this visit. The cache
+  // entry outlives the page: checkout seeds it, and the buyer may come
+  // back from the order's page. The query's own count (useQuery's result
+  // has none).
+  const answersSoFar = () =>
+    queryClient.getQueryState(orderOptions.queryKey)?.dataUpdateCount ?? 0;
+  // When the current round of polling started, and how many answers the
+  // query had by then (the backoff counts this round's answers only, so a
+  // page opened again starts at 2 s, not where the last visit stopped).
+  // State, set on mount and from an event ("Periksa lagi"), never read
+  // from the clock during a render.
+  const [round, setRound] = useState(() => ({
+    start: Date.now(),
+    answers: answersSoFar(),
+  }));
   const order = useQuery({
     ...orderOptions,
     enabled: session !== null,
@@ -152,13 +161,7 @@ export function PaymentPage() {
               className="justify-self-start"
               disabled={order.isFetching}
               onClick={() => {
-                setRound({
-                  start: Date.now(),
-                  // The query's own count (useQuery's result has none).
-                  answers:
-                    queryClient.getQueryState(orderOptions.queryKey)
-                      ?.dataUpdateCount ?? 0,
-                });
+                setRound({ start: Date.now(), answers: answersSoFar() });
                 void order.refetch();
               }}
             >
