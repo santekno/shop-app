@@ -35,7 +35,6 @@
     "@eslint/js": "catalog:",
     "@next/eslint-plugin-next": "catalog:",
     "@tailwindcss/postcss": "catalog:",
-    "@tailwindcss/vite": "catalog:",
     "@tanstack/react-query-devtools": "catalog:",
     "@testing-library/dom": "catalog:",
     "@testing-library/react": "catalog:",
