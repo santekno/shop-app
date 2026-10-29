@@ -4,6 +4,7 @@
 // hashed build files, real 404s, the unprivileged user, $PORT, a fast stop
 // on SIGTERM, and the settings it reads when it starts rather than when it
 // is built. (Bab 7–10 checked the Caddy image of the Vite build here.)
+import { spawnSync } from "node:child_process";
 import { expect, test } from "@playwright/test";
 import { watchBrowser } from "../support/browser.ts";
 import { asHtml, expectNoProblems, fetchProduct } from "../support/catalog.ts";
@@ -186,6 +187,65 @@ test("the server runs as an unprivileged user on $PORT", () => {
   expect(uid).not.toBe("0");
   // Listening on $PORT from the environment (8080 in Compose).
   expect(compose("exec", "-T", "web", "printenv", "PORT").trim()).toBe("8080");
+});
+
+test("the data cache reaches the container's disk, the only place the server may write", async () => {
+  // A server page fetches its data through Next.js' data cache (artikel
+  // 09), written under .next/cache: the one folder the unprivileged user
+  // owns. Without it every write fails with EACCES and the cache lives in
+  // memory only.
+  const page = await fetch(`${SITE_URL}/`);
+  expect(page.status).toBe(200);
+  const listing = compose(
+    "exec",
+    "-T",
+    "web",
+    "sh",
+    "-c",
+    "test -w apps/web/.next/cache && ls apps/web/.next/cache/fetch-cache | wc -l; test -w apps/web/server.js && echo writable || echo read-only",
+  )
+    .trim()
+    .split("\n");
+  expect(Number(listing[0])).toBeGreaterThan(0);
+  expect(listing[1]).toBe("read-only");
+  expect(compose("logs", "web")).not.toContain("EACCES");
+});
+
+test("without SITE_URL every page answers 500, not a page with no canonical link", async () => {
+  // A configuration error in production: the server starts (its probe
+  // answers), but no page claims an address it does not know.
+  test.setTimeout(90_000);
+  const { image, network } = stackWeb();
+  let container = "";
+  try {
+    container = docker(
+      "run",
+      "-d",
+      "--network",
+      network,
+      "-p",
+      "127.0.0.1::9192",
+      "-e",
+      "PORT=9192",
+      "-e",
+      "API_INTERNAL_URL=http://api:8080",
+      image,
+    ).trim();
+    const base = `http://127.0.0.1:${publishedPort(container, 9192)}`;
+    await waitForOk(`${base}/healthz`, 30_000);
+    const product = await fetchProduct("kaos-polos-hitam");
+    for (const path of ["/", `/produk/${product.slug}`, "/keranjang"]) {
+      const response = await fetch(`${base}${path}`);
+      expect(response.status, path).toBe(500);
+      await response.body?.cancel();
+    }
+    // The reason is in the log, on the server's stderr.
+    expect(
+      spawnSync("docker", ["logs", container], { encoding: "utf8" }).stderr,
+    ).toContain("SITE_URL is not set");
+  } finally {
+    if (container !== "") docker("rm", "-f", container);
+  }
 });
 
 test("one image, other settings: PORT, SITE_URL, IMAGE_ORIGIN and GA_MEASUREMENT_ID are read at start, and SIGTERM stops it at once", async () => {
