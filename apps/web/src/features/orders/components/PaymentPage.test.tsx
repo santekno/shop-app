@@ -387,7 +387,9 @@ describe("PaymentPage", () => {
     act(() => {
       focusManager.setFocused(false);
     });
-    await advance(60_000);
+    // Ten seconds: past several poll delays, and well within the
+    // storefront's default staleTime, which this query must not use.
+    await advance(10_000);
     expect(gets()).toBe(1);
 
     act(() => {
