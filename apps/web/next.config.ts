@@ -6,7 +6,8 @@ import { PHASE_PRODUCTION_BUILD } from "next/constants";
 const workspaceRoot = path.join(import.meta.dirname, "../..");
 
 /**
- * Headers every response gets, the ones apps/web/Caddyfile sent in Bab 7–10.
+ * Headers every response gets, the ones the Caddyfile sent in Bab 7–10
+ * (the Caddy image was replaced by the Next.js server in artikel 14).
  * The Content-Security-Policy is not here: it carries a fresh nonce per
  * request, so src/proxy.ts sets it (artikel 08).
  */

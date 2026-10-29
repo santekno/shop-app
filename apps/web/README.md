@@ -58,23 +58,23 @@ Next.js replaces only a literal `process.env.NEXT_PUBLIC_…` in code with its v
 
 ## Container
 
-_Until Bab 11 artikel 14 this section describes the Vite image (Caddy); artikel 14 replaces it with the Next.js standalone server._
+`apps/web/Dockerfile` (repo root as context) builds the Next.js **standalone** server (`output: "standalone"`) with pnpm on `node:24-alpine`, then runs `node apps/web/server.js` on the same base image as the image's non-root `node` user, listening on `$PORT` (8080 by default; Railway sets it) on every interface (`HOSTNAME=0.0.0.0`). Bab 7–10 served a Vite build with Caddy; artikel 14 replaced it, and the Caddyfile's headers live in `next.config.ts` and `src/proxy.ts` since artikel 08.
 
-`apps/web/Dockerfile` (repo root as context) builds with pnpm on `node:24-alpine`, then serves `dist/` with Caddy (`apps/web/Caddyfile`) as a non-root user, listening on `$PORT` (8080 by default; Railway sets it). Caddy:
-
-- answers `GET /healthz` with `ok` (Docker `HEALTHCHECK`, Railway health check), without touching a file;
-- serves `/assets/` (the hashed files) with a one-year cache, and answers a missing one with a plain 404, never with `index.html`;
-- sends the file for any other path that has one, otherwise `index.html`, so client-side routes work; both are revalidated on every visit;
-- sets the same security headers on every response, errors included: `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, a `Permissions-Policy` that turns off camera, microphone, geolocation and payment, and a Content-Security-Policy whose `connect-src` is the API's **origin**.
-
-The CSP uses the origin of `VITE_API_URL` (scheme, host and port: `https://api.example.com/base/` becomes `https://api.example.com`), because a CSP source with a path allows only that exact path. The Dockerfile computes it with `new URL(…).origin` at build time, which also rejects a malformed URL, and Caddy reads it from `/etc/caddy/api-origin`.
-
-There is no `Strict-Transport-Security` header: Caddy serves plain HTTP behind Railway's edge, which terminates TLS. HSTS belongs to the layer that serves HTTPS, so it is set there (with the custom domain), not by this container.
+- `NEXT_PUBLIC_API_URL` is a required **build argument** (written into the browser's JavaScript); everything in the table above is read when the container starts.
+- The standalone output holds only the files the server imports; the Dockerfile copies `.next/static` (hashed, served with a one-year immutable cache) and `public/` next to it, so the container serves everything itself.
+- `GET /healthz` answers `ok` without touching the API (Docker `HEALTHCHECK`, Railway health check).
+- There is no `Strict-Transport-Security` header: the container speaks plain HTTP behind Railway's edge, which terminates TLS. HSTS belongs to the layer that serves HTTPS.
 
 ```bash
-docker build -f apps/web/Dockerfile --build-arg VITE_API_URL=http://localhost:8080 -t goshop-web .
-docker run --rm -e PORT=8080 -p 127.0.0.1:5173:8080 goshop-web
+docker build -f apps/web/Dockerfile --build-arg NEXT_PUBLIC_API_URL=http://localhost:8080 -t goshop-web .
+# API_INTERNAL_URL: the API as the *container* reaches it; inside `make up`
+# that is http://api:8080 (the container joins the Compose network, named
+# after the clone's folder: `docker network ls`).
+docker run --rm -p 127.0.0.1:5173:8080 --network shop-app_default \
+  -e API_INTERNAL_URL=http://api:8080 -e SITE_URL=http://localhost:5173 goshop-web
 ```
+
+`make up` runs it as the `web` service, wired to the other containers. Deploying (Railway's variables, Vercel compared): `docs/web/README.md`, artikel 14.
 
 ## Layout
 
