@@ -50,8 +50,9 @@ x-app-environment: &app-environment
   # The storefront Snap sends buyers back to (<web>/pembayaran/selesai).
   APP_WEB_URL: ${APP_WEB_URL:-http://localhost:5173}
   # Image storage (ADR 0007). The API reaches SeaweedFS as "storage";
-  # browsers upload to, and read images from, localhost:8333, so the
-  # presigned URLs are signed for that host.
+  # browsers upload to, and read images from, S3_PRESIGN_ENDPOINT
+  # (localhost:8333 unless set), so the presigned URLs are signed for that
+  # host.
   S3_ENDPOINT: http://storage:8333
   S3_PRESIGN_ENDPOINT: ${S3_PRESIGN_ENDPOINT:-http://localhost:8333}
   S3_BUCKET: ${S3_BUCKET:-goshop}

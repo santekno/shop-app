@@ -706,6 +706,8 @@ Until artikel 08 the storefront is the Vite single-page app of Bab 7–10. Its s
 
 `apps/web/scripts/seo-probe.js` fetches one URL the way a search engine's first pass does (Googlebot's user agent, no JavaScript) and reports what the HTML carries. Against the SPA (built with `VITE_API_URL` pointing at the seeded API, served by `vite preview`):
 
+Its report, without the `url`, `time (ms)` and `robots` lines:
+
 ```text
 $ node apps/web/scripts/seo-probe.js http://localhost:34173/produk/kaos-polos-hitam
 status                 200
@@ -855,7 +857,7 @@ Against the seeded API on the same laptop (`next start`, production build; 28 pr
 
 - **The data cache:** five page views of one product within a minute sent **one** request to the API (its log), and the title and the page together one. The browser sends none for the product, the catalog or the categories after the page loads (only the session's `POST /v1/auth/web/refresh`). Here the API answers in 2 ms; against a database under load, or an API in another region, the miss grows and the hit does not.
 - **The nonce's price:** with a per-request nonce (artikel 08) every page is rendered for each request, about 3.5 ms of server work even when all its data is cached, against 0.7 ms for a file served as it is, which is what a fully static (full-route-cached) page would cost. Under load (10 concurrent clients for 5 s) one Node process served about **540 product pages a second**, against about **6 700** static chunks. For a shop this size the render is cheap and the API is spared by the data cache; a shop that needs a CDN in front of its HTML would trade the nonce for static pages and a weaker CSP, and should measure first.
-- What the crawler gets now (`seo-probe.js`): `/produk/kaos-polos-hitam` answers 200 with 18 KB of HTML, `<title>Kaos Polos Hitam — GoShop</title>`, the description, `<h1>Kaos Polos Hitam</h1>` and the product's text; `/` answers 40 KB with the twelve product cards and 29 links; `/produk/tidak-ada` answers **404**. Before (artikel 07): 1 425 bytes, no h1, no links, 200 everywhere.
+- What the crawler gets now (`seo-probe.js`): `/produk/kaos-polos-hitam` answers 200 with 18 KB of HTML (24 KB from artikel 10, with the metadata and structured data), `<title>Kaos Polos Hitam — GoShop</title>`, the description, `<h1>Kaos Polos Hitam</h1>` and the product's text; `/` answers 40 KB with the twelve product cards and 29 links; `/produk/tidak-ada` answers **404**. Before (artikel 07): 1 425 bytes, no h1, no links, 200 everywhere.
 
 ## Metadata, Open Graph and structured data (artikel 10)
 
