@@ -40,11 +40,14 @@ RUN pnpm --filter @goshop/web build
 FROM node:24.22.1-alpine
 WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1
-# The image's node user (uid 1000) already exists; it owns nothing here,
-# and needs to: the server only reads these files.
+# The image's node user (uid 1000) already exists. It owns nothing here
+# but .next/cache: the server only reads the rest, and writes the data
+# cache (artikel 09) there. Without it every cached fetch fails to reach
+# the disk (EACCES in the log) and lives in memory only.
 COPY --from=build /src/apps/web/.next/standalone ./
 COPY --from=build /src/apps/web/.next/static ./apps/web/.next/static
 COPY --from=build /src/apps/web/public ./apps/web/public
+RUN mkdir -p apps/web/.next/cache && chown node:node apps/web/.next/cache
 
 # Railway sets PORT; 8080 otherwise. HOSTNAME is the address server.js
 # binds to: Docker sets it to the container's id, which would leave the
