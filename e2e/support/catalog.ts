@@ -50,6 +50,8 @@ export interface ProductRow {
   images: ImageRow[];
   /** RFC 3339. */
   created_at: string;
+  /** RFC 3339: the last time an admin saved the product (the sitemap's lastmod). */
+  updated_at: string;
 }
 
 /** The storefront's page size (CatalogPage's PAGE_SIZE). */
