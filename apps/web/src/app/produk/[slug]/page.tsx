@@ -1,4 +1,4 @@
-import { dehydrate, HydrationBoundary } from "@tanstack/react-query";
+import { dehydrate } from "@tanstack/react-query";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { JsonLd } from "@/components/JsonLd.tsx";
@@ -11,6 +11,7 @@ import {
   productJsonLd,
 } from "@/features/product/structured-data.ts";
 import { getQueryClient } from "@/lib/query-client.ts";
+import { ServerDataBoundary } from "@/lib/server-data-boundary.tsx";
 import { siteUrl } from "@/lib/server-config.ts";
 import { baseOpenGraph, SITE_NAME, summary } from "@/lib/site-metadata.ts";
 
@@ -88,9 +89,10 @@ export async function generateMetadata({
  * ke keranjang") that reads the product with useQuery. To keep it from
  * fetching the product a second time from the browser, the server puts
  * the product in a QueryClient of its own (one per request), and
- * HydrationBoundary hands that cache to the browser inside the page's
+ * ServerDataBoundary hands that cache to the browser inside the page's
  * payload: useQuery finds the product under the same key and starts with
- * it, fresh for the storefront's stale time.
+ * it, fresh for the storefront's stale time. A product the browser
+ * already holds keeps the browser's copy, refetched when it is stale.
  *
  * The structured data (artikel 10, features/product/structured-data.ts)
  * is rendered here, by the server only: a Product with its offers and a
@@ -109,9 +111,9 @@ export default async function ProductPage({ params }: ProductPageProps) {
     <>
       <JsonLd data={productJsonLd(product, origin)} />
       <JsonLd data={productBreadcrumbJsonLd(product, origin)} />
-      <HydrationBoundary state={dehydrate(queryClient)}>
+      <ServerDataBoundary state={dehydrate(queryClient)}>
         <ProductDetailPage slug={slug} />
-      </HydrationBoundary>
+      </ServerDataBoundary>
     </>
   );
 }

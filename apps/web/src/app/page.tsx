@@ -1,4 +1,4 @@
-import { dehydrate, HydrationBoundary } from "@tanstack/react-query";
+import { dehydrate } from "@tanstack/react-query";
 import type { Metadata } from "next";
 import {
   categoriesQuery,
@@ -13,6 +13,7 @@ import { catalogPageMeta } from "@/features/catalog/catalog-metadata.ts";
 import { CatalogPage } from "@/features/catalog/components/CatalogPage.tsx";
 import { getQueryClient } from "@/lib/query-client.ts";
 import { REVALIDATE_SECONDS, serverApi } from "@/lib/server-api.ts";
+import { ServerDataBoundary } from "@/lib/server-data-boundary.tsx";
 import { baseOpenGraph, SITE_NAME } from "@/lib/site-metadata.ts";
 
 interface HomeProps {
@@ -72,11 +73,13 @@ export async function generateMetadata({
  * The server reads the filters from the query string with the same
  * readCatalogFilters the browser uses, and fetches the first page of
  * products and the categories into a QueryClient of its own, through
- * Next.js' data cache. HydrationBoundary hands that cache to the browser:
- * CatalogPage (a client component) finds both under the keys it asks for,
- * renders them at once, and loads the next pages from the browser as
- * before ("Muat lebih banyak", infinite scroll). A crawler gets the first
- * twelve products as HTML, with a link to each.
+ * Next.js' data cache. ServerDataBoundary hands that cache to the
+ * browser: CatalogPage (a client component) finds both under the keys it
+ * asks for, renders them at once, and loads the next pages from the
+ * browser as before ("Muat lebih banyak", infinite scroll). A crawler gets
+ * the first twelve products as HTML, with a link to each. A buyer who
+ * comes back with a <Link> keeps every page already loaded: the server's
+ * page 1 only fills a cache that has no catalog yet.
  *
  * A failure is swallowed: when the API fails (or answers
  * UNKNOWN_CATEGORY), nothing is dehydrated, and the browser asks again
@@ -104,8 +107,8 @@ export default async function Home({ searchParams }: HomeProps) {
     .catch(ignore);
 
   return (
-    <HydrationBoundary state={dehydrate(queryClient)}>
+    <ServerDataBoundary state={dehydrate(queryClient)}>
       <CatalogPage />
-    </HydrationBoundary>
+    </ServerDataBoundary>
   );
 }
