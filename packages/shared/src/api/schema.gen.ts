@@ -1301,6 +1301,11 @@ export interface components {
             images: components["schemas"]["ProductImage"][];
             /** Format: date-time */
             created_at: string;
+            /**
+             * Format: date-time
+             * @description The last time an admin saved the product (its fields, variants or status). Stock taken by checkouts and photo changes do not move it. The storefront uses it as the sitemap's lastmod (Bab 11).
+             */
+            updated_at: string;
         };
         /** @description A product photo as the storefront shows it, resized by the server into JPEGs; the uploaded original is never linked. */
         ProductImage: {
@@ -2992,7 +2997,8 @@ export interface operations {
                      *               ]
                      *             }
                      *           ],
-                     *           "created_at": "2026-11-01T08:00:00Z"
+                     *           "created_at": "2026-11-01T08:00:00Z",
+                     *           "updated_at": "2026-11-03T10:15:00Z"
                      *         }
                      *       ],
                      *       "page": {
@@ -3059,7 +3065,8 @@ export interface operations {
                      *           }
                      *         ],
                      *         "images": [],
-                     *         "created_at": "2026-11-01T08:00:00Z"
+                     *         "created_at": "2026-11-01T08:00:00Z",
+                     *         "updated_at": "2026-11-03T10:15:00Z"
                      *       }
                      *     }
                      */

@@ -201,6 +201,7 @@ type productJSON struct {
 	// Images is filled by the handler, which knows the public URLs.
 	Images    []imageJSON `json:"images"`
 	CreatedAt time.Time   `json:"created_at"`
+	UpdatedAt time.Time   `json:"updated_at"`
 }
 
 type pageJSON struct {
@@ -234,6 +235,7 @@ func toProductJSON(p Product) productJSON {
 		Variants:  variants,
 		Images:    []imageJSON{},
 		CreatedAt: p.CreatedAt.UTC(),
+		UpdatedAt: p.UpdatedAt.UTC(),
 	}
 }
 

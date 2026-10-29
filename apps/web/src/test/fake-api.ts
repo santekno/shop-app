@@ -99,6 +99,7 @@ export const product = (
     variants,
     images: [],
     created_at: "2026-10-01T00:00:00Z",
+    updated_at: "2026-10-01T00:00:00Z",
     ...overrides,
   };
 };

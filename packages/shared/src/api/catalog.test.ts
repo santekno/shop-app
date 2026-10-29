@@ -86,6 +86,7 @@ const product: Product = {
   ],
   images: [],
   created_at: "2026-10-01T00:00:00Z",
+  updated_at: "2026-10-01T00:00:00Z",
 };
 
 /** A fetch that answers nothing and rejects once its signal aborts, like the real one. */

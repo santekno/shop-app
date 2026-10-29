@@ -24,12 +24,13 @@ export const dynamic = "force-dynamic";
  *   orders and no searches: those are not canonical.
  * - Every active product, from the API page by page
  *   (listProductsForSitemap).
- * - No `lastModified`: the API's public Product has `created_at` but no
- *   `updated_at`, and a creation date would claim that a product whose
- *   price changed yesterday last changed a year ago; Google ignores a
- *   lastmod it finds unreliable for the whole site. Added when the API
- *   exposes `updated_at` (requested). No `changeFrequency` or `priority`:
- *   Google ignores both.
+ * - A product's `lastModified` is its `updated_at`: the last time an
+ *   admin saved it, so a price changed yesterday says yesterday. Never
+ *   `created_at`, which would say a year ago; Google ignores a lastmod it
+ *   finds unreliable for the whole site. A sale does not move it (stock is
+ *   not an edit), and neither does a new photo. The catalog pages carry no
+ *   lastmod: no single date says when a list last changed. No
+ *   `changeFrequency` or `priority`: Google ignores both.
  *
  * If the API does not answer, the error is thrown and the sitemap answers
  * 500: a crawler tries again later, where an empty sitemap would tell it
@@ -60,6 +61,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     ...catalogPaths.map((path) => ({ url: new URL(path, origin).href })),
     ...products.map((product) => ({
       url: new URL(productPath(product.slug), origin).href,
+      lastModified: product.updated_at,
     })),
   ];
 }

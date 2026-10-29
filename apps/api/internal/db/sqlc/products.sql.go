@@ -57,7 +57,7 @@ func (q *Queries) ArchiveVariantsNotIn(ctx context.Context, arg ArchiveVariantsN
 }
 
 const getActiveProductBySlug = `-- name: GetActiveProductBySlug :many
-SELECT p.id, p.slug, p.name, p.description, p.price_from, p.created_at,
+SELECT p.id, p.slug, p.name, p.description, p.price_from, p.created_at, p.updated_at,
        c.id AS category_id, c.slug AS category_slug, c.name AS category_name, c.parent_id AS category_parent_id,
        v.id AS variant_id, v.sku AS variant_sku, v.name AS variant_name, v.price AS variant_price, v.stock AS variant_stock
 FROM products p
@@ -74,6 +74,7 @@ type GetActiveProductBySlugRow struct {
 	Description      string
 	PriceFrom        sql.NullInt64
 	CreatedAt        time.Time
+	UpdatedAt        time.Time
 	CategoryID       string
 	CategorySlug     string
 	CategoryName     string
@@ -103,6 +104,7 @@ func (q *Queries) GetActiveProductBySlug(ctx context.Context, slug string) ([]Ge
 			&i.Description,
 			&i.PriceFrom,
 			&i.CreatedAt,
+			&i.UpdatedAt,
 			&i.CategoryID,
 			&i.CategorySlug,
 			&i.CategoryName,
@@ -245,7 +247,7 @@ const listProductsNewest = `-- name: ListProductsNewest :many
 
 
 WITH page AS (
-    SELECT p.id, p.category_id, p.slug, p.name, p.description, p.price_from, p.created_at
+    SELECT p.id, p.category_id, p.slug, p.name, p.description, p.price_from, p.created_at, p.updated_at
     FROM products p
     WHERE p.status = 'active'
       AND ($1::uuid[] IS NULL
@@ -256,7 +258,7 @@ WITH page AS (
     ORDER BY p.created_at DESC, p.id DESC
     LIMIT $5
 )
-SELECT page.id, page.slug, page.name, page.description, page.price_from, page.created_at,
+SELECT page.id, page.slug, page.name, page.description, page.price_from, page.created_at, page.updated_at,
        c.id AS category_id, c.slug AS category_slug, c.name AS category_name, c.parent_id AS category_parent_id,
        v.id AS variant_id, v.sku AS variant_sku, v.name AS variant_name, v.price AS variant_price, v.stock AS variant_stock
 FROM page
@@ -280,6 +282,7 @@ type ListProductsNewestRow struct {
 	Description      string
 	PriceFrom        sql.NullInt64
 	CreatedAt        time.Time
+	UpdatedAt        time.Time
 	CategoryID       string
 	CategorySlug     string
 	CategoryName     string
@@ -338,6 +341,7 @@ func (q *Queries) ListProductsNewest(ctx context.Context, arg ListProductsNewest
 			&i.Description,
 			&i.PriceFrom,
 			&i.CreatedAt,
+			&i.UpdatedAt,
 			&i.CategoryID,
 			&i.CategorySlug,
 			&i.CategoryName,
@@ -363,7 +367,7 @@ func (q *Queries) ListProductsNewest(ctx context.Context, arg ListProductsNewest
 
 const listProductsPriceAsc = `-- name: ListProductsPriceAsc :many
 WITH page AS (
-    SELECT p.id, p.category_id, p.slug, p.name, p.description, p.price_from, p.created_at
+    SELECT p.id, p.category_id, p.slug, p.name, p.description, p.price_from, p.created_at, p.updated_at
     FROM products p
     WHERE p.status = 'active'
       AND ($1::uuid[] IS NULL
@@ -374,7 +378,7 @@ WITH page AS (
     ORDER BY p.price_from, p.id
     LIMIT $5
 )
-SELECT page.id, page.slug, page.name, page.description, page.price_from, page.created_at,
+SELECT page.id, page.slug, page.name, page.description, page.price_from, page.created_at, page.updated_at,
        c.id AS category_id, c.slug AS category_slug, c.name AS category_name, c.parent_id AS category_parent_id,
        v.id AS variant_id, v.sku AS variant_sku, v.name AS variant_name, v.price AS variant_price, v.stock AS variant_stock
 FROM page
@@ -398,6 +402,7 @@ type ListProductsPriceAscRow struct {
 	Description      string
 	PriceFrom        sql.NullInt64
 	CreatedAt        time.Time
+	UpdatedAt        time.Time
 	CategoryID       string
 	CategorySlug     string
 	CategoryName     string
@@ -432,6 +437,7 @@ func (q *Queries) ListProductsPriceAsc(ctx context.Context, arg ListProductsPric
 			&i.Description,
 			&i.PriceFrom,
 			&i.CreatedAt,
+			&i.UpdatedAt,
 			&i.CategoryID,
 			&i.CategorySlug,
 			&i.CategoryName,
@@ -457,7 +463,7 @@ func (q *Queries) ListProductsPriceAsc(ctx context.Context, arg ListProductsPric
 
 const listProductsPriceDesc = `-- name: ListProductsPriceDesc :many
 WITH page AS (
-    SELECT p.id, p.category_id, p.slug, p.name, p.description, p.price_from, p.created_at
+    SELECT p.id, p.category_id, p.slug, p.name, p.description, p.price_from, p.created_at, p.updated_at
     FROM products p
     WHERE p.status = 'active'
       AND ($1::uuid[] IS NULL
@@ -468,7 +474,7 @@ WITH page AS (
     ORDER BY p.price_from DESC, p.id DESC
     LIMIT $5
 )
-SELECT page.id, page.slug, page.name, page.description, page.price_from, page.created_at,
+SELECT page.id, page.slug, page.name, page.description, page.price_from, page.created_at, page.updated_at,
        c.id AS category_id, c.slug AS category_slug, c.name AS category_name, c.parent_id AS category_parent_id,
        v.id AS variant_id, v.sku AS variant_sku, v.name AS variant_name, v.price AS variant_price, v.stock AS variant_stock
 FROM page
@@ -492,6 +498,7 @@ type ListProductsPriceDescRow struct {
 	Description      string
 	PriceFrom        sql.NullInt64
 	CreatedAt        time.Time
+	UpdatedAt        time.Time
 	CategoryID       string
 	CategorySlug     string
 	CategoryName     string
@@ -526,6 +533,7 @@ func (q *Queries) ListProductsPriceDesc(ctx context.Context, arg ListProductsPri
 			&i.Description,
 			&i.PriceFrom,
 			&i.CreatedAt,
+			&i.UpdatedAt,
 			&i.CategoryID,
 			&i.CategorySlug,
 			&i.CategoryName,

@@ -19,10 +19,11 @@ const (
 	readProductB = "0190c8a0-0000-7000-8000-0000000000d2"
 )
 
-// storefrontRow is one row of the storefront reads (productRow's columns).
+// storefrontRow is one row of the storefront reads (productRow's columns;
+// created_at and updated_at both imgCreated).
 func storefrontRow(productID, variantID string, price int64) []driver.Value {
 	return []driver.Value{
-		productID, "slug-" + productID, "Name", "Desc", price, imgCreated,
+		productID, "slug-" + productID, "Name", "Desc", price, imgCreated, imgCreated,
 		"cat-1", "kaos", "Kaos", nil,
 		variantID, "SKU-" + variantID, "V", price, int64(3),
 	}

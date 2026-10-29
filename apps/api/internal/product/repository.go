@@ -138,6 +138,7 @@ func groupProducts(rows []productRow) []Product {
 				},
 				PriceFrom: row.PriceFrom.Int64, // never NULL for an active product
 				CreatedAt: row.CreatedAt,
+				UpdatedAt: row.UpdatedAt,
 			})
 		}
 		last := &products[len(products)-1]
