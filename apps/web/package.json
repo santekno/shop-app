@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "next dev --port 5173",
-    "typecheck": "next typegen && tsc --noEmit && tsc --noEmit -p tsconfig.node.json",
+    "typecheck": "next typegen && tsc --noEmit && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.test.json",
     "lint": "eslint --max-warnings=0 . && prettier --check .",
     "format": "prettier --write . && eslint --fix .",
     "build": "next build",

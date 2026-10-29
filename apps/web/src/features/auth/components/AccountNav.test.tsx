@@ -10,7 +10,7 @@ import {
   requestUrl,
   user,
 } from "@/test/fake-api.ts";
-import { inRouter } from "@/test/render.tsx";
+import { currentLocation, inRouter } from "@/test/render.tsx";
 import type { TestSession } from "@/test/render.tsx";
 import { useSession } from "../session-context.ts";
 import type { SessionValue } from "../session-context.ts";
@@ -127,7 +127,7 @@ describe("AccountNav", () => {
     await openMenu(events);
     await events.click(screen.getByRole("menuitem", { name: "Akun saya" }));
 
-    expect(screen.getByTestId("location").textContent).toBe("/akun");
+    expect(currentLocation()).toBe("/akun");
   });
 
   it("logs out with Keluar through the web endpoint, then gives the focus to Masuk", async () => {

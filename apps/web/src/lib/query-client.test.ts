@@ -1,9 +1,9 @@
 import { QueryClient } from "@tanstack/react-query";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_STALE_TIME_MS,
   createQueryClient,
-  queryClient,
+  getQueryClient,
 } from "./query-client.ts";
 
 describe("createQueryClient", () => {
@@ -58,9 +58,24 @@ describe("createQueryClient", () => {
   });
 });
 
-describe("queryClient", () => {
-  it("is the storefront's client, with the same defaults", () => {
-    expect(queryClient).toBeInstanceOf(QueryClient);
-    expect(queryClient.getDefaultOptions().queries?.retry).toBe(false);
+describe("getQueryClient", () => {
+  it("gives the browser one client for the whole visit, with the same defaults", () => {
+    const client = getQueryClient();
+
+    expect(client).toBeInstanceOf(QueryClient);
+    expect(getQueryClient()).toBe(client);
+    expect(client.getDefaultOptions().queries?.retry).toBe(false);
+  });
+
+  it("gives the server a new client every time, so no visitor sees another's cache", () => {
+    // On the server there is no window. Put back at once: the shared
+    // afterEach (vitest.setup.ts) needs it.
+    vi.stubGlobal("window", undefined);
+    const a = getQueryClient();
+    const b = getQueryClient();
+    vi.unstubAllGlobals();
+
+    expect(a).toBeInstanceOf(QueryClient);
+    expect(a).not.toBe(b);
   });
 });

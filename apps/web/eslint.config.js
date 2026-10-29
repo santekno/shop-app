@@ -11,16 +11,6 @@ import tseslint from "typescript-eslint";
 export default defineConfig([
   // Build output and the file `next build` writes.
   globalIgnores(["dist", ".next", "next-env.d.ts"]),
-  // The unit tests, their setup and vite.config.ts (which only runs them
-  // now) were written for the Vite app and React Router. Bab 11 artikel
-  // 08 moved the app to Next.js; the test stage moves them, with a
-  // tsconfig of their own, and removes this entry.
-  globalIgnores([
-    "src/**/*.test.{ts,tsx}",
-    "src/test/**",
-    "src/vitest.setup.ts",
-    "vite.config.ts",
-  ]),
   {
     // This file and the scripts, run by Node.
     files: ["**/*.{js,mjs}"],
@@ -70,6 +60,32 @@ export default defineConfig([
         "error",
         { allowNumber: true },
       ],
+    },
+  },
+  {
+    // The unit tests and their helpers follow the same rules, typed by
+    // tsconfig.test.json: tsconfig.json leaves them out (they are not part
+    // of the app `next build` checks), so the project service would not
+    // find them.
+    files: ["src/**/*.test.{ts,tsx}", "src/test/**", "src/vitest.setup.ts"],
+    languageOptions: {
+      parserOptions: {
+        projectService: false,
+        project: "./tsconfig.test.json",
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+  },
+  {
+    // Vitest's configuration, run by Node: typed by tsconfig.node.json.
+    files: ["vite.config.ts"],
+    languageOptions: {
+      globals: globals.node,
+      parserOptions: {
+        projectService: false,
+        project: "./tsconfig.node.json",
+        tsconfigRootDir: import.meta.dirname,
+      },
     },
   },
   // Last: turns off every rule that would fight Prettier's formatting.

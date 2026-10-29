@@ -8,15 +8,15 @@ const loadConfig = async () => {
 };
 
 describe("config.apiUrl", () => {
-  it("reads VITE_API_URL", async () => {
-    vi.stubEnv("VITE_API_URL", "https://api.example.com");
+  it("reads NEXT_PUBLIC_API_URL", async () => {
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.example.com");
 
     expect((await loadConfig()).apiUrl).toBe("https://api.example.com");
   });
 
-  it("reads VITE_API_URL outside the dev server too", async () => {
-    vi.stubEnv("DEV", false);
-    vi.stubEnv("VITE_API_URL", "https://api.example.com");
+  it("reads NEXT_PUBLIC_API_URL in a production build too", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.example.com");
 
     expect((await loadConfig()).apiUrl).toBe("https://api.example.com");
   });
@@ -25,10 +25,10 @@ describe("config.apiUrl", () => {
     ["unset", undefined],
     ["empty", ""],
   ])(
-    "falls back to localhost:8080 on the dev server when it is %s",
+    "falls back to localhost:8080 outside production when it is %s",
     async (_, value) => {
-      vi.stubEnv("DEV", true);
-      vi.stubEnv("VITE_API_URL", value);
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("NEXT_PUBLIC_API_URL", value);
 
       expect((await loadConfig()).apiUrl).toBe("http://localhost:8080");
     },
@@ -37,10 +37,12 @@ describe("config.apiUrl", () => {
   it.each([
     ["unset", undefined],
     ["empty", ""],
-  ])("throws outside the dev server when it is %s", async (_, value) => {
-    vi.stubEnv("DEV", false);
-    vi.stubEnv("VITE_API_URL", value);
+  ])("throws in a production build when it is %s", async (_, value) => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_API_URL", value);
 
-    await expect(loadConfig()).rejects.toThrow("VITE_API_URL is not set");
+    await expect(loadConfig()).rejects.toThrow(
+      "NEXT_PUBLIC_API_URL is not set",
+    );
   });
 });

@@ -52,7 +52,6 @@ const valueOf = (term: string) =>
 
 beforeEach(() => {
   fetchMock.mockReset();
-  document.title = "GoShop";
 });
 
 describe("AccountPage (/akun)", () => {
@@ -65,7 +64,6 @@ describe("AccountPage (/akun)", () => {
       await screen.findByRole("heading", { level: 1, name: "Akun saya" }),
     ).toBeTruthy();
     expect(await screen.findByText("Budi Santoso")).toBeTruthy();
-    expect(document.title).toBe("Akun saya — GoShop");
     expect(valueOf("Email")).toBe("budi@example.com");
     expect(valueOf("Telepon")).toBe("+6281234567890");
     expect(valueOf("Bergabung")).toBe("1 Oktober 2026");
@@ -118,9 +116,9 @@ describe("AccountPage (/akun)", () => {
     const { router } = renderApp("/akun");
 
     await vi.waitFor(() => {
-      expect(router.state.location.pathname).toBe("/masuk");
+      expect(router.location.pathname).toBe("/masuk");
     });
-    expect(router.state.location.search).toBe("?kembali=%2Fakun");
+    expect(router.location.search).toBe("?kembali=%2Fakun");
     expect(meRequests()).toHaveLength(0);
   });
 });

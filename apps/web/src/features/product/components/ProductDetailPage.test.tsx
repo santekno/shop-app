@@ -14,6 +14,7 @@ import {
   renderApp,
   renderWithProviders,
 } from "@/test/render.tsx";
+import { setNavigationState } from "@/lib/navigation-state.ts";
 import { FROM_CATALOG } from "../paths.ts";
 import { ProductDetailPage } from "./ProductDetailPage.tsx";
 
@@ -22,10 +23,15 @@ vi.mock("@/lib/api.ts", () => import("@/test/fake-api.ts"));
 const back = () => screen.getByRole("link", { name: "← Kembali ke katalog" });
 
 const renderPage = (slug: string) =>
-  renderWithProviders(<ProductDetailPage />, {
-    path: "/produk/:slug",
+  renderWithProviders(<ProductDetailPage slug={slug} />, {
+    path: "/produk/[slug]",
     url: `/produk/${encodeURIComponent(slug)}`,
   });
+
+/** What a catalog card's click leaves for the product page. */
+const openedFromCatalog = () => {
+  setNavigationState("/produk/kaos", FROM_CATALOG);
+};
 
 beforeEach(() => {
   fetchMock.mockReset();
@@ -36,7 +42,7 @@ afterEach(() => {
 });
 
 describe("ProductDetailPage", () => {
-  it("loads the product named by the URL's slug", () => {
+  it("loads the product named by its slug", () => {
     fetchMock.mockReturnValue(new Promise(() => undefined));
     renderPage("kaos-polos");
 
@@ -71,7 +77,7 @@ describe("ProductDetailPage", () => {
     expect(screen.queryByText("Memuat produk…")).toBeNull();
   });
 
-  it("hands NOT_FOUND to the route's error boundary: the 404 page, with no retry", async () => {
+  it("hands NOT_FOUND to notFound(): the product's 404 page, with no retry", async () => {
     // React logs every error a boundary catches; this one is expected.
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     fetchMock.mockResolvedValue(errorResponse(404, "NOT_FOUND", "req-404"));
@@ -114,43 +120,39 @@ describe("ProductDetailPage", () => {
   it("goes back in history to the list it came from, filters and all", async () => {
     const user = userEvent.setup();
     fetchMock.mockReturnValue(new Promise(() => undefined));
-    const { router } = renderWithProviders(<ProductDetailPage />, {
-      path: "/produk/:slug",
-      url: [
-        "/?kategori=kaos&urut=termurah",
-        { pathname: "/produk/kaos", state: FROM_CATALOG },
-      ],
+    openedFromCatalog();
+    const { router } = renderWithProviders(<ProductDetailPage slug="kaos" />, {
+      path: "/produk/[slug]",
+      url: ["/?kategori=kaos&urut=termurah", "/produk/kaos"],
     });
 
     await user.click(back());
 
     expect(currentLocation()).toBe("/?kategori=kaos&urut=termurah");
-    expect(router.state.historyAction).toBe("POP");
+    expect(router.lastAction).toBe("back");
   });
 
   it("follows its link to / when the product was opened some other way", async () => {
     const user = userEvent.setup();
     fetchMock.mockReturnValue(new Promise(() => undefined));
-    const { router } = renderWithProviders(<ProductDetailPage />, {
-      path: "/produk/:slug",
+    const { router } = renderWithProviders(<ProductDetailPage slug="kaos" />, {
+      path: "/produk/[slug]",
       url: ["/?kategori=kaos", "/produk/kaos"],
     });
 
     await user.click(back());
 
     expect(currentLocation()).toBe("/");
-    expect(router.state.historyAction).toBe("PUSH");
+    expect(router.lastAction).toBe("push");
   });
 
   it("leaves a modified click (new tab) to the browser", async () => {
     const user = userEvent.setup();
     fetchMock.mockReturnValue(new Promise(() => undefined));
-    renderWithProviders(<ProductDetailPage />, {
-      path: "/produk/:slug",
-      url: [
-        "/?kategori=kaos",
-        { pathname: "/produk/kaos", state: FROM_CATALOG },
-      ],
+    openedFromCatalog();
+    renderWithProviders(<ProductDetailPage slug="kaos" />, {
+      path: "/produk/[slug]",
+      url: ["/?kategori=kaos", "/produk/kaos"],
     });
 
     await user.keyboard("{Control>}");

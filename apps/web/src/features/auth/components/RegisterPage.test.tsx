@@ -8,6 +8,7 @@ import {
   user,
   userResponse,
 } from "@/test/fake-api.ts";
+import { navigationStateFor } from "@/lib/navigation-state.ts";
 import { currentLocation, renderWithProviders } from "@/test/render.tsx";
 import { registeredEmailFrom } from "../navigation-state.ts";
 import { RegisterPage } from "./RegisterPage.tsx";
@@ -40,17 +41,15 @@ const fill = async (
 
 beforeEach(() => {
   fetchMock.mockReset();
-  document.title = "GoShop";
 });
 
 describe("RegisterPage", () => {
-  it("shows the form with its heading, title, password hint and a link to Masuk", () => {
+  it("shows the form with its heading, password hint and a link to Masuk", () => {
     renderRegister();
 
     expect(
       screen.getByRole("heading", { level: 1, name: "Daftar akun" }),
     ).toBeTruthy();
-    expect(document.title).toBe("Daftar — GoShop");
     expect(field("Nama").autocomplete).toBe("name");
     expect(field("Email").type).toBe("email");
     expect(field("Kata sandi").autocomplete).toBe("new-password");
@@ -89,7 +88,8 @@ describe("RegisterPage", () => {
     await vi.waitFor(() => {
       expect(currentLocation()).toBe("/masuk");
     });
-    expect(registeredEmailFrom(router.state.location.state)).toBe(
+    expect(router.lastAction).toBe("push");
+    expect(registeredEmailFrom(navigationStateFor("/masuk"))).toBe(
       "budi@example.com",
     );
     expect(registerRequests()[0]?.[1]?.body).toBe(

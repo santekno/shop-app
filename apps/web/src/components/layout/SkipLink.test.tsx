@@ -50,7 +50,8 @@ describe("SkipLink", () => {
     expect(document.activeElement).toBe(screen.getByRole("main"));
     expect(screen.getByRole("main").id).toBe("konten");
     // No navigation: no #konten entry in the history.
-    expect(router.state.location.hash).toBe("");
-    expect(router.state.historyAction).toBe("POP");
+    expect(window.location.hash).toBe("");
+    expect(router.entries).toEqual(["/masuk"]);
+    expect(router.lastAction).toBe("start");
   });
 });

@@ -20,11 +20,13 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("a lazy route whose code fails to load", () => {
-  it("reaches the error boundary, which offers a reload inside the layout", async () => {
+describe("a browser-only page whose code fails to load", () => {
+  it("reaches app/error.tsx, which offers a reload inside the layout", async () => {
     renderApp("/masuk");
 
     const alert = await screen.findByRole("alert");
+    expect(screen.getByRole("main").contains(alert)).toBe(true);
+    expect(screen.getByRole("banner")).toBeTruthy();
     expect(
       within(alert).getByRole("heading", {
         level: 1,

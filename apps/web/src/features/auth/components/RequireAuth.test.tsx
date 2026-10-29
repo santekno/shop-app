@@ -1,5 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
-import { createMemoryRouter, RouterProvider } from "react-router";
+import { act, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   deferred,
@@ -8,37 +7,24 @@ import {
   user,
   webSessionResponse,
 } from "@/test/fake-api.ts";
-import { LocationProbe } from "@/test/LocationProbe.tsx";
-import { createTestQueryClient, providers } from "@/test/render.tsx";
+import { renderWithProviders } from "@/test/render.tsx";
 import type { TestSession } from "@/test/render.tsx";
 import { RequireAuth } from "./RequireAuth.tsx";
 
 vi.mock("@/lib/api.ts", () => import("@/test/fake-api.ts"));
 
 /**
- * RequireAuth as a layout route around a stand-in /akun, as in routes.tsx,
- * opened from "/" so the history has a page before it.
+ * RequireAuth as app/(akun)/layout.tsx renders it, around a stand-in
+ * /akun, opened from "/" so the history has a page before it. At any
+ * other URL (/masuk) the layout is gone, as in the app.
  */
-const mount = (url: string, session: TestSession) => {
-  const router = createMemoryRouter(
-    [
-      {
-        element: <RequireAuth />,
-        children: [{ path: "/akun", element: <h1>Halaman akun</h1> }],
-      },
-      { path: "*", element: <LocationProbe /> },
-    ],
-    { initialEntries: ["/", url], initialIndex: 1 },
-  );
-  render(
-    providers(
-      createTestQueryClient(),
-      <RouterProvider router={router} />,
-      session,
-    ),
-  );
-  return router;
-};
+const mount = (url: string, session: TestSession) =>
+  renderWithProviders(
+    <RequireAuth>
+      <h1>Halaman akun</h1>
+    </RequireAuth>,
+    { path: "/akun", url: ["/", url], session },
+  ).router;
 
 const accountHeading = () =>
   screen.queryByRole("heading", { name: "Halaman akun" });
@@ -58,11 +44,12 @@ describe("RequireAuth", () => {
   it("sends a guest to /masuk with the whole page asked for, replacing the entry", () => {
     const router = mount("/akun?tab=profil#alamat", null);
 
-    expect(router.state.location.pathname).toBe("/masuk");
-    expect(
-      new URLSearchParams(router.state.location.search).get("kembali"),
-    ).toBe("/akun?tab=profil#alamat");
-    expect(router.state.historyAction).toBe("REPLACE");
+    expect(router.location.pathname).toBe("/masuk");
+    expect(new URLSearchParams(router.location.search).get("kembali")).toBe(
+      "/akun?tab=profil#alamat",
+    );
+    expect(router.lastAction).toBe("replace");
+    expect(router.entries).toHaveLength(2);
     expect(accountHeading()).toBeNull();
   });
 
@@ -72,7 +59,7 @@ describe("RequireAuth", () => {
     const router = mount("/akun", "restore");
 
     expect(screen.getByRole("status").textContent).toBe("Memeriksa sesi Anda…");
-    expect(router.state.location.pathname).toBe("/akun");
+    expect(router.location.pathname).toBe("/akun");
     expect(accountHeading()).toBeNull();
 
     await act(async () => {
@@ -83,7 +70,7 @@ describe("RequireAuth", () => {
     expect(
       await screen.findByRole("heading", { name: "Halaman akun" }),
     ).toBeTruthy();
-    expect(router.state.location.pathname).toBe("/akun");
+    expect(router.location.pathname).toBe("/akun");
   });
 
   it("redirects once the restore finds no session", async () => {
@@ -97,8 +84,8 @@ describe("RequireAuth", () => {
     });
 
     await vi.waitFor(() => {
-      expect(router.state.location.pathname).toBe("/masuk");
+      expect(router.location.pathname).toBe("/masuk");
     });
-    expect(router.state.location.search).toBe("?kembali=%2Fakun");
+    expect(router.location.search).toBe("?kembali=%2Fakun");
   });
 });

@@ -11,7 +11,7 @@ import {
   requestUrl,
   serve,
 } from "@/test/fake-api.ts";
-import { renderApp } from "@/test/render.tsx";
+import { currentLocation, renderApp } from "@/test/render.tsx";
 
 vi.mock("@/lib/api.ts", () => import("@/test/fake-api.ts"));
 
@@ -53,9 +53,9 @@ describe("browsing the storefront", () => {
       screen.getByRole("link", { name: "← Kembali ke katalog" }),
     );
 
-    expect(router.state.location.pathname + router.state.location.search).toBe(
-      "/?urut=termurah",
-    );
+    expect(currentLocation()).toBe("/?urut=termurah");
+    // Back in history, not a new visit to the catalog.
+    expect(router.lastAction).toBe("back");
     const card = await screen.findByRole("link", { name: "Kemeja" });
     expect(screen.getByRole("link", { name: "Kaos Polos" })).toBeTruthy();
     expect(document.activeElement).toBe(card);
