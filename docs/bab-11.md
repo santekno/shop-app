@@ -12,11 +12,11 @@ Branch: `bab-11` (from `bab-10` @ `a3cf57aa`)
 | 3 integration | integration-engineer | pass | Go integration against PostgreSQL, Redis and SeaweedFS: 1096 top-level tests (4252 with subtests), 0 skipped, with new cases for `latest_payment` (null → pending → denied → paid, buyer and admin, another buyer 404), `updated_at` (moves on an admin save only) and `APP_WEB_URL` reaching the fake Midtrans' `callbacks.finish`. Playwright (Chromium): the existing suite moved onto Next.js (87 tests; `web-container.spec.ts` rewritten for the standalone image), then 41 new tests for checkout to a paid order and the Snap return, polling under Playwright's clock, the order history, metadata/sitemap/robots from the server's HTML, product photos from an uploaded PNG, and analytics consent with and without `GA_MEASUREMENT_ID`: 128 passed, 0 skipped. Health checks 200. One production bug found and fixed (What the gate changed) |
 | 4 quality review | quality-review | pass | two reviewers (web; API, shared, infra, docs and e2e quality): 0 blocking. Should-fix and nits fixed in `50ea2732..79c7482c`; the rest under Deferred |
 
-**Verified SHA:** `079b64d86c21857ec17b18951706105cdd78e0f2` (2026-10-30). Stages 0–3 ran on the heads named above; stage 4 read `a7f7ad83`, and its fixes (`50ea2732..79c7482c`) and the two cold-gate test fixes (`f39d5b90`, `079b64d8`) followed. This record's own commit changes no code.
+**Verified SHA:** `f6402a1b894002aa13ad57c33af75d89705cc982` (2026-10-30), after the fixes found while writing the articles (After the gate); the gate first passed on `079b64d86c21857ec17b18951706105cdd78e0f2`. Stages 0–3 ran on the heads named above; stage 4 read `a7f7ad83`, and its fixes (`50ea2732..79c7482c`) and the two cold-gate test fixes (`f39d5b90`, `079b64d8`) followed. The record's own commits change no code.
 
-`make verify` ran from a cold stack (`docker compose down -v` first, its own Compose project on host ports 2xxxx) at the verified SHA and passed every stage in 648 s: Go unit coverage 97.5%; 364 tests in `packages/shared` and 1213 in `apps/web` (130 files); 1096 top-level Go integration tests (4252 with subtests) and 128 Playwright tests passed, 0 skipped; `make scan` clean. `apps/api` changed in this chapter, so the Go integration suite ran again under `-race` (`-timeout 60m`) at the same SHA: 28 packages, clean. Two earlier cold runs failed and were fixed (What the gate changed).
+`make verify` ran from a cold stack (`docker compose down -v` first, its own Compose project on host ports 2xxxx) at the verified SHA and passed every stage in 736 s: Go unit coverage 97.5%; 364 tests in `packages/shared` and 1216 in `apps/web` (130 files); 1096 top-level Go integration tests (4252 with subtests) and 130 Playwright tests passed, 0 skipped; `make scan` clean. The Go integration suite ran again under `-race` (`-timeout 60m`) at the same SHA: 28 packages, clean. At `079b64d8` the same run passed in 648 s (1213 web tests, 128 Playwright tests), after two cold runs that failed and were fixed (What the gate changed).
 
-**Per-commit, read honestly.** Stage 1 ran after the whole of stage 0 and moved the test harness to Next.js in one commit (`195503e9`), so the commits from `7bc1d8da` (artikel 08) to `195503e9` do not pass the web unit tests at their own snapshot: the tests still mounted React Router. The per-commit loop was not run for this chapter. No commit ships a known defect; the failures are test expectations a later commit in the chapter updates.
+**Per-commit, read honestly.** Stage 1 ran after the whole of stage 0 and moved the test harness to Next.js in one commit (`195503e9`), so the commits from `7bc1d8da` (artikel 08) to `195503e9` do not pass the web unit tests at their own snapshot: the tests still mounted React Router. The storefront image does not build at those commits either: from `7bc1d8da` until `116f06b1` (artikel 14), `apps/web/Dockerfile` still built the Vite app for Caddy while the build script was already `next build`, which stops without `NEXT_PUBLIC_API_URL`; `make docker-build` passes again from `116f06b1`. The per-commit loop was not run for this chapter. Apart from that image, the failures are test expectations a later commit in the chapter updates; the defects found after the gate are listed under After the gate.
 
 ### What the gate changed
 
@@ -32,6 +32,17 @@ Branch: `bab-11` (from `bab-10` @ `a3cf57aa`)
 - **Cold gate, a test that read the shell** (`f39d5b90`): `proxy.test.ts` expected `localhost:8080` in `connect-src`, but `config.ts` read the `NEXT_PUBLIC_API_URL` the gate exports for the e2e stack. Vitest now empties the storefront's variables for every test (`vite.config.ts`, `test.env`); a test that needs a value stubs it.
 - **Cold gate, `make scan`** (`079b64d8`): a refused-URL case in `usePayOrder.test.tsx` (Midtrans as the userinfo, with a password, before another host) matched the scan's user:password rule. The literal is split so the scan passes; the case itself is unchanged.
 - **Stage 4, nits fixed:** the `(akun)` pages' `noindex, nofollow` in the README's table (`a7f7ad83`); the navigation state's privacy comment (it holds the email just registered); the proxy matcher's dotted paths (`e8811933`); the unused `@tailwindcss/vite` (`79c7482c`).
+
+### After the gate
+
+Writing the articles against the demo stack found four bugs and some inaccurate comments at `079b64d8`. They were fixed in six commits (`5a684952..f6402a1b`) and the whole gate ran again at `f6402a1b`.
+
+- **The payment page opened again waited 30 s** (artikel 05, `5a684952`): a round counted its answers from zero, but the order's cache entry kept the count of earlier visits (and of checkout's seed), so leaving the payment page for the order's page and coming back made the first check come at the 30 s end of the backoff. Measured on the demo stack: 39.1 s → 69.1 s. A round now starts from the query's own count (`answersSoFar`), as "Periksa lagi" already did since `ab39a37f`; a test opens the page twice on one client and fails against the old code. A real return from Midtrans is a full page load and was not affected.
+- **The catalog answered 200 without `SITE_URL`** (artikel 10, `b0f222be`): in production only the root layout's `generateMetadata` read it, and its failure does not change the status, so `/` answered 200 with the product cards and no title, description or canonical link (also to Googlebot); product pages, the sitemap and robots.txt did answer 500. The root layout's render now calls `siteUrl()`, so every page answers 500 with the reason in the log; `/healthz` stays 200. A unit test and an e2e test (`09952d39`) cover it.
+- **The data cache never reached the disk** (artikel 14, `c8ba4663`): the image runs as `node`, but `.next` belonged to root, so every cached fetch logged `EACCES` (228 lines on the demo stack) and lived in memory only, lost on a restart. The image now gives `node` the `.next/cache` folder and nothing else; an e2e test checks that the cache is written, that `server.js` stays read-only and that the log has no `EACCES`.
+- **The sitemap's cursor guard** (artikel 11, `c8a42f98`): its comment said it stopped "if the API ever answered the same cursor twice", but the code compared only with the last cursor, so a loop (A, B, A) would walk to the 49 000-product cap. It now stops at any cursor seen before; a test with that loop fails against the old code.
+- **Comments and docs corrected** (`f6402a1b`): `features/orders/paths.ts` (the route patterns are no longer what Next.js routes by; the return URL comes from `APP_WEB_URL` first), `docs/web/README.md` (the product page is 24 KB from artikel 10, and the recorded `seo-probe.js` report leaves out three lines), and the Compose comment on the storage's browser address.
+- **Not changed:** the "+" button is disabled from the rendered quantity and stock while a step in `useChangeCartLine` caps only at 99, so a click faster than a render could ask for more than the stock; the API refuses it and the guess is rolled back (not reproduced).
 
 ## Decisions
 
@@ -74,14 +85,14 @@ The storefront's decisions are in `docs/web/README.md` (the Bab 11 sections, one
 | 02 | Checkout: address and courier | `68d273fc` | `d8cbdd11`, `ceb02e0c`, `92a75389`, `0a2a58ef` |
 | 03 | Order summary and vouchers | `06ae711b` | `3ff05173`, `461b07c4`, `e26183e2`, `f3bf0313` |
 | 04 | Placing the order and paying through Snap | `8d71cd0a`, `87e2e12b` (API), `ce3fb726` (docs) | `482d09be`, `05538f68`, `9aed681c`, `4ca7bf49`, `e8fef9e9`, `c48175e2`, `8e117a2c`, `5e01e503`; Go integration `59ac575a`; e2e `cd07cfe5` |
-| 05 | The payment status page | `b8f6cbd4`, `d2eb4a65` (API), `f24ab30b`, `ab39a37f` | `512fc0b4`, `b09b6893`, `4ff732d7`, `c182c5e2`, `eb8e17ac`, `cfb9d8f9`; Go integration `e0e6ccf8`; e2e `7fa40c25` |
-| 06 | Order history and an order's page | `165c5690`, `99466a2a` | `ccb4bdd9`; e2e `bfd33cd5` |
-| 07 | What a crawler gets from the SPA | `dab11370` | — (a measurement script and its report) |
+| 05 | The payment status page | `b8f6cbd4`, `d2eb4a65` (API), `f24ab30b`, `ab39a37f`, `5a684952` | `512fc0b4`, `b09b6893`, `4ff732d7`, `c182c5e2`, `eb8e17ac`, `cfb9d8f9`, `5a684952`; Go integration `e0e6ccf8`; e2e `7fa40c25` |
+| 06 | Order history and an order's page | `165c5690`, `99466a2a`, `f6402a1b` (comments) | `ccb4bdd9`; e2e `bfd33cd5` |
+| 07 | What a crawler gets from the SPA | `dab11370`, `f6402a1b` (README) | — (a measurement script and its report) |
 | 08 | Moving to the Next.js App Router | `7bc1d8da`, `26e8f541`, `e8811933` (docs), `79c7482c` | `195503e9`, `5a324d66`, `b2750a75`, `8d6d47d7`; e2e `62e5b369`, `d1e0bfac`, `a7f7ad83` (docs) |
 | 09 | SSR and the data cache | `5536fb23`, `2629b0fa` | `8e833ec4`, `2629b0fa`; e2e `3245ab80` |
-| 10 | Metadata, Open Graph and JSON-LD | `76dfb9f9` | `f9dd07fb`, `58be3ddf`, `8e833ec4`; e2e `70478537` |
-| 11 | Sitemap and robots.txt | `28947af0`, `b214d271` (API) | `e766657f`, `425f03eb`; Go integration `f642a356`; e2e `13648b01` |
+| 10 | Metadata, Open Graph and JSON-LD | `76dfb9f9`, `b0f222be` | `f9dd07fb`, `58be3ddf`, `8e833ec4`, `b0f222be`; e2e `70478537` |
+| 11 | Sitemap and robots.txt | `28947af0`, `b214d271` (API), `c8a42f98` | `e766657f`, `425f03eb`, `c8a42f98`; Go integration `f642a356`; e2e `13648b01` |
 | 12 | Product photos and Core Web Vitals | `9878a639`, `b47bd919`, `506ed305` | e2e `80f39ca6` |
 | 13 | GA4 behind consent | `f73491e4`, `50ea2732` | `14229839`, `336e27a1`, `4f761e91`, `50ea2732`; e2e `e23b0e3c` |
-| 14 | The standalone container | `116f06b1` | e2e `b994a9a4` |
+| 14 | The standalone container | `116f06b1`, `c8ba4663` | e2e `b994a9a4`, `09952d39` |
 | 15 | Recap + challenge: a promo page with ISR | `da4bdf76` (docs) | — |
