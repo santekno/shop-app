@@ -1,4 +1,4 @@
-# Bab 11 — Web checkout, payment & the Next.js storefront
+# Bab 11 — Storefront: checkout, pembayaran & SEO
 
 Branch: `bab-11` (from `bab-10` @ `a3cf57aa`)
 
