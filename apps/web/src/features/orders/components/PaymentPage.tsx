@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -6,6 +6,7 @@ import { formatRupiah, isApiError } from "@goshop/shared";
 import { Button } from "@/components/ui/Button.tsx";
 import { Card } from "@/components/ui/Card.tsx";
 import { ErrorState, LoadingState } from "@/components/ui/StatusMessage.tsx";
+import { trackPurchaseOnce } from "@/features/analytics/purchase.ts";
 import { useSession } from "@/features/auth/session-context.ts";
 import { orderQuery } from "../api/queries.ts";
 import {
@@ -75,6 +76,18 @@ export function PaymentPage() {
       return pollDelay(query.state.dataUpdateCount);
     },
   });
+
+  // purchase (artikel 13): when the page sees the order paid, which is
+  // when the API (the webhook or the reconciler) has decided, never
+  // Midtrans' return URL. trackPurchaseOnce remembers the order, so a
+  // reload or a later visit does not count it again.
+  const paidOrder =
+    order.status === "success" && paymentOutcome(order.data) === "paid"
+      ? order.data
+      : undefined;
+  useEffect(() => {
+    if (paidOrder !== undefined) trackPurchaseOnce(paidOrder);
+  }, [paidOrder]);
 
   const pending =
     order.status === "success" && paymentOutcome(order.data) === "pending";

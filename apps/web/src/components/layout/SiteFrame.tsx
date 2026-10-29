@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation";
 import { useEffect, useRef } from "react";
 import type { ReactNode } from "react";
+import { AnalyticsConsent } from "@/features/analytics/components/AnalyticsConsent.tsx";
 import { forgetNavigationStateUnless } from "@/lib/navigation-state.ts";
 import { SiteHeader } from "./SiteHeader.tsx";
 import { SkipLink } from "./SkipLink.tsx";
@@ -21,8 +22,18 @@ const MAIN_ID = "konten";
  * A client component because it moves the focus after a navigation
  * (useRouteFocus). `children` can still be a server component: the server
  * renders it and passes the result through.
+ *
+ * `analytics` (artikel 13) says whether GA_MEASUREMENT_ID is set; the
+ * root layout reads it on the server. Only then is there a footer, with
+ * "Pengaturan analytics" and the consent banner.
  */
-export function SiteFrame({ children }: { children: ReactNode }) {
+export function SiteFrame({
+  children,
+  analytics = false,
+}: {
+  children: ReactNode;
+  analytics?: boolean;
+}) {
   const mainRef = useRef<HTMLElement>(null);
   useRouteFocus(mainRef);
   // State handed to a page lasts while that page is on screen.
@@ -47,6 +58,11 @@ export function SiteFrame({ children }: { children: ReactNode }) {
       >
         {children}
       </main>
+      {analytics && (
+        <footer className="mx-auto max-w-page px-4 pb-6">
+          <AnalyticsConsent />
+        </footer>
+      )}
     </>
   );
 }

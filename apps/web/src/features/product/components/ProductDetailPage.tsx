@@ -4,7 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { notFound, useRouter } from "next/navigation";
 import type { MouseEvent } from "react";
-import { isApiError } from "@goshop/shared";
+import { isApiError, viewItemEvent } from "@goshop/shared";
+import { useTrackOnce } from "@/features/analytics/useTrackOnce.ts";
 import { ErrorState, LoadingState } from "@/components/ui/StatusMessage.tsx";
 import { productQuery } from "../api/queries.ts";
 import { navigationStateFor } from "@/lib/navigation-state.ts";
@@ -33,6 +34,14 @@ export function ProductDetailPage({ slug }: { slug: string }) {
     isFetching,
     refetch,
   } = useQuery(productQuery(slug));
+
+  // view_item (artikel 13): once per product shown, from the server's
+  // data at hydration. A background refetch is the same product, not a
+  // second view.
+  useTrackOnce(
+    product === undefined ? null : viewItemEvent(product),
+    product?.id,
+  );
 
   // A product that is gone: Next.js' 404 page (app/produk/[slug]/
   // not-found.tsx), the same one an unknown URL gets. notFound() throws,

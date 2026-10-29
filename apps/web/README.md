@@ -37,16 +37,17 @@ Logging in sets an httpOnly refresh cookie, `goshop_refresh`, that the browser s
 2. **The storefront and the API are the same site.** `SameSite=Strict` cookies travel only between hosts of one registrable domain. `localhost:5173` → `localhost:8080` is one site (ports do not count). Use `localhost` for both, never `localhost` for one and `127.0.0.1` for the other: those are two sites, and the cookie is never sent. In a deployment this means custom domains under one domain (`shop.example.com` and `api.example.com`); Railway's generated `*.up.railway.app` hosts are separate sites (`docs/configuration.md`).
 3. **The browser keeps a `Secure` cookie.** The API sets `Secure` by default (`APP_AUTH_COOKIE_SECURE=true`). Chromium and Firefox treat `http://localhost` as a secure context and keep the cookie, so `make up`, `pnpm dev` and the e2e suite need nothing. Set `APP_AUTH_COOKIE_SECURE=false` (accepted only with `APP_ENV=development`) only for a browser that is not in a secure context, such as a phone opening `http://192.168.x.x:5173` over the LAN, or a browser that does not extend the localhost exception to cookies. Note that such a page also has no Web Locks API (`navigator.locks` exists only in a secure context), so two of its tabs can still race a refresh (see `features/auth/refresh-lock.ts`).
 
-To check it: log in, then DevTools → Application → Cookies → `http://localhost:8080` shows `goshop_refresh` with `HttpOnly`, `Secure`, `SameSite=Strict` and `Path=/v1/auth/web`; Local Storage and Session Storage hold no token (only `goshop:cart` and `goshop:theme`). A reload keeps you logged in, and the Network panel shows one `POST /v1/auth/web/refresh` per page load (`204` when logged out).
+To check it: log in, then DevTools → Application → Cookies → `http://localhost:8080` shows `goshop_refresh` with `HttpOnly`, `Secure`, `SameSite=Strict` and `Path=/v1/auth/web`; Local Storage and Session Storage hold no token (only `goshop:cart` and `goshop:theme`, plus `goshop:analytics-consent` and `goshop:analytics-purchases` when `GA_MEASUREMENT_ID` is set). A reload keeps you logged in, and the Network panel shows one `POST /v1/auth/web/refresh` per page load (`204` when logged out).
 
 ## Configuration
 
-| Variable              | Read                            | What it is                                                                                                                                                                    |
-| --------------------- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `NEXT_PUBLIC_API_URL` | at build time, by the browser   | the API as the **browser** reaches it. Written into the JavaScript: public, never a secret; `next build` stops without it; unset in development means `http://localhost:8080` |
-| `API_INTERNAL_URL`    | at run time, by the server only | the API as the storefront's **server** reaches it (`http://api:8080` in Compose); unset means `NEXT_PUBLIC_API_URL`                                                           |
-| `SITE_URL`            | at run time, by the server only | the storefront's public origin, for canonical links, Open Graph and structured data; unset means `http://localhost:5173` in development and a 500 in production               |
-| `IMAGE_ORIGIN`        | at run time, by the server only | the origin product photos come from (the image storage), for the CSP's `img-src`; unset means `http://localhost:8333` in development and no photos in production              |
+| Variable              | Read                            | What it is                                                                                                                                                                                         |
+| --------------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_API_URL` | at build time, by the browser   | the API as the **browser** reaches it. Written into the JavaScript: public, never a secret; `next build` stops without it; unset in development means `http://localhost:8080`                      |
+| `API_INTERNAL_URL`    | at run time, by the server only | the API as the storefront's **server** reaches it (`http://api:8080` in Compose); unset means `NEXT_PUBLIC_API_URL`                                                                                |
+| `SITE_URL`            | at run time, by the server only | the storefront's public origin, for canonical links, Open Graph and structured data; unset means `http://localhost:5173` in development and a 500 in production                                    |
+| `IMAGE_ORIGIN`        | at run time, by the server only | the origin product photos come from (the image storage), for the CSP's `img-src`; unset means `http://localhost:8333` in development and no photos in production                                   |
+| `GA_MEASUREMENT_ID`   | at run time, by the server only | Google Analytics 4's measurement ID (`G-XXXXXXXXXX`); unset means analytics off (no gtag.js, no consent banner, no Google hosts in the CSP); a malformed value is a 500 with the reason in the log |
 
 Next.js replaces only a literal `process.env.NEXT_PUBLIC_…` in code with its value, at build time, so changing the public URL means building again; the server-only variables are read when the server starts, so one image can run against any API it can reach. `lib/server-config.ts` imports `server-only`: a client component that imported it would fail the build.
 
@@ -97,12 +98,13 @@ src/
 ├── hooks/                         # useOnVisible, useLateHeadingFocus
 ├── lib/
 │   ├── api.ts                     # the browser's API client (packages/shared)
-│   ├── server-config.ts           # server-only settings (API_INTERNAL_URL, SITE_URL, IMAGE_ORIGIN)
+│   ├── server-config.ts           # server-only settings (API_INTERNAL_URL, SITE_URL, IMAGE_ORIGIN, GA_MEASUREMENT_ID)
+│   ├── analytics.ts               # track(): one GA4 e-commerce event, never throws
 │   ├── query-client.ts            # getQueryClient: one per request on the server, one per visit in the browser
 │   ├── navigation-state.ts        # what one page hands the next (React Router's location.state)
 │   ├── api-form-errors.ts         # VALIDATION_FAILED details → form fields
 │   └── error-message.ts           # ApiError → Indonesian text
-└── features/                      # catalog, product, cart, auth, account, checkout, orders, theme
+└── features/                      # catalog, product, cart, auth, account, checkout, orders, theme, analytics
 ```
 
 Each feature keeps its own `components/`, `hooks/` and `api/` (query keys and options).

@@ -1,14 +1,18 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { isApiError } from "@goshop/shared";
+import { isApiError, viewItemListEvent } from "@goshop/shared";
+import type { AnalyticsList, Category } from "@goshop/shared";
 import { Section } from "@/components/ui/Section.tsx";
 import {
   EmptyState,
   ErrorState,
   LoadingState,
 } from "@/components/ui/StatusMessage.tsx";
+import { useTrackOnce } from "@/features/analytics/useTrackOnce.ts";
+import { categoriesQuery } from "../api/queries.ts";
 import {
   CATALOG_PAGE_SIZE,
   catalogSearch,
@@ -20,6 +24,29 @@ import { CatalogToolbar } from "./CatalogToolbar.tsx";
 import { CategorySection } from "./CategorySection.tsx";
 import { ProductGrid } from "./ProductGrid.tsx";
 import { ProductListFooter } from "./ProductListFooter.tsx";
+
+/**
+ * Which list the buyer is looking at, for analytics (artikel 13): a
+ * category by its slug and name, a search, or the whole catalog. The
+ * search text itself is not sent: it is whatever a buyer typed, and it
+ * could be anything, a name or a phone number included.
+ */
+const analyticsList = (
+  filters: CatalogFilters,
+  categories: readonly Category[] | undefined,
+): AnalyticsList => {
+  if (filters.q !== undefined) {
+    return { item_list_id: "pencarian", item_list_name: "Hasil pencarian" };
+  }
+  if (filters.category !== undefined) {
+    const category = categories?.find((c) => c.slug === filters.category);
+    return {
+      item_list_id: filters.category,
+      item_list_name: category?.name ?? filters.category,
+    };
+  }
+  return { item_list_id: "katalog", item_list_name: "Katalog" };
+};
 
 /**
  * The storefront's home, at "/": categories beside the products, filtered
@@ -52,6 +79,19 @@ export function CatalogPage() {
     fetchNextPage,
     refetch,
   } = useProductList({ ...filters, limit: CATALOG_PAGE_SIZE });
+
+  // view_item_list (artikel 13): the first page of each set of filters,
+  // once, as soon as it is on screen (from the server's HTML, it is there
+  // at hydration). The later pages are not new lists. The categories
+  // give the list its name; the server fetched them too.
+  const categories = useQuery(categoriesQuery());
+  const firstPage = data?.pages[0]?.data;
+  useTrackOnce(
+    firstPage === undefined || firstPage.length === 0 || categories.isPending
+      ? null
+      : viewItemListEvent(analyticsList(filters, categories.data), firstPage),
+    JSON.stringify(filters),
+  );
 
   // scroll: false keeps the buyer where they are: the toolbar they just
   // used stays in view.

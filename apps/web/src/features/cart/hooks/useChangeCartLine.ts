@@ -3,9 +3,11 @@ import {
   ApiError,
   isApiError,
   removeCartItem,
+  removeFromCartEvent,
   updateCartItem,
 } from "@goshop/shared";
-import type { Cart } from "@goshop/shared";
+import type { Cart, CartLine } from "@goshop/shared";
+import { track } from "@/lib/analytics.ts";
 import { useSession } from "@/features/auth/session-context.ts";
 import { api } from "@/lib/api.ts";
 import { cartKeys, cartQuery, userCartQuery } from "../api/queries.ts";
@@ -38,6 +40,8 @@ interface ChangeVariables {
   key: CartKey;
   /** The cart before this change's guess, for a rollback; undefined for a removal. */
   previous: Cart | undefined;
+  /** For a removal, the line as it was at the click (for analytics). */
+  removed?: CartLine | undefined;
 }
 
 /**
@@ -116,7 +120,10 @@ export const useChangeCartLine = () => {
       if (isApiError(error, "CART_NOT_FOUND")) forgetCart();
     },
 
-    onSuccess: (cart, { owner, key }) => {
+    onSuccess: (cart, { owner, key, removed }) => {
+      // remove_from_cart (artikel 13): only once the API confirmed the
+      // removal, like the page itself; a lower quantity is not one.
+      if (removed !== undefined) track(removeFromCartEvent(removed));
       if (mayWrite(owner)) queryClient.setQueryData(key, cart);
     },
 
@@ -167,6 +174,10 @@ export const useChangeCartLine = () => {
         owner,
         key,
         previous: sent.kind === "remove" ? undefined : previous,
+        removed:
+          sent.kind === "remove"
+            ? previous?.lines.find((each) => each.variant_id === sent.variantId)
+            : undefined,
       },
       options,
     );

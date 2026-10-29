@@ -67,3 +67,29 @@ export const imageOrigin = (): string | undefined => {
   if (process.env.NODE_ENV !== "production") return DEV_IMAGE_ORIGIN;
   return undefined;
 };
+
+/** The shape of a GA4 measurement ID: "G-" and letters or digits. */
+const MEASUREMENT_ID_PATTERN = /^G-[A-Z0-9]{4,20}$/;
+
+/**
+ * The Google Analytics 4 measurement ID (GA_MEASUREMENT_ID, Bab 11
+ * artikel 13), or undefined when analytics is off.
+ *
+ * Opt-in: unset means no gtag.js, no consent banner and no Google hosts in
+ * the CSP. Read by the server when a page renders, not built into the
+ * JavaScript (it is not a NEXT_PUBLIC_ variable), so one image can run
+ * with or without analytics, or against another property. The ID is not
+ * a secret (every visitor's browser sees it), but it is printed into an
+ * inline script: a value of another shape fails loudly instead of being
+ * written into the page.
+ */
+export const analyticsId = (): string | undefined => {
+  const value = process.env.GA_MEASUREMENT_ID?.trim();
+  if (value === undefined || value === "") return undefined;
+  if (!MEASUREMENT_ID_PATTERN.test(value)) {
+    throw new Error(
+      `GA_MEASUREMENT_ID is not a GA4 measurement ID (G-XXXXXXXXXX): ${JSON.stringify(value)}`,
+    );
+  }
+  return value;
+};

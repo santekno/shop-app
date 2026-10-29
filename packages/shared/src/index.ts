@@ -85,6 +85,29 @@ export { getOrder, listOrders, payOrder, placeOrder } from "./api/orders.ts";
 export type { ListOrdersQuery, PlaceOrderOptions } from "./api/orders.ts";
 
 export {
+  ANALYTICS_CURRENCY,
+  addPaymentInfoEvent,
+  addShippingInfoEvent,
+  addToCartEvent,
+  beginCheckoutEvent,
+  cartLineItem,
+  orderLineItem,
+  productItem,
+  purchaseEvent,
+  removeFromCartEvent,
+  shippingTier,
+  viewItemEvent,
+  viewItemListEvent,
+} from "./analytics/ecommerce.ts";
+export type {
+  AnalyticsItem,
+  AnalyticsList,
+  AnalyticsOrder,
+  EcommerceEvent,
+  EcommerceEventName,
+} from "./analytics/ecommerce.ts";
+
+export {
   VOUCHER_CODE_MAX_LENGTH,
   VOUCHER_CODE_MIN_LENGTH,
   voucherSchema,

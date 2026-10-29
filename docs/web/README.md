@@ -592,6 +592,7 @@ Paths are relative to `apps/web/src` unless they start with another top-level fo
 | 10 | Metadata, Open Graph and structured data | the section below; `siteUrl()` in `lib/server-config.ts` (`SITE_URL`), `generateMetadata` in `app/layout.tsx` (`metadataBase`), `app/page.tsx` and `app/produk/[slug]/page.tsx`; `features/catalog/catalog-metadata.ts` (which catalog URLs are indexed), `features/catalog/api/server.ts`; `features/product/structured-data.ts` (`Product`, `Offer`/`AggregateOffer`, `BreadcrumbList`), `components/JsonLd.tsx` (`serializeJsonLd`), `lib/site-metadata.ts`; the category link in `ProductDetail.tsx` |
 | 11 | Sitemap and robots.txt | the section below; `app/sitemap.ts` (canonical paths from `catalogPageMeta`, `force-dynamic`), `listProductsForSitemap`, `SITEMAP_PRODUCT_LIMIT` and `SITEMAP_REVALIDATE_SECONDS` in `features/catalog/api/server.ts`; `app/robots.ts` |
 | 12 | Product photos and Core Web Vitals | the section below; `features/catalog/components/ProductImage.tsx` (`srcset` from `variants`, `width`/`height`, `ImageLoading`), `CARD_IMAGE_SIZES` in `ProductCard.tsx`, `EAGER_IMAGES` in `ProductGrid.tsx`, the main photo in `features/product/components/ProductDetail.tsx` (`loading="priority"`); `imageOrigin()` in `lib/server-config.ts` (`IMAGE_ORIGIN`) and `img-src` in `proxy.ts`; `ProductImage`, `ImageVariant` in `packages/shared/src/api/types.ts` |
+| 13 | Analytics and e-commerce events | the section below; `packages/shared/src/analytics/ecommerce.ts` (`EcommerceEvent`, the item and event builders, no PII); `lib/analytics.ts` (`track`); `features/analytics/` (`gtag-init.ts`: the inline script and Consent Mode's default, `consent.ts`: the stored answer and `consent update`, `components/AnalyticsConsent.tsx`: the banner and "Pengaturan analytics", `useTrackOnce.ts`, `purchase.ts`: `trackPurchaseOnce`); `analyticsId()` in `lib/server-config.ts` (`GA_MEASUREMENT_ID`), the Google hosts in `proxy.ts`, the scripts in `app/layout.tsx`, the footer in `components/layout/SiteFrame.tsx`; each event's call site in the table below |
 
 ## The full cart page (artikel 01)
 
@@ -991,6 +992,82 @@ Photos come from the image storage, another origin, so `img-src` must allow it, 
 - The HTML carries each `<img>` with `srcSet`, `sizes`, `width="800" height="800"`, the alt text; the first four cards `loading="eager"`, the fifth on `loading="lazy"`, the product photo `fetchPriority="high"`. The CSP header reads `img-src 'self' data: http://localhost:33333`. No CSP violation in the console.
 - **Phone, 412×915 at 2×, fresh browser profile:** the catalog requested twelve `400.jpg` and no `800.jpg`; the product page requested one `800.jpg`. In a profile that had opened the product page first, the catalog card of that product showed the cached `800.jpg`: Chrome may reuse a larger candidate it already has rather than download a smaller one.
 - **LCP and CLS** (a `PerformanceObserver` on `largest-contentful-paint` and `layout-shift`, local network): the product page's LCP element is the photo, at 0.49 s on the phone and 0.09 s on a 1366×900 desktop; the catalog's is the first card's photo (0.10 s). CLS is 0 to 0.004 on every page measured, far under 0.1.
+
+## Analytics and e-commerce events (artikel 13)
+
+GoShop can send Google Analytics 4 the e-commerce events GA4 builds its funnel and item reports from. It is **opt-in**: without `GA_MEASUREMENT_ID` the storefront loads no Google script, shows no banner and keeps the CSP of artikel 12, and `track` only logs each event with `console.debug` in development (`next dev`), so the events can be read without a GA4 property.
+
+### The measurement ID
+
+`analyticsId()` (`lib/server-config.ts`) reads `GA_MEASUREMENT_ID` when a page renders, like `SITE_URL`: a runtime, server-only variable, not `NEXT_PUBLIC_*`, so one image runs with or without analytics, or against another property, without a rebuild. The ID is not a secret (every visitor's browser sees it), but it is printed into an inline script, so it must look like `G-` followed by letters or digits; any other value (a Universal Analytics `UA-…`, a typo) throws, and every page answers 500 with the reason in the log, instead of being written into the page.
+
+### The events
+
+The contract lives in `packages/shared` (`src/analytics/ecommerce.ts`), so the mobile app (Bab 17) sends the same names and parameters: `EcommerceEvent` is a union discriminated by `name`, and a builder makes each event from the API's own types. Every amount is whole rupiah as the API sends it (`currency: "IDR"`, integers, never a formatted string). An item's `item_name` is the product's name in every event, so GA4 can follow one product from the list to the purchase; `item_id` is the variant's SKU and appears only once a variant is known (cart, checkout, order).
+
+| Event | When | Where | Key parameters |
+|---|---|---|---|
+| `view_item_list` | the first page of a list is on screen, once per set of filters (the later pages are not new lists) | `features/catalog/components/CatalogPage.tsx` (`useTrackOnce`, keyed by the filters) | `item_list_id`/`item_list_name`: `katalog`/`Katalog`, the category's slug/name, or `pencarian`/`Hasil pencarian` (the search text is not sent); `items` with `index`, `price` = `price_from` |
+| `view_item` | a product page shows its product, once per product | `features/product/components/ProductDetailPage.tsx` (`useTrackOnce`, keyed by the product's id) | `value` = `price_from`, one item without `item_id` |
+| `add_to_cart` | the API **accepted** the add (`onSuccess`), never the optimistic guess | `features/cart/hooks/useAddToCart.ts` | the line from the API's answer (its SKU and price), `quantity` = what this add added, `value` = price × quantity |
+| `remove_from_cart` | the API **confirmed** a line's removal; lowering a quantity is not one | `features/cart/hooks/useChangeCartLine.ts` (the line is captured at the click, in `removed`) | the whole line |
+| `begin_checkout` | the checkout page knows the cart's lines, once per visit | `features/checkout/components/CheckoutPage.tsx` (`useTrackOnce`) | `value` = the cart's subtotal, the lines |
+| `add_shipping_info` | the buyer picks a courier service (each new pick) | `onSelect` of `CourierStep` in `CheckoutPage.tsx` | `shipping_tier` = courier and service codes (`JNE REG`), `coupon` if a voucher is applied, the lines |
+| `add_payment_info` | `POST /v1/orders/{id}/pay` was accepted, just before the buyer leaves for Midtrans (or the fake gateway's page) | the mutation's `onSuccess` in `features/orders/hooks/usePayOrder.ts` (from checkout, the payment page and the order page) | `value` = the order's total, the order's lines, `coupon`, `payment_type` = `midtrans_snap` or `fake_gateway` (the method is chosen on Midtrans' page; the storefront never learns it) |
+| `purchase` | the payment page sees the order paid (the API's word: the webhook or the reconciler, never Midtrans' return URL), once per order | `features/orders/components/PaymentPage.tsx` → `trackPurchaseOnce` (`features/analytics/purchase.ts`) | `transaction_id` = the order's code, `value` = its total, `shipping` = its shipping fee, `coupon` = its voucher code, `items` = the order's own lines (the prices it was sold at) |
+
+**Fired once, at the moment the fact is known.** A view is sent from an effect, not from the render (a component renders again for every poll and state change, and twice in development); `useTrackOnce` keeps the last key it sent in a ref, so a background refetch is not a second view, and Strict Mode's extra mount sends nothing twice. A write is sent from the mutation's own `onSuccess`, which runs even when the component that started it has unmounted. **Page views** are not sent by the storefront: `config` sends the first, and GA4's enhanced measurement ("page changes based on browser history events", on by default in a web stream) counts each client-side navigation.
+
+**Never personal data.** Google's terms forbid sending anything that identifies a person, and a GA4 property is read by more people than the order database. The events carry catalog data (product and variant names, SKUs, categories, prices) and an order's code; never an email, a name, a phone number, an address, a user id or a token. The types are closed, and no builder takes a user or an address, so adding one is a visible change to the contract, not a stray field. The catalog's search text is left out too: it is whatever the buyer typed.
+
+### `track`
+
+`track(event)` (`lib/analytics.ts`) does nothing on the server, never throws (analytics is the one feature a buyer did not ask for; a bug in it must not break "Tambah ke keranjang"), logs the event in development, and calls `gtag('event', name, params)` when `gtag` exists. `gtag` is defined by the inline script below before React hydrates, as a queue (`dataLayer`): an event sent while gtag.js is still downloading waits there and is sent, in order, when it arrives.
+
+### Loading Google's tag, under the CSP
+
+| Script | How | Why |
+|---|---|---|
+| the init script: `dataLayer`, `gtag()`, Consent Mode's default, `js`, `config` | a plain inline `<script>` in `<head>` (`gtagInitScript`, `features/analytics/gtag-init.ts`), with the request's nonce | it runs while the HTML is parsed, before React hydrates and before the page's first events (`view_item_list` and `view_item` fire at hydration); `next/script`'s `afterInteractive` would run it after them |
+| gtag.js (`https://www.googletagmanager.com/gtag/js?id=…`) | `next/script`, `strategy="afterInteractive"`, `nonce` | a large script nobody needs to wait for; the queue holds every call until it runs |
+
+Both carry the nonce of artikel 08, so `script-src` gains a host, never `'unsafe-inline'`. When the ID is set, `proxy.ts` adds the hosts Google documents for GA4 (developers.google.com/tag-platform/security/guides/csp), and nothing else changes:
+
+- `script-src` + `https://*.googletagmanager.com`
+- `img-src` + `https://*.google-analytics.com https://*.googletagmanager.com`
+- `connect-src` + `https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com`
+
+Not `@next/third-parties`' `<GoogleAnalytics>`: it sends `config` from its own script after hydration, so Consent Mode's default (which must come first) and the hydration-time events would need a second script anyway, and it adds a dependency.
+
+### Consent Mode v2, with a banner
+
+1. **Default, before `config`:** `ad_storage`, `ad_user_data` and `ad_personalization` are always `denied` (GoShop runs no ads, and no event of ours should reach an advertising product); `analytics_storage` is the buyer's stored answer, or `denied`. The init script reads the answer from `localStorage` itself, synchronously, so a buyer who said "Izinkan" yesterday is counted with a cookie from the first hit, not after an update.
+2. **The banner** (`features/analytics/components/AnalyticsConsent.tsx`) appears only when GA is configured and no answer is stored: "Izinkan analytics?", what is collected (and what is not), "Izinkan" and "Tolak". An answer is applied at once with `gtag('consent', 'update', { analytics_storage })` and stored in `localStorage` under `goshop:analytics-consent` (`granted` or `denied`, every access in `try`/`catch`: blocked storage means the banner asks again next visit). Another tab's answer reaches this tab through the `storage` event and is applied here too.
+3. **Changing it later:** "Pengaturan analytics" in the footer (the footer exists only when analytics is on) opens the banner again with the current answer; `Esc` or "Tutup" closes it.
+
+**Accessible, and out of the way.** The banner is a `<section>` named by its heading (a region in the landmarks list), with real buttons. It does not take the focus when it appears by itself: a buyer typing an address is not interrupted, and may answer later or never (no answer is `denied`). Opened from the footer button it takes the focus, because the buyer asked for it, and gives it back to that button when it closes. It is fixed to the bottom of the screen (a small card in the corner from `md`), and a spacer of its measured height sits under the page, so the last thing on a page, such as checkout's pay button on a phone, can always be scrolled above it. Fixed rather than inserted into the page: a banner pushed in after hydration would move everything below it, a layout shift (CLS, artikel 12). It is not in the server's HTML: the stored answer is only known in the browser (`useSyncExternalStore` with a server snapshot of "not known yet").
+
+**Advanced, not basic, consent mode.** In **basic** mode nothing of Google's loads until the buyer says yes: the stricter choice, with no request to Google at all before consent, and the one to use if a legal review asks for it (render the scripts only once `goshop:analytics-consent` is `granted`). GoShop uses **advanced** mode: gtag.js loads for everyone, and before consent (or after "Tolak") it writes no cookie and sends **cookieless pings** (no client id), which GA4 only uses for modelled totals. The shop still learns roughly how many people reach checkout and buy, without identifying anyone, and the banner can stay non-modal. The banner's text says so: "Bila ditolak, tidak ada cookie analytics; Google hanya menerima hitungan tanpa cookie."
+
+### `purchase`: once per order, and its limit
+
+The payment page sees "paid" whenever it is opened for a paid order: a reload, Back from Midtrans, a link from the order history. GA4's own de-duplication by `transaction_id` is limited and not something a report should rest on, so `trackPurchaseOnce` keeps the codes already sent in `localStorage` (`goshop:analytics-purchases`, the last 20) and sends nothing for a code it holds. Blocked storage falls back to the page's memory: a reload might send it again, the lesser harm than never sending it. Without `GA_MEASUREMENT_ID` nothing is stored.
+
+**The known gap:** the purchase is counted only if the buyer comes back to the payment page. A buyer who pays at Midtrans and closes the tab, or whose order is paid on another device, is never counted in this browser (and one who opens a paid order's payment page on a second device is counted there again). The reliable fix is **server-side**: when the payment webhook marks an order paid, the API sends `purchase` with GA4's **Measurement Protocol** (`POST https://www.google-analytics.com/mp/collect` with the measurement ID and an API secret), once, in the same place the order changes; the browser's event would then be dropped or kept only for the client id. Not built in GoShop; a candidate for a later challenge.
+
+`add_payment_info` is sent just before the browser leaves for Midtrans; delivering a hit queued that late is gtag.js' business (it flushes queued hits when the page is hidden), not verified here against a real property.
+
+### Checked
+
+Against the `goshop-b11` stack, `next start` on port 33175 (`API_INTERNAL_URL=http://localhost:33080`, `SITE_URL=http://localhost:33175`, `IMAGE_ORIGIN=http://localhost:33333`), a production build; browser checks with Playwright's Chromium on a phone profile (412×915), Google's collection hits aborted by the test so nothing reached a property.
+
+- **Without `GA_MEASUREMENT_ID`:** the CSP header is artikel 12's exactly (no Google host); the HTML has no `googletagmanager`; in the browser there is no `window.gtag` or `dataLayer`, no banner, no footer, no request to a Google host, no CSP violation, and no `goshop:analytics-*` key in `localStorage`.
+- **With `GA_MEASUREMENT_ID=G-TEST123456`:** the CSP header carries the hosts above; the HTML's `<script id="gtag-init">` carries the same nonce as the header; the gtag.js element that `next/script` adds carries that nonce too (`script.nonce` equals the init script's), and the real gtag.js loaded (`window.google_tag_manager` exists).
+- **Consent:** on a first visit `dataLayer` starts with `consent default` (all four `denied`), before `js` and `config`; the banner is visible and the focus stays on `<body>`. "Izinkan" pushes `consent update` with `analytics_storage: granted`, stores `granted`, and hides the banner; after a reload the *default* is `granted` and there is no banner. "Pengaturan analytics" reopens it with the focus on it and "Pilihan Anda sekarang: diizinkan"; "Tolak" pushes `update` `denied` and returns the focus to the button; after a reload the default is `denied`, no banner. Scrolled to the end of the catalog on the phone profile, the bottom of `<main>` (666 px) is above the banner's top (726 px; the banner is 189 px tall).
+- **Events in `dataLayer`:** `view_item_list` once on `/` (`katalog`, 12 items with `index`, `price` = `price_from`); `view_item` once on a product page, and once more after a client-side navigation to another product. `add_to_cart` and `remove_from_cart` were exercised as a guest with the test answering the browser's CORS checks (this stack's API only allows another origin) and forwarding the requests to the API: no `add_to_cart` before the click, one after "Ditambahkan ke keranjang" with the API's SKU (`KPH-S`), price 89 000 and the quantity added (2); one `remove_from_cart` only after the API confirmed the removal.
+- **Not exercised in a browser:** `begin_checkout`, `add_shipping_info`, `add_payment_info` and `purchase` (checkout needs a buyer with a verified email, which this stack has none of) and `trackPurchaseOnce`'s storage; their builders were run with Node on a sample cart and order (values, `shipping_tier: "JNE REG"`, `coupon`, `transaction_id`, `shipping`), and the call sites type-check.
+- **Seen, and left as decided:** with the test ID, gtag.js also tried `https://www.google.com/g/collect` (with and without consent), which the CSP refuses (a console error per hit). Google's CSP guide lists `*.google.com` only for Google Signals; the hits to `www.google-analytics.com/g/collect` are allowed.
+- A malformed `GA_MEASUREMENT_ID` (`UA-12345-1`) makes `/` answer 500 with "GA_MEASUREMENT_ID is not a GA4 measurement ID" in the log.
 
 ## Bab 11, articles 01–06: what changed in the storefront
 

@@ -3,7 +3,12 @@ import { headers } from "next/headers";
 import type { ReactNode } from "react";
 import { Providers } from "@/components/layout/Providers.tsx";
 import { SiteFrame } from "@/components/layout/SiteFrame.tsx";
-import { siteUrl } from "@/lib/server-config.ts";
+import Script from "next/script";
+import {
+  gtagInitScript,
+  gtagScriptUrl,
+} from "@/features/analytics/gtag-init.ts";
+import { analyticsId, siteUrl } from "@/lib/server-config.ts";
 import {
   baseOpenGraph,
   SITE_DESCRIPTION,
@@ -56,6 +61,8 @@ export default async function RootLayout({
   // page render per request, which a nonce needs (a page cached once
   // would carry one nonce for every visitor).
   const nonce = (await headers()).get("x-nonce") ?? undefined;
+  // Google Analytics 4 (artikel 13), only when GA_MEASUREMENT_ID is set.
+  const measurementId = analyticsId();
 
   return (
     // suppressHydrationWarning: theme.js sets data-theme on <html> before
@@ -71,11 +78,40 @@ export default async function RootLayout({
             point, and the file is a few hundred bytes. */}
         {/* eslint-disable-next-line @next/next/no-sync-scripts */}
         <script src="/theme.js" nonce={nonce} />
+        {/* Google's tag, started before React hydrates: the queue, the
+            consent default and the config (features/analytics/
+            gtag-init.ts says why it runs here). Inline code, allowed by
+            this request's nonce, never by 'unsafe-inline'. A plain
+            <script> rather than next/script's afterInteractive: that
+            would run after hydration, after the page's first events. */}
+        {measurementId !== undefined && (
+          <script
+            id="gtag-init"
+            nonce={nonce}
+            dangerouslySetInnerHTML={{ __html: gtagInitScript(measurementId) }}
+          />
+        )}
       </head>
       <body>
         <Providers>
-          <SiteFrame>{children}</SiteFrame>
+          <SiteFrame analytics={measurementId !== undefined}>
+            {children}
+          </SiteFrame>
         </Providers>
+        {/* gtag.js itself, after the page is interactive: a large script
+            nobody needs to wait for; the queue above holds every call until
+            it arrives. next/script adds it once, however many pages the
+            buyer opens, with the nonce script-src asks for. */}
+        {/* Not @next/third-parties' <GoogleAnalytics>: it sends `config`
+            from its own inline script after hydration, and Consent Mode's
+            default must come before it (set in <head> above). */}
+        {measurementId !== undefined && (
+          <Script
+            src={gtagScriptUrl(measurementId)}
+            strategy="afterInteractive"
+            nonce={nonce}
+          />
+        )}
       </body>
     </html>
   );

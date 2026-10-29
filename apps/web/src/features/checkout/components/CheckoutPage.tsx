@@ -1,6 +1,10 @@
 import { useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { formatRupiah } from "@goshop/shared";
+import {
+  addShippingInfoEvent,
+  beginCheckoutEvent,
+  formatRupiah,
+} from "@goshop/shared";
 import type { CheckoutPreviewRequest, CheckoutRequest } from "@goshop/shared";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -8,7 +12,9 @@ import { setNavigationState } from "@/lib/navigation-state.ts";
 import { Card } from "@/components/ui/Card.tsx";
 import { Section } from "@/components/ui/Section.tsx";
 import { ErrorState, LoadingState } from "@/components/ui/StatusMessage.tsx";
+import { useTrackOnce } from "@/features/analytics/useTrackOnce.ts";
 import { useSession } from "@/features/auth/session-context.ts";
+import { track } from "@/lib/analytics.ts";
 import { useCart } from "@/features/cart/hooks/useCart.ts";
 import { usePayOrder } from "@/features/orders/hooks/usePayOrder.ts";
 import { paymentPath } from "@/features/orders/paths.ts";
@@ -83,6 +89,16 @@ export function CheckoutPage() {
   );
 
   const cartIsEmpty = cart.status === "success" && cart.data.lines.length === 0;
+
+  // begin_checkout (artikel 13): once per visit to this page, as soon as
+  // the cart's lines are known (an empty cart begins nothing). A refetched
+  // cart, or a new voucher, is the same checkout.
+  useTrackOnce(
+    cart.status === "success" && !cartIsEmpty
+      ? beginCheckoutEvent(cart.data)
+      : null,
+    "checkout",
+  );
 
   // What the buyer has chosen so far, in the shape of the preview's body:
   // a field is sent only once it is chosen. The voucher is added on top,
@@ -216,6 +232,11 @@ export function CheckoutPage() {
               selected={shipping}
               onSelect={(quote) => {
                 if (addressId === null) return;
+                // add_shipping_info (artikel 13): the buyer chose a
+                // courier service; each new choice is one event.
+                if (cart.data !== undefined) {
+                  track(addShippingInfoEvent(cart.data, quote, voucherCode));
+                }
                 setPickedShipping({
                   addressId,
                   courier: quote.courier,

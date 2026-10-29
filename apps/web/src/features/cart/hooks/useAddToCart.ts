@@ -1,6 +1,13 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ApiError, EMPTY_CART, addCartItem, isApiError } from "@goshop/shared";
+import {
+  ApiError,
+  EMPTY_CART,
+  addCartItem,
+  addToCartEvent,
+  isApiError,
+} from "@goshop/shared";
 import type { CartItemAdd, Money } from "@goshop/shared";
+import { track } from "@/lib/analytics.ts";
 import { useSession } from "@/features/auth/session-context.ts";
 import { api } from "@/lib/api.ts";
 import { cartKeys, cartQuery, userCartQuery } from "../api/queries.ts";
@@ -173,7 +180,15 @@ export const useAddToCart = () => {
       if (isApiError(error, "CART_NOT_FOUND")) forgetCart();
     },
 
-    onSuccess: ({ cart, key, owner, newCartToken }, _variables, snapshot) => {
+    onSuccess: ({ cart, key, owner, newCartToken }, { item }, snapshot) => {
+      // add_to_cart (artikel 13): here, once the API has accepted the add,
+      // never in onMutate's guess (an add that fails was not an add).
+      // The line comes from the API's answer, so its price is the one the
+      // cart holds; the quantity is what this add added, not the line's
+      // new total. Before the session check below: the add did happen.
+      const line = cart.lines.find((l) => l.variant_id === item.variant_id);
+      if (line !== undefined) track(addToCartEvent(line, item.quantity));
+
       // The session ended after the API answered: same reason as onError.
       if (!mayWrite(owner)) return;
       queryClient.setQueryData(key, cart);

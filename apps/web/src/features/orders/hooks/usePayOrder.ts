@@ -1,7 +1,8 @@
 import { useMutation } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { ApiError, payOrder } from "@goshop/shared";
+import { ApiError, addPaymentInfoEvent, payOrder } from "@goshop/shared";
 import type { Order, PaymentSession } from "@goshop/shared";
+import { track } from "@/lib/analytics.ts";
 import { useSession } from "@/features/auth/session-context.ts";
 import { setNavigationState } from "@/lib/navigation-state.ts";
 import { paymentPath } from "../paths.ts";
@@ -26,8 +27,14 @@ export const isMidtransUrl = (url: string): boolean => {
   }
 };
 
-/** What `pay` needs to know about the order. */
-export type PayableOrder = Pick<Order, "id" | "code">;
+/**
+ * What `pay` needs to know about the order: its id and code, and (for
+ * add_payment_info, artikel 13) its lines, totals and voucher.
+ */
+export type PayableOrder = Pick<
+  Order,
+  "id" | "code" | "items" | "totals" | "voucher_code"
+>;
 
 /** Where the browser goes next for a payment session. */
 type PaymentStep =
@@ -72,6 +79,21 @@ export const usePayOrder = () => {
         });
       }
       return { kind: "midtrans", order, url: session.redirect_url };
+    },
+    // add_payment_info (artikel 13): the API accepted the payment and the
+    // buyer is about to pay, on Midtrans' page or the test gateway's
+    // terminal. Here rather than in the caller's onSuccess, which runs
+    // after this one and leaves the page; gtag.js sends what it has
+    // queued when the page is hidden. The method (a virtual account, a
+    // card, QRIS) is chosen on Midtrans' page, so payment_type names the
+    // gateway.
+    onSuccess: (step) => {
+      track(
+        addPaymentInfoEvent(
+          step.order,
+          step.kind === "fake" ? "fake_gateway" : "midtrans_snap",
+        ),
+      );
     },
   });
 
