@@ -591,6 +591,7 @@ Paths are relative to `apps/web/src` unless they start with another top-level fo
 | 09 | Product pages with SSR and the data cache | the section below; `lib/server-api.ts` (`serverApi`, `REVALIDATE_SECONDS`), `features/product/api/server.ts` (`getProductForPage`, `cache()`), `app/produk/[slug]/page.tsx` (`generateMetadata`, `notFound()`, `HydrationBoundary`), `app/page.tsx` (filters from `searchParams`, the first page and the categories prefetched), the `client` parameter of `productQuery`, `productListQuery` and `categoriesQuery` |
 | 10 | Metadata, Open Graph and structured data | the section below; `siteUrl()` in `lib/server-config.ts` (`SITE_URL`), `generateMetadata` in `app/layout.tsx` (`metadataBase`), `app/page.tsx` and `app/produk/[slug]/page.tsx`; `features/catalog/catalog-metadata.ts` (which catalog URLs are indexed), `features/catalog/api/server.ts`; `features/product/structured-data.ts` (`Product`, `Offer`/`AggregateOffer`, `BreadcrumbList`), `components/JsonLd.tsx` (`serializeJsonLd`), `lib/site-metadata.ts`; the category link in `ProductDetail.tsx` |
 | 11 | Sitemap and robots.txt | the section below; `app/sitemap.ts` (canonical paths from `catalogPageMeta`, `force-dynamic`), `listProductsForSitemap`, `SITEMAP_PRODUCT_LIMIT` and `SITEMAP_REVALIDATE_SECONDS` in `features/catalog/api/server.ts`; `app/robots.ts` |
+| 12 | Product photos and Core Web Vitals | the section below; `features/catalog/components/ProductImage.tsx` (`srcset` from `variants`, `width`/`height`, `ImageLoading`), `CARD_IMAGE_SIZES` in `ProductCard.tsx`, `EAGER_IMAGES` in `ProductGrid.tsx`, the main photo in `features/product/components/ProductDetail.tsx` (`loading="priority"`); `imageOrigin()` in `lib/server-config.ts` (`IMAGE_ORIGIN`) and `img-src` in `proxy.ts`; `ProductImage`, `ImageVariant` in `packages/shared/src/api/types.ts` |
 
 ## The full cart page (artikel 01)
 
@@ -945,6 +946,51 @@ robots.txt controls **crawling**, not indexing: keeping a page out of results is
 ### Checked (`next start`, `SITE_URL=http://localhost:34173`)
 
 A scratch script fetched `/sitemap.xml` and every URL in it: **42 URLs** (the root, 13 categories, 28 products), no duplicates, each answering 200 with a canonical link equal to itself and no `noindex`; the list equals the root plus every category and every product the API returns; robots.txt blocks none of them, blocks `/?q=kaos`, `/?kategori=kaos&q=polos`, `/checkout`, `/pesanan/…/pembayaran`, `/masuk?kembali=…` and `/keranjang`, and leaves `/?kategori=kaos&urut=termurah`, `/?kategori=tidak-ada` and the product pages crawlable. The paging loop ran one page here (28 products); a test with a fake API covers several pages and a repeated cursor.
+
+## Product photos and Core Web Vitals (artikel 12)
+
+The API has sent `images` with every product since Bab 6; Bab 8–10 drew the "Belum ada foto" placeholder instead. From artikel 12 the catalog card and the product page show the first ready photo; a product without one keeps the placeholder. The cart and the orders have no photo: the contract's `CartLine` and order lines carry none.
+
+### Core Web Vitals, and what a photo does to each
+
+| Metric | What it measures | Good | What the photos change |
+|---|---|---|---|
+| **LCP**, Largest Contentful Paint | when the largest element in the first screen is drawn | ≤ 2.5 s | the product page's photo becomes its largest element, so the page is as fast as that file |
+| **CLS**, Cumulative Layout Shift | how far visible content jumps while the page loads | ≤ 0.1 | an `<img>` without a size is 0 px tall until its file arrives, then pushes everything below it down |
+| **INP**, Interaction to Next Paint | how long a click or key waits for the next frame | ≤ 200 ms | nothing directly; a JPEG decoded on the main thread could delay one, so decoding is async |
+
+Google reads them from real Chrome users (the Chrome UX Report, at the 75th percentile) as one of its page-experience signals; Lighthouse and the `PerformanceObserver` below measure them in a lab.
+
+### A plain `<img>` with the API's variants, not `next/image`
+
+The worker already resizes every photo to 400 and 800 pixel wide JPEGs (quality 82, ADR 0007) and the storage serves them with `Cache-Control: public, max-age=31536000, immutable`. `next/image`'s optimiser would download them again through the storefront's server, resize them a second time with sharp, and keep a second cache in every container: CPU and disk spent on work already done. A custom `next/image` loader could only map a width to a file by guessing the storage's key layout, where `variants` is the contract. WebP or AVIF, the one thing `next/image` would add, belongs in the worker (ADR 0007 records why it writes JPEG for now).
+
+What the browser gets is what `next/image` would give it:
+
+- **`srcset` + `sizes`.** `srcset` lists the variants with their widths (`…/400.jpg 400w, …/800.jpg 800w`); `sizes` says how wide the image is drawn per layout, so the browser can choose **before any CSS has loaded**. It takes the smallest variant at least as wide as that width times the screen's pixel density. A card on a 412 px phone at 2× is about 141 px wide, so 282 device pixels: the 400 (16 KB instead of the 800's 75 KB). The product page's photo on the same phone is about 346 px, so 692: the 800. `CARD_IMAGE_SIZES` follows the grid (2 columns, 3 from `sm`, 3 beside the category sidebar from `md`, 4 from `lg`, at most 11rem once the page stops growing); approximate is enough.
+- **`width` and `height` from the API.** The browser reserves the box from their ratio before the file arrives, so nothing below it moves (CLS). The square frame is still CSS (`aspect-square`, `object-cover`).
+- **`alt`**: the photo's own, or the product's name when it is empty (the contract's rule).
+- **`decoding="async"`**: decoding the JPEG does not hold up the main thread.
+
+### Which photo loads when (`ImageLoading`)
+
+| Value | Attributes | Used for | Why |
+|---|---|---|---|
+| `lazy` | `loading="lazy"` | catalog cards from the fifth on | fetched only as they near the screen: a visitor who never scrolls never pays for them |
+| `eager` | `loading="eager"` | the first four cards of a grid (one row at its widest) | on screen at once; lazy-loading them would only start them late |
+| `priority` | `loading="eager"`, `fetchpriority="high"` | the product page's photo | its LCP element: the browser requests it ahead of the scripts it would otherwise fetch first |
+
+Only one image per page gets `priority`: marking several high tells the browser nothing. Chrome's lazy-load margin is generous (about 1250–2500 px), so on a short catalog page every card loads anyway; the saving shows on a long list.
+
+### The image origin in the CSP
+
+Photos come from the image storage, another origin, so `img-src` must allow it, and only it: `img-src 'self' data: <IMAGE_ORIGIN>`, never `https:` (any host). `imageOrigin()` reads `IMAGE_ORIGIN` when the server starts and keeps only its origin (`new URL(value).origin`; a value that is not a URL fails loudly). It is the host in the API's image URLs: `S3_PUBLIC_URL` (a CDN or the bucket's public URL) in production, `S3_PRESIGN_ENDPOINT` (`http://localhost:8333`) with `make up`. Unset, development falls back to `http://localhost:8333`, and production allows no image origin at all: the photos are blocked with a CSP report in the console until it is set, rather than allowed from anywhere.
+
+### Checked (`next start` against the `goshop-b11` stack, `IMAGE_ORIGIN=http://localhost:33333`)
+
+- The HTML carries each `<img>` with `srcSet`, `sizes`, `width="800" height="800"`, the alt text; the first four cards `loading="eager"`, the fifth on `loading="lazy"`, the product photo `fetchPriority="high"`. The CSP header reads `img-src 'self' data: http://localhost:33333`. No CSP violation in the console.
+- **Phone, 412×915 at 2×, fresh browser profile:** the catalog requested twelve `400.jpg` and no `800.jpg`; the product page requested one `800.jpg`. In a profile that had opened the product page first, the catalog card of that product showed the cached `800.jpg`: Chrome may reuse a larger candidate it already has rather than download a smaller one.
+- **LCP and CLS** (a `PerformanceObserver` on `largest-contentful-paint` and `layout-shift`, local network): the product page's LCP element is the photo, at 0.49 s on the phone and 0.09 s on a 1366×900 desktop; the catalog's is the first card's photo (0.10 s). CLS is 0 to 0.004 on every page measured, far under 0.1.
 
 ## Bab 11, articles 01–06: what changed in the storefront
 

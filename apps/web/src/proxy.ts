@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { config as appConfig } from "@/config.ts";
+import { imageOrigin } from "@/lib/server-config.ts";
 
 /**
  * The Content-Security-Policy of every page (Bab 11 artikel 08), set here
@@ -26,13 +27,16 @@ import { config as appConfig } from "@/config.ts";
 const contentSecurityPolicy = (nonce: string): string => {
   const dev = process.env.NODE_ENV === "development";
   const apiOrigin = new URL(appConfig.apiUrl).origin;
+  // Product photos come from the image storage (artikel 12): its one
+  // origin, from IMAGE_ORIGIN, never `https:` (any host).
+  const images = imageOrigin();
   return [
     "default-src 'self'",
     // Development: React rebuilds server error stacks with eval().
     `script-src 'self' 'nonce-${nonce}'${dev ? " 'unsafe-eval'" : ""}`,
     // Development: hot reload injects <style> elements.
     `style-src 'self' ${dev ? "'unsafe-inline'" : `'nonce-${nonce}'`}`,
-    "img-src 'self' data:",
+    `img-src 'self' data:${images === undefined ? "" : ` ${images}`}`,
     // The browser calls the API, and nothing else. (Payments add nothing:
     // Midtrans' page is a top-level navigation, Bab 11 artikel 04.)
     `connect-src 'self' ${apiOrigin}`,

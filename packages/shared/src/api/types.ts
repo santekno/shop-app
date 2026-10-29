@@ -17,6 +17,10 @@ export type Product = Schemas["Product"];
 export type ProductList = Schemas["ProductList"];
 export type ProductDetail = Schemas["ProductDetail"];
 export type ProductVariant = Schemas["ProductVariant"];
+/** A ready product photo: the largest variant's URL and size, its alt
+ *  text (may be empty) and every resized variant, for `srcset`. */
+export type ProductImage = Schemas["ProductImage"];
+export type ImageVariant = Schemas["ImageVariant"];
 /** An account as its owner sees it (Bab 4). */
 export type User = Schemas["User"];
 export type UserDetail = Schemas["UserDetail"];

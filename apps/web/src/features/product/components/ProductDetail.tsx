@@ -58,7 +58,15 @@ export function ProductDetail({ product }: ProductDetailProps) {
       className="grid w-full gap-6 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]"
       labelledBy={headingId}
     >
-      <ProductImage name={product.name} />
+      {/* The page's largest element, so its Largest Contentful Paint:
+          requested at once and first (artikel 12). Full width on a
+          phone, two fifths of the card from md, at most 26rem. */}
+      <ProductImage
+        image={product.images[0]}
+        productName={product.name}
+        sizes="(min-width: 72rem) 26rem, (min-width: 48rem) 36vw, calc(100vw - 4rem)"
+        loading="priority"
+      />
       <div className="grid content-start gap-3">
         {/* A link to the category's list: a buyer can browse the rest of
             it, a crawler finds the category page, and the breadcrumb in

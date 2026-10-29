@@ -46,3 +46,24 @@ export const siteUrl = (): URL => {
     "SITE_URL is not set: the storefront's public origin, such as https://shop.example.com",
   );
 };
+
+/** The image storage of `make up` (SeaweedFS), for development. */
+const DEV_IMAGE_ORIGIN = "http://localhost:8333";
+
+/**
+ * The origin product photos are served from (IMAGE_ORIGIN, Bab 11
+ * artikel 12), for the CSP's img-src: exactly one scheme, host and port,
+ * never a wildcard or `https:` (any host). It is the storage's public
+ * address, the host in the API's image URLs (S3_PUBLIC_URL, or
+ * S3_PRESIGN_ENDPOINT locally). A value that is not a URL fails loudly.
+ *
+ * Unset: http://localhost:8333 in development; in production no image
+ * origin at all, so photos are blocked (a CSP violation in the console)
+ * until it is configured, rather than allowed from anywhere.
+ */
+export const imageOrigin = (): string | undefined => {
+  const value = process.env.IMAGE_ORIGIN;
+  if (value !== undefined && value !== "") return new URL(value).origin;
+  if (process.env.NODE_ENV !== "production") return DEV_IMAGE_ORIGIN;
+  return undefined;
+};
