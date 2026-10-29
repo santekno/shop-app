@@ -70,8 +70,10 @@ interface ChangeVariables {
  *   API confirms, so a failed removal can show its error on the line it
  *   belongs to (an optimistic removal would unmount the line, and its
  *   error with it).
- * - The answer is the whole cart, so it replaces the cache; the last write
- *   of a burst refetches once, so the cache ends with the server's word.
+ * - The answer is the whole cart, so the last write of a burst replaces
+ *   the cache with it and refetches once, so the cache ends with the
+ *   server's word. Earlier answers are dropped: they predate the guesses
+ *   of the presses still queued.
  */
 export const useChangeCartLine = () => {
   const queryClient = useQueryClient();
@@ -124,7 +126,15 @@ export const useChangeCartLine = () => {
       // remove_from_cart (artikel 13): only once the API confirmed the
       // removal, like the page itself; a lower quantity is not one.
       if (removed !== undefined) track(removeFromCartEvent(removed));
-      if (mayWrite(owner)) queryClient.setQueryData(key, cart);
+      // An answer in the middle of a burst is older than the guesses of
+      // the presses after it: writing it would count the stepper back
+      // (4, then 2, 3, 4). Only the last write's answer replaces the cache.
+      if (
+        mayWrite(owner) &&
+        queryClient.isMutating({ mutationKey: CART_MUTATIONS }) === 1
+      ) {
+        queryClient.setQueryData(key, cart);
+      }
     },
 
     onSettled: (_cart, error) => {

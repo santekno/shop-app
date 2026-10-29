@@ -134,6 +134,8 @@ describe("useChangeCartLine", () => {
       });
       // One at a time: the next is not sent before this one is answered.
       expect(lineRequests()[n]?.body).toEqual({ quantity });
+      // The answers before it (2, then 3) did not count the stepper back.
+      expect(cached()?.lines[0]?.quantity).toBe(4);
       answer(n, cartResponse(cartOf([cartLine("m", { quantity })])));
     }
     await waitFor(() => {
