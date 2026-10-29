@@ -83,21 +83,43 @@ export const clientNavigate = async (
   href: string,
 ): Promise<void> => {
   const target = new URL(href, page.url());
+  // The router's request for the page, or the page load it falls back to.
+  const isFor = (url: string): boolean => {
+    const requested = new URL(url);
+    requested.searchParams.delete("_rsc");
+    return (
+      requested.origin === target.origin &&
+      requested.pathname === target.pathname &&
+      requested.search === target.search
+    );
+  };
   // A page shows its server-rendered HTML before Next.js has started, and
   // window.next.router exists a moment before the router can navigate: a
-  // push that early is lost, so it is repeated until the address changes
-  // (or the router loads it as a new page), as a buyer clicks again.
+  // push that early is lost (no request, no new address), so it is
+  // repeated, as a buyer clicks again. Once the router has asked the
+  // server for the page, the page may take as long as the server needs.
+  const settled = <T>(promise: Promise<T>): Promise<boolean> =>
+    promise.then(
+      () => true,
+      () => false,
+    );
   for (let attempt = 0; attempt < 10; attempt++) {
     await page.waitForFunction(() => window.next?.router !== undefined);
+    const asked = settled(
+      page.waitForRequest((request) => isFor(request.url()), {
+        timeout: 1000,
+      }),
+    );
+    const arrived = settled(page.waitForURL(target.href, { timeout: 1000 }));
     await page.evaluate((url) => {
       window.next?.router?.push(url);
     }, href);
-    try {
-      await page.waitForURL(target.href, { timeout: 1000 });
+    const [requested, moved] = await Promise.all([asked, arrived]);
+    if (moved) return;
+    if (requested) {
+      await page.waitForURL(target.href, { timeout: 30_000 });
       return;
-    } catch {
-      // Not yet: the router was not ready.
     }
   }
-  throw new Error(`Next.js' router did not navigate to ${href}`);
+  throw new Error(`Next.js' router did not ask for ${href}`);
 };
