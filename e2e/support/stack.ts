@@ -84,6 +84,30 @@ export const composeWith = (
 export const compose = (...args: string[]): string => composeWith({}, ...args);
 
 /**
+ * Runs SQL in the stack's Postgres (psql -At: unaligned, no headers) and
+ * returns its output, one row per line, columns separated by "|". For
+ * what the API has no endpoint for (a verified email, a product's stock
+ * put back). Only values the specs make themselves (UUIDs, generated
+ * emails, slugs) are written into the statement.
+ */
+export const psql = (sql: string): string =>
+  compose(
+    "exec",
+    "-T",
+    "postgres",
+    "psql",
+    "-U",
+    "goshop",
+    "-d",
+    "goshop",
+    "-v",
+    "ON_ERROR_STOP=1",
+    "-At",
+    "-c",
+    sql,
+  ).trim();
+
+/**
  * The IMAGE_ORIGIN the running web container was started with: where the
  * browser loads product photos from (docker-compose.yml).
  */
