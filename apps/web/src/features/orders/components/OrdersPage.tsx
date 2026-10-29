@@ -41,6 +41,10 @@ export function OrdersPage() {
   const focusFrom = useRef<number | null>(null);
 
   const items = orders.data?.pages.flatMap((page) => page.data) ?? [];
+  // TanStack Query puts the whole query in "error" when only the next page
+  // failed. That failure has its own alert under the list, with a retry
+  // of that page; the one above is for the list itself.
+  const listFailed = orders.status === "error" && !orders.isFetchNextPageError;
 
   useEffect(() => {
     const index = focusFrom.current;
@@ -59,10 +63,10 @@ export function OrdersPage() {
         Pesanan saya
       </h1>
       {(orders.status === "pending" ||
-        (orders.status === "error" && orders.isFetching)) && (
+        (listFailed && orders.isFetching && !orders.isFetchingNextPage)) && (
         <LoadingState>Memuat pesanan…</LoadingState>
       )}
-      {orders.status === "error" && !orders.isFetching && (
+      {listFailed && !orders.isFetching && (
         <ErrorState
           error={orders.error}
           onRetry={() => {

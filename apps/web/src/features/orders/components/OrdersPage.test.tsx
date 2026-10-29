@@ -189,14 +189,10 @@ describe("OrdersPage", () => {
     expect(cursors()).toEqual(["", "c2", "c2"]);
   });
 
-  // BUG (frontend-engineer, OrdersPage.tsx): a failed next page puts the
-  // infinite query in status "error" (TanStack Query v5), so the page
-  // shows the whole-list ErrorState above the orders *and* the next-page
-  // ErrorState below them: the same sentence twice, two "Coba lagi"
-  // buttons, the top one refetching every page. Expected: one alert.
-  // `it.fails` keeps the suite green while the bug stands; when it is
-  // fixed this fails, and becomes a plain `it`.
-  it.fails("shows one error, not two, for a failed next page", async () => {
+  // A failed next page puts the infinite query in status "error"
+  // (TanStack Query v5); the whole-list alert must not show for it, or the
+  // page says the same sentence twice with two "Coba lagi" buttons.
+  it("shows one error, not two, for a failed next page", async () => {
     serveFlakySecondPage();
     const clicker = userEvent.setup();
     mount();
@@ -208,6 +204,7 @@ describe("OrdersPage", () => {
       expect(screen.queryAllByRole("alert")).not.toHaveLength(0);
     });
     expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(screen.queryByText("Memuat pesanan…")).toBeNull();
   });
 
   it("shows a failed first load with a retry", async () => {
