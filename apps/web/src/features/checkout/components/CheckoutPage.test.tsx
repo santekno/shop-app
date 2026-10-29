@@ -61,7 +61,8 @@ const jneYes = quote({
 type Answer = Response | Promise<Response>;
 
 interface Api {
-  cart: Cart;
+  /** The cart, or the answer to GET /v1/cart. */
+  cart: Cart | (() => Answer);
   addresses: () => Answer;
   quotes: (addressId: string) => Answer;
   preview: (choice: CheckoutPreviewRequest) => Answer;
@@ -106,7 +107,9 @@ const serveCheckout = (overrides: Partial<Api> = {}) => {
     const method = init?.method ?? "GET";
     switch (`${method} ${url.pathname}`) {
       case "GET /v1/cart":
-        return cartResponse(api.cart);
+        return typeof api.cart === "function"
+          ? api.cart()
+          : cartResponse(api.cart);
       case "GET /v1/me/addresses":
         return api.addresses();
       case "GET /v1/checkout/shipping-quotes":
@@ -202,12 +205,20 @@ describe("CheckoutPage", () => {
   });
 
   it("chooses the default address, lists its couriers and waits for a courier", async () => {
-    serveCheckout({ addresses: () => addressesResponse([office, home]) });
+    const addresses = deferred<Response>();
+    serveCheckout({ addresses: () => addresses.promise });
     mount();
 
     expect(screen.getByText("Memuat alamat…").getAttribute("role")).toBe(
       "status",
     );
+    // The cart is known (begin_checkout went out), the addresses are not:
+    // no preview priced without them.
+    await waitFor(() => {
+      expect(events().map((event) => event.name)).toEqual(["begin_checkout"]);
+    });
+    expect(requests("POST /v1/checkout/preview")).toHaveLength(0);
+    addresses.resolve(addressesResponse([office, home]));
     const rumah = await screen.findByRole<HTMLInputElement>("radio", {
       name: /Rumah/,
     });
@@ -415,14 +426,26 @@ describe("CheckoutPage", () => {
 
   it("places the order with the chosen body, shows it, and opens the test gateway's payment page", async () => {
     const pay = deferred<Response>();
-    serveCheckout({ pay: () => pay.promise });
+    let ordered = false;
+    // The ordered lines leave the cart in the checkout's transaction; the
+    // emptied cart arrives later than the order.
+    const emptied = deferred<Response>();
+    serveCheckout({
+      cart: () => (ordered ? emptied.promise : cartResponse(cartOf([kaos]))),
+      checkout: () => {
+        ordered = true;
+        return orderResponse(order());
+      },
+      pay: () => pay.promise,
+    });
     const user = userEvent.setup();
-    mount();
+    const { router } = mount();
     await pickCourier(user, /Reguler/);
     await waitFor(() => {
       expect(placeButton().disabled).toBe(false);
     });
 
+    const previewsBefore = requests("POST /v1/checkout/preview").length;
     await user.click(placeButton());
 
     expect(
@@ -436,7 +459,6 @@ describe("CheckoutPage", () => {
     expect(bodies("POST /v1/checkout")).toEqual([
       { address_id: "a1", courier: "jne", service: "REG" },
     ]);
-    const previewsBefore = requests("POST /v1/checkout/preview").length;
     pay.resolve(
       paymentResponse(
         paymentSession("order-1", {
@@ -453,9 +475,14 @@ describe("CheckoutPage", () => {
       fakeProvider: true,
     });
     // Replaced: Back does not return to the emptied checkout.
-    expect(screen.queryByRole("button")).toBeNull();
-    // The order exists: no new preview of the emptied cart.
+    expect(router.lastAction).toBe("replace");
+    expect(router.entries).toEqual([
+      "/keranjang",
+      "/pesanan/order-1/pembayaran",
+    ]);
+    // The order exists: no new preview of the cart it came from.
     expect(requests("POST /v1/checkout/preview")).toHaveLength(previewsBefore);
+    emptied.resolve(cartResponse(cartOf([])));
     expect(
       events()
         .filter((event) => event.name === "add_payment_info")
