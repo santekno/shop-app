@@ -48,6 +48,9 @@ export default (phase: string): NextConfig => {
     turbopack: { root: workspaceRoot },
     // "X-Powered-By: Next.js" tells an attacker which bugs to try.
     poweredByHeader: false,
+    // `next dev` writes an AGENTS.md for AI coding agents unless told not
+    // to; the repository keeps its own instructions in CLAUDE.md.
+    agentRules: false,
     // @goshop/shared ships TypeScript source, not built JavaScript.
     transpilePackages: ["@goshop/shared"],
     headers: () =>
