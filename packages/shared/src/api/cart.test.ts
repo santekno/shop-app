@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { EMPTY_CART, addCartItem, getCart, mergeCart } from "./cart.ts";
+import {
+  EMPTY_CART,
+  addCartItem,
+  getCart,
+  mergeCart,
+  removeCartItem,
+  updateCartItem,
+} from "./cart.ts";
 import { createApiClient } from "./client.ts";
 import { isApiError } from "./errors.ts";
 import type { Cart } from "./types.ts";
@@ -160,6 +167,102 @@ describe("addCartItem", () => {
       details: { available: 1 },
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("updateCartItem", () => {
+  it("PATCHes the line's quantity with the guest token and returns the cart", async () => {
+    const { api, call } = setup(() => Response.json({ data: cart }));
+
+    await expect(
+      updateCartItem(api, "v1", { quantity: 3 }, { cartToken: "tok-1" }),
+    ).resolves.toEqual(cart);
+
+    expect(call().url).toBe("http://api.test/v1/cart/items/v1");
+    expect(call().init?.method).toBe("PATCH");
+    expect(call().init?.body).toBe('{"quantity":3}');
+    expect(call().headers.get("X-Cart-Token")).toBe("tok-1");
+  });
+
+  it("escapes the variant id as one path segment, and sends no token for a logged-in user", async () => {
+    const { api, call } = setup(() => Response.json({ data: cart }));
+
+    await updateCartItem(api, "a/b?c", { quantity: 1 });
+
+    expect(call().url).toBe("http://api.test/v1/cart/items/a%2Fb%3Fc");
+    expect(call().headers.has("X-Cart-Token")).toBe(false);
+  });
+
+  it("throws INSUFFICIENT_STOCK with what is available, never retrying", async () => {
+    const fetchMock = vi.fn<typeof fetch>(() =>
+      Promise.resolve(
+        Response.json(
+          {
+            error: {
+              code: "INSUFFICIENT_STOCK",
+              message: "not enough stock",
+              details: { available: 2 },
+            },
+          },
+          { status: 409 },
+        ),
+      ),
+    );
+    const api = createApiClient({
+      baseUrl: "http://api.test",
+      fetch: fetchMock,
+      retries: 3,
+    });
+
+    const error: unknown = await updateCartItem(api, "v1", {
+      quantity: 5,
+    }).catch((e: unknown) => e);
+
+    expect(error).toMatchObject({
+      code: "INSUFFICIENT_STOCK",
+      details: { available: 2 },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("removeCartItem", () => {
+  it("DELETEs the line with the guest token and returns the cart that is left", async () => {
+    const { api, call } = setup(() => Response.json({ data: EMPTY_CART }));
+
+    await expect(
+      removeCartItem(api, "v1", { cartToken: "tok-1" }),
+    ).resolves.toEqual(EMPTY_CART);
+
+    expect(call().url).toBe("http://api.test/v1/cart/items/v1");
+    expect(call().init?.method).toBe("DELETE");
+    expect(call().init?.body).toBeUndefined();
+    expect(call().headers.get("X-Cart-Token")).toBe("tok-1");
+  });
+
+  it("throws NOT_FOUND for a line that is already gone", async () => {
+    const { api } = setup(() =>
+      Response.json(
+        { error: { code: "NOT_FOUND", message: "gone" } },
+        { status: 404 },
+      ),
+    );
+
+    const error: unknown = await removeCartItem(api, "v1").catch(
+      (e: unknown) => e,
+    );
+    expect(isApiError(error, "NOT_FOUND")).toBe(true);
+  });
+
+  it("passes the caller's signal on", async () => {
+    const { api, call } = setup(() => Response.json({ data: cart }));
+    const controller = new AbortController();
+
+    const pending = removeCartItem(api, "v1", { signal: controller.signal });
+    controller.abort();
+
+    expect(call().init?.signal?.aborted).toBe(true);
+    await pending.catch(() => undefined);
   });
 });
 
