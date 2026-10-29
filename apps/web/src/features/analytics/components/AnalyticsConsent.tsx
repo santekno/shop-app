@@ -21,7 +21,8 @@ import type { AnalyticsConsent as Consent } from "../consent.ts";
  *   a buyer reading or typing is not interrupted, and can answer later or
  *   never (no answer means "denied"). Opened from the footer button, it
  *   does take the focus, because the buyer asked for it; closing it
- *   returns the focus to that button.
+ *   returns the focus to that button. Answering the banner that showed by
+ *   itself also moves the focus there, if it was in the banner.
  * - fixed to the bottom of the screen, but its measured height is kept
  *   free under the page (the spacer below), so the last thing on a page,
  *   such as checkout's "Buat pesanan & bayar" on a phone, can always be
@@ -71,8 +72,13 @@ export function AnalyticsConsent() {
   };
 
   const answer = (choice: Consent) => {
+    // The banner that showed by itself unmounts with the button just
+    // pressed; the focus would fall to <body>. It goes to the footer
+    // button that brings the banner back.
+    const focusInside = banner.current?.contains(document.activeElement);
     setAnalyticsConsent(choice);
-    close();
+    if (editing) close();
+    else if (focusInside) settingsButton.current?.focus();
   };
 
   return (

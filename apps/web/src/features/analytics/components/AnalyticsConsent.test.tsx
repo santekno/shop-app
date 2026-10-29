@@ -103,6 +103,36 @@ describe("AnalyticsConsent", () => {
     expect(banner()).toBeNull();
   });
 
+  it("answered from the keyboard, gives the focus to Pengaturan analytics", async () => {
+    const user = userEvent.setup();
+    render(<AnalyticsConsent />);
+    screen.getByRole("button", { name: "Tolak" }).focus();
+
+    await user.keyboard("{Enter}");
+
+    expect(banner()).toBeNull();
+    // Not <body>: the next Tab continues from the footer, not the top.
+    expect(document.activeElement).toBe(settings());
+  });
+
+  it("leaves the focus alone when it was not in the banner", () => {
+    render(
+      <>
+        <input aria-label="Cari" />
+        <AnalyticsConsent />
+      </>,
+    );
+    const search = screen.getByRole("textbox", { name: "Cari" });
+    search.focus();
+
+    act(() => {
+      screen.getByRole("button", { name: "Izinkan" }).click();
+    });
+
+    expect(banner()).toBeNull();
+    expect(document.activeElement).toBe(search);
+  });
+
   it("does not ask a buyer who answered before", () => {
     window.localStorage.setItem(ANALYTICS_CONSENT_KEY, "denied");
     render(<AnalyticsConsent />);
