@@ -2,7 +2,7 @@ import { EMPTY_CART } from "@goshop/shared";
 import type { Money } from "@goshop/shared";
 import { describe, expect, it } from "vitest";
 import { cartLine, cartOf } from "@/test/fake-api.ts";
-import { withAddedItem } from "./optimistic-cart.ts";
+import { withAddedItem, withLineQuantity } from "./optimistic-cart.ts";
 
 const price = (amount: number): Money => ({ amount, currency: "IDR" });
 
@@ -61,6 +61,60 @@ describe("withAddedItem", () => {
     const before = structuredClone(cart);
 
     withAddedItem(cart, { variant_id: "m", quantity: 1 }, price(89_000));
+
+    expect(cart).toEqual(before);
+  });
+});
+
+describe("withLineQuantity", () => {
+  it("sets the line's quantity and total, moving the count and subtotal by the difference", () => {
+    const other = cartLine("l", { quantity: 1, unit_price: price(50_000) });
+    const cart = cartOf([cartLine("m", { quantity: 2 }), other]);
+
+    const next = withLineQuantity(cart, "m", 5);
+
+    expect(next.item_count).toBe(6);
+    expect(next.subtotal).toEqual({
+      amount: 5 * 89_000 + 50_000,
+      currency: "IDR",
+    });
+    expect(next.lines[0]).toMatchObject({
+      variant_id: "m",
+      quantity: 5,
+      line_total: { amount: 5 * 89_000, currency: "IDR" },
+    });
+    expect(next.lines[1]).toBe(other);
+  });
+
+  it("lowers the count and the subtotal for a smaller quantity", () => {
+    const cart = cartOf([cartLine("m", { quantity: 4 })]);
+
+    const next = withLineQuantity(cart, "m", 1);
+
+    expect(next.item_count).toBe(1);
+    expect(next.subtotal.amount).toBe(89_000);
+    expect(next.lines[0]?.line_total.amount).toBe(89_000);
+  });
+
+  it("prices the change with the line's own unit price", () => {
+    const cart = cartOf([
+      cartLine("m", { quantity: 1, unit_price: price(120_000) }),
+    ]);
+
+    expect(withLineQuantity(cart, "m", 3).subtotal.amount).toBe(360_000);
+  });
+
+  it("leaves the cart as it is for a variant that is not in it", () => {
+    const cart = cartOf([cartLine("m", { quantity: 2 })]);
+
+    expect(withLineQuantity(cart, "x", 9)).toBe(cart);
+  });
+
+  it("does not change the cart it is given", () => {
+    const cart = cartOf([cartLine("m", { quantity: 2 })]);
+    const before = structuredClone(cart);
+
+    withLineQuantity(cart, "m", 7);
 
     expect(cart).toEqual(before);
   });
