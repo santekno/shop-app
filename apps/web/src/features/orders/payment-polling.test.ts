@@ -18,6 +18,10 @@ describe("pollDelay", () => {
     expect(pollDelay(-3)).toBe(2_000);
   });
 
+  it("falls back to the slowest delay for a count that is not a number", () => {
+    expect(pollDelay(Number.NaN)).toBe(30_000);
+  });
+
   it("lasts a quarter of an hour per round", () => {
     expect(POLL_LIMIT_MS).toBe(15 * 60 * 1_000);
   });
