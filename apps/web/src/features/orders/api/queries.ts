@@ -5,7 +5,7 @@ import type { ApiClient } from "@goshop/shared";
 /**
  * The orders' query keys. Every one belongs to one logged-in buyer, so the
  * user's id is in each key, and a logout removes the whole prefix
- * (onSessionEnd in app/App.tsx).
+ * (onSessionEnd in components/layout/Providers.tsx).
  *
  *   ["orders"]                         everything (what a logout removes)
  *   ["orders", userId, "detail", id]   GET /v1/orders/{id}

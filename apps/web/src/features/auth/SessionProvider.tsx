@@ -14,11 +14,11 @@ import { createSessionManager } from "./session-manager.ts";
 interface SessionProviderProps {
   children: ReactNode;
   /**
-   * After a login or a restore, before the session is shown: App.tsx
+   * After a login or a restore, before the session is shown: Providers.tsx
    * merges the guest cart here. Read once, when the provider mounts.
    */
   onStart?: (client: ApiClient, session: Session) => Promise<void>;
-  /** After the session ends: App.tsx forgets the user's cached data. */
+  /** After the session ends: Providers.tsx forgets the user's cached data. */
   onEnd?: () => void;
   /**
    * Start with this session instead of restoring one from the cookie
@@ -43,7 +43,7 @@ type SessionState =
  * being saved where a script could find it.
  *
  * The auth feature knows nothing about the cart: what has to happen to
- * the cart when a session starts or ends comes in as props (App.tsx).
+ * the cart when a session starts or ends comes in as props (components/layout/Providers.tsx).
  */
 export function SessionProvider({
   children,

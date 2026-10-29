@@ -533,7 +533,7 @@ Paths are relative to `apps/web/src` unless they start with another top-level fo
 | 11 | Context for the logged-in user | `features/auth/session-context.ts` (`SessionValue` as a discriminated union on `status`, `useSession`, why context and not a store), `features/auth/SessionProvider.tsx` (a memoised value, stable functions, `getAccessToken` handed through from the session manager, which holds the current token), `features/auth/components/AccountNav.tsx` (narrowing on `status`) |
 | 12 | Access and refresh tokens, safely: httpOnly cookie vs memory | `webLogin`/`webRefresh`/`webLogout` and the `credentials` option in `packages/shared` (`api/auth.ts`, `api/client.ts`); `features/auth/session-manager.ts` (restore, login, logout, single-flight refresh), `refresh-lock.ts` (Web Locks), `SessionProvider.tsx` (`"restoring"`), `hooks/useLogin.ts`, `components/AccountNav.tsx` (logout); the guest cart merge in `features/cart/merge-guest-cart.ts`, wired in `app/App.tsx`; the user's cart in `features/cart/api/queries.ts`, `hooks/useCart.ts`, `hooks/useAddToCart.ts`; the API's side: ADR 0008 and `docs/web/bab-10-auth-cookie-contract.md` |
 | 13 | Protected routes and the redirect to login | `features/auth/components/RequireAuth.tsx` (wait while restoring, `<Navigate replace>`), `features/auth/return-to.ts` (`safeReturnPath`, `loginPathFor`), `features/auth/components/LoginPage.tsx` (`?kembali=`, `<Navigate>` once logged in), `features/account/` (`/akun`, `GET /v1/me` via `getMe` in `packages/shared/src/api/me.ts`), the `RequireAuth` layout route in `app/routes.tsx`, "Akun saya" in `AccountMenu.tsx` |
-| 14 | Automatic refresh-token interceptor | `features/auth/auth-client.ts` (`createAuthClient`: fresh token before, one refresh and one retry after a `401`), `features/auth/session-manager.ts` (`refreshMarginMs`, `ensureFreshToken`, `refreshAfterUnauthorized`, the single-flight `refresh`, ending the session), `authApi` in `SessionProvider.tsx`, the cleanup in `onSessionEnd` (`app/App.tsx`) |
+| 14 | Automatic refresh-token interceptor | `features/auth/auth-client.ts` (`createAuthClient`: fresh token before, one refresh and one retry after a `401`), `features/auth/session-manager.ts` (`refreshMarginMs`, `ensureFreshToken`, `refreshAfterUnauthorized`, the single-flight `refresh`, ending the session), `authApi` in `SessionProvider.tsx`, the cleanup in `onSessionEnd` (`app/App.tsx`; `components/layout/Providers.tsx` since artikel 08) |
 | 15 | Recap and challenge | the two sections below; no code |
 
 ## Bab 10 recap (artikel 15)
@@ -614,7 +614,7 @@ Paths are relative to `apps/web/src` unless they start with another top-level fo
 - **The form is the shared schema.** `addressSchema` in `packages/shared` mirrors the API's handler (trimmed text, lengths in characters, the sdk's `id_phone` and `id_postal` patterns) and is checked against the contract's `AddressCreate` with `satisfies`. It cleans a phone number typed with spaces or dashes before sending it. `autoComplete` uses the HTML tokens (`street-address`, `address-level2` for the city, `address-level1` for the province, `postal-code`, `tel`) so a browser can fill a saved address, and `inputMode` brings up a digit keyboard. The API's own field errors land under their fields (`setApiFieldErrors`, with the phone and postal code messages in Indonesian); `ADDRESS_LIMIT_REACHED` goes above the button.
 - **Focus after the form closes.** Saving selects the new address and focuses its radio; "Batal" returns the focus to "Tambah alamat baru". Both through a ref read by an effect after the list is back on screen.
 - **Quotes are hints.** The courier step shows `GET /v1/checkout/shipping-quotes` for the chosen address as the API priced it; checkout asks the courier again. `SHIPPING_UNAVAILABLE` (no courier serves the postal code) has no retry button, because only another address helps; `UPSTREAM_UNAVAILABLE` (the rates service did not answer) has one. Preview, quotes and checkout share one rate limit per buyer (30 a minute), so quotes stay fresh for the storefront's default half minute instead of being asked for on every render. The courier's estimate is in English ("2-3 days"); `formatEtd` translates only the unit.
-- **A logout forgets it.** `onSessionEnd` (`app/App.tsx`) removes every `["checkout", …]` query, as it does the cart and the account.
+- **A logout forgets it.** `onSessionEnd` (`app/App.tsx`; `components/layout/Providers.tsx` since artikel 08) removes every `["checkout", …]` query, as it does the cart and the account.
 
 ## Order summary and voucher (artikel 03)
 
@@ -639,7 +639,7 @@ Before leaving, `usePayOrder` replaces the current history entry with the order'
 
 ### The test gateway (`APP_PAYMENT_PROVIDER=fake`)
 
-Local development and the e2e stack run the API with the fake gateway (Bab 6, `make up` uses it). Its answer has `provider: "fake"`, a `token` of `fake-<uuid>`, a `redirect_url` on `fake-payment.invalid` (a reserved domain that never resolves), and `client_key: "goshop-fake-client-key"`. The storefront branches on `provider`, never on the URL: with `"fake"` it does not navigate anywhere outside, it goes to the order's payment page with `state: { fakeProvider: true }`, which shows how to pay from a terminal (`make fake-pay order=GS-…`, optionally `status=expire` or `status=deny`). The page then sees the result exactly as with Midtrans, by asking the API (artikel 05). The whole flow is demoable without a Midtrans account.
+Local development and the e2e stack run the API with the fake gateway (Bab 6, `make up` uses it). Its answer has `provider: "fake"`, a `token` of `fake-<uuid>`, a `redirect_url` on `fake-payment.invalid` (a reserved domain that never resolves), and `client_key: "goshop-fake-client-key"`. The storefront branches on `provider`, never on the URL: with `"fake"` it does not navigate anywhere outside, it goes to the order's payment page with `state: { fakeProvider: true }` (since artikel 08, `setNavigationState`: Next.js' router passes no history state), which shows how to pay from a terminal (`make fake-pay order=GS-…`, optionally `status=expire` or `status=deny`). The page then sees the result exactly as with Midtrans, by asking the API (artikel 05). The whole flow is demoable without a Midtrans account.
 
 ### One press: order, then payment
 
@@ -821,7 +821,7 @@ The cost of the nonce is measured in artikel 09: about 3.5 ms of rendering per p
 - `next.config.ts`: `output: "standalone"` (artikel 14), `outputFileTracingRoot` and `turbopack.root` at the workspace root and `transpilePackages: ["@goshop/shared"]` (the shared package ships TypeScript), `poweredByHeader: false`.
 - Tailwind CSS v4 runs as a PostCSS plugin (`postcss.config.mjs`, `@tailwindcss/postcss`) instead of the Vite plugin; `src/index.css`, the tokens and dark mode are unchanged.
 - ESLint adds `@next/eslint-plugin-next`'s Core Web Vitals rules; `eslint-plugin-react-refresh` (a Vite concern) is gone. `next-env.d.ts` is generated by `next typegen` (run by `typecheck`) and ignored by git.
-- `vite.config.ts` now only configures Vitest; the unit tests are excluded from `tsc` and ESLint until the test stage moves them to Next.js (they mount React Router's `MemoryRouter`).
+- `vite.config.ts` now only configures Vitest, with two aliases for what Next.js provides at build time: `server-only` (a no-op in tests) and `next/dynamic`. The unit tests render pages through an in-memory `next/navigation` (`src/test/memory-router.ts`) instead of React Router's `MemoryRouter`, and `tsconfig.test.json` checks them, so `pnpm typecheck` and ESLint cover the tests as well.
 
 ## Product pages from the server: SSR and the data cache (artikel 09)
 
@@ -1122,7 +1122,7 @@ Vercel builds Next.js without a Dockerfile: it reads the framework, runs each pa
 - **Crawlers can read it:** measured what a crawler gets from the single-page app (07); moved to the Next.js App Router with server and client components and a nonce-based CSP (08); product and catalog pages rendered on the server from the API through the data cache, ISR applied to the data (09); metadata, Open Graph and `Product` structured data from `SITE_URL` (10); a sitemap and robots.txt that list exactly what may be indexed (11).
 - **Fast, measured, deployed:** product photos with `srcset` from the API's variants, reserved boxes, the LCP photo first, and one image origin in the CSP (12); GA4 e-commerce events from one contract in `packages/shared`, behind Consent Mode and a banner, with no personal data (13); the standalone Next.js server in a non-root container, on Compose and Railway, with Vercel compared (14).
 
-What Bab 11 leaves open on purpose: the unit and end-to-end tests catch up with the App Router in the chapter's test stages (`docs/bab-11.md`); a purchase is counted only when the buyer sees the payment page (the server-side fix is in artikel 13); the admin who will change prices, and so the reason to drop cached data on demand, arrives in Bab 12.
+What Bab 11 leaves open on purpose: a purchase is counted only when the buyer sees the payment page (the server-side fix is in artikel 13); the admin who will change prices, and so the reason to drop cached data on demand, arrives in Bab 12.
 
 ### The Bab 10 challenge, after the move
 
@@ -1141,6 +1141,9 @@ GoShop wants campaign pages, such as `/promo/kopi-nusantara`: a banner text, the
 7. **Check it like the rest:** the page answers 200 with the products in the HTML before any JavaScript runs (artikel 07's `seo-probe.js`), a second request within `revalidate` sends no request to the API (watch its log), the revalidate route drops the cache (the next request does reach the API), no CSP violation in the console, and the Lighthouse LCP element is a product photo, not the banner text, or explain why not.
 
 ## Bab 11, articles 01–06: what changed in the storefront
+
+The state after artikel 06, before the move to Next.js; artikel 07 onwards is described above.
+
 
 - New routes, all lazy and behind `RequireAuth` except the cart: `/checkout`, `/pesanan`, `/pesanan/:id`, `/pesanan/:id/pembayaran`, `/pembayaran/selesai`.
 - New shared code in `packages/shared` (for the web now and the mobile app from Bab 13): `updateCartItem`, `removeCartItem`, `listAddresses`, `createAddress`, `getShippingQuotes`, `previewCheckout`, `checkoutProblems`, `placeOrder`, `payOrder`, `getOrder`, `listOrders`; `addressSchema` and `voucherSchema`; the contract's types for addresses, quotes, the preview, orders and payment sessions.

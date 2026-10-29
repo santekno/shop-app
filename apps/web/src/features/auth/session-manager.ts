@@ -18,13 +18,13 @@ export interface SessionManagerOptions {
   onChange: (session: Session | null) => void;
   /**
    * Runs after a login or a restore, before the session is published, with
-   * a client that already sends the new access token. App.tsx merges the
+   * a client that already sends the new access token. Providers.tsx merges the
    * guest cart here, so the header switches to the user's cart once, with
    * the guest's lines already in it. It must not throw: the login has
    * succeeded whatever happens to the cart.
    */
   onStart?: (client: ApiClient, session: Session) => Promise<void>;
-  /** After the session ends: forget the user's cached data (App.tsx). */
+  /** After the session ends: forget the user's cached data (Providers.tsx). */
   onEnd?: () => void;
   /** Serialises every cookie call across tabs; tests may pass their own. */
   lock?: <T>(task: () => Promise<T>) => Promise<T>;

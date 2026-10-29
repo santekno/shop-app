@@ -16,8 +16,10 @@ import { useMemo, useSyncExternalStore } from "react";
  * the tab; unlike it, it lasts only while that page is on screen: the
  * next navigation to any other path forgets it (forgetNavigationStateUnless,
  * called by SiteFrame), so opening /masuk again later does not say "your account
- * was created" a second time. Nothing private goes in: sessionStorage is
- * readable by any script on the page.
+ * was created" a second time. Nothing secret goes in (no token, no
+ * password): sessionStorage is readable by any script on the page. The one
+ * personal value, the email just registered, is forgotten on the next
+ * navigation.
  */
 const STORAGE_KEY = "goshop:navigation-state";
 

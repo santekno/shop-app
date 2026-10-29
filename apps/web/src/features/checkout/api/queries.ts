@@ -9,7 +9,7 @@ import type { ApiClient, Cart, CheckoutPreviewRequest } from "@goshop/shared";
 /**
  * The checkout's query keys. Everything here belongs to one logged-in
  * buyer, so the user's id is in every key, and a logout removes the whole
- * prefix (onSessionEnd in app/App.tsx).
+ * prefix (onSessionEnd in components/layout/Providers.tsx).
  *
  *   ["checkout"]                                 everything (what a logout removes)
  *   ["checkout", userId, "addresses"]            GET /v1/me/addresses

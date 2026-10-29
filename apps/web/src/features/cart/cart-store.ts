@@ -176,7 +176,7 @@ export const getCartToken = (): string | null => useCartStore.getState().token;
  * a cart (or forgets one) writes localStorage, and the browser tells every
  * other tab of the same origin with a "storage" event; without this, two
  * tabs could each create their own guest cart. Returns the function that
- * stops listening. Called once, from main.tsx.
+ * stops listening. Called once, from components/layout/Providers.tsx.
  */
 export const syncCartAcrossTabs = (): (() => void) => {
   const onStorage = (event: StorageEvent) => {

@@ -86,7 +86,9 @@ export const config = {
   matcher: [
     {
       // Pages only: not the hashed build files, the files in public/
-      // (anything with a dot) or the health check.
+      // (anything with a dot) or the health check. A page URL with a dot
+      // gets no CSP either; none exists (product slugs have no dots), so
+      // only 404s for paths like /x.php go without one.
       source: "/((?!_next/static|_next/image|healthz|.*\\.).*)",
       // A <Link> prefetch is not a page view; it gets its nonce when the
       // page is really rendered.
