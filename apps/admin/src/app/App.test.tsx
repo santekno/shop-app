@@ -54,5 +54,5 @@ describe("App", () => {
       expect(queryClient.getQueryCache().getAll()).toEqual([]);
     });
     expect(window.location.pathname).toBe("/masuk");
-  }, 15_000);
+  });
 });

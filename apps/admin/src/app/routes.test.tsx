@@ -9,10 +9,6 @@ import { renderRoutes } from "@/test/render.tsx";
 import type { TestSession } from "@/test/render.tsx";
 import { routes } from "./routes.tsx";
 
-// A lazy route's first visit imports its chunk (Recharts for /laporan),
-// which under coverage instrumentation takes longer than findBy's 1 s.
-const LAZY = { timeout: 5_000 };
-
 const renderApp = (url: string, who: TestSession = session()) => {
   server.use(
     quietEventsHandler(),
@@ -27,7 +23,7 @@ describe("routes", () => {
     renderApp("/");
 
     expect(
-      await screen.findByRole("heading", { level: 1, name: "Ringkasan" }, LAZY),
+      await screen.findByRole("heading", { level: 1, name: "Ringkasan" }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("navigation", { name: "Menu utama" }),
@@ -43,7 +39,7 @@ describe("routes", () => {
     renderApp("/masuk", null);
 
     expect(
-      await screen.findByRole("heading", { level: 1, name: "Masuk" }, LAZY),
+      await screen.findByRole("heading", { level: 1, name: "Masuk" }),
     ).toBeInTheDocument();
     expect(screen.queryByRole("navigation", { name: "Menu utama" })).toBeNull();
   });
@@ -52,7 +48,7 @@ describe("routes", () => {
     const { router } = renderApp("/pesanan?status=dikirim", null);
 
     expect(
-      await screen.findByRole("heading", { level: 1, name: "Masuk" }, LAZY),
+      await screen.findByRole("heading", { level: 1, name: "Masuk" }),
     ).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/masuk");
     expect(router.state.location.search).toBe(
@@ -64,11 +60,7 @@ describe("routes", () => {
     renderApp(`/pesanan/${ORDER_ID}`);
 
     expect(
-      await screen.findByRole(
-        "heading",
-        { level: 1, name: "Detail pesanan" },
-        LAZY,
-      ),
+      await screen.findByRole("heading", { level: 1, name: "Detail pesanan" }),
     ).toBeInTheDocument();
     expect(
       within(
@@ -83,11 +75,10 @@ describe("routes", () => {
     renderApp(`/pesanan/${ORDER_ID}/resi`);
 
     expect(
-      await screen.findByRole(
-        "heading",
-        { level: 1, name: `Resi pengiriman ${order().code}` },
-        LAZY,
-      ),
+      await screen.findByRole("heading", {
+        level: 1,
+        name: `Resi pengiriman ${order().code}`,
+      }),
     ).toBeInTheDocument();
     expect(screen.queryByRole("navigation", { name: "Menu utama" })).toBeNull();
   });
@@ -96,7 +87,7 @@ describe("routes", () => {
     renderApp("/laporan");
 
     expect(
-      await screen.findByRole("heading", { level: 1, name: "Laporan" }, LAZY),
+      await screen.findByRole("heading", { level: 1, name: "Laporan" }),
     ).toBeInTheDocument();
   });
 
@@ -104,11 +95,10 @@ describe("routes", () => {
     renderApp("/tidak-ada");
 
     expect(
-      await screen.findByRole(
-        "heading",
-        { level: 1, name: "Halaman tidak ditemukan" },
-        LAZY,
-      ),
+      await screen.findByRole("heading", {
+        level: 1,
+        name: "Halaman tidak ditemukan",
+      }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("navigation", { name: "Menu utama" }),
@@ -123,11 +113,7 @@ describe("routes", () => {
     renderApp("/laporan", session("buyer"));
 
     expect(
-      await screen.findByRole(
-        "heading",
-        { level: 1, name: "Tidak ada akses" },
-        LAZY,
-      ),
+      await screen.findByRole("heading", { level: 1, name: "Tidak ada akses" }),
     ).toBeInTheDocument();
     expect(screen.queryByRole("navigation", { name: "Menu utama" })).toBeNull();
   });
