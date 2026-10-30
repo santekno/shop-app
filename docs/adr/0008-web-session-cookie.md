@@ -65,6 +65,23 @@ A request that fails 2 or 3 gets `403 FORBIDDEN` with `details.reason` `client_h
 
 No grace window is added. The storefront serialises refreshes across tabs with the Web Locks API, so ADR 0005's "one refresh in flight" still holds for a browser.
 
+### Bab 12: the admin dashboard's own cookie
+
+The admin dashboard (`apps/admin`, `http://localhost:5174` locally) uses the same three endpoints. Both apps talk to one API host, and a cookie belongs to the host that set it, not to the page that asked: with one `goshop_refresh`, logging into the dashboard replaced the storefront's session (and the reverse), and a storefront tab and a dashboard tab refreshing at the same moment could present the same token twice (the Web Lock that serialises refreshes is per origin) and trip reuse detection, revoking the session.
+
+The client therefore names itself, and the name picks the cookie:
+
+| `X-GoShop-Client` | Cookie |
+|---|---|
+| `web` | `goshop_refresh` (unchanged) |
+| `admin` | `goshop_admin_refresh` |
+
+Everything else is shared and unchanged: the endpoints, the cookie's path, `Max-Age`, `HttpOnly`, `Secure`, `SameSite=Strict` and no `Domain`; the header rule (still exactly one header, now of `web` or `admin`; anything else is `403 client_header`); the `Origin` check against `APP_CORS_ALLOWED_ORIGINS`, which lists both apps; the credentialed CORS options; the rate limits (the two apps share the per-IP refresh counter); refusing several cookies of the *same* name; and the service underneath. Both cookies have the same path, so the browser sends both to every web auth call; each call reads and writes only its own client's cookie and ignores the other. A storefront without the header is refused exactly as before.
+
+The header is a CSRF defence and a label, not an authorisation: any allowed origin may send either value. A script running on one allowed origin (an XSS in the storefront, say) can therefore refresh the dashboard's session of the same browser and get its access token. That was already true with one shared cookie, so separating them loses nothing; binding each value to its own origins (a second origin list for `admin`) would close it and is the next step if the storefront ever shares a browser with staff accounts in production. The dashboard's role gate is in the API (`RequireRole` on `/v1/admin`), so a buyer who logs in with `admin` gets a session but no admin data.
+
+Alternatives: a separate set of endpoints under their own path (`/v1/auth/admin/*`) would scope each cookie to its own path, but duplicates three routes, their CORS prefix and their tests for no added protection; a separate API host for the dashboard needs a second deployment of the same API.
+
 ## Alternatives considered
 
 - **Read the cookie on the existing `/v1/auth/refresh`** — one endpoint, two transports. Rejected: the JSON endpoints would gain a CSRF surface the mobile app does not need, and the cookie's `Path` could no longer keep it away from them.

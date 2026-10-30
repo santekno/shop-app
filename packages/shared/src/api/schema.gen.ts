@@ -503,6 +503,13 @@ export interface paths {
          *     `X-GoShop-Client: web`. The web session needs the storefront and
          *     the API on one site (one registrable domain): see
          *     `docs/configuration.md`.
+         *
+         *     The admin dashboard (Bab 12) calls the same three endpoints with
+         *     `X-GoShop-Client: admin`, and its session lives in its own cookie,
+         *     `goshop_admin_refresh` (same attributes), so logging into one app
+         *     never ends the other's session. Everything said here about
+         *     `goshop_refresh` holds for `goshop_admin_refresh` on the admin's
+         *     calls; each call reads and writes only its client's cookie.
          */
         post: operations["webLogin"];
         delete?: never;
@@ -1681,7 +1688,7 @@ export interface components {
         TokenPairDetail: {
             data: components["schemas"]["TokenPair"];
         };
-        /** @description A web session (ADR 0008) and the account it belongs to. The refresh token is in the `goshop_refresh` cookie, never in the body. */
+        /** @description A web session (ADR 0008) and the account it belongs to. The refresh token is in the `goshop_refresh` cookie (for the admin dashboard, `goshop_admin_refresh`), never in the body. */
         WebSession: {
             /** @description A JWT. Send it as `Authorization: Bearer <access_token>`. Keep it in memory only, never in `localStorage`. Clients must not rely on its claims; they may change. */
             access_token: string;
@@ -2429,8 +2436,9 @@ export interface components {
             };
         };
         /**
-         * @description Not a request from the web storefront: the `X-GoShop-Client: web`
-         *     header is missing or wrong (`details.reason` `client_header`), or
+         * @description Not a request from the web storefront or the admin dashboard: the
+         *     `X-GoShop-Client` header is missing, sent twice or neither `web`
+         *     nor `admin` (`details.reason` `client_header`), or
          *     the `Origin` header names an origin that is not in
          *     `APP_CORS_ALLOWED_ORIGINS` (`details.reason` `origin`). Nothing is
          *     counted against a rate limit and no cookie is set or cleared.
@@ -2946,14 +2954,17 @@ export interface components {
     };
     parameters: {
         /**
-         * @description Must be exactly `web`. A page on another origin cannot add a custom
-         *     header without a CORS preflight, which the API answers only for the
+         * @description Must be exactly `web` (the storefront) or `admin` (the admin
+         *     dashboard, Bab 12), sent once. The value picks the session's
+         *     cookie: `goshop_refresh` for `web`, `goshop_admin_refresh` for
+         *     `admin`. A page on another origin cannot add a custom header
+         *     without a CORS preflight, which the API answers only for the
          *     origins in `APP_CORS_ALLOWED_ORIGINS`; together with
          *     `SameSite=Strict` and the `Origin` check this keeps other sites,
          *     sibling subdomains included, from using the cookie (CSRF). Missing
          *     or wrong: 403 `FORBIDDEN` with `details.reason` `client_header`.
          */
-        GoShopClientHeader: "web";
+        GoShopClientHeader: "web" | "admin";
         /** @description Product ID. One that is not a UUID returns 404 `NOT_FOUND`. */
         ProductID: string;
         /** @description Image ID. One that is not a UUID returns 404 `NOT_FOUND`. */
@@ -2971,12 +2982,12 @@ export interface components {
     requestBodies: never;
     headers: {
         /**
-         * @description The session's new refresh token in the `goshop_refresh` cookie.
+         * @description The session's new refresh token in the `goshop_refresh` cookie (`goshop_admin_refresh` with `X-GoShop-Client admin`).
          * @example goshop_refresh=0192f5d4-7c1e-7a8b-9c3d-4e5f6a7b8c9d.q8XbS0pV2lYc7mWfN3rT5uJhK9dGzA1eR6tB4yOiPxw; Path=/v1/auth/web; Max-Age=2592000; HttpOnly; Secure; SameSite=Strict
          */
         SetRefreshCookie: string;
         /**
-         * @description Deletes the `goshop_refresh` cookie (same name, path and attributes, empty value, `Max-Age=0`).
+         * @description Deletes the `goshop_refresh` cookie, or `goshop_admin_refresh` with `X-GoShop-Client admin` (same name, path and attributes, empty value, `Max-Age=0`).
          * @example goshop_refresh=; Path=/v1/auth/web; Max-Age=0; HttpOnly; Secure; SameSite=Strict
          */
         ClearRefreshCookie: string;
@@ -3767,8 +3778,11 @@ export interface operations {
             query?: never;
             header: {
                 /**
-                 * @description Must be exactly `web`. A page on another origin cannot add a custom
-                 *     header without a CORS preflight, which the API answers only for the
+                 * @description Must be exactly `web` (the storefront) or `admin` (the admin
+                 *     dashboard, Bab 12), sent once. The value picks the session's
+                 *     cookie: `goshop_refresh` for `web`, `goshop_admin_refresh` for
+                 *     `admin`. A page on another origin cannot add a custom header
+                 *     without a CORS preflight, which the API answers only for the
                  *     origins in `APP_CORS_ALLOWED_ORIGINS`; together with
                  *     `SameSite=Strict` and the `Origin` check this keeps other sites,
                  *     sibling subdomains included, from using the cookie (CSRF). Missing
@@ -3813,8 +3827,11 @@ export interface operations {
             query?: never;
             header: {
                 /**
-                 * @description Must be exactly `web`. A page on another origin cannot add a custom
-                 *     header without a CORS preflight, which the API answers only for the
+                 * @description Must be exactly `web` (the storefront) or `admin` (the admin
+                 *     dashboard, Bab 12), sent once. The value picks the session's
+                 *     cookie: `goshop_refresh` for `web`, `goshop_admin_refresh` for
+                 *     `admin`. A page on another origin cannot add a custom header
+                 *     without a CORS preflight, which the API answers only for the
                  *     origins in `APP_CORS_ALLOWED_ORIGINS`; together with
                  *     `SameSite=Strict` and the `Origin` check this keeps other sites,
                  *     sibling subdomains included, from using the cookie (CSRF). Missing
@@ -3869,8 +3886,11 @@ export interface operations {
             query?: never;
             header: {
                 /**
-                 * @description Must be exactly `web`. A page on another origin cannot add a custom
-                 *     header without a CORS preflight, which the API answers only for the
+                 * @description Must be exactly `web` (the storefront) or `admin` (the admin
+                 *     dashboard, Bab 12), sent once. The value picks the session's
+                 *     cookie: `goshop_refresh` for `web`, `goshop_admin_refresh` for
+                 *     `admin`. A page on another origin cannot add a custom header
+                 *     without a CORS preflight, which the API answers only for the
                  *     origins in `APP_CORS_ALLOWED_ORIGINS`; together with
                  *     `SameSite=Strict` and the `Origin` check this keeps other sites,
                  *     sibling subdomains included, from using the cookie (CSRF). Missing
