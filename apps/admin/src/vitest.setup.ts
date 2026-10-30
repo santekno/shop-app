@@ -20,11 +20,14 @@ afterAll(() => {
   server.close();
 });
 
-// findBy* and waitFor give up after 3 s instead of 1 s: make test-unit
+// findBy* and waitFor give up after 10 s instead of 1 s: make test-unit
 // runs every workspace's tests at once with coverage, and on a busy
 // machine a lazy route's chunk or a first render can take over a second.
 // A test that waits for something that never comes still fails, later.
-configure({ asyncUtilTimeout: 3_000 });
+// (3 s was not enough at a load average of 45: AccountNav and the
+// /keranjang page took just over it.) Waiting is free when the element
+// comes; only a failure takes longer.
+configure({ asyncUtilTimeout: 10_000 });
 
 // Testing Library unmounts what a test rendered only when `afterEach` is a
 // global; Vitest's globals are off, so unmount here. Every test starts
