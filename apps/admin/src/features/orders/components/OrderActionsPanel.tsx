@@ -47,10 +47,12 @@ interface PanelError {
  * A failure is told in words that say what to do: someone else moved the
  * order (409: the hook has already refetched it, and the page shows its
  * new status), only an admin may cancel (403), the order is gone (404),
- * or try again (network, server). A failure in a dialog that retrying can
- * fix stays in the dialog; one that retrying cannot fix closes it and is
- * shown here, focused (role="alert"), because the dialog's button would
- * only fail again.
+ * the change may or may not have been made (no answer, or a server
+ * failure: the hook refetches, and the seller checks the status), or try
+ * again (429, a refused request). A failure in a dialog that retrying can
+ * fix stays in the dialog; any other closes it and is shown here, focused
+ * (role="alert"), because the dialog's button would only fail again, or
+ * repeat a change that was already made.
  */
 export function OrderActionsPanel({ order }: { order: Order }) {
   const headingId = useId();

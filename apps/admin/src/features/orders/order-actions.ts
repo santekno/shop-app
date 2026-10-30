@@ -129,12 +129,20 @@ const currentStatusOf = (error: unknown): OrderStatus | undefined => {
  *   API). The session has been refreshed by then (auth-client.ts), and
  *   the page already shows the buttons of the role the API now knows.
  * - "gone" (404): the order no longer exists for this account.
- * - "uncertain" (CLIENT_TIMEOUT): the request went out and no answer came
- *   in time. The API may have made the change anyway, and sending it
+ * - "uncertain": the request went out, and what came back does not say
+ *   whether the change was made. No answer (NETWORK_ERROR: the connection
+ *   dropped, maybe after the API applied it; CLIENT_TIMEOUT), or a server
+ *   failure (5xx). The API commits the change, then reads the order back
+ *   for its answer under the same request deadline: that read can still
+ *   fail with 503 TIMEOUT or 500 after the commit, and a gateway's
+ *   502/504 can come after the API finished. An answer that is 2xx but
+ *   unreadable (INVALID_RESPONSE) means it was made. Sending the change
  *   again would then be refused as a conflict ("someone else changed
- *   it", which would be false). The page refetches the order instead, and
- *   the message says to check its status before trying again.
- * - "retry": the network or the server; the same action may succeed.
+ *   it", which would be false), so the page refetches the order and the
+ *   message says to check its status before trying again.
+ * - "retry": refused before anything changed (429 RATE_LIMITED comes
+ *   from the middleware, before the handler; another 4xx is a request
+ *   the API turned down); the same action may succeed later.
  */
 export type ActionFailure =
   "conflict" | "forbidden" | "gone" | "uncertain" | "retry";
@@ -143,8 +151,27 @@ export const actionFailure = (error: unknown): ActionFailure => {
   if (isApiError(error, "INVALID_TRANSITION")) return "conflict";
   if (isApiError(error, "FORBIDDEN")) return "forbidden";
   if (isApiError(error, "NOT_FOUND")) return "gone";
-  if (isApiError(error, "CLIENT_TIMEOUT")) return "uncertain";
+  if (isApiError(error, "NETWORK_ERROR", "CLIENT_TIMEOUT")) return "uncertain";
+  if (isApiError(error) && error.status >= 500) return "uncertain";
+  if (
+    isApiError(error, "INVALID_RESPONSE") &&
+    error.status >= 200 &&
+    error.status < 300
+  ) {
+    return "uncertain";
+  }
   return "retry";
+};
+
+/** Why the outcome is unknown, the first half of the "uncertain" message. */
+const uncertainCause = (error: unknown): string => {
+  if (isApiError(error, "CLIENT_TIMEOUT", "TIMEOUT")) {
+    return "Server tidak menjawab tepat waktu";
+  }
+  if (isApiError(error, "NETWORK_ERROR")) {
+    return "Koneksi terputus sebelum jawaban server sampai";
+  }
+  return "Server mengalami kesalahan saat menjawab";
 };
 
 /** A sentence for a failed change, in Indonesian, saying what to do next. */
@@ -166,10 +193,10 @@ export const actionErrorMessage = (
     case "gone":
       return "Pesanan ini tidak ditemukan lagi.";
     case "uncertain":
-      return "Server tidak menjawab tepat waktu, jadi belum pasti perubahan ini tersimpan. Data terbaru dimuat ulang; periksa statusnya, lalu ulangi hanya jika statusnya belum berubah.";
+      return `${uncertainCause(error)}, jadi belum pasti perubahan ini tersimpan. Data terbaru dimuat ulang; periksa statusnya, lalu ulangi hanya jika statusnya belum berubah.`;
     case "retry":
-      return isApiError(error, "NETWORK_ERROR", "TIMEOUT", "RATE_LIMITED")
+      return isApiError(error, "RATE_LIMITED")
         ? errorMessage(error)
-        : "Pesanan belum berubah karena kesalahan di server. Coba lagi.";
+        : "Pesanan belum berubah: server menolak permintaan ini. Coba lagi.";
   }
 };

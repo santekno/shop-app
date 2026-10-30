@@ -34,8 +34,8 @@ export type OrderActionInput =
  *   refetched, and the mutation settles only after that refetch, so the
  *   page shows the fresh order in the same render as the message that
  *   says so.
- * - CLIENT_TIMEOUT ("uncertain"): the change may have been made without
- *   the answer arriving. The same refetch, not awaited: the page says to
+ * - "uncertain" (no answer, or a 5xx): the change may have been made
+ *   without a usable answer arriving. The same refetch, not awaited: the page says to
  *   check the status at once, and shows it when the refetch lands.
  */
 export const useOrderAction = (orderId: string) => {
