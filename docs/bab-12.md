@@ -73,6 +73,7 @@ The dashboard's decisions are in `apps/admin/README.md` (one section per article
 - **Accessibility advice from stage 4 round 3:** the connection status line is not a live region, so "Langsung" is never announced; the "may be behind" lines move focus to the `<h1>` even when the refetch fails again; check the focus rings of the headings in Safari.
 - **Tests:** `make test-unit` could cap workspace or Vitest concurrency so the raised time limits come back down; MSW per-request answers are not body-typed (the typed helpers are).
 - **The profiling harness of artikel 14** is not in the repo (about 400 lines with Playwright); the README labels the numbers as one machine's.
+- **Dropping the storefront's cached data when an admin saves** (Bab 11's on-demand revalidation challenge): not built. A new price reaches the server-rendered catalog and product pages once their `revalidate` window runs out; the dashboard does not call the storefront.
 - **The CSV export of the report:** the artikel-15 challenge (`apps/admin/README.md`); there is deliberately no export.
 
 ## Articles → code
