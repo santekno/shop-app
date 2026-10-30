@@ -328,3 +328,4 @@ per event, so nothing user-visible breaks today.
 - Pattern 1 ("asserting something both branches produce") lists 6 examples, not 8.
 - The `asyncUtilTimeout` mentioned near the end was raised again later, to 10 s (commit "give async queries 10 s on a heavily loaded machine").
 - `<scratch>/…` paths point at the agent's working copies; the committed versions are `docs/testing-ai/prompt-slice-a.md` and `docs/testing-ai/mutate.py`.
+- "The 17 mutants the first drafts missed" above is 16 after the 209 correction.

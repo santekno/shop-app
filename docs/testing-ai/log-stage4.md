@@ -93,3 +93,8 @@ Killable mutants the draft missed: 62 − 58 = 4 of 62 (about 1 in 15).
 order-actions.test.ts (6: 500 and the network now "uncertain"; NETWORK_ERROR, CLIENT_TIMEOUT, 503 TIMEOUT and 500 sentences), OrderActionsPanel.test.tsx (2: Proses after a 500 now refetches and says "uncertain"; Batalkan's retry case uses 429), useOrderAction.test.tsx (1: 429), photo-uploads.test.ts (refusal text and step "start"), ProductConflictReview.test.tsx (archived text), ProductForm.conflict.test.tsx (archived text). Each failed on the new base for that reason only, then passed with the new expectation. Plus the three tests the MSW guard caught (unanswered `POST /v1/auth/web/refresh` after a 403), which now answer it.
 
 No test deleted. No production bug found in this round.
+
+## Errata (stage-4 re-review)
+
+- The ReadTimeout comment in `adminevents/handler.go` ("no change made" above) was rewritten by backend-engineer in 8e227c4f, together with ADR 0009: the lift stays as defence, and the comment now says the server's ReadTimeout does not reach this stream.
+- The totals mix 56 TypeScript and 12 Go mutants; split, they are TypeScript 56 / 47 / 51 / 5 and Go 12 / 11 / 11 / 1.

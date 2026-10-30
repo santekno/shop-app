@@ -32,12 +32,13 @@ A surviving mutant has two possible meanings: the test is weak, or the mutant ch
 | -------------------------- | ------------- | ------------------------------------ | -------------------- | --------------------------- |
 | TS slice A                 | 225           | 209 (93%)                            | 218                  | 7                           |
 | TS slice B                 | 339           | 316 of 336 run against a draft (94%) | 333                  | 6                           |
-| TS stage-4 fix round       | 68            | 58 (85%)                             | 62                   | 6                           |
+| TS stage-4 fix round       | 56            | 47 (84%)                             | 51                   | 5                           |
+| Go, stage-4 fix round      | 12            | 11                                   | 11                   | 1                           |
 | Go, pass 1 (B1–B7)         | 61            | not recorded per draft               | 59                   | 2                           |
 | Go, pass 2 (B8–B11)        | 42            | not recorded per draft               | 42                   | 0                           |
 | Go, pass 3 (stage-2 fixes) | 10            | not recorded per draft               | 10                   | 0                           |
 
-A mutant that survives the draft is not always a miss: an equivalent mutant cannot be killed by any test. Leaving those out, slice A's drafts survived 16 mutants, 7 of them equivalent, so they **really missed 9 of the 218 killable ones**; slice B's drafts survived 20, at most 6 of them equivalent, so **at least 14 of about 330**. That is roughly one guarded line in 22 to 24 that the AI's first draft did not really test, although every draft passed and coverage was high. The Go numbers come from the test agent's report after each pass; no per-mutant log was kept for them, and they record only the final result. The TypeScript runs were asked to log the draft separately, which is why only they can say how good a first draft is.
+A mutant that survives the draft is not always a miss: an equivalent mutant cannot be killed by any test. Leaving those out, slice A's drafts survived 16 mutants, 7 of them equivalent, so they **really missed 9 of the 218 killable ones**; slice B's drafts survived 20, all 6 equivalent ones among them, so **14 of the 330**. That is about one guarded line in 24 that the AI's first draft did not really test, although every draft passed and coverage was high. The stage-4 round's drafts did worse (47 of 56 TypeScript mutants): one likely reason is that its tests target fixes for bugs earlier tests had already missed. The first three Go passes come from the test agent's report after each pass; no per-mutant log was kept for them, and they record only the final result. From the stage-4 round on, the Go mutants were logged with the draft too (`testing-ai/log-stage4.md`).
 
 The counts above were corrected in the stage-4 review (the first version of this page said "one in twelve to sixteen", counting equivalent mutants as misses); the logs carry an errata note for the same corrections.
 
