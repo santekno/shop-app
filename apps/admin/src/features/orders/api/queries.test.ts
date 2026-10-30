@@ -178,7 +178,7 @@ describe("invalidateOrderQueries with a fetch on its way", () => {
     unsubscribe();
   });
 
-  it("does not fetch an inactive running query again", async () => {
+  it("keeps an inactive running query invalidated, without fetching it again", async () => {
     const client = new QueryClient();
     const { calls, queryFn } = controlledFetches();
     const running = client.query({
@@ -194,7 +194,56 @@ describe("invalidateOrderQueries with a fetch on its way", () => {
     await running;
     await done;
 
+    // Its data was fetched before the event: the next visit refetches it.
     expect(calls).toHaveLength(1);
+    expect(client.getQueryState(orderKeys.detail("o-9"))?.isInvalidated).toBe(
+      true,
+    );
+  });
+
+  it("keeps an inactive query invalidated when its running fetch fails", async () => {
+    const client = new QueryClient();
+    const { calls, queryFn } = controlledFetches();
+    const running = client
+      .query({ queryKey: orderKeys.detail("o-9"), queryFn, retry: false })
+      .catch(() => undefined);
+    await vi.waitFor(() => {
+      expect(calls).toHaveLength(1);
+    });
+
+    const done = invalidateOrderQueries(client);
+    calls[0]?.answer.reject(new Error("network"));
+    await running;
+    await expect(done).resolves.toBeUndefined();
+
+    expect(calls).toHaveLength(1);
+    expect(client.getQueryState(orderKeys.detail("o-9"))?.isInvalidated).toBe(
+      true,
+    );
+  });
+
+  it("does not settle before an inactive query's running fetch is answered", async () => {
+    const client = new QueryClient();
+    const { calls, queryFn } = controlledFetches();
+    const running = client.query({
+      queryKey: orderKeys.detail("o-9"),
+      queryFn,
+    });
+    await vi.waitFor(() => {
+      expect(calls).toHaveLength(1);
+    });
+    let settled = false;
+
+    const done = invalidateOrderQueries(client).then(() => {
+      settled = true;
+    });
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    expect(settled).toBe(false);
+
+    calls[0]?.answer.resolve(1);
+    await running;
+    await done;
+    expect(settled).toBe(true);
   });
 
   it("keeps a next page on its way, then refetches every page", async () => {
