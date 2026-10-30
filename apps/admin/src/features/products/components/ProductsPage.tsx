@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button.tsx";
 import { Skeleton } from "@/components/ui/Skeleton.tsx";
 import { EmptyState, ErrorState } from "@/components/ui/StatusMessage.tsx";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle.ts";
+import { errorMessage } from "@/lib/error-message.ts";
 import { useProductTable } from "../hooks/useProductTable.ts";
 import { useProductTableParams } from "../hooks/useProductTableParams.ts";
 import { CLEAR_FILTERS, hasActiveFilters } from "../product-table-params.ts";
@@ -50,13 +51,40 @@ export function ProductsPage() {
 
       {query.isPending && <ProductTableSkeleton rows={5} />}
 
-      {query.isError && (
+      {/*
+        Without a page of products, the error is the page. With one, a
+        refetch in the background failed (the window regaining the focus,
+        a quick stock change invalidating the table): the rows on screen
+        are still the answer for these filters, so they stay, with a line
+        saying they may be behind.
+      */}
+      {query.isError && data === undefined && (
         <ErrorState
           error={query.error}
           onRetry={() => {
             void query.refetch();
           }}
         />
+      )}
+      {query.isError && data !== undefined && (
+        <div
+          role="status"
+          className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm"
+        >
+          <p className="text-destructive">
+            Daftar produk tidak bisa diperbarui; yang tampil adalah daftar
+            terakhir yang berhasil dimuat. {errorMessage(query.error)}
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              void query.refetch();
+            }}
+          >
+            Coba lagi
+          </Button>
+        </div>
       )}
 
       {data !== undefined &&
