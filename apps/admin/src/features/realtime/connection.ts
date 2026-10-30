@@ -92,8 +92,11 @@ type Next =
  * | the session ended (refresh refused) | stop                                                            |
  *
  * A stream that stayed open for `STABLE_AFTER_MS` starts the backoff over.
- * `retryNow()` cuts a wait short and starts the backoff over too (the
- * browser came back online, or the user pressed "Coba lagi").
+ * `retryNow()` starts the backoff over too (the browser came back online,
+ * or the user pressed "Coba lagi"): it cuts a wait short, or abandons an
+ * attempt whose stream has not opened yet and starts a new one. Offline,
+ * an attempt can hang until the 60 s idle timer; the new one goes out on
+ * the network as it is now.
  */
 export const createEventConnection = ({
   url,
@@ -108,6 +111,9 @@ export const createEventConnection = ({
   let controller: AbortController | null = null;
   // Ends the current wait early; null while no wait is running.
   let wake: (() => void) | null = null;
+  // Abandons the attempt on its way; null when none is running, and once
+  // its stream is open (a live stream is never cut for a retry).
+  let abandonAttempt: (() => void) | null = null;
   // Set by retryNow: the next attempt starts the backoff over.
   let freshStart = false;
 
@@ -173,14 +179,30 @@ export const createEventConnection = ({
       const stream: { openedAt: number | null } = { openedAt: null };
       const wasStable = () =>
         stream.openedAt !== null && now() - stream.openedAt >= STABLE_AFTER_MS;
+      // This attempt's own signal: stop() aborts it (through `signal`),
+      // and so does retryNow() until the stream opens.
+      const own = new AbortController();
+      const forwardStop = () => {
+        own.abort();
+      };
+      signal.addEventListener("abort", forwardStop, { once: true });
+      abandonAttempt = () => {
+        own.abort();
+      };
+      // The stream is over, however it ended: nothing left to abandon.
+      const settled = () => {
+        abandonAttempt = null;
+        signal.removeEventListener("abort", forwardStop);
+      };
       let end: StreamEnd;
       try {
         end = await streamEvents({
           url,
           accessToken: token,
-          signal,
+          signal: own.signal,
           fetch,
           onOpen: () => {
+            abandonAttempt = null;
             stream.openedAt = now();
             refreshedAfter401 = false;
             onStatus("live");
@@ -189,7 +211,10 @@ export const createEventConnection = ({
           onEvent,
         });
       } catch (error) {
+        settled();
         if (signal.aborted) return { kind: "stop", status: "ended" };
+        // Abandoned by retryNow: a new attempt, at once.
+        if (own.signal.aborted) return { kind: "now" };
         if (wasStable()) failures = 0;
         if (!isApiError(error)) return failed();
         switch (error.status) {
@@ -208,6 +233,7 @@ export const createEventConnection = ({
             return failed();
         }
       }
+      settled();
 
       if (wasStable()) failures = 0;
       if (end.kind === "end" && end.reason === "token_expired") {
@@ -262,14 +288,21 @@ export const createEventConnection = ({
       controller = null;
     },
     /**
-     * Ends a wait between two attempts now, and starts the backoff over:
-     * the user asked, or the network is back, so the failures before say
-     * little about the next attempt. Nothing if no wait is running.
+     * Tries again now, and starts the backoff over: the user asked, or the
+     * network is back, so the failures before say little about the next
+     * attempt. Ends a wait between two attempts, or abandons an attempt
+     * whose stream has not opened yet (it may hang until the idle timer,
+     * for instance when it went out while offline) for a new one. Nothing
+     * while the stream is live, or after stop().
      */
     retryNow: () => {
-      if (wake === null) return;
-      freshStart = true;
-      wake();
+      if (wake !== null) {
+        freshStart = true;
+        wake();
+      } else if (abandonAttempt !== null) {
+        freshStart = true;
+        abandonAttempt();
+      }
     },
   };
 };
