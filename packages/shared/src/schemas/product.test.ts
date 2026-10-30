@@ -247,6 +247,10 @@ describe("variantSchema", () => {
     expect(variantIssue({ stock: "1000001" })).toBe(
       "Stok antara 0 dan 1.000.000.",
     );
+    // A number (the API's own value, not the form's text) is checked by
+    // the range alone: the text's pattern never sees it.
+    expect(variantIssue({ stock: -1 })).toBe("Stok antara 0 dan 1.000.000.");
+    expect(variantIssue({ stock: 0 })).toBeUndefined();
     expect(variantIssue({ stock: "" })).toBe("Isi stok varian (0 jika habis).");
     expect(variantIssue({ stock: "1,5" })).toBe(
       "Tulis stok sebagai bilangan bulat, misalnya 12.",
