@@ -86,4 +86,80 @@ describe("useReportParams", () => {
       group: "day",
     });
   });
+
+  // Several updates in one event (7c7f9d61): each builds on the one
+  // before it, not on the URL the render started with.
+  describe("several updates before the URL lands", () => {
+    const both = {
+      range: { kind: "preset", days: 90 },
+      group: "month",
+    } as const;
+
+    it("applies both of two updates made in one act", async () => {
+      const { result, router } = renderRouteHook(() => useReportParams(), {
+        url: "/laporan",
+      });
+
+      act(() => {
+        result.current.update({ group: "month" });
+        result.current.update({ range: { kind: "preset", days: 90 } });
+      });
+
+      expect(result.current.params).toEqual(both);
+      await waitFor(() => {
+        expect(router.state.location.search).toBe("?rentang=90&kelompok=bulan");
+      });
+      expect(result.current.params).toEqual(both);
+    });
+
+    it("applies both of two updates made in separate acts", async () => {
+      const { result, router } = renderRouteHook(() => useReportParams(), {
+        url: "/laporan",
+      });
+      const { update } = result.current;
+
+      act(() => {
+        update({ group: "month" });
+      });
+      act(() => {
+        update({ range: { kind: "preset", days: 90 } });
+      });
+
+      await waitFor(() => {
+        expect(router.state.location.search).toBe("?rentang=90&kelompok=bulan");
+      });
+      expect(result.current.params).toEqual(both);
+    });
+
+    it("gives each update its own history entry, and builds on the URL after Back", async () => {
+      const { result, router } = renderRouteHook(() => useReportParams(), {
+        url: "/laporan?rentang=7",
+      });
+
+      act(() => {
+        result.current.update({ group: "month" });
+        result.current.update({ range: { kind: "preset", days: 90 } });
+      });
+      await waitFor(() => {
+        expect(router.state.location.search).toBe("?rentang=90&kelompok=bulan");
+      });
+
+      await act(() => router.navigate(-1));
+      expect(router.state.location.search).toBe("?rentang=7&kelompok=bulan");
+      expect(result.current.params).toEqual({
+        range: { kind: "preset", days: 7 },
+        group: "month",
+      });
+      await act(() => router.navigate(-1));
+      expect(router.state.location.search).toBe("?rentang=7");
+      expect(result.current.params.group).toBe("day");
+
+      act(() => {
+        result.current.update({ group: "week" });
+      });
+      await waitFor(() => {
+        expect(router.state.location.search).toBe("?rentang=7&kelompok=minggu");
+      });
+    });
+  });
 });
