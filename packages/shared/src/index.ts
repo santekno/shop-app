@@ -94,6 +94,30 @@ export {
   updateProduct,
 } from "./api/admin-products.ts";
 
+export {
+  cancelOrder,
+  completeOrder,
+  getAdminOrder,
+  listAdminOrders,
+  processOrder,
+  shipOrder,
+} from "./api/admin-orders.ts";
+export {
+  TRACKING_NUMBER_MAX_LENGTH,
+  TRACKING_NUMBER_MIN_LENGTH,
+  TRACKING_NUMBER_PATTERN,
+  shipOrderSchema,
+} from "./schemas/shipment.ts";
+export type { ShipOrderInput, ShipOrderOutput } from "./schemas/shipment.ts";
+export type {
+  Courier,
+  ListAdminOrdersQuery,
+  OrderCancelReason,
+  OrderShipping,
+  ShipRequest,
+  ShippingAddressSnapshot,
+} from "./api/types.ts";
+
 export { getOrder, listOrders, payOrder, placeOrder } from "./api/orders.ts";
 export type { ListOrdersQuery, PlaceOrderOptions } from "./api/orders.ts";
 

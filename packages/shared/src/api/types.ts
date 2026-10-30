@@ -129,6 +129,20 @@ export type ImageConfirmRequest = Schemas["ImageConfirmRequest"];
 export type ProductWrite = Schemas["ProductWrite"];
 /** One variant of a ProductWrite: `id` and `version` only for an existing one. */
 export type VariantWrite = Schemas["VariantWrite"];
+/** Where an order goes and with whom: courier, service, resi, address copy. */
+export type OrderShipping = Schemas["OrderShipping"];
+/** The courier the buyer chose at checkout: jne, jnt or sicepat. */
+export type Courier = OrderShipping["courier"];
+/** The shipping address as it was at checkout, kept on the order. */
+export type ShippingAddressSnapshot = Schemas["ShippingAddressSnapshot"];
+/** Why an order was cancelled, or null. */
+export type OrderCancelReason = Order["cancel_reason"];
+/** The query of GET /v1/admin/orders (Bab 12): status, cursor, limit. */
+export type ListAdminOrdersQuery = NonNullable<
+  operations["listOrdersByStatus"]["parameters"]["query"]
+>;
+/** The body of POST /v1/admin/orders/{id}/ship: the courier's airway bill. */
+export type ShipRequest = Schemas["ShipRequest"];
 /** The body of every API error: {"error":{"code","message","details"}}. */
 export type ErrorBody = Schemas["Error"];
 

@@ -3,6 +3,10 @@ import { RequireStaff } from "@/features/auth/components/RequireStaff.tsx";
 import { loadLoginPage } from "@/features/auth/lazy.ts";
 import { OverviewPage } from "@/features/dashboard/components/OverviewPage.tsx";
 import { OrdersPage } from "@/features/orders/components/OrdersPage.tsx";
+import {
+  loadOrderDetailPage,
+  loadOrderShippingLabelPage,
+} from "@/features/orders/lazy.ts";
 import { ProductsPage } from "@/features/products/components/ProductsPage.tsx";
 import {
   loadProductCreatePage,
@@ -28,6 +32,8 @@ const crumb = (label: string): RouteHandle => ({ crumb: label });
  *   /produk/baru  AppRoot > RequireStaff > DashboardLayout > ProductCreatePage
  *   /produk/:id   AppRoot > RequireStaff > DashboardLayout > ProductEditPage
  *   /pesanan      AppRoot > RequireStaff > DashboardLayout > OrdersPage
+ *   /pesanan/:id  AppRoot > RequireStaff > DashboardLayout > OrderDetailPage
+ *   /pesanan/:id/resi  AppRoot > RequireStaff > OrderShippingLabelPage
  *   /laporan      AppRoot > RequireStaff > DashboardLayout > ReportsPage
  *   other         AppRoot > RequireStaff > DashboardLayout > NotFoundPage
  *
@@ -69,6 +75,15 @@ export const routes: RouteObject[] = [
         Component: RequireStaff,
         children: [
           {
+            // The printable label: staff only, but without the dashboard
+            // around it, so the page is the paper (artikel 06).
+            path: "pesanan/:orderId/resi",
+            lazy: async () => ({
+              Component: (await loadOrderShippingLabelPage())
+                .OrderShippingLabelPage,
+            }),
+          },
+          {
             Component: DashboardLayout,
             handle: crumb("Dasbor"),
             children: [
@@ -105,8 +120,18 @@ export const routes: RouteObject[] = [
                   },
                   {
                     path: "pesanan",
-                    Component: OrdersPage,
                     handle: crumb("Pesanan"),
+                    children: [
+                      { index: true, Component: OrdersPage },
+                      {
+                        path: ":orderId",
+                        lazy: async () => ({
+                          Component: (await loadOrderDetailPage())
+                            .OrderDetailPage,
+                        }),
+                        handle: crumb("Detail pesanan"),
+                      },
+                    ],
                   },
                   {
                     path: "laporan",

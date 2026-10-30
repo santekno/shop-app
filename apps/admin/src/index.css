@@ -183,3 +183,27 @@
     @apply outline-none;
   }
 }
+
+/* --- 4. Print -----------------------------------------------------------
+
+   The shipping label (/pesanan/:id/resi, artikel 06) is meant for paper:
+   black on white whatever the screen's theme (a dark-mode device would
+   otherwise print light text on no background, since browsers drop
+   backgrounds), and no browser margin bigger than it needs. Screen-only
+   parts say so with Tailwind's `print:hidden`. */
+@media print {
+  :root {
+    color-scheme: light;
+    --background: #ffffff;
+    --foreground: #000000;
+    --card: #ffffff;
+    --card-foreground: #000000;
+    --muted-foreground: #333333;
+    --border: #999999;
+    --destructive: #000000;
+  }
+
+  @page {
+    margin: 10mm;
+  }
+}
