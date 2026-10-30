@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { readReportParams, reportSearchParams } from "../report-params.ts";
 import type { ReportParams } from "../report-params.ts";
@@ -15,7 +15,9 @@ import type { ReportParams } from "../report-params.ts";
  * between. `update` therefore also sets `pending`, an urgent state the
  * controls show at once, and the next URL to arrive replaces it.
  *
- * `update(change)` merges the change into the current state.
+ * `update(change)` merges the change into the current state. Several
+ * updates in one event all count, built on each other in `latest`, as in
+ * the product table.
  */
 export const useReportParams = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -29,12 +31,21 @@ export const useReportParams = () => {
     setPending(null);
   }
 
+  // The last update and the URL's state it was made against: a ref,
+  // because setSearchParams(fn) hands `fn` this render's query string,
+  // not the one the previous update asked for.
+  const latest = useRef<{ base: ReportParams; params: ReportParams } | null>(
+    null,
+  );
+
   const update = useCallback(
     (change: Partial<ReportParams>) => {
-      setPending((current) => ({ ...(current ?? fromUrl), ...change }));
-      setSearchParams((current) =>
-        reportSearchParams({ ...readReportParams(current), ...change }),
-      );
+      const current =
+        latest.current?.base === fromUrl ? latest.current.params : fromUrl;
+      const next = { ...current, ...change };
+      latest.current = { base: fromUrl, params: next };
+      setPending(next);
+      setSearchParams(reportSearchParams(next));
     },
     [fromUrl, setSearchParams],
   );

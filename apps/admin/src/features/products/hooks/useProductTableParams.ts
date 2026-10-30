@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import {
   nextProductTableParams,
@@ -44,6 +44,8 @@ interface UpdateOptions {
  *
  * `update(change)` merges the change into the current state with
  * nextProductTableParams (any change but the page goes back to page 1).
+ * Several updates in one event all count: each builds on the one before
+ * (`latest`), not on the URL, which has not changed yet.
  */
 export const useProductTableParams = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -62,23 +64,31 @@ export const useProductTableParams = () => {
     setPending(null);
   }
 
+  // What the last update asked for, and the URL's state it was made
+  // against. setSearchParams(fn) cannot stack two updates: its `fn` gets
+  // the query string of the render that made the setter, so a second
+  // update in the same event would start from the old URL and drop the
+  // first. A ref is current at once; it is read and written only in
+  // `update`, never while rendering.
+  const latest = useRef<{
+    base: ProductTableParams;
+    params: ProductTableParams;
+  } | null>(null);
+
   const update = useCallback(
     (
       change: Partial<ProductTableParams>,
       { replace = false }: UpdateOptions = {},
     ) => {
-      // Both functional forms read the state as it is now, not as it was
-      // at this render: two updates in a row both count.
-      setPending((current) =>
-        nextProductTableParams(current ?? fromUrl, change),
-      );
-      setSearchParams(
-        (current) =>
-          productTableSearchParams(
-            nextProductTableParams(readProductTableParams(current), change),
-          ),
-        { replace },
-      );
+      // Build on the last update while the URL is still the one it was
+      // made against; once any other URL has arrived (ours, or Back, or a
+      // link), build on that URL.
+      const current =
+        latest.current?.base === fromUrl ? latest.current.params : fromUrl;
+      const next = nextProductTableParams(current, change);
+      latest.current = { base: fromUrl, params: next };
+      setPending(next);
+      setSearchParams(productTableSearchParams(next), { replace });
     },
     [fromUrl, setSearchParams],
   );
