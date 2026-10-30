@@ -97,11 +97,39 @@ describe("actionFailure", () => {
     ["409 INVALID_TRANSITION", apiError(409, "INVALID_TRANSITION"), "conflict"],
     ["403 FORBIDDEN", apiError(403, "FORBIDDEN"), "forbidden"],
     ["404 NOT_FOUND", apiError(404, "NOT_FOUND"), "gone"],
-    ["500", apiError(500, "INTERNAL_ERROR"), "retry"],
-    ["the network", apiError(0, "NETWORK_ERROR"), "retry"],
     ["a plain Error", new Error("x"), "retry"],
   ])("sorts %s as %s", (_name, error, failure) => {
     expect(actionFailure(error)).toBe(failure);
+  });
+
+  // The request went out and the answer does not say whether the change
+  // was made: sending it again would be refused as "someone else".
+  it.each([
+    ["the network", apiError(0, "NETWORK_ERROR")],
+    ["the client's timeout", apiError(0, "CLIENT_TIMEOUT")],
+    ["500 INTERNAL_ERROR", apiError(500, "INTERNAL_ERROR")],
+    ["503 TIMEOUT", apiError(503, "TIMEOUT")],
+    ["a gateway's 502", apiError(502, "INVALID_RESPONSE")],
+    ["a gateway's 504", apiError(504, "INVALID_RESPONSE")],
+    ["502 with a code", apiError(502, "INTERNAL_ERROR")],
+    ["504 with a code", apiError(504, "TIMEOUT")],
+    ["an unreadable 200", apiError(200, "INVALID_RESPONSE")],
+    ["an unreadable 299", apiError(299, "INVALID_RESPONSE")],
+  ])("sorts %s as uncertain", (_name, error) => {
+    expect(actionFailure(error)).toBe("uncertain");
+  });
+
+  // Refused before anything changed: the same action may work later.
+  it.each([
+    ["429 RATE_LIMITED", apiError(429, "RATE_LIMITED")],
+    ["400 VALIDATION_FAILED", apiError(400, "VALIDATION_FAILED")],
+    ["401 UNAUTHORIZED", apiError(401, "UNAUTHORIZED")],
+    ["an unreadable 400", apiError(400, "INVALID_RESPONSE")],
+    ["an unreadable 300", apiError(300, "INVALID_RESPONSE")],
+    ["an unreadable 499", apiError(499, "INVALID_RESPONSE")],
+    ["a request this client aborted", apiError(0, "ABORTED")],
+  ])("sorts %s as retry", (_name, error) => {
+    expect(actionFailure(error)).toBe("retry");
   });
 });
 
@@ -150,30 +178,59 @@ describe("actionErrorMessage", () => {
     );
   });
 
+  const ENDING =
+    ", jadi belum pasti perubahan ini tersimpan. Data terbaru dimuat ulang; periksa statusnya, lalu ulangi hanya jika statusnya belum berubah.";
+
   it.each([
     [
-      "NETWORK_ERROR",
-      "Tidak dapat terhubung ke server GoShop. Periksa koneksi internet Anda, lalu coba lagi.",
+      "the client's timeout",
+      apiError(0, "CLIENT_TIMEOUT"),
+      "Server tidak menjawab tepat waktu",
     ],
     [
-      "CLIENT_TIMEOUT",
-      "Server GoShop terlalu lama merespons. Coba lagi sebentar lagi.",
+      "the server's TIMEOUT",
+      apiError(503, "TIMEOUT"),
+      "Server tidak menjawab tepat waktu",
     ],
     [
-      "TIMEOUT",
-      "Server GoShop terlalu lama merespons. Coba lagi sebentar lagi.",
+      "a dropped connection",
+      apiError(0, "NETWORK_ERROR"),
+      "Koneksi terputus sebelum jawaban server sampai",
     ],
     [
-      "RATE_LIMITED",
+      "a server error",
+      apiError(500, "INTERNAL_ERROR"),
+      "Server mengalami kesalahan saat menjawab",
+    ],
+    [
+      "a gateway's 502",
+      apiError(502, "INVALID_RESPONSE"),
+      "Server mengalami kesalahan saat menjawab",
+    ],
+    [
+      "an unreadable 200",
+      apiError(200, "INVALID_RESPONSE"),
+      "Server mengalami kesalahan saat menjawab",
+    ],
+  ])(
+    "names the cause and says the change may be saved, for %s",
+    (_name, error, cause) => {
+      expect(actionErrorMessage("process", error)).toBe(`${cause}${ENDING}`);
+    },
+  );
+
+  it("uses the general sentence for RATE_LIMITED", () => {
+    expect(actionErrorMessage("process", apiError(429, "RATE_LIMITED"))).toBe(
       "Terlalu banyak permintaan. Tunggu sebentar, lalu coba lagi.",
-    ],
-  ])("uses the general sentence for %s", (code, message) => {
-    expect(actionErrorMessage("process", apiError(0, code))).toBe(message);
+    );
   });
 
-  it("says the order did not change for a server error", () => {
-    expect(actionErrorMessage("process", apiError(500, "INTERNAL_ERROR"))).toBe(
-      "Pesanan belum berubah karena kesalahan di server. Coba lagi.",
+  it.each([
+    ["400 VALIDATION_FAILED", apiError(400, "VALIDATION_FAILED")],
+    ["an unreadable 400", apiError(400, "INVALID_RESPONSE")],
+  ])("says the order did not change for %s", (_name, error) => {
+    expect(actionErrorMessage("ship", error)).toBe(
+      "Pesanan belum berubah: server menolak permintaan ini. Coba lagi.",
     );
   });
 });

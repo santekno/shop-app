@@ -4,6 +4,7 @@ import type { Order } from "@goshop/shared";
 import { createQueryClient } from "@/lib/query-client.ts";
 import { ORDER_ID, order, orderSummary } from "@/test/fixtures.ts";
 import { deferred } from "@/test/msw/answers.ts";
+import { HttpResponse } from "msw";
 import { errorResponse, recordRequests } from "@/test/msw/http.ts";
 import {
   orderActionHandler,
@@ -123,10 +124,56 @@ describe("useOrderAction", () => {
     expect(result.current.action.error).toMatchObject({ code });
   });
 
+  it.each([
+    ["a server error", () => errorResponse(500, "INTERNAL_ERROR")],
+    ["a dropped connection", () => HttpResponse.error()],
+  ])(
+    "settles at once after %s, then refetches the order and the queues",
+    async (_name, failure) => {
+      server.use(orderActionHandler("process", failure));
+      const refetch = deferred<Response>();
+      server.use(orderDetailHandler(() => refetch.promise));
+      const queryClient = seeded();
+      const { result } = renderRouteHook(
+        () => ({
+          action: useOrderAction(ORDER_ID),
+          detail: useAdminOrder(ORDER_ID),
+        }),
+        { queryClient },
+      );
+      let settled = false;
+
+      act(() => {
+        result.current.action.mutate(
+          { action: "process" },
+          {
+            onSettled: () => {
+              settled = true;
+            },
+          },
+        );
+      });
+
+      // Settled while the refetch still hangs: the seller reads "check
+      // the status" now, not after a server that did not answer does.
+      await waitFor(() => {
+        expect(settled).toBe(true);
+      });
+      expect(result.current.detail.isFetching).toBe(true);
+      expect(invalidated(queryClient, orderKeys.queue("paid"))).toBe(true);
+      expect(invalidated(queryClient, orderKeys.detail(ORDER_ID))).toBe(true);
+
+      refetch.resolve(orderResponse(order({ status: "processing" })));
+      await waitFor(() => {
+        expect(result.current.detail.data?.status).toBe("processing");
+      });
+    },
+  );
+
   it("refetches nothing after a failure retrying may fix", async () => {
     const sent = recordRequests();
     server.use(
-      orderActionHandler("process", () => errorResponse(500, "INTERNAL_ERROR")),
+      orderActionHandler("process", () => errorResponse(429, "RATE_LIMITED")),
     );
     const queryClient = seeded();
     const { result } = renderRouteHook(() => useOrderAction(ORDER_ID), {

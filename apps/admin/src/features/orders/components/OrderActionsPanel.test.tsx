@@ -5,6 +5,7 @@ import type { Order } from "@goshop/shared";
 import { ORDER_ID, order, session, user, webSession } from "@/test/fixtures.ts";
 import { deferred } from "@/test/msw/answers.ts";
 import { sessionResponse, webRefreshHandler } from "@/test/msw/auth.ts";
+import { HttpResponse } from "msw";
 import { errorResponse, recordRequests } from "@/test/msw/http.ts";
 import {
   orderActionHandler,
@@ -184,11 +185,33 @@ describe("OrderActionsPanel", () => {
       ).toBeNull();
     });
 
-    it("says the order did not change after a server error, keeping the button", async () => {
+    it("says a server error may have saved the change, and shows the refetched order", async () => {
       server.use(
         orderActionHandler("process", () =>
           errorResponse(500, "INTERNAL_ERROR"),
         ),
+      );
+      const userEvents = userEvent.setup();
+      const { gets } = renderPanel(order({ status: "paid" }), {
+        after: order({ status: "processing" }),
+      });
+      await loaded();
+
+      await userEvents.click(
+        screen.getByRole("button", { name: "Proses pesanan" }),
+      );
+
+      expect(await within(panel()).findByRole("alert")).toHaveTextContent(
+        "Server mengalami kesalahan saat menjawab, jadi belum pasti perubahan ini tersimpan.",
+      );
+      // The change had gone through: the refetch shows it.
+      expect(await within(badge()).findByText("Diproses")).toBeInTheDocument();
+      expect(gets()).toBe(2);
+    });
+
+    it("keeps the button after a refusal retrying can fix, without refetching", async () => {
+      server.use(
+        orderActionHandler("process", () => errorResponse(429, "RATE_LIMITED")),
       );
       const userEvents = userEvent.setup();
       const { gets } = renderPanel(order({ status: "paid" }));
@@ -199,7 +222,7 @@ describe("OrderActionsPanel", () => {
       );
 
       expect(await within(panel()).findByRole("alert")).toHaveTextContent(
-        "Pesanan belum berubah karena kesalahan di server. Coba lagi.",
+        "Terlalu banyak permintaan. Tunggu sebentar, lalu coba lagi.",
       );
       expect(
         screen.getByRole("button", { name: "Proses pesanan" }),
@@ -315,11 +338,9 @@ describe("OrderActionsPanel", () => {
 
     it("keeps the dialog open with the message after a failure retrying can fix", async () => {
       server.use(
-        orderActionHandler("cancel", () =>
-          errorResponse(500, "INTERNAL_ERROR"),
-        ),
+        orderActionHandler("cancel", () => errorResponse(429, "RATE_LIMITED")),
       );
-      renderPanel(order({ status: "paid" }));
+      const { gets } = renderPanel(order({ status: "paid" }));
       const { userEvents, dialog } = await openCancel();
 
       await userEvents.click(
@@ -327,13 +348,56 @@ describe("OrderActionsPanel", () => {
       );
 
       expect(await within(dialog).findByRole("alert")).toHaveTextContent(
-        "Pesanan belum berubah karena kesalahan di server. Coba lagi.",
+        "Terlalu banyak permintaan. Tunggu sebentar, lalu coba lagi.",
       );
       expect(dialog).toHaveAttribute("open");
       expect(within(panel()).queryByRole("alert", { hidden: false })).toBe(
         within(dialog).getByRole("alert"),
       );
+      expect(gets()).toBe(1);
     });
+
+    it.each([
+      [
+        "a server error",
+        () => errorResponse(500, "INTERNAL_ERROR"),
+        "Server mengalami kesalahan saat menjawab",
+      ],
+      [
+        "a dropped connection",
+        () => HttpResponse.error(),
+        "Koneksi terputus sebelum jawaban server sampai",
+      ],
+    ])(
+      "closes the dialog after %s and says in the panel the cancel may be saved",
+      async (_name, failure, cause) => {
+        server.use(orderActionHandler("cancel", failure));
+        const { gets } = renderPanel(order({ status: "paid" }), {
+          after: order({
+            status: "cancelled",
+            cancel_reason: "seller_cancelled",
+          }),
+        });
+        const { userEvents, dialog } = await openCancel();
+
+        await userEvents.click(
+          within(dialog).getByRole("button", { name: "Batalkan pesanan" }),
+        );
+
+        await waitFor(() => {
+          expect(dialog).not.toHaveAttribute("open");
+        });
+        const alert = within(panel()).getByRole("alert");
+        expect(alert).toHaveTextContent(
+          `${cause}, jadi belum pasti perubahan ini tersimpan. Data terbaru dimuat ulang; periksa statusnya, lalu ulangi hanya jika statusnya belum berubah.`,
+        );
+        expect(within(dialog).queryByRole("alert")).toBeNull();
+        expect(
+          await within(badge()).findByText("Dibatalkan (dibatalkan toko)"),
+        ).toBeInTheDocument();
+        expect(gets()).toBe(2);
+      },
+    );
 
     it("ignores Escape while the cancel runs", async () => {
       const answer = deferred<Response>();
