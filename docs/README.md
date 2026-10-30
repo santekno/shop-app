@@ -20,6 +20,7 @@ Start with the [repository README](../README.md) to run the project, then read t
 | [configuration.md](configuration.md) | Every environment variable, dev vs staging vs prod, where secrets live |
 | [`../CONTRIBUTING.md`](../CONTRIBUTING.md) | Branch per chapter, commit format, merging fixes forward |
 | [ai-rules.md](ai-rules.md) | When to use AI, the AI box in articles, what never goes into a prompt |
+| [testing-ai-review.md](testing-ai-review.md) | How Bab 12's AI-generated tests were reviewed with mutation checks: the prompt, the numbers, the misses, the bugs found (`testing-ai/`) |
 | [`../CLAUDE.md`](../CLAUDE.md) | The verified gate and the agents that run it |
 | [sdk-gaps.md](sdk-gaps.md) | Concerns santekno/sdk does not cover yet, and GoShop's adapters |
 | [web/README.md](web/README.md) | JS/TS for Go developers: the Bab 7 concepts mapped to files in `packages/shared` and `apps/web` |
