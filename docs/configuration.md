@@ -90,6 +90,23 @@ The admin dashboard (`apps/admin`, the `admin` service of `make up` on `http://l
 
 `PORT` (default `8080`) is where Caddy listens, as for every service. The dashboard's origin must also be in the API's `APP_CORS_ALLOWED_ORIGINS`.
 
+#### The bucket's CORS rule (photo uploads)
+
+The dashboard uploads photos from the browser straight to the bucket with the presigned `PUT` the API signs (Bab 12 artikel 04, [ADR 0007](adr/0007-payments-uploads-worker.md)). That request goes to another origin than the dashboard, so **the bucket must allow it with a CORS rule of its own**; the API's `APP_CORS_ALLOWED_ORIGINS` does not reach the storage. A production bucket needs at least:
+
+```json
+[
+  {
+    "AllowedOrigins": ["https://admin.example.com"],
+    "AllowedMethods": ["PUT"],
+    "AllowedHeaders": ["Content-Type"],
+    "MaxAgeSeconds": 3000
+  }
+]
+```
+
+(the AWS S3 and Cloudflare R2 format; other S3-compatible stores take the same fields). `Content-Type` is signed into the URL, so the browser sends it and the preflight must allow it; `Content-Length` is set by the browser and needs no rule. The rule must match the upload exactly, origin included, because S3 adds `Access-Control-Allow-Origin` to **error** responses only when a rule matches: without it the browser hides the storage's answer (an expired URL, a size that does not match the signature) and the dashboard sees a bare network error instead of a message it can explain. The dashboard reads nothing but the status and the error body, so no `ExposeHeaders` is needed. `UPLOAD_ORIGIN` (above) must name the same bucket origin, or the dashboard's own CSP blocks the request before it leaves the browser. The local SeaweedFS answers CORS for any origin, so `make up` needs no rule.
+
 ## Development, staging and production
 
 | | Development | Staging | Production |
