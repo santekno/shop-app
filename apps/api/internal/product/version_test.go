@@ -18,9 +18,11 @@ const (
 
 var errBoom = errors.New("boom")
 
-// versionInput saves two existing variants, loaded at versions 3 and 7.
+// versionInput saves the product loaded at version 4 with two existing
+// variants, loaded at versions 3 and 7.
 func versionInput() Input {
 	return Input{
+		Version:    4,
 		CategoryID: "0190c8a0-0000-7000-8000-0000000000c1", Slug: "kaos", Name: "Kaos", Status: StatusActive,
 		Variants: []VariantInput{
 			{ID: vpVariantA, Version: 3, SKU: "KPH-S", Name: "S", Price: 89000, Stock: 4, WeightGrams: 180},
@@ -29,7 +31,9 @@ func versionInput() Input {
 	}
 }
 
-func lockedProduct() *fakeSQL { return newFakeSQL().on("LockProduct", rows(vpProductID)) }
+// lockedProduct is a database where the product is at version 4, the one
+// versionInput loaded.
+func lockedProduct() *fakeSQL { return newFakeSQL().on("LockProduct", rows(int64(4))) }
 
 func TestPostgresRepository_UpdateChecksTheVersion(t *testing.T) {
 	db := lockedProduct()
