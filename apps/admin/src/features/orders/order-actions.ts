@@ -129,14 +129,21 @@ const currentStatusOf = (error: unknown): OrderStatus | undefined => {
  *   API). The session has been refreshed by then (auth-client.ts), and
  *   the page already shows the buttons of the role the API now knows.
  * - "gone" (404): the order no longer exists for this account.
+ * - "uncertain" (CLIENT_TIMEOUT): the request went out and no answer came
+ *   in time. The API may have made the change anyway, and sending it
+ *   again would then be refused as a conflict ("someone else changed
+ *   it", which would be false). The page refetches the order instead, and
+ *   the message says to check its status before trying again.
  * - "retry": the network or the server; the same action may succeed.
  */
-export type ActionFailure = "conflict" | "forbidden" | "gone" | "retry";
+export type ActionFailure =
+  "conflict" | "forbidden" | "gone" | "uncertain" | "retry";
 
 export const actionFailure = (error: unknown): ActionFailure => {
   if (isApiError(error, "INVALID_TRANSITION")) return "conflict";
   if (isApiError(error, "FORBIDDEN")) return "forbidden";
   if (isApiError(error, "NOT_FOUND")) return "gone";
+  if (isApiError(error, "CLIENT_TIMEOUT")) return "uncertain";
   return "retry";
 };
 
@@ -158,14 +165,10 @@ export const actionErrorMessage = (
         : "Akun Anda tidak boleh mengubah pesanan ini.";
     case "gone":
       return "Pesanan ini tidak ditemukan lagi.";
+    case "uncertain":
+      return "Server tidak menjawab tepat waktu, jadi belum pasti perubahan ini tersimpan. Data terbaru dimuat ulang; periksa statusnya, lalu ulangi hanya jika statusnya belum berubah.";
     case "retry":
-      return isApiError(
-        error,
-        "NETWORK_ERROR",
-        "CLIENT_TIMEOUT",
-        "TIMEOUT",
-        "RATE_LIMITED",
-      )
+      return isApiError(error, "NETWORK_ERROR", "TIMEOUT", "RATE_LIMITED")
         ? errorMessage(error)
         : "Pesanan belum berubah karena kesalahan di server. Coba lagi.";
   }

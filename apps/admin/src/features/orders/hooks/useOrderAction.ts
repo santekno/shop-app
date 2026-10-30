@@ -34,6 +34,9 @@ export type OrderActionInput =
  *   refetched, and the mutation settles only after that refetch, so the
  *   page shows the fresh order in the same render as the message that
  *   says so.
+ * - CLIENT_TIMEOUT ("uncertain"): the change may have been made without
+ *   the answer arriving. The same refetch, not awaited: the page says to
+ *   check the status at once, and shows it when the refetch lands.
  */
 export const useOrderAction = (orderId: string) => {
   const { authApi } = useSession();
@@ -59,6 +62,11 @@ export const useOrderAction = (orderId: string) => {
       const failure = actionFailure(error);
       if (failure === "conflict" || failure === "gone") {
         await invalidateOrderQueries(queryClient, orderId);
+      } else if (failure === "uncertain") {
+        // Not awaited: the server that did not answer the change may not
+        // answer this refetch quickly either, and the seller should read
+        // "check the status" now. The status updates when it arrives.
+        void invalidateOrderQueries(queryClient, orderId);
       }
     },
   });
