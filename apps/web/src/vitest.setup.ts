@@ -1,5 +1,5 @@
 // Runs before every test file of the storefront (vite.config.ts, test.setupFiles).
-import { cleanup } from "@testing-library/react";
+import { cleanup, configure } from "@testing-library/react";
 import { afterEach, vi } from "vitest";
 import { useCartStore } from "@/features/cart/cart-store.ts";
 import { startAt } from "@/test/memory-router.ts";
@@ -20,6 +20,13 @@ vi.mock("next/navigation", async (importOriginal) => {
   };
 });
 vi.mock("next/link", () => import("@/test/next-link.tsx"));
+
+// findBy* and waitFor give up after 3 s instead of 1 s: make test-unit
+// runs every workspace's tests at once with coverage, and on a busy
+// machine a first render can take over a second (AccountNav and Providers
+// timed out that way). A test that waits for something that never comes
+// still fails, later.
+configure({ asyncUtilTimeout: 3_000 });
 
 // Testing Library unmounts what a test rendered only when `afterEach` is a
 // global; Vitest's globals are off, so unmount here. Every test starts

@@ -38,6 +38,11 @@ export default defineConfig({
       IMAGE_ORIGIN: "",
       GA_MEASUREMENT_ID: "",
     },
+    // 20 s per test instead of 5: make test-unit runs every workspace at
+    // once with coverage on a shared machine, where a form with 50
+    // variants or a lazy page took over 5 s to render. Assertions are
+    // unchanged; only a slow machine gets more time.
+    testTimeout: 20_000,
     // vi.stubEnv and vi.stubGlobal last for one test only.
     unstubEnvs: true,
     unstubGlobals: true,
