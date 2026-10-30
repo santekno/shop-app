@@ -246,7 +246,10 @@ WHERE product_id = @product_id
 -- against the name and every variant's SKU, archived variants included,
 -- because a SKU on an old packing slip still names its product;
 -- low_stock_only keeps products with a sellable variant whose stock is at
--- or below low_stock_threshold.
+-- or below low_stock_threshold, an EXISTS that stops at the first such
+-- variant (served by product_variants_product_id_idx) and runs only when
+-- the filter is on, rather than the totals' aggregate over every variant
+-- of every product.
 --
 -- The sort is a fixed set of CASE expressions chosen by @sort and
 -- @descending, never SQL built from the request. No index can serve them
@@ -257,11 +260,6 @@ WHERE product_id = @product_id
 -- name: CountAdminProducts :one
 SELECT count(*)
 FROM products p
-CROSS JOIN LATERAL (
-    SELECT bool_or(v.stock <= @low_stock_threshold::int) AS low_stock
-    FROM product_variants v
-    WHERE v.product_id = p.id AND v.archived_at IS NULL
-) s
 WHERE (sqlc.narg('status')::text IS NULL OR p.status = sqlc.narg('status')::text)
   AND (sqlc.narg('category_id')::uuid IS NULL
        OR p.category_id = sqlc.narg('category_id')::uuid
@@ -270,7 +268,9 @@ WHERE (sqlc.narg('status')::text IS NULL OR p.status = sqlc.narg('status')::text
        OR p.name ILIKE sqlc.narg('search')::text
        OR EXISTS (SELECT 1 FROM product_variants sv
                   WHERE sv.product_id = p.id AND sv.sku ILIKE sqlc.narg('search')::text))
-  AND (NOT @low_stock_only::boolean OR COALESCE(s.low_stock, false));
+  AND (NOT @low_stock_only::boolean OR EXISTS (SELECT 1 FROM product_variants lv
+                                                 WHERE lv.product_id = p.id AND lv.archived_at IS NULL
+                                                   AND lv.stock <= @low_stock_threshold::int));
 
 -- name: ListAdminProducts :many
 -- One row per product with its category and its sellable variants' totals
@@ -295,7 +295,9 @@ WHERE (sqlc.narg('status')::text IS NULL OR p.status = sqlc.narg('status')::text
        OR p.name ILIKE sqlc.narg('search')::text
        OR EXISTS (SELECT 1 FROM product_variants sv
                   WHERE sv.product_id = p.id AND sv.sku ILIKE sqlc.narg('search')::text))
-  AND (NOT @low_stock_only::boolean OR s.low_stock)
+  AND (NOT @low_stock_only::boolean OR EXISTS (SELECT 1 FROM product_variants lv
+                                                 WHERE lv.product_id = p.id AND lv.archived_at IS NULL
+                                                   AND lv.stock <= @low_stock_threshold::int))
 ORDER BY
     CASE WHEN @sort::text = 'name' AND NOT @descending::boolean THEN p.name END ASC,
     CASE WHEN @sort::text = 'name' AND @descending::boolean THEN p.name END DESC,

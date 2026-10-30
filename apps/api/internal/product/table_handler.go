@@ -37,12 +37,9 @@ type tableQuery struct {
 // product, any status, most recently saved first by default.
 func (h *Handler) ListTable(w http.ResponseWriter, r *http.Request) {
 	q := tableQuery{Sort: string(TableSortUpdatedAt), Order: "desc", Page: 1, PerPage: 20}
+	// BindQuery also refuses q with a NUL or invalid UTF-8.
 	if err := h.validator.BindQuery(r, &q); err != nil {
 		httpapi.Error(w, r, err)
-		return
-	}
-	if !httpapi.ValidText(q.Q) {
-		httpapi.Error(w, r, httpapi.ValidationError("invalid query parameters", map[string]any{"q": httpapi.InvalidTextMessage}))
 		return
 	}
 	page, err := h.table.List(r.Context(), TableParams{

@@ -120,28 +120,25 @@ const countAdminProducts = `-- name: CountAdminProducts :one
 
 SELECT count(*)
 FROM products p
-CROSS JOIN LATERAL (
-    SELECT bool_or(v.stock <= $1::int) AS low_stock
-    FROM product_variants v
-    WHERE v.product_id = p.id AND v.archived_at IS NULL
-) s
-WHERE ($2::text IS NULL OR p.status = $2::text)
-  AND ($3::uuid IS NULL
-       OR p.category_id = $3::uuid
-       OR p.category_id IN (SELECT c.id FROM categories c WHERE c.parent_id = $3::uuid))
-  AND ($4::text IS NULL
-       OR p.name ILIKE $4::text
+WHERE ($1::text IS NULL OR p.status = $1::text)
+  AND ($2::uuid IS NULL
+       OR p.category_id = $2::uuid
+       OR p.category_id IN (SELECT c.id FROM categories c WHERE c.parent_id = $2::uuid))
+  AND ($3::text IS NULL
+       OR p.name ILIKE $3::text
        OR EXISTS (SELECT 1 FROM product_variants sv
-                  WHERE sv.product_id = p.id AND sv.sku ILIKE $4::text))
-  AND (NOT $5::boolean OR COALESCE(s.low_stock, false))
+                  WHERE sv.product_id = p.id AND sv.sku ILIKE $3::text))
+  AND (NOT $4::boolean OR EXISTS (SELECT 1 FROM product_variants lv
+                                                 WHERE lv.product_id = p.id AND lv.archived_at IS NULL
+                                                   AND lv.stock <= $5::int))
 `
 
 type CountAdminProductsParams struct {
-	LowStockThreshold int32
 	Status            sql.NullString
 	CategoryID        *string
 	Search            sql.NullString
 	LowStockOnly      bool
+	LowStockThreshold int32
 }
 
 // The admin's product table (Bab 12): every status, offset pages, any
@@ -156,7 +153,10 @@ type CountAdminProductsParams struct {
 // against the name and every variant's SKU, archived variants included,
 // because a SKU on an old packing slip still names its product;
 // low_stock_only keeps products with a sellable variant whose stock is at
-// or below low_stock_threshold.
+// or below low_stock_threshold, an EXISTS that stops at the first such
+// variant (served by product_variants_product_id_idx) and runs only when
+// the filter is on, rather than the totals' aggregate over every variant
+// of every product.
 //
 // The sort is a fixed set of CASE expressions chosen by @sort and
 // @descending, never SQL built from the request. No index can serve them
@@ -165,11 +165,11 @@ type CountAdminProductsParams struct {
 // id tie-break, in the same direction, keeps a page stable when values tie.
 func (q *Queries) CountAdminProducts(ctx context.Context, arg CountAdminProductsParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countAdminProducts,
-		arg.LowStockThreshold,
 		arg.Status,
 		arg.CategoryID,
 		arg.Search,
 		arg.LowStockOnly,
+		arg.LowStockThreshold,
 	)
 	var count int64
 	err := row.Scan(&count)
@@ -434,7 +434,9 @@ WHERE ($2::text IS NULL OR p.status = $2::text)
        OR p.name ILIKE $4::text
        OR EXISTS (SELECT 1 FROM product_variants sv
                   WHERE sv.product_id = p.id AND sv.sku ILIKE $4::text))
-  AND (NOT $5::boolean OR s.low_stock)
+  AND (NOT $5::boolean OR EXISTS (SELECT 1 FROM product_variants lv
+                                                 WHERE lv.product_id = p.id AND lv.archived_at IS NULL
+                                                   AND lv.stock <= $1::int))
 ORDER BY
     CASE WHEN $6::text = 'name' AND NOT $7::boolean THEN p.name END ASC,
     CASE WHEN $6::text = 'name' AND $7::boolean THEN p.name END DESC,
