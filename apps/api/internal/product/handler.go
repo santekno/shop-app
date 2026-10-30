@@ -161,7 +161,7 @@ func toHTTPError(err error) error {
 			WithHTTPStatus(http.StatusBadRequest).
 			WithDetails(map[string]any{"category_id": "names no category"})
 	case errors.As(err, &archivedErr):
-		return errx.New(CodeVariantArchived, "a variant was archived since you loaded it and can no longer be saved; reload the product").
+		return errx.New(CodeVariantArchived, "the variant is archived and can no longer be written; reload the product").
 			WithHTTPStatus(http.StatusConflict).
 			WithDetails(map[string]any{"variant_id": archivedErr.VariantID})
 	case errors.Is(err, ErrUnknownVariant):

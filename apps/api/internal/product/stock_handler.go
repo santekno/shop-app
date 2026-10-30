@@ -97,7 +97,7 @@ func toStockHTTPError(err error) error {
 	var stockErr *StockError
 	switch {
 	case errors.As(err, &stockErr) && errors.Is(err, ErrStockOutOfRange):
-		return errx.New(CodeStockOutOfRange, "the change would take the stock below 0 or above the maximum; nothing was changed").
+		return errx.New(CodeStockOutOfRange, "the change would take the stock below 0, or raise it above the maximum; nothing was changed").
 			WithHTTPStatus(http.StatusConflict).
 			WithDetails(map[string]any{
 				"variant_id": stockErr.VariantID, "stock": stockErr.Stock, "min": 0, "max": MaxVariantStock,

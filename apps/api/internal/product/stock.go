@@ -31,8 +31,9 @@ type StockChange struct {
 var (
 	// ErrVariantNotFound: the variant is not one of the product's.
 	ErrVariantNotFound = errors.New("variant not found")
-	// ErrStockOutOfRange: the delta would take the stock below 0 or above
-	// MaxVariantStock. See StockError.
+	// ErrStockOutOfRange: the delta would take the stock below 0, or is an
+	// increase past MaxVariantStock (a decrease is never capped). See
+	// StockError.
 	ErrStockOutOfRange = errors.New("stock out of range")
 	// ErrStockChanged: a count's expected stock is not the stock any more.
 	// See StockError.
@@ -78,6 +79,8 @@ func (s *StockService) Change(ctx context.Context, productID, variantID string, 
 	switch {
 	case change.IsSet && (change.Set < 0 || change.Set > MaxVariantStock):
 		return AdminVariant{}, fmt.Errorf("change stock: set %d out of range", change.Set)
+	case change.IsSet && (change.Expected < 0 || change.Expected > MaxVariantStock):
+		return AdminVariant{}, fmt.Errorf("change stock: expected %d out of range", change.Expected)
 	case !change.IsSet && (change.Delta == 0 || change.Delta < -MaxVariantStock || change.Delta > MaxVariantStock):
 		return AdminVariant{}, fmt.Errorf("change stock: delta %d out of range", change.Delta)
 	}

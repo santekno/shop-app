@@ -326,17 +326,25 @@ LIMIT @page_size OFFSET @page_offset;
 -- sees the true stock. No rows: GetVariantStock tells why.
 
 -- name: AdjustVariantStock :one
--- stock + delta, only for a sellable variant of the product and only while
--- the result stays within 0..max_stock.
+-- stock + delta, only for a sellable variant of the product, never below
+-- 0, and an increase only up to max_stock. A decrease is never capped:
+-- a cancellation's restore can leave the stock above max_stock (an admin
+-- set it to the maximum, a checkout took some, the order was cancelled),
+-- and "-1 damaged" must still work there. There is deliberately no CHECK
+-- (stock <= max) for the same reason.
 UPDATE product_variants
 SET stock = stock + @delta::integer, version = version + 1, updated_at = now()
 WHERE id = @id AND product_id = @product_id AND archived_at IS NULL
-  AND stock + @delta::integer BETWEEN 0 AND @max_stock::integer
+  AND stock + @delta::integer >= 0
+  AND (@delta::integer <= 0 OR stock + @delta::integer <= @max_stock::integer)
 RETURNING id, sku, name, price, stock, weight_grams, version;
 
 -- name: SetVariantStock :one
 -- A count ("I counted 15"), written only while the stock is still the one
--- the seller saw (expected): a sale in between makes the count wrong.
+-- the seller saw (expected): a sale in between makes the count wrong. The
+-- service bounds set and expected to 0..MaxVariantStock, so a count never
+-- writes more than the maximum; a stock a restore left above it is
+-- brought down with a delta.
 UPDATE product_variants
 SET stock = @stock::integer, version = version + 1, updated_at = now()
 WHERE id = @id AND product_id = @product_id AND archived_at IS NULL

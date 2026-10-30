@@ -229,18 +229,22 @@ export interface paths {
          *
          *     - `{"delta": 20}` adds to the stock as it is when the change runs
          *       ("20 received", `-2` for two damaged), so a sale in between is
-         *       kept. The result must stay within 0 and 1,000,000: otherwise 409
-         *       `STOCK_OUT_OF_RANGE` and nothing changes.
+         *       kept. The result must not go below 0, and an increase must not
+         *       take it above 1,000,000: otherwise 409 `STOCK_OUT_OF_RANGE` and
+         *       nothing changes. A decrease is never capped, because a cancelled
+         *       order's restore can leave the stock above 1,000,000.
          *     - `{"set": 15, "expected": 12}` is a count: the stock becomes `set`
          *       only while it is still `expected`, the stock the seller saw. If
          *       a sale or another change moved it, 409 `STOCK_CHANGED` with the
          *       stock now, and nothing changes; only the seller knows which
-         *       number is right.
+         *       number is right. Both are 0 to 1,000,000; a stock above that is
+         *       brought down with a negative `delta`.
          *
          *     Like a checkout, every change bumps the variant's `version` (a form
          *     open on the product that would write this variant gets 409 on its
-         *     next save) and never the product's `version` or `updated_at`. An
-         *     archived variant is 409 `VARIANT_ARCHIVED`. The `stock` in a 409's
+         *     next save) and never the product's `version` or `updated_at`. A
+         *     variant archived by a save, before or while the change ran, is 409
+         *     `VARIANT_ARCHIVED`. The `stock` in a 409's
          *     details is read right after the refused change: show it, but send
          *     a new change rather than computing one from it.
          */
@@ -2350,8 +2354,9 @@ export interface components {
         };
         /**
          * @description Nothing was changed. `STOCK_OUT_OF_RANGE`: the `delta` would take
-         *     the stock below 0 or above 1,000,000 (`details.stock` is the stock
-         *     now, `min`, `max`). `STOCK_CHANGED`: the stock is no longer
+         *     the stock below 0, or is an increase that would take it above
+         *     1,000,000 (`details.stock` is the stock now; `min` bounds every
+         *     change, `max` only increases). `STOCK_CHANGED`: the stock is no longer
          *     `expected` (`details.stock` is the stock now). `VARIANT_ARCHIVED`:
          *     the variant was archived. Each names `details.variant_id`.
          */
@@ -2373,7 +2378,7 @@ export interface components {
             };
         };
         /**
-         * @description Another product already has the slug (`SLUG_TAKEN`), a variant anywhere in the store, archived ones included, already has one of the SKUs (`SKU_TAKEN`), or (on `PUT`) the product changed since its `version` was read (`VERSION_CONFLICT`, `details.product_id`) or a variant did (`VERSION_CONFLICT`, `details.variant_id`, the first stale one); reload and save again. A variant `id` that names an archived variant of this product (archived by another save since the form loaded it) is `VARIANT_ARCHIVED` with `details.variant_id`: it can no longer be written, so reload and leave it out. An `id` that is not a variant of this product at all stays 400 `VALIDATION_FAILED`.
+         * @description Another product already has the slug (`SLUG_TAKEN`), a variant anywhere in the store, archived ones included, already has one of the SKUs (`SKU_TAKEN`), or (on `PUT`) the product changed since its `version` was read (`VERSION_CONFLICT`, `details.product_id`) or a variant did (`VERSION_CONFLICT`, `details.variant_id`, the first stale one); reload and save again. A variant `id` that names an archived variant of this product is `VARIANT_ARCHIVED` with `details.variant_id`: it can no longer be written, so reload and leave it out. This is not how a concurrent save shows up: every archive goes through a save, which bumps the product's `version`, so a form that loaded the product before another admin archived a variant gets `VERSION_CONFLICT` with `details.product_id` first. `VARIANT_ARCHIVED` is the fallback for a body that carries the current product `version` with the `id` of a variant that was already archived when the product was loaded (a body built from an older copy of the variants). An `id` that is not a variant of this product at all stays 400 `VALIDATION_FAILED`.
          *
          *     Known Bab 3 limitation: within one save, each variant's SKU is checked when that variant is written, so swapping the SKUs of two variants, or giving one variant the SKU another variant of the same product has right now, answers 409 `SKU_TAKEN`. Save twice instead, through a temporary SKU.
          */

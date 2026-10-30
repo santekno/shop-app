@@ -18,7 +18,8 @@ const adjustVariantStock = `-- name: AdjustVariantStock :one
 UPDATE product_variants
 SET stock = stock + $1::integer, version = version + 1, updated_at = now()
 WHERE id = $2 AND product_id = $3 AND archived_at IS NULL
-  AND stock + $1::integer BETWEEN 0 AND $4::integer
+  AND stock + $1::integer >= 0
+  AND ($1::integer <= 0 OR stock + $1::integer <= $4::integer)
 RETURNING id, sku, name, price, stock, weight_grams, version
 `
 
@@ -49,8 +50,12 @@ type AdjustVariantStockRow struct {
 // 0006). Under READ COMMITTED an UPDATE that waited for a checkout's lock
 // re-checks its WHERE on the row the checkout left, so the guard always
 // sees the true stock. No rows: GetVariantStock tells why.
-// stock + delta, only for a sellable variant of the product and only while
-// the result stays within 0..max_stock.
+// stock + delta, only for a sellable variant of the product, never below
+// 0, and an increase only up to max_stock. A decrease is never capped:
+// a cancellation's restore can leave the stock above max_stock (an admin
+// set it to the maximum, a checkout took some, the order was cancelled),
+// and "-1 damaged" must still work there. There is deliberately no CHECK
+// (stock <= max) for the same reason.
 func (q *Queries) AdjustVariantStock(ctx context.Context, arg AdjustVariantStockParams) (AdjustVariantStockRow, error) {
 	row := q.db.QueryRowContext(ctx, adjustVariantStock,
 		arg.Delta,
@@ -960,7 +965,10 @@ type SetVariantStockRow struct {
 }
 
 // A count ("I counted 15"), written only while the stock is still the one
-// the seller saw (expected): a sale in between makes the count wrong.
+// the seller saw (expected): a sale in between makes the count wrong. The
+// service bounds set and expected to 0..MaxVariantStock, so a count never
+// writes more than the maximum; a stock a restore left above it is
+// brought down with a delta.
 func (q *Queries) SetVariantStock(ctx context.Context, arg SetVariantStockParams) (SetVariantStockRow, error) {
 	row := q.db.QueryRowContext(ctx, setVariantStock,
 		arg.Stock,

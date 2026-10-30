@@ -331,9 +331,11 @@ func updateVariant(ctx context.Context, q *sqlc.Queries, productID string, posit
 }
 
 // notSellable tells why variantID is not a sellable variant of productID:
-// a *VariantArchivedError when it is an archived one (archived by another
-// save since the form loaded it), ErrUnknownVariant when it is none of the
-// product's variants.
+// a *VariantArchivedError when it is an archived one, ErrUnknownVariant
+// when it is none of the product's variants. A save racing another admin's
+// archive never gets here: the archive bumped the product's version, which
+// Update checked first. This is for a body that sends the current product
+// version with a variant that was already archived when it was loaded.
 func notSellable(ctx context.Context, q *sqlc.Queries, productID, variantID string) error {
 	archived, err := q.IsVariantArchived(ctx, sqlc.IsVariantArchivedParams{ID: variantID, ProductID: productID})
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
