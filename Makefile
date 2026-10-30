@@ -47,6 +47,9 @@ DATABASE_URL ?= postgres://goshop:goshop@localhost:5432/goshop?sslmode=disable
 # make seed-loadtest: how many load-test buyers.
 users ?= 50
 
+# make seed-admin: the role of the staff account (Bab 12: admin or seller).
+role ?= admin
+
 # Destructive targets refuse any database that is not on this machine. A
 # host= or hostaddr= parameter is refused outright: pgx lets it override the
 # host in the URL, and the local Compose URL never needs one.
@@ -205,11 +208,12 @@ seed-large: ## The example catalog plus 10000 generated products, for EXPLAIN AN
 	$(require_local_db)
 	@cd $(API) && DATABASE_URL='$(DATABASE_URL)' go run ./cmd/seed -generated 10000
 
-seed-admin: ## Create or promote a local admin: SEED_ADMIN_PASSWORD=… make seed-admin email=admin@goshop.local
+seed-admin: ## Create or update a local staff account: SEED_ADMIN_PASSWORD=… make seed-admin email=admin@goshop.local [role=seller]
 	$(require_local_db)
-	@[[ "$(email)" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+$$ ]] || { echo "usage: SEED_ADMIN_PASSWORD=… make seed-admin email=admin@goshop.local" >&2; exit 1; }
+	@[[ "$(email)" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+$$ ]] || { echo "usage: SEED_ADMIN_PASSWORD=… make seed-admin email=admin@goshop.local [role=admin|seller]" >&2; exit 1; }
+	@[[ "$(role)" =~ ^(admin|seller)$$ ]] || { echo "seed-admin: role must be admin or seller, got '$(role)'" >&2; exit 1; }
 	@[ -n "$$SEED_ADMIN_PASSWORD" ] || { echo "seed-admin: set SEED_ADMIN_PASSWORD (read from the environment, never a flag)" >&2; exit 1; }
-	@cd $(API) && DATABASE_URL='$(DATABASE_URL)' go run ./cmd/seed -admin '$(email)'
+	@cd $(API) && DATABASE_URL='$(DATABASE_URL)' go run ./cmd/seed -admin '$(email)' -role '$(role)'
 
 seed-loadtest: ## Load-test buyers and stock for the k6 checkout test: SEED_LOADTEST_PASSWORD=… make seed-loadtest users=50
 	$(require_local_db)

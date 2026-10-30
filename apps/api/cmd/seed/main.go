@@ -14,9 +14,12 @@
 // ANALYZE to show the indexes at work (docs/explain/catalog.md).
 //
 // -admin creates or promotes one admin account instead of seeding the
-// catalog, with the password in SEED_ADMIN_PASSWORD (make seed-admin):
+// catalog, with the password in SEED_ADMIN_PASSWORD (make seed-admin).
+// -role seller makes it a seller instead (Bab 12; make seed-admin
+// role=seller):
 //
 //	SEED_ADMIN_PASSWORD=… DATABASE_URL=postgres://… go run ./cmd/seed -admin admin@goshop.local
+//	SEED_ADMIN_PASSWORD=… DATABASE_URL=postgres://… go run ./cmd/seed -admin seller@goshop.local -role seller
 //
 // -loadtest N seeds N verified buyers with addresses and a load-test
 // product for the k6 checkout test, and resets the run's stock (make
@@ -42,12 +45,14 @@ import (
 	"github.com/santekno/shop-app/apps/api/internal/auth"
 	"github.com/santekno/shop-app/apps/api/internal/config"
 	"github.com/santekno/shop-app/apps/api/internal/database"
+	"github.com/santekno/shop-app/apps/api/internal/user"
 )
 
 func main() {
 	generated := flag.Int("generated", 0, "also insert this many generated products (for EXPLAIN on a larger catalog)")
 	allowRemote := flag.Bool("allow-remote", false, "seed a database that is not on this machine")
 	admin := flag.String("admin", "", "create or promote this admin account (password in "+adminPasswordEnv+"; promoting revokes its sessions) instead of seeding the catalog")
+	role := flag.String("role", string(user.RoleAdmin), "the role -admin gives the account: admin or seller")
 	loadTest := flag.Int("loadtest", 0, "seed this many load-test buyers and the load-test product (password in "+loadTestPasswordEnv+") and reset its stock, instead of seeding the catalog")
 	flag.Parse()
 
@@ -57,7 +62,7 @@ func main() {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 		switch {
 		case *admin != "":
-			err = runAdmin(ctx, databaseURL, *admin, os.Getenv(adminPasswordEnv))
+			err = runStaff(ctx, databaseURL, *admin, os.Getenv(adminPasswordEnv), user.Role(*role))
 		case *loadTest != 0:
 			err = runLoadTest(ctx, databaseURL, *loadTest, os.Getenv(loadTestPasswordEnv))
 		default:
@@ -108,7 +113,17 @@ func run(ctx context.Context, databaseURL string, generated int) error {
 	return nil
 }
 
+// runAdmin is runStaff with the admin role.
 func runAdmin(ctx context.Context, databaseURL, email, password string) error {
+	return runStaff(ctx, databaseURL, email, password, user.RoleAdmin)
+}
+
+// runStaff creates or updates the staff account email with role
+// (seedStaff).
+func runStaff(ctx context.Context, databaseURL, email, password string, role user.Role) error {
+	if _, ok := staffNames[role]; !ok {
+		return fmt.Errorf("-role %q must be admin or seller", role)
+	}
 	if databaseURL == "" {
 		return errors.New("DATABASE_URL is not set (make seed-admin sets it to the Compose postgres)")
 	}
@@ -117,15 +132,15 @@ func runAdmin(ctx context.Context, databaseURL, email, password string) error {
 		return err
 	}
 	defer func() { _ = db.Close() }()
-	created, err := seedAdmin(ctx, db, email, password)
+	created, err := seedStaff(ctx, db, email, password, role)
 	if err != nil {
 		return err
 	}
 	if created {
-		fmt.Printf("admin %s created\n", auth.NormalizeEmail(email))
+		fmt.Printf("%s %s created\n", role, auth.NormalizeEmail(email))
 	} else {
-		fmt.Printf("admin %s: existing account promoted, password replaced; its sessions are revoked "+
-			"(access tokens already issued work until they expire, 15 minutes by default)\n", auth.NormalizeEmail(email))
+		fmt.Printf("%s %s: existing account given the %s role, password replaced; its sessions are revoked "+
+			"(access tokens already issued work until they expire, 15 minutes by default)\n", role, auth.NormalizeEmail(email), role)
 	}
 	return nil
 }
