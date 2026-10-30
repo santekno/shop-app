@@ -1,17 +1,6 @@
 import { formatRupiah } from "@goshop/shared";
 import type { AdminOrderEvent } from "@goshop/shared";
 
-/**
- * The prefix of every admin order query: invalidating it refetches the
- * queue, the tabs' counts and an open order's detail at once.
- *
- * Artikel 06 (the order queue) owns the real query keys; until both are
- * merged this is the prefix its key factory is expected to start with.
- * When they meet, this should come from that factory (its `all` key)
- * instead of being written twice.
- */
-export const ADMIN_ORDERS_QUERY_KEY = ["admin", "orders"] as const;
-
 const ORDER_EVENT_TYPES: ReadonlySet<string> = new Set<AdminOrderEvent["type"]>(
   [
     "order.created",
@@ -56,6 +45,18 @@ export const parseOrderEvent = (data: string): AdminOrderEvent | null => {
   }
   return value as AdminOrderEvent;
 };
+
+/**
+ * Whether the event can change the sales report (GET
+ * /v1/admin/reports/sales). The report counts the orders paid in the range
+ * that were not cancelled afterwards (status paid, processing, shipped or
+ * completed), so only two changes move it: `order.paid` adds an order, and
+ * `order.cancelled` may take one away (when it had been paid; the event
+ * does not say, so every cancellation counts). `order.created` is not paid
+ * yet, and processing → shipped → completed stay inside the counted set.
+ */
+export const changesSalesReport = (event: AdminOrderEvent): boolean =>
+  event.type === "order.paid" || event.type === "order.cancelled";
 
 /** Whether the event is a new order to work on: one that has just been paid. */
 export const isNewPaidOrder = (event: AdminOrderEvent): boolean =>

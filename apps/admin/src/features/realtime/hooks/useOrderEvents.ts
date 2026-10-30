@@ -10,15 +10,17 @@ import {
 } from "react";
 import { config } from "@/config.ts";
 import { useSession } from "@/features/auth/session-context.ts";
+import { invalidateOrderQueries } from "@/features/orders/api/queries.ts";
+import { reportKeys } from "@/features/reports/api/queries.ts";
 import { createEventConnection } from "../connection.ts";
 import type { ConnectionStatus, EventConnection } from "../connection.ts";
-import { ADMIN_ORDERS_QUERY_KEY, parseOrderEvent } from "../order-event.ts";
+import { changesSalesReport, parseOrderEvent } from "../order-event.ts";
 import { createRecentIds } from "../recent-ids.ts";
 
 const EVENTS_URL = createUrlBuilder(config.apiUrl)("/v1/admin/events");
 
 /**
- * How long events are gathered before the order queries are refetched.
+ * How long events are gathered before the queries are refetched.
  * The worker publishes the outbox every 5 seconds, so events come in
  * bursts: ten orders paid in one run are one refetch, not ten (each of
  * which would cancel the one before).
@@ -43,11 +45,14 @@ export interface UseOrderEventsOptions {
  * - **Refetch after every connect.** The stream has no replay: whatever
  *   happened while it was closed (before the first connect too) is only
  *   seen by asking again. So each time it opens, the admin order queries
- *   are invalidated; the API answers 200 only once it listens, so nothing
- *   falls in between.
+ *   and the sales reports are invalidated; the API answers 200 only once
+ *   it listens, so nothing falls in between.
  * - **Refetch on every order event**, gathered over INVALIDATE_DELAY_MS.
  *   The event says which order changed, but the queue's tabs, counts and
  *   pages depend on all of them: refetching is simpler and always right.
+ *   An event that changes revenue (changesSalesReport: paid, cancelled)
+ *   refetches the sales reports too, in the same gathered refetch, so the
+ *   chart and the overview's tile stay live.
  * - **At least once:** an `id` seen before is dropped (a bounded set of
  *   the last 500, kept across reconnects).
  * - Coming back online cuts a reconnect wait short.
@@ -74,14 +79,20 @@ export const useOrderEvents = ({
   useEffect(() => {
     if (userId === null) return;
 
+    // What the next gathered refetch covers: the orders always, the
+    // reports only when something in the burst changed revenue.
     let invalidateTimer: ReturnType<typeof setTimeout> | undefined;
-    const invalidateOrders = () => {
+    let reportsStale = false;
+    const invalidateSoon = ({ reports }: { reports: boolean }) => {
+      reportsStale ||= reports;
       if (invalidateTimer !== undefined) return;
       invalidateTimer = setTimeout(() => {
         invalidateTimer = undefined;
-        void queryClient.invalidateQueries({
-          queryKey: ADMIN_ORDERS_QUERY_KEY,
-        });
+        void invalidateOrderQueries(queryClient);
+        if (reportsStale) {
+          reportsStale = false;
+          void queryClient.invalidateQueries({ queryKey: reportKeys.all });
+        }
       }, INVALIDATE_DELAY_MS);
     };
 
@@ -89,7 +100,10 @@ export const useOrderEvents = ({
       url: EVENTS_URL,
       tokens,
       onStatus: setStatus,
-      onOpen: invalidateOrders,
+      // Anything may have happened while closed, revenue included.
+      onOpen: () => {
+        invalidateSoon({ reports: true });
+      },
       onEvent: (event) => {
         if (event.type !== "order") return;
         const id = event.lastEventId;
@@ -97,7 +111,7 @@ export const useOrderEvents = ({
         if (id !== "" && !seen.add(id)) return;
         const order = parseOrderEvent(event.data);
         if (order === null) return;
-        invalidateOrders();
+        invalidateSoon({ reports: changesSalesReport(order) });
         handleOrderEvent(order, id);
       },
     });
