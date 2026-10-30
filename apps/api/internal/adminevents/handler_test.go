@@ -110,6 +110,13 @@ type streamEnv struct {
 
 func newStreamEnv(t *testing.T, now func() time.Time, heartbeat time.Duration) *streamEnv {
 	t.Helper()
+	return newStreamEnvOn(t, now, heartbeat, func(*http.Server) {})
+}
+
+// newStreamEnvOn is newStreamEnv with the real server's settings changed
+// by configure before it starts (its timeouts, say).
+func newStreamEnvOn(t *testing.T, now func() time.Time, heartbeat time.Duration, configure func(*http.Server)) *streamEnv {
+	t.Helper()
 	env := &streamEnv{
 		sub: &fakeSubscriber{}, tokens: auth.NewAccessTokens(testSecret, 15*time.Minute, nil),
 		logs: &syncBuffer{}, finished: make(chan struct{}, 64),
@@ -123,7 +130,9 @@ func newStreamEnv(t *testing.T, now func() time.Time, heartbeat time.Duration) *
 			env.h.Stream(w, r.WithContext(logx.WithContextLogger(r.Context(), logger)))
 			env.finished <- struct{}{}
 		})
-	env.srv = httptest.NewServer(r)
+	env.srv = httptest.NewUnstartedServer(r)
+	configure(env.srv.Config)
+	env.srv.Start()
 	t.Cleanup(env.srv.Close)
 	return env
 }
@@ -294,6 +303,27 @@ func TestStream_Heartbeat(t *testing.T) {
 	s := env.openStream(t, userA)
 	testx.AssertEqual(t, s.frame(t), ": ping\n\n")
 	testx.AssertEqual(t, s.frame(t), ": ping\n\n", "and again")
+}
+
+// A stream outlives the server's ReadTimeout and WriteTimeout (internal/
+// app sets both, far shorter than a stream lives): the handler lifts the
+// read deadline and moves the write deadline on every write. With both
+// at 200 ms and a heartbeat of 500 ms, two pings arrive about a second
+// in, long after either timeout would have ended the stream.
+func TestStream_OutlivesTheServersTimeouts(t *testing.T) {
+	env := newStreamEnvOn(t, time.Now, 500*time.Millisecond, func(srv *http.Server) {
+		srv.ReadTimeout = 200 * time.Millisecond
+		srv.WriteTimeout = 200 * time.Millisecond
+	})
+	started := time.Now()
+	s := env.openStream(t, userA)
+
+	testx.AssertEqual(t, s.frame(t), ": ping\n\n")
+	testx.AssertEqual(t, s.frame(t), ": ping\n\n", "and again")
+	testx.AssertTrue(t, time.Since(started) >= time.Second, "two heartbeats in: %s", time.Since(started))
+	// And it still carries events.
+	env.sub.last().send(t, `{"id":"e1","event":"order","data":{}}`)
+	testx.AssertEqual(t, s.frame(t), "id: e1\nevent: order\ndata: {}\n\n")
 }
 
 // The stream ends with an end event when the caller's access token

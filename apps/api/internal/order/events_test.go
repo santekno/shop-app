@@ -10,7 +10,9 @@ import (
 	"github.com/santekno/sdk/testx"
 	"github.com/santekno/sdk/uuidx"
 
+	"github.com/santekno/shop-app/apps/api/internal/adminevents"
 	"github.com/santekno/shop-app/apps/api/internal/db/sqlc"
+	"github.com/santekno/shop-app/apps/api/internal/outbox"
 )
 
 func TestEventType(t *testing.T) {
@@ -56,4 +58,30 @@ func TestRecordEvent(t *testing.T) {
 	db = newFakeSQL().on("InsertOutboxEvent", failWith(errBoom))
 	err := recordEvent(context.Background(), sqlc.New(db.open(t)), o)
 	testx.AssertTrue(t, errors.Is(err, errBoom))
+}
+
+// The admin feed (adminevents) reads this package's event payload by its
+// JSON names. A real event, as recordEvent writes it, must decode there
+// with every field the feed copies: renaming a field of eventPayload
+// fails here, not on the dashboard.
+func TestRecordEvent_ReadByTheAdminFeed(t *testing.T) {
+	o := Order{
+		ID: orderID1, Code: "GS-20261023-ABC123", UserID: buyerID, Status: StatusProcessing,
+		Totals: Totals{Total: 117000}, UpdatedAt: time.Date(2026, 10, 23, 8, 30, 0, 0, time.UTC),
+	}
+	db := newFakeSQL()
+	testx.AssertNoError(t, recordEvent(context.Background(), sqlc.New(db.open(t)), o))
+	c, _ := db.call("InsertOutboxEvent")
+
+	msg, ok, err := adminevents.FromEvent(outbox.Event{
+		ID: c.args[0].(string), AggregateType: c.args[1].(string), AggregateID: c.args[2].(string),
+		Type: c.args[3].(string), Payload: c.args[4].([]byte),
+	})
+
+	testx.AssertNoError(t, err)
+	testx.AssertTrue(t, ok)
+	testx.AssertEqual(t, msg.ID, c.args[0].(string))
+	testx.AssertEqual(t, string(msg.Data),
+		`{"type":"order.processing","order_id":"`+orderID1+`","code":"GS-20261023-ABC123","status":"processing",`+
+			`"total":{"amount":117000,"currency":"IDR"},"occurred_at":"2026-10-23T08:30:00Z"}`)
 }

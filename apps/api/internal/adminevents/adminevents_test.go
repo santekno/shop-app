@@ -89,6 +89,67 @@ func TestFromEvent_BadPayload(t *testing.T) {
 	}
 }
 
+// incomplete is the order payload with one field changed: removed when
+// value is nil, replaced otherwise.
+func incomplete(t *testing.T, field string, value any) json.RawMessage {
+	t.Helper()
+	var payload map[string]any
+	testx.AssertNoError(t, json.Unmarshal(orderEvent("e1", "order.paid").Payload, &payload))
+	if value == nil {
+		delete(payload, field)
+	} else {
+		payload[field] = value
+	}
+	raw, err := json.Marshal(payload)
+	testx.AssertNoError(t, err)
+	return raw
+}
+
+// A payload that decodes but lacks a field the feed copies (a rename in
+// order's eventPayload, say) is an error, not a message with an empty ID
+// or a total of 0.
+func TestFromEvent_IncompletePayload(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		field string
+		value any
+		want  string
+	}{
+		{"order_id missing", "order_id", nil, "no order_id"},
+		{"order_id empty", "order_id", "", "no order_id"},
+		{"code missing", "code", nil, "no code"},
+		{"code empty", "code", "", "no code"},
+		{"status missing", "status", nil, "no status"},
+		{"total missing", "total", nil, "no total"},
+		{"total negative", "total", -1, "negative total -1"},
+		{"currency missing", "currency", nil, "no currency"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := orderEvent("e8", "order.paid")
+			e.Payload = incomplete(t, tc.field, tc.value)
+
+			msg, ok, err := adminevents.FromEvent(e)
+
+			testx.AssertFalse(t, ok)
+			testx.AssertEqual(t, msg.ID, "")
+			testx.AssertError(t, err)
+			testx.AssertEqual(t, err.Error(), "decode order.paid event e8: "+tc.want)
+		})
+	}
+}
+
+// A total of 0 is a total (a free order), not a missing one.
+func TestFromEvent_ZeroTotal(t *testing.T) {
+	e := orderEvent("e1", "order.paid")
+	e.Payload = incomplete(t, "total", 0)
+
+	msg, ok, err := adminevents.FromEvent(e)
+
+	testx.AssertNoError(t, err)
+	testx.AssertTrue(t, ok)
+	testx.AssertContains(t, string(msg.Data), `"total":{"amount":0,"currency":"IDR"}`)
+}
+
 // fakeRedisPublisher records each PUBLISH and answers err.
 type fakeRedisPublisher struct {
 	channels []string
@@ -152,6 +213,23 @@ func TestPublisher_PublishSkipsABadPayload(t *testing.T) {
 	testx.AssertContains(t, logs.String(), `"level":"ERROR"`)
 	testx.AssertContains(t, logs.String(), `"msg":"admin feed: event skipped"`)
 	testx.AssertContains(t, logs.String(), `"event_id":"e9"`)
+}
+
+// An order payload missing a field is skipped the same way: logged with
+// its event ID and the field, nothing published, and no error for the
+// dispatcher to retry.
+func TestPublisher_PublishSkipsAnIncompletePayload(t *testing.T) {
+	var logs bytes.Buffer
+	ctx := logx.WithContextLogger(context.Background(), logx.New(logx.WithOutput(&logs), logx.WithFormat("json")))
+	rdb := &fakeRedisPublisher{}
+	e := orderEvent("e10", "order.paid")
+	e.Payload = incomplete(t, "order_id", nil)
+
+	testx.AssertNoError(t, adminevents.NewPublisher(rdb).Publish(ctx, e))
+	testx.AssertEqual(t, len(rdb.channels), 0)
+	testx.AssertEqual(t, strings.Count(logs.String(), `"msg":"admin feed: event skipped"`), 1)
+	testx.AssertContains(t, logs.String(), `"event_id":"e10"`)
+	testx.AssertContains(t, logs.String(), "no order_id")
 }
 
 // Redis down is an error, so the dispatcher tries the event again.
