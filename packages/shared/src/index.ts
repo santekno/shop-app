@@ -85,9 +85,12 @@ export {
 
 export {
   archiveProduct,
+  confirmProductImage,
   createProduct,
+  deleteProductImage,
   getAdminProduct,
   listAdminProducts,
+  startProductImageUpload,
   updateProduct,
 } from "./api/admin-products.ts";
 
@@ -155,12 +158,27 @@ export {
 } from "./schemas/product.ts";
 export type { ProductInput, VariantInput } from "./schemas/product.ts";
 
+export {
+  PRODUCT_IMAGES_MAX,
+  PRODUCT_IMAGE_MAX_BYTES,
+  PRODUCT_IMAGE_MAX_PIXELS,
+  PRODUCT_IMAGE_MAX_SIDE,
+  PRODUCT_IMAGE_SNIFF_BYTES,
+  PRODUCT_IMAGE_TYPES,
+  productImageDimensionsProblem,
+  productImageSizeProblem,
+  productImageTypeProblem,
+  sniffProductImageType,
+} from "./schemas/product-image.ts";
+
 export type {
   Address,
   AddressCreate,
   AdminProduct,
   AdminProductDetail,
   AdminProductImage,
+  AdminProductImageDetail,
+  AdminProductImageStatus,
   AdminProductRow,
   AdminProductSort,
   AdminProductStatus,
@@ -183,6 +201,11 @@ export type {
   CheckoutProblem,
   CheckoutRequest,
   ErrorBody,
+  ImageConfirmRequest,
+  ImageUpload,
+  ImageUploadDetail,
+  ImageUploadRequest,
+  ImageUploadTicket,
   ListAdminProductsQuery,
   ListProductsQuery,
   LoginRequest,
@@ -203,6 +226,7 @@ export type {
   Product,
   ProductDetail,
   ProductImage,
+  ProductImageContentType,
   ProductList,
   ProductVariant,
   ProductWrite,

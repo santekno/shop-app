@@ -1,7 +1,14 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { archiveProduct, createProduct, updateProduct } from "@goshop/shared";
+import {
+  archiveProduct,
+  createProduct,
+  deleteProductImage,
+  isApiError,
+  updateProduct,
+} from "@goshop/shared";
 import type { AdminProduct, ProductWrite } from "@goshop/shared";
 import { useSession } from "@/features/auth/session-context.ts";
+import { removeCachedImage } from "../api/image-cache.ts";
 import { productKeys } from "../api/queries.ts";
 
 /**
@@ -60,6 +67,29 @@ export const useArchiveProduct = (id: string) => {
       await queryClient.invalidateQueries({
         queryKey: productKeys.detail(id),
       });
+    },
+  });
+};
+
+/**
+ * DELETE /v1/admin/products/{id}/images/{image_id}: deletes one photo and
+ * its files. A photo that is already gone (404: deleted in another tab,
+ * or refused at confirm) counts as deleted: what the seller wanted is
+ * true. The photo leaves the product's cache either way.
+ */
+export const useDeleteProductImage = (productId: string) => {
+  const { authApi } = useSession();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (imageId: string) => {
+      try {
+        await deleteProductImage(authApi, productId, imageId);
+      } catch (error) {
+        if (!isApiError(error, "NOT_FOUND")) throw error;
+      }
+    },
+    onSuccess: (_, imageId) => {
+      removeCachedImage(queryClient, productId, imageId);
     },
   });
 };

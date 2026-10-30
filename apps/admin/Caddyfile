@@ -30,6 +30,11 @@
 		#   from the browser straight to a presigned URL (artikel 04).
 		#   UPLOAD_ORIGIN, at run time.
 		# - the photos (img-src): IMAGE_ORIGIN, at run time.
+		# - the previews (img-src blob:): a photo chosen for upload is shown,
+		#   and its pixels counted, from an object URL of the file
+		#   (URL.createObjectURL) before a byte leaves the browser. blob:
+		#   URLs are made by this page from files the seller picked; no
+		#   other origin can hand one to it. Only img-src allows them.
 		#
 		# {$VAR} is replaced with the environment variable when Caddy reads
 		# this file at start-up, so one image works against any storage:
@@ -37,7 +42,7 @@
 		# the source is simply missing (uploads and photos are blocked, the
 		# rest works). Each is one origin (scheme, host, port; no path, no
 		# quote), or several separated by spaces.
-		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: {$IMAGE_ORIGIN}; connect-src 'self' {file./etc/caddy/api-origin} {$UPLOAD_ORIGIN}; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: {$IMAGE_ORIGIN}; connect-src 'self' {file./etc/caddy/api-origin} {$UPLOAD_ORIGIN}; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 	}
 }
 

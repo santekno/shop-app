@@ -15,6 +15,7 @@ import { useUpdateProduct } from "../hooks/useProductMutations.ts";
 import { productToFormValues } from "../product-form.ts";
 import { ArchiveProductButton } from "./ArchiveProductButton.tsx";
 import { ProductForm } from "./ProductForm.tsx";
+import { ProductPhotosSection } from "./ProductPhotosSection.tsx";
 import { ProductStatusBadge } from "./ProductStatusBadge.tsx";
 
 /** What another page may hand this one in the history entry's state. */
@@ -53,8 +54,12 @@ const focusPageHeading = () => {
  * nothing else. A save does not need it: the form resets itself to the
  * saved product, new versions included.
  *
- * Photos come in artikel 04, in their own section under the form: a photo
- * belongs to a product that exists, which is why they are not a step.
+ * The photos are their own section under the form (artikel 04), not a
+ * step of it: a photo belongs to a product that exists, and each photo is
+ * saved on its own the moment it is uploaded, while the form waits for
+ * "Simpan". The section reads the same product query, so a refetch while
+ * a photo is processing updates the photos and leaves the form alone. Its
+ * `key` is the product: another product's page starts with no uploads.
  */
 export function ProductEditPage() {
   const { productId = "" } = useParams();
@@ -162,7 +167,13 @@ export function ProductEditPage() {
         />
       )}
 
-      {/* Artikel 04: the product's photos, as their own section here. */}
+      {product !== undefined && (
+        <ProductPhotosSection
+          key={product.id}
+          product={product}
+          dataUpdatedAt={query.dataUpdatedAt}
+        />
+      )}
     </>
   );
 }

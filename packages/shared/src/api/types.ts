@@ -111,6 +111,20 @@ export type AdminProductDetail = Schemas["AdminProductDetail"];
 export type AdminVariant = Schemas["AdminVariant"];
 /** A product photo as the dashboard sees it, pending uploads included. */
 export type AdminProductImage = Schemas["AdminProductImage"];
+export type AdminProductImageDetail = Schemas["AdminProductImageDetail"];
+/** Where a photo is: pending_upload, processing, ready or failed. */
+export type AdminProductImageStatus = AdminProductImage["status"];
+/** The file types a photo may be uploaded as: JPEG, PNG or WebP. */
+export type ProductImageContentType = AdminProductImage["content_type"];
+/** The body of POST …/images/uploads: the file's type and exact size. */
+export type ImageUploadRequest = Schemas["ImageUploadRequest"];
+/** The pending photo and the presigned request that uploads its file. */
+export type ImageUpload = Schemas["ImageUpload"];
+export type ImageUploadDetail = Schemas["ImageUploadDetail"];
+/** The presigned request: method, URL, headers, and when it stops working. */
+export type ImageUploadTicket = ImageUpload["upload"];
+/** The body of POST …/images/{image_id}/confirm: the photo's alt text. */
+export type ImageConfirmRequest = Schemas["ImageConfirmRequest"];
 /** The body of POST and PUT /v1/admin/products: the whole product. */
 export type ProductWrite = Schemas["ProductWrite"];
 /** One variant of a ProductWrite: `id` and `version` only for an existing one. */

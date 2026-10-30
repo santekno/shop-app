@@ -3,7 +3,13 @@ import type { EndpointOptions } from "./catalog.ts";
 import type {
   AdminProduct,
   AdminProductDetail,
+  AdminProductImage,
+  AdminProductImageDetail,
   AdminProductTable,
+  ImageConfirmRequest,
+  ImageUpload,
+  ImageUploadDetail,
+  ImageUploadRequest,
   ListAdminProductsQuery,
   ProductWrite,
 } from "./types.ts";
@@ -119,4 +125,82 @@ export const archiveProduct = async (
   { signal }: EndpointOptions = {},
 ): Promise<void> => {
   await api.request<undefined>(productPath(id), { method: "DELETE", signal });
+};
+
+/** The path of one photo of one product, both IDs escaped. */
+const imagePath = (productId: string, imageId: string) =>
+  `${productPath(productId)}/images/${encodeURIComponent(imageId)}`;
+
+/**
+ * POST /v1/admin/products/{id}/images/uploads: records a pending photo
+ * (`pending_upload`) and returns it with a presigned request that uploads
+ * its file straight to the storage, never through the API (ADR 0007).
+ *
+ * The request works for 15 minutes (`upload.expires_at`), only with
+ * exactly the declared `content_type` and `size_bytes`: both are in the
+ * signature, as the `Content-Type` and `Content-Length` headers. Send the
+ * file with `upload.method`, `upload.url` and `upload.headers`, then call
+ * confirmProductImage.
+ *
+ * Throws VALIDATION_FAILED (a type other than JPEG, PNG or WebP, a size
+ * above 5 MiB), NOT_FOUND, IMAGE_LIMIT_REACHED (`details.max`: 10 photos
+ * per product, pending ones included) or STORAGE_DISABLED (503). Never
+ * retried: a second call after a lost answer would record a second
+ * pending photo.
+ */
+export const startProductImageUpload = async (
+  api: ApiClient,
+  productId: string,
+  body: ImageUploadRequest,
+  { signal }: EndpointOptions = {},
+): Promise<ImageUpload> => {
+  const response = await api.request<ImageUploadDetail>(
+    `${productPath(productId)}/images/uploads`,
+    { method: "POST", body, signal },
+  );
+  return response.data;
+};
+
+/**
+ * POST /v1/admin/products/{id}/images/{image_id}/confirm: tells the API
+ * the file is in the storage. The API checks what arrived (the declared
+ * size and type, the first bytes really that format, at most 6000 pixels
+ * a side and 24 megapixels) and answers the photo, now `processing`: the
+ * worker makes its 400 and 800 pixel JPEGs, and then it is `ready`.
+ * Confirming a confirmed photo answers it again, so a confirm whose answer
+ * was lost may be sent again.
+ *
+ * Throws UPLOAD_MISSING (409: nothing was uploaded yet), UPLOAD_INVALID
+ * (422, `details.reason`: the file and the pending photo were deleted;
+ * start a new upload), NOT_FOUND or STORAGE_DISABLED.
+ */
+export const confirmProductImage = async (
+  api: ApiClient,
+  productId: string,
+  imageId: string,
+  body: ImageConfirmRequest = { alt: "" },
+  { signal }: EndpointOptions = {},
+): Promise<AdminProductImage> => {
+  const response = await api.request<AdminProductImageDetail>(
+    `${imagePath(productId, imageId)}/confirm`,
+    { method: "POST", body, signal },
+  );
+  return response.data;
+};
+
+/**
+ * DELETE /v1/admin/products/{id}/images/{image_id}: deletes the photo, in
+ * any status (a pending upload too), and its files. Throws NOT_FOUND when
+ * there is no such photo (already deleted, or an upload the API refused).
+ */
+export const deleteProductImage = async (
+  api: ApiClient,
+  productId: string,
+  imageId: string,
+  { signal }: EndpointOptions = {},
+): Promise<void> => {
+  await api.request<undefined>(imagePath(productId, imageId), {
+    method: "DELETE",
+    signal,
+  });
 };
