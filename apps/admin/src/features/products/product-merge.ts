@@ -439,8 +439,14 @@ export interface ConflictCause {
    * - "variant": VERSION_CONFLICT with `details.variant_id`. Only that
    *   variant's stock can have moved (a checkout, a cancel, a stock
    *   adjustment): anything else would have moved the product's version.
-   * - "archived": VARIANT_ARCHIVED with `details.variant_id`. The form
-   *   still holds a variant that was archived since.
+   * - "archived": VARIANT_ARCHIVED with `details.variant_id`. Not how a
+   *   concurrent archive shows up: every archive goes through a save,
+   *   which bumps the product's version, so a form that loaded the
+   *   product before another admin archived a variant gets "product"
+   *   first. This is the API's fallback for a body that sends the current
+   *   product version with a variant that was already archived when the
+   *   variants were read (a body built from an older copy of them). The
+   *   review merges it like the others: the variant is dropped.
    */
   kind: "product" | "variant" | "archived";
   /** `details.variant_id`, the variant the API named first ("variant", "archived"). */

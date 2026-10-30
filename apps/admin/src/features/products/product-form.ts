@@ -131,11 +131,11 @@ export interface ProductApiErrors {
   /** For the whole form, when no field fits. */
   form?: string;
   /**
-   * The product changed on the server since the form loaded it: 409
-   * VERSION_CONFLICT (the product or one variant), or 409 VARIANT_ARCHIVED
-   * (a variant the form still holds was archived by someone else). The
-   * form fetches the product again and shows what changed (artikel 05)
-   * instead of a message.
+   * The form's copy is out of date: 409 VERSION_CONFLICT (the product, or
+   * one variant), or 409 VARIANT_ARCHIVED (the form sends a variant that
+   * is archived; a concurrent archive is a product VERSION_CONFLICT, this
+   * is the API's fallback). The form fetches the product again and shows
+   * what changed (artikel 05) instead of a message.
    */
   conflict: boolean;
 }

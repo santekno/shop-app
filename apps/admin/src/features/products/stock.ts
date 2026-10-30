@@ -84,7 +84,11 @@ export type StockChangeResult =
   | { kind: "saved"; variant: AdminVariant; from: number; to: number }
   /** `set`, and the stock was no longer `expected` (STOCK_CHANGED). */
   | { kind: "moved"; expected: number; current: number; wanted: number }
-  /** `add` would leave 0 to the maximum (STOCK_OUT_OF_RANGE). */
+  /**
+   * `add` would take the stock below 0, or raise it above the maximum
+   * (STOCK_OUT_OF_RANGE). Only an increase is capped: a stock a cancellation
+   * restored above the maximum can still be lowered.
+   */
   | { kind: "out-of-range"; current: number; to: number }
   /** The variant is not sellable any more (VARIANT_ARCHIVED, or NOT_FOUND). */
   | { kind: "gone" };

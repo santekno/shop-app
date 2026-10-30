@@ -23,8 +23,10 @@ export interface NavItem {
 /**
  * The sidebar, as data: the order on screen, the path, the name and what
  * the section is for (the overview page lists them too). The
- * labels match the routes' breadcrumbs (routes.tsx). Artikel 08 adds which
- * role may see each item.
+ * labels match the routes' breadcrumbs (routes.tsx). Every item is for
+ * both staff roles: no section is admin-only (artikel 08: the one
+ * admin-only action, cancelling an order, is a button, not a page). An
+ * admin-only page would filter its item with the same `can` as its route.
  */
 export const NAV_ITEMS: readonly NavItem[] = [
   {

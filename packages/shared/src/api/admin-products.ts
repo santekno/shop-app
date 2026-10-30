@@ -108,7 +108,12 @@ export const createProduct = async (
  * - VERSION_CONFLICT with `details.variant_id`: a variant changed since
  *   (a checkout, a cancel, a stock adjustment), the first stale one;
  * - VARIANT_ARCHIVED (`details.variant_id`): the body names a variant
- *   that was archived since it was loaded.
+ *   that is archived. A fallback, not the race: every archive goes
+ *   through a save, which bumps the product's version, so a form that
+ *   loaded the product before another admin archived a variant gets
+ *   VERSION_CONFLICT with `details.product_id` first. This one answers a
+ *   body that carries the current product version with a variant that
+ *   was already archived when the variants were read.
  */
 export const updateProduct = async (
   api: ApiClient,
