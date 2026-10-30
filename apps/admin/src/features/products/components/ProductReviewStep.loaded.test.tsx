@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { CATEGORY_ID, adminVariant, category } from "@/test/fixtures.ts";
 import { categoriesHandler } from "@/test/msw/products.ts";
 import { server } from "@/test/msw/server.ts";
-import { ProductFormHarness } from "@/test/products-form.tsx";
+import { ProductFormHarness } from "@/test/products-form-conflict.tsx";
 import { formValues } from "@/test/products-stock.ts";
 import { renderRoute } from "@/test/render.tsx";
 import { plain } from "@/test/text.ts";

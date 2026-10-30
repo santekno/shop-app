@@ -3,7 +3,7 @@ import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { adminVariant } from "@/test/fixtures.ts";
-import { ProductFormHarness } from "@/test/products-form.tsx";
+import { ProductFormHarness } from "@/test/products-form-conflict.tsx";
 import { formValues } from "@/test/products-stock.ts";
 import { renderRoute } from "@/test/render.tsx";
 import { plain } from "@/test/text.ts";
