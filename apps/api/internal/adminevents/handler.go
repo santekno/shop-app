@@ -122,10 +122,14 @@ func (h *Handler) Stream(w http.ResponseWriter, r *http.Request) {
 	defer func() { _ = sub.Close() }()
 
 	s := &stream{w: w, rc: http.NewResponseController(w), deadline: h.heartbeat + WriteTimeout}
-	// The server's ReadTimeout would end the stream (it cancels the
-	// request's context once it passes) and its WriteTimeout would cut it
-	// off; this one response lifts both. The request has no body to read,
-	// and every write sets its own deadline instead.
+	// The server's WriteTimeout would cut the stream off, so every write
+	// sets its own deadline instead (stream.write). Its ReadTimeout does
+	// not reach the stream: for a request without a body, HTTP/1 clears
+	// the read deadline before the handler runs (the background read that
+	// notices a client hanging up runs without one), and HTTP/2 applies it
+	// only to the request body. That is net/http's internal behaviour, not
+	// its documented contract, so the stream lifts the read deadline
+	// itself too; nothing reads the request after this point.
 	if err := s.rc.SetReadDeadline(time.Time{}); err != nil && !errors.Is(err, http.ErrNotSupported) {
 		httpapi.Error(w, r, fmt.Errorf("lift the read deadline: %w", err))
 		return
