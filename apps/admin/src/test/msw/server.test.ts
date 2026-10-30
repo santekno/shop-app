@@ -1,5 +1,8 @@
+/// <reference types="node" />
 // The safety net of every test: a request no handler answers fails the
 // test that sent it, even when the code under test swallows the error.
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import { http, HttpResponse } from "msw";
 import { API_URL } from "./http.ts";
@@ -23,6 +26,28 @@ describe("the MSW server", () => {
   it("records an unanswered request even when the caller swallows the failure", async () => {
     await fetch(url, { method: "POST" }).catch(() => undefined);
     expect(takeUnhandledRequests()).toEqual([`POST ${url}`]);
+  });
+
+  it("never lets an unanswered request through to a real server", async () => {
+    let reached = 0;
+    const real = createServer((_request, response) => {
+      reached += 1;
+      response.end("real");
+    });
+    await new Promise<void>((resolve) => {
+      real.listen(0, "127.0.0.1", resolve);
+    });
+    const { port } = real.address() as AddressInfo;
+    const realUrl = `http://127.0.0.1:${String(port)}/v1/admin/orders`;
+
+    try {
+      await expect(fetch(realUrl)).rejects.toThrow();
+    } finally {
+      real.close();
+    }
+
+    expect(reached).toBe(0);
+    expect(takeUnhandledRequests()).toEqual([`GET ${realUrl}`]);
   });
 
   it("records nothing for a request a handler answers", async () => {
