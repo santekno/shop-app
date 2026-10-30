@@ -29,9 +29,9 @@ func TestAdminVersion_Conflict(t *testing.T) {
 		return adminVariantOut{}
 	}
 	save := func(ap adminProductOut, stock int) response {
-		body := productJSON(t, ap.CategoryID, ap.Slug, "active",
+		body := asVersion(t, productJSON(t, ap.CategoryID, ap.Slug, "active",
 			withVersion(variantJSON(m, "VS-M", "M", 50000, stock), variantOf(ap, m).Version),
-			withVersion(variantJSON(l, "VS-L", "L", 60000, 10), variantOf(ap, l).Version))
+			withVersion(variantJSON(l, "VS-L", "L", 60000, 10), variantOf(ap, l).Version)), ap.Version)
 		return sh.send(t, http.MethodPut, "/v1/admin/products/"+p.ID, body)
 	}
 

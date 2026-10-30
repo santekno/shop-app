@@ -82,7 +82,7 @@ func TestProductUpdatedAt_MovesOnAdminSavesOnly(t *testing.T) {
 		}
 	}
 	saved := sh.send(t, http.MethodPut, "/v1/admin/products/"+p.ID,
-		productJSON(t, admin.CategoryID, p.Slug, "active", withVersion(variantJSON(m, "LM-M", "M", 55000, 10), version)))
+		asVersion(t, productJSON(t, admin.CategoryID, p.Slug, "active", withVersion(variantJSON(m, "LM-M", "M", 55000, 10), version)), admin.Version))
 	if saved.Status != http.StatusOK {
 		t.Fatalf("admin PUT = %d: %s", saved.Status, saved.Body)
 	}

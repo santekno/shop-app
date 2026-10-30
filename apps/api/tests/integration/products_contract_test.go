@@ -60,6 +60,7 @@ type adminProductOut struct {
 	Description string            `json:"description"`
 	Status      string            `json:"status"`
 	PriceFrom   *moneyOut         `json:"price_from"`
+	Version     int32             `json:"version"`
 	Variants    []adminVariantOut `json:"variants"`
 	CreatedAt   time.Time         `json:"created_at"`
 	UpdatedAt   time.Time         `json:"updated_at"`

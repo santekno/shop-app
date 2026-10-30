@@ -40,7 +40,7 @@ func reverseSave(t *testing.T, form adminProductOut, stock int, skuSuffix string
 		w["weight_grams"] = v.WeightGrams
 		body = append(body, w)
 	}
-	return productJSON(t, form.CategoryID, form.Slug, "active", body...)
+	return asVersion(t, productJSON(t, form.CategoryID, form.Slug, "active", body...), form.Version)
 }
 
 // trySave sends the admin PUT of body.
