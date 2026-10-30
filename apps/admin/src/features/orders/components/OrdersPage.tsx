@@ -1,4 +1,5 @@
 import { useSearchParams } from "react-router";
+import { focusPageHeading } from "@/app/useRouteFocus.ts";
 import { PageHeader } from "@/components/PageHeader.tsx";
 import { Skeleton } from "@/components/ui/Skeleton.tsx";
 import { EmptyState, ErrorState } from "@/components/ui/StatusMessage.tsx";
@@ -46,6 +47,7 @@ export function OrdersPage() {
         <ErrorState
           error={query.error}
           onRetry={() => {
+            focusPageHeading();
             void query.refetch();
           }}
         />

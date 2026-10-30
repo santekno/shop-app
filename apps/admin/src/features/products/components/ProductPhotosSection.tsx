@@ -47,6 +47,11 @@ const tileLabel = (tile: PhotoTileData, index: number) =>
  * continues from the photos. The heading is focused in an effect: effects
  * of children run first, so the dialog has closed (and returned the focus
  * to the vanished button) by then.
+ *
+ * The same for "Unggah ulang", which replaces its tile with a new upload,
+ * and for "Periksa lagi", which closes the "lebih lama dari biasanya"
+ * alert it is in. (A tile's "Coba lagi" keeps its element: React turns
+ * that button into the upload's "Batalkan", and the focus stays on it.)
  */
 export function ProductPhotosSection({
   product,
@@ -96,7 +101,14 @@ export function ProductPhotosSection({
             Foto masih diproses, lebih lama dari biasanya. Pemrosesan tetap
             berjalan di server; periksa lagi sebentar lagi.
           </p>
-          <Button variant="outline" size="sm" onClick={poll.check}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              poll.check();
+              focusHeading();
+            }}
+          >
             Periksa lagi
           </Button>
         </div>
@@ -128,6 +140,7 @@ export function ProductPhotosSection({
                 onRetry={retry}
                 onReupload={(key) => {
                   void reupload(key);
+                  focusHeading();
                 }}
               />
             );

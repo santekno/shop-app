@@ -4,6 +4,7 @@ import { Printer } from "lucide-react";
 import { Link, useParams } from "react-router";
 import { isApiError } from "@goshop/shared";
 import type { Order } from "@goshop/shared";
+import { focusPageHeading } from "@/app/useRouteFocus.ts";
 import { PageHeader } from "@/components/PageHeader.tsx";
 import { Button } from "@/components/ui/Button.tsx";
 import { Card } from "@/components/ui/Card.tsx";
@@ -89,6 +90,7 @@ export function OrderDetailPage() {
           <ErrorState
             error={query.error}
             onRetry={() => {
+              focusPageHeading();
               void query.refetch();
             }}
           />

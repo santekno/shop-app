@@ -165,7 +165,15 @@ export function ProductConflictReview({
       {state.status === "loading" ? (
         <LoadingState>Memuat data terbaru dari server…</LoadingState>
       ) : state.status === "error" ? (
-        <ErrorState error={state.error} onRetry={onRetry} />
+        <ErrorState
+          error={state.error}
+          onRetry={() => {
+            // "Coba lagi" goes with the error when the review is loading
+            // again: the focus goes to the heading first, which stays.
+            headingRef.current?.focus();
+            onRetry();
+          }}
+        />
       ) : (
         <ConflictReviewBody
           merge={state.merge}

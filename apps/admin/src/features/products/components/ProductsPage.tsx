@@ -1,5 +1,6 @@
 import { Plus } from "lucide-react";
 import { Link } from "react-router";
+import { focusPageHeading } from "@/app/useRouteFocus.ts";
 import { PageHeader } from "@/components/PageHeader.tsx";
 import { Button } from "@/components/ui/Button.tsx";
 import { Skeleton } from "@/components/ui/Skeleton.tsx";
@@ -57,11 +58,16 @@ export function ProductsPage() {
         a quick stock change invalidating the table): the rows on screen
         are still the answer for these filters, so they stay, with a line
         saying they may be behind.
+
+        Either "Coba lagi" disappears under the focus: the card at once (a
+        refetch without data is "loading" again), the line once the
+        refetch works. So the focus goes to the page's heading first.
       */}
       {query.isError && data === undefined && (
         <ErrorState
           error={query.error}
           onRetry={() => {
+            focusPageHeading();
             void query.refetch();
           }}
         />
@@ -79,6 +85,7 @@ export function ProductsPage() {
             variant="outline"
             size="sm"
             onClick={() => {
+              focusPageHeading();
               void query.refetch();
             }}
           >

@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { Button } from "@/components/ui/Button.tsx";
 import { cn } from "@/lib/utils.ts";
 import type { ConnectionStatus as Status } from "../connection.ts";
@@ -80,9 +81,20 @@ const DOT: Record<Tone, string> = {
 export function ConnectionStatus() {
   const { status, retryNow } = useOrderEventsContext();
   const view = VIEWS[status];
+  const statusRef = useRef<HTMLParagraphElement>(null);
   return (
     <div className="flex items-center gap-2 text-xs text-muted-foreground">
-      <p className="flex items-center gap-1.5" title={view.detail}>
+      {/*
+        tabIndex={-1}: "Coba lagi" gives this line the focus before it
+        retries, because the button goes once the feed is back ("Langsung"),
+        and the focus would fall to <body>. Tab never stops here.
+      */}
+      <p
+        ref={statusRef}
+        tabIndex={-1}
+        className="flex items-center gap-1.5"
+        title={view.detail}
+      >
         <span
           aria-hidden="true"
           className={cn("size-2 shrink-0 rounded-full", DOT[view.tone])}
@@ -96,7 +108,15 @@ export function ConnectionStatus() {
         )}
       </p>
       {view.canRetry && (
-        <Button variant="link" size="sm" className="text-xs" onClick={retryNow}>
+        <Button
+          variant="link"
+          size="sm"
+          className="text-xs"
+          onClick={() => {
+            statusRef.current?.focus();
+            retryNow();
+          }}
+        >
           Coba lagi
           <span className="sr-only"> menyambung notifikasi</span>
         </Button>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { isApiError } from "@goshop/shared";
-import { MAIN_ID } from "@/app/useRouteFocus.ts";
+import { focusPageHeading } from "@/app/useRouteFocus.ts";
 import { PageHeader } from "@/components/PageHeader.tsx";
 import { Button } from "@/components/ui/Button.tsx";
 import {
@@ -32,14 +32,6 @@ const noticeIn = (state: unknown): string | undefined =>
   typeof state.notice === "string"
     ? state.notice
     : undefined;
-
-/** The page's <h1>, after its content changed under the focus. */
-const focusPageHeading = () => {
-  document
-    .getElementById(MAIN_ID)
-    ?.querySelector<HTMLElement>("h1")
-    ?.focus({ preventScroll: true });
-};
 
 /**
  * /produk/:productId: one product, loaded with GET /v1/admin/products/{id}
@@ -151,6 +143,9 @@ export function ProductEditPage() {
           <ErrorState
             error={query.error}
             onRetry={() => {
+              // The error turns into "Memuat produk…", and its button
+              // with it.
+              focusPageHeading();
               void query.refetch();
             }}
           />

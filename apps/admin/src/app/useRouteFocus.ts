@@ -10,6 +10,20 @@ import { useLocation } from "react-router";
 export const MAIN_ID = "konten";
 
 /**
+ * Gives the page's <h1> the focus, when what was under the focus is about
+ * to disappear: a "Coba lagi" whose error turns into "Memuat…", or a form
+ * that started over. Without it the focus falls to <body>, and a keyboard
+ * or screen reader user is sent back to the top of the document. Call it
+ * before the change: the heading stays, so the focus has somewhere to be.
+ */
+export const focusPageHeading = () => {
+  document
+    .getElementById(MAIN_ID)
+    ?.querySelector<HTMLElement>("h1")
+    ?.focus({ preventScroll: true });
+};
+
+/**
  * Moves the keyboard focus to the new page's <h1> after each navigation to
  * another path, or to <main> while the page has no heading yet.
  *

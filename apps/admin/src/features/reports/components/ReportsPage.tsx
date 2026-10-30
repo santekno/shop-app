@@ -1,5 +1,6 @@
 import { memo, useId, useMemo, useState } from "react";
 import type { SalesReport } from "@goshop/shared";
+import { focusPageHeading } from "@/app/useRouteFocus.ts";
 import { PageHeader } from "@/components/PageHeader.tsx";
 import { Button } from "@/components/ui/Button.tsx";
 import { Card } from "@/components/ui/Card.tsx";
@@ -63,11 +64,16 @@ export function ReportsPage() {
         in the background (an order event, a reconnect, the window regaining
         the focus) that failed: the report on screen is still a true answer
         for its range, so it stays, with a line saying it may be behind.
+
+        Either "Coba lagi" disappears under the focus: the card at once (a
+        refetch without data is "loading" again), the line once the
+        refetch works. So the focus goes to the page's heading first.
       */}
       {report.isError && data === undefined && (
         <ErrorState
           error={report.error}
           onRetry={() => {
+            focusPageHeading();
             void report.refetch();
           }}
         />
@@ -85,6 +91,7 @@ export function ReportsPage() {
             variant="outline"
             size="sm"
             onClick={() => {
+              focusPageHeading();
               void report.refetch();
             }}
           >

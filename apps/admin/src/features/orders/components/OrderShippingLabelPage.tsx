@@ -2,7 +2,7 @@ import { ArrowLeft, Printer } from "lucide-react";
 import { Link, useParams } from "react-router";
 import { isApiError } from "@goshop/shared";
 import type { Order } from "@goshop/shared";
-import { MAIN_ID } from "@/app/useRouteFocus.ts";
+import { MAIN_ID, focusPageHeading } from "@/app/useRouteFocus.ts";
 import { Button } from "@/components/ui/Button.tsx";
 import {
   EmptyState,
@@ -87,6 +87,7 @@ export function OrderShippingLabelPage() {
           <ErrorState
             error={query.error}
             onRetry={() => {
+              focusPageHeading();
               void query.refetch();
             }}
           />

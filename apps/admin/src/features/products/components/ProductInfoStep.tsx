@@ -29,6 +29,7 @@ export function ProductInfoStep({ mode }: { mode: ProductFormMode }) {
   const {
     setValue,
     getFieldState,
+    setFocus,
     control,
     formState: { errors, dirtyFields },
   } = useFormContext<ProductInput, unknown, ProductWrite>();
@@ -90,7 +91,12 @@ export function ProductInfoStep({ mode }: { mode: ProductFormMode }) {
               <Button
                 variant="link"
                 size="sm"
-                onClick={() => void categories.refetch()}
+                onClick={() => {
+                  // This hint (and its button) goes while the categories
+                  // load again: the focus goes to the select it is about.
+                  setFocus("category_id");
+                  void categories.refetch();
+                }}
               >
                 Coba lagi
               </Button>

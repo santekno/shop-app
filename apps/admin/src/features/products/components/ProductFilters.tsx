@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useId, useRef } from "react";
 import { Button } from "@/components/ui/Button.tsx";
 import { Label } from "@/components/ui/Label.tsx";
 import { NativeSelect } from "@/components/ui/NativeSelect.tsx";
@@ -45,6 +45,7 @@ export function ProductFilters({
   const categoryId = useId();
   const lowStockId = useId();
   const categories = useCategoryOptions();
+  const categorySelect = useRef<HTMLSelectElement>(null);
   const options = categories.data ?? [];
   // A category from a shared link that is not in the list (deleted, or a
   // typo): keep it selectable, so the menu does not claim "Semua kategori"
@@ -93,6 +94,7 @@ export function ProductFilters({
       <div className="grid gap-1.5">
         <Label htmlFor={categoryId}>Kategori</Label>
         <NativeSelect
+          ref={categorySelect}
           id={categoryId}
           value={params.categoryId ?? ""}
           aria-describedby={
@@ -125,7 +127,12 @@ export function ProductFilters({
             <Button
               variant="link"
               size="sm"
-              onClick={() => void categories.refetch()}
+              onClick={() => {
+                // The error line (and this button) gives way to
+                // "Memuat kategori…" in the list: the focus goes to the list.
+                categorySelect.current?.focus();
+                void categories.refetch();
+              }}
             >
               Coba lagi
             </Button>
