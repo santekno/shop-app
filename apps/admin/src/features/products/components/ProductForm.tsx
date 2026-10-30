@@ -19,12 +19,8 @@ import {
   stepOfField,
   toProductApiErrors,
 } from "../product-form.ts";
-import {
-  applyMerge,
-  conflictVariantId,
-  mergeProduct,
-} from "../product-merge.ts";
-import type { MergeChoice } from "../product-merge.ts";
+import { applyMerge, conflictCause, mergeProduct } from "../product-merge.ts";
+import type { ConflictCause, MergeChoice } from "../product-merge.ts";
 import { ProductConflictReview } from "./ProductConflictReview.tsx";
 import type { ConflictReviewState } from "./ProductConflictReview.tsx";
 import { ProductInfoStep } from "./ProductInfoStep.tsx";
@@ -47,7 +43,8 @@ interface ProductFormProps {
   onSaved: (product: AdminProduct) => void;
   /**
    * Edit only: fetch the product as the server has it now. Called after a
-   * 409 VERSION_CONFLICT, to show what changed (artikel 05).
+   * 409 (VERSION_CONFLICT, VARIANT_ARCHIVED), to show what changed
+   * (artikel 05).
    */
   loadLatest?: () => Promise<AdminProduct>;
   /**
@@ -61,10 +58,8 @@ interface ProductFormProps {
   cancelTo: string;
 }
 
-/** The conflict review, with what it needs to fetch again. */
-type ConflictReview = ConflictReviewState & {
-  rejectedVariantId: string | undefined;
-};
+/** The conflict review, with why the save was refused. */
+type ConflictReview = ConflictReviewState & { cause: ConflictCause };
 
 /** A product's form values as one comparable string. */
 const valuesKey = (values: ProductInput) => JSON.stringify(values);
@@ -130,7 +125,7 @@ export function ProductForm({
   // What the form started from: the loaded product, or the last product
   // it was reset to (a save, a merge). The schema's input type, partial
   // only in React Hook Form's typing: every reset below passes a whole
-  // product. Each variant's `version` is read from here.
+  // product. The product's `version` and each variant's are read from here.
   const base = loaded as ProductInput;
 
   const [step, setStep] = useState(0);
@@ -221,7 +216,7 @@ export function ProductForm({
       setError("root.server", { type: "server", message: result.form });
     }
     if (result.conflict) {
-      void openReview(conflictVariantId(error));
+      void openReview(conflictCause(error));
       return;
     }
     if (result.fields.length > 0) {
@@ -242,23 +237,23 @@ export function ProductForm({
    * fetch it as it is now, and show the three copies side by side (what
    * the form loaded, what the seller changed, what the server has).
    */
-  const openReview = async (rejectedVariantId: string | undefined) => {
+  const openReview = async (cause: ConflictCause) => {
     if (loadLatest === undefined) return;
-    setReview({ status: "loading", rejectedVariantId });
+    setReview({ status: "loading", cause });
     try {
       const now = await loadLatest();
       setReview({
         status: "ready",
-        rejectedVariantId,
+        cause,
         merge: mergeProduct({
           base,
           mine: getValues(),
           latest: productToFormValues(now),
-          rejectedVariantId,
+          rejectedVariantId: cause.variantId,
         }),
       });
     } catch (error) {
-      setReview({ status: "error", error, rejectedVariantId });
+      setReview({ status: "error", error, cause });
     }
   };
 
@@ -299,7 +294,8 @@ export function ProductForm({
       // next render).
       if (mode === "create") allowNavigation();
       // The saved product as the new starting point: not dirty any more,
-      // and an edit form holds the variants' new versions for its next PUT.
+      // and an edit form holds the new versions (the product's, the
+      // variants') for its next PUT.
       reset(productToFormValues(saved));
       onSaved(saved);
     } catch (error) {
@@ -347,7 +343,8 @@ export function ProductForm({
         <Card>
           <ProductConflictReview
             state={review}
-            onRetry={() => void openReview(review.rejectedVariantId)}
+            cause={review.cause}
+            onRetry={() => void openReview(review.cause)}
             onKeepMine={keepMine}
             onDiscard={discardMine}
           />

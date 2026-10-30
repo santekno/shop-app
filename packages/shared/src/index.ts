@@ -84,6 +84,7 @@ export {
 } from "./api/checkout.ts";
 
 export {
+  adjustVariantStock,
   archiveProduct,
   confirmProductImage,
   createProduct,
@@ -277,6 +278,9 @@ export type {
   User,
   UserDetail,
   VariantWrite,
+  // Bab 12 artikel 05: one variant's stock adjustment.
+  AdminVariantDetail,
+  StockAdjustment,
   WebSession,
   WebSessionDetail,
   components,

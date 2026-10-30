@@ -75,6 +75,10 @@ export const SERVER_ERROR_CODES = [
   "UPLOAD_INVALID",
   // The admin dashboard's order event stream (Bab 12).
   "TOO_MANY_STREAMS",
+  // Stock and variants in the admin dashboard (Bab 12).
+  "VARIANT_ARCHIVED",
+  "STOCK_OUT_OF_RANGE",
+  "STOCK_CHANGED",
 ] as const;
 
 /**

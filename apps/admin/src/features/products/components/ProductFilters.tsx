@@ -1,5 +1,4 @@
 import { useId } from "react";
-import { LOW_STOCK_THRESHOLD } from "@goshop/shared";
 import { Button } from "@/components/ui/Button.tsx";
 import { Label } from "@/components/ui/Label.tsx";
 import { NativeSelect } from "@/components/ui/NativeSelect.tsx";
@@ -18,6 +17,11 @@ interface ProductFiltersProps {
     change: Partial<ProductTableParams>,
     options?: { replace?: boolean },
   ) => void;
+  /**
+   * The API's `low_stock_threshold`, from the table's last response;
+   * `undefined` until the first one arrives (the label then has no number).
+   */
+  lowStockThreshold?: number | undefined;
 }
 
 /** Indents a child category in a native <select>, which ignores CSS padding. */
@@ -32,7 +36,11 @@ const indent = (depth: number) => "   ".repeat(depth);
  * only renders what came back; the filters live in the URL, next to the
  * sort and the page, and reach the API through the query key.
  */
-export function ProductFilters({ params, onChange }: ProductFiltersProps) {
+export function ProductFilters({
+  params,
+  onChange,
+  lowStockThreshold,
+}: ProductFiltersProps) {
   const statusId = useId();
   const categoryId = useId();
   const lowStockId = useId();
@@ -137,7 +145,8 @@ export function ProductFilters({ params, onChange }: ProductFiltersProps) {
             className="size-4 accent-primary"
           />
           <Label htmlFor={lowStockId} className="whitespace-nowrap">
-            Stok menipis (≤ {LOW_STOCK_THRESHOLD})
+            Stok menipis
+            {lowStockThreshold !== undefined && ` (≤ ${lowStockThreshold})`}
           </Label>
         </div>
         {hasActiveFilters(params) && (

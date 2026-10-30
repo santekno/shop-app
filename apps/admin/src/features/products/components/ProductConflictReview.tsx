@@ -18,6 +18,7 @@ import {
   serverChangeCount,
 } from "../product-merge.ts";
 import type {
+  ConflictCause,
   MergeChoice,
   MergeField,
   ProductMerge,
@@ -33,6 +34,8 @@ export type ConflictReviewState =
 
 interface ProductConflictReviewProps {
   state: ConflictReviewState;
+  /** Why the API refused the save: the product, one variant, an archived variant. */
+  cause: ConflictCause;
   /** Fetch the product again (after a failed fetch). */
   onRetry: () => void;
   /** Put the seller's changes on top of the latest product, as chosen. */
@@ -57,9 +60,25 @@ const FIELD_LABELS: Record<MergeField["field"], string> = {
 const DESCRIPTION_PREVIEW = 120;
 
 /**
+ * What happened on the server, by the 409's cause. The API checks the
+ * product's version first, so a conflict on one variant means only its
+ * stock moved: any admin save would have moved the product's version.
+ */
+const CAUSE_TEXT: Record<ConflictCause["kind"], string> = {
+  product:
+    "Sementara Anda mengubah formulir, admin lain menyimpan atau mengarsipkan produk ini: isiannya, harganya, atau daftar variannya (varian ditambah atau diarsipkan).",
+  variant:
+    "Sementara Anda mengubah formulir, stok varian di bawah berubah di server: pembelian menguranginya, pesanan yang dibatalkan mengembalikannya, atau stok diubah lewat panel Stok.",
+  archived:
+    "Sementara Anda mengubah formulir, varian yang masih ada di formulir Anda diarsipkan di server, jadi tidak dapat disimpan lagi.",
+};
+
+/**
  * After a save was refused because the product changed on the server
- * (409 VERSION_CONFLICT): what changed, next to what the seller changed,
- * and two ways on.
+ * (409 VERSION_CONFLICT on the product or on one variant, or
+ * VARIANT_ARCHIVED): what changed, next to what the seller changed, and
+ * two ways on. The opening sentence says which, from `cause`; everything
+ * else is the same merge.
  *
  * - "Terapkan perubahan saya ke data terbaru": the seller's changes on top
  *   of the product as the server has it now. What only the server changed
@@ -79,6 +98,7 @@ const DESCRIPTION_PREVIEW = 120;
  */
 export function ProductConflictReview({
   state,
+  cause,
   onRetry,
   onKeepMine,
   onDiscard,
@@ -190,11 +210,9 @@ export function ProductConflictReview({
           Produk ini berubah sejak Anda membukanya
         </h2>
         <p>
-          <strong>Belum ada yang tersimpan.</strong> Sementara Anda mengubah
-          formulir, produk ini berubah di server: pembelian mengurangi stok,
-          pesanan yang dibatalkan mengembalikannya, atau admin lain
-          menyimpannya. Menyimpan formulir Anda apa adanya akan menimpa
-          perubahan itu, jadi server menolaknya.
+          <strong>Belum ada yang tersimpan.</strong> {CAUSE_TEXT[cause.kind]}{" "}
+          Menyimpan formulir Anda apa adanya akan menimpa perubahan itu, jadi
+          server menolaknya.
         </p>
         <p className="text-sm text-muted-foreground">
           {changes === 0
@@ -282,7 +300,7 @@ const variantNote = (
   switch (variant.state) {
     case "kept":
       return variant.rejected
-        ? "Server menolak penyimpanan karena varian ini."
+        ? "Server menolak penyimpanan karena stok varian ini berubah."
         : undefined;
     case "removed-by-me":
       return variant.fields.some((field) => field.outcome === "theirs")
@@ -296,7 +314,7 @@ const variantNote = (
         latest === undefined
           ? ""
           : ` (${display("price", String(latest.price))}, stok ${display("stock", String(latest.stock))})`;
-      return `Varian ini ditambahkan di server setelah Anda membuka produk${facts}. Ikut disimpan apa adanya; tanpa itu, menyimpan akan mengarsipkannya.`;
+      return `Varian ini ditambahkan admin lain setelah Anda membuka produk${facts}. Varian ini tetap ada dan ikut disimpan apa adanya.`;
     }
     case "new":
       return undefined;

@@ -4,15 +4,20 @@ import { INFO_FIELDS, VARIANT_FIELDS } from "./product-form.ts";
 import type { InfoField } from "./product-form.ts";
 
 /**
- * After a 409 VERSION_CONFLICT (Bab 12 artikel 05): what changed on the
- * server since the form loaded the product, next to what the seller
- * changed, and the form's values with both put together.
+ * After a 409 (Bab 12 artikel 05): what changed on the server since the
+ * form loaded the product, next to what the seller changed, and the
+ * form's values with both put together. Every 409 of a save comes here:
+ * VERSION_CONFLICT on the product (another admin saved or archived it,
+ * maybe adding or archiving variants), VERSION_CONFLICT on one variant (a
+ * checkout, a cancel or a stock adjustment moved its stock), and
+ * VARIANT_ARCHIVED.
  *
  * A three-way merge, the way `git merge` does it, with three copies of
  * the product:
  *
- * - base: what the form loaded (its default values; each variant's
- *   `version` comes from here, which is why the save was refused);
+ * - base: what the form loaded (its default values; the product's
+ *   `version` and each variant's come from here, which is why the save
+ *   was refused);
  * - mine: what the form holds now;
  * - latest: the product as the server has it now, fetched after the 409.
  *
@@ -21,8 +26,8 @@ import type { InfoField } from "./product-form.ts";
  * taken, never written over); changed only by the seller → the seller's;
  * changed by both to the same value → that value; changed by both to
  * different values → a conflict, and the seller chooses. The merged values
- * carry the latest versions, so the next save is checked against the
- * server as it is now.
+ * carry the latest versions (the product's and every variant's), so the
+ * next save is checked against the server as it is now.
  *
  * Every value is compared as the schema would send it ("89.000" and
  * "89000" are one price, " kph-m " is KPH-M), so a reformatted number is
@@ -379,8 +384,8 @@ const resolveField = (
 
 /**
  * The form's values after "keep my changes": the seller's changes on top
- * of the server's product, the conflicts as chosen, and every existing
- * variant with its latest `version`.
+ * of the server's product, the conflicts as chosen, the product's latest
+ * `version`, and every existing variant with its latest `version`.
  *
  * - The seller's variants keep their order; one archived by someone else
  *   is left out (it can no longer be saved: an archived variant cannot be
@@ -422,16 +427,38 @@ export const applyMerge = (
       variants.push(variant.latest);
     }
   }
-  return { ...merge.mine, ...info, variants };
+  return { ...merge.mine, ...info, version: merge.latest.version, variants };
 };
 
+/** Why the API refused the save, as the review explains it. */
+export interface ConflictCause {
+  /**
+   * - "product": VERSION_CONFLICT with `details.product_id`. Another
+   *   admin saved the product (its fields, or added or archived variants)
+   *   or archived it. Checked first by the API.
+   * - "variant": VERSION_CONFLICT with `details.variant_id`. Only that
+   *   variant's stock can have moved (a checkout, a cancel, a stock
+   *   adjustment): anything else would have moved the product's version.
+   * - "archived": VARIANT_ARCHIVED with `details.variant_id`. The form
+   *   still holds a variant that was archived since.
+   */
+  kind: "product" | "variant" | "archived";
+  /** `details.variant_id`, the variant the API named first ("variant", "archived"). */
+  variantId?: string | undefined;
+}
+
 /**
- * The `variant_id` of a 409 VERSION_CONFLICT, when the API named one
- * (`details.variant_id`, the first variant it found stale; there may be
- * more).
+ * The cause of a 409 from PUT /v1/admin/products/{id}. A VERSION_CONFLICT
+ * that names no variant is the product's (`details.product_id`).
  */
-export const conflictVariantId = (error: unknown): string | undefined => {
-  if (!isApiError(error, "VERSION_CONFLICT")) return undefined;
-  const id = error.details.variant_id;
-  return typeof id === "string" ? id : undefined;
+export const conflictCause = (error: unknown): ConflictCause => {
+  if (isApiError(error, "VARIANT_ARCHIVED", "VERSION_CONFLICT")) {
+    const id = error.details.variant_id;
+    const variantId = typeof id === "string" ? id : undefined;
+    if (error.code === "VARIANT_ARCHIVED") {
+      return { kind: "archived", variantId };
+    }
+    if (variantId !== undefined) return { kind: "variant", variantId };
+  }
+  return { kind: "product" };
 };

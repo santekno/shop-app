@@ -42,7 +42,11 @@ export function ProductsPage() {
           </Button>
         }
       />
-      <ProductFilters params={params} onChange={update} />
+      <ProductFilters
+        params={params}
+        onChange={update}
+        lowStockThreshold={data?.low_stock_threshold}
+      />
 
       {query.isPending && <ProductTableSkeleton rows={5} />}
 

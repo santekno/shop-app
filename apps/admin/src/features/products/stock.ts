@@ -1,9 +1,8 @@
-import { VARIANT_STOCK_MAX, stockLevel } from "@goshop/shared";
+import { VARIANT_STOCK_MAX, isApiError, stockLevel } from "@goshop/shared";
 import type {
-  AdminProduct,
   AdminProductRow,
   AdminVariant,
-  ProductWrite,
+  StockAdjustment,
   StockLevel,
 } from "@goshop/shared";
 
@@ -13,15 +12,17 @@ import type {
  *
  * Stock is the one value of a product that changes without anyone in the
  * dashboard touching it: a checkout takes units (Bab 5), a cancelled or
- * expired order gives them back. Each of those writes bumps the variant's
- * `version`, which is how a save from the dashboard finds out (409
- * VERSION_CONFLICT) instead of writing over it.
+ * expired order gives them back, a quick change in the Stok panel adds or
+ * counts. Each of those writes bumps the variant's `version` (never the
+ * product's), which is how a save from the form finds out (409
+ * VERSION_CONFLICT, `details.variant_id`) instead of writing over it.
  */
 
 /**
  * A product row's level, from the API's totals: "out" when its sellable
  * variants have nothing left together, "low" when the API says some
- * variant is at LOW_STOCK_THRESHOLD or fewer (`low_stock`), else "ok".
+ * variant is at the response's `low_stock_threshold` or fewer
+ * (`low_stock`), else "ok".
  */
 export const productStockLevel = (
   row: Pick<AdminProductRow, "stock" | "variant_count" | "low_stock">,
@@ -43,36 +44,13 @@ export const stockSummary = (
 });
 
 /**
- * A product as the server has it, as the body of PUT: every field as it
- * is, every sellable variant with its `id` and the `version` it was read
- * with. Sent unchanged, it changes nothing but the versions; the quick
- * stock change sends it with one stock changed.
- */
-export const productToWrite = (product: AdminProduct): ProductWrite => ({
-  category_id: product.category_id,
-  slug: product.slug,
-  name: product.name,
-  description: product.description,
-  status: product.status,
-  variants: product.variants.map((variant) => ({
-    id: variant.id,
-    version: variant.version,
-    sku: variant.sku,
-    name: variant.name,
-    price: variant.price.amount,
-    stock: variant.stock,
-    weight_grams: variant.weight_grams,
-  })),
-});
-
-/**
  * How the seller changes one variant's stock:
  *
- * - `add`: a difference ("20 masuk", "-2 rusak"), applied to the stock the
- *   server has at the moment of saving. Sales in between are kept: 10
- *   units, 2 sold meanwhile, +20 received is 28.
- * - `set`: a count ("I counted 15"), written as it is, but only if the
- *   stock is still the one the seller saw (`seen`). If a sale or a
+ * - `add`: a difference ("20 masuk", "-2 rusak"), applied by the API to
+ *   the stock as it is when the change runs. Sales in between are kept:
+ *   10 units, 2 sold meanwhile, +20 received is 28.
+ * - `set`: a count ("I counted 15"), written only while the stock is
+ *   still the one the seller saw (`expected`). If a sale or a
  *   cancellation moved it since, the seller decides.
  */
 export type StockChange =
@@ -82,75 +60,82 @@ export type StockChange =
       variantId: string;
       value: number;
       /**
-       * The stock on screen when the seller started. Compared with the
-       * stock, not the version: a price edit in between changes the
-       * version but takes nothing from anyone's count.
+       * The stock on screen when the seller started. The API compares it
+       * with the stock, not the version: a price edit in between changes
+       * the version but takes nothing from anyone's count.
        */
-      seen: { stock: number };
+      expected: number;
     };
 
-/** What the quick change will do with the product as it is now. */
-export type StockPlan =
-  | {
-      kind: "write";
-      body: ProductWrite;
-      variant: AdminVariant;
-      from: number;
-      to: number;
-    }
-  /** `set`, and the stock moved since the seller saw it. */
-  | { kind: "moved"; variant: AdminVariant; seen: number; wanted: number }
-  /** `add` would go below 0 or above the maximum. */
-  | { kind: "out-of-range"; variant: AdminVariant; to: number }
-  /** The variant is not sellable any more (archived by someone else). */
+/**
+ * The body of POST …/variants/{variant_id}/stock-adjustments: `{ delta }`
+ * for a difference, `{ set, expected }` for a count. The API does the
+ * arithmetic and the check in one guarded statement, so nothing is read
+ * first and nothing else of the product is sent.
+ */
+export const toStockAdjustment = (change: StockChange): StockAdjustment =>
+  change.mode === "add"
+    ? { delta: change.amount }
+    : { set: change.value, expected: change.expected };
+
+/** What a quick stock change ended with. */
+export type StockChangeResult =
+  /** Saved: the variant as the API answered it, its stock before and after. */
+  | { kind: "saved"; variant: AdminVariant; from: number; to: number }
+  /** `set`, and the stock was no longer `expected` (STOCK_CHANGED). */
+  | { kind: "moved"; expected: number; current: number; wanted: number }
+  /** `add` would leave 0 to the maximum (STOCK_OUT_OF_RANGE). */
+  | { kind: "out-of-range"; current: number; to: number }
+  /** The variant is not sellable any more (VARIANT_ARCHIVED, or NOT_FOUND). */
   | { kind: "gone" };
 
 /**
- * Decides what a quick stock change does, given the product as the server
- * has it right now (`latest`, fetched just before):
- *
- * - The body is `latest` with one stock changed: the other variants, the
- *   name, the price and the status go back exactly as the server has
- *   them, each with its current `version`. Nothing the seller did not
- *   touch is written from an old copy.
- * - `add` is applied to the current stock, so a sale in between is never
- *   undone.
- * - `set` writes only if the stock is still what the seller saw. A
- *   version that changed for another reason (a price edit) with the same
- *   stock does not stop it: nothing anyone did to the stock is lost.
- *
- * The PUT itself still carries the versions: if anything changes between
- * this fetch and the write (milliseconds), the API answers 409 and the
- * caller plans again from a new fetch.
+ * The result of a 200: the variant after the change. The stock before is
+ * exact, not a guess: a delta was added to it in the same statement, and
+ * a count was written only while it was `expected`.
  */
-export const planStockChange = (
+export const savedStockChange = (
   change: StockChange,
-  latest: AdminProduct,
-): StockPlan => {
-  const variant = latest.variants.find(({ id }) => id === change.variantId);
-  if (variant === undefined) return { kind: "gone" };
-  let to: number;
-  if (change.mode === "add") {
-    to = variant.stock + change.amount;
-    if (to < 0 || to > VARIANT_STOCK_MAX) {
-      return { kind: "out-of-range", variant, to };
-    }
-  } else {
-    if (variant.stock !== change.seen.stock) {
-      return {
-        kind: "moved",
-        variant,
-        seen: change.seen.stock,
-        wanted: change.value,
-      };
-    }
-    to = change.value;
+  variant: AdminVariant,
+): StockChangeResult => ({
+  kind: "saved",
+  variant,
+  from: change.mode === "add" ? variant.stock - change.amount : change.expected,
+  to: variant.stock,
+});
+
+/**
+ * The result of an error the seller can act on, or `undefined` for one
+ * they cannot (a network error, a 500: the caller shows a message).
+ *
+ * The `stock` in a 409's details is the stock right after the refused
+ * change. It is shown, and offered as the next `expected`, but never used
+ * to compute a write: the next change is sent and checked again.
+ */
+export const stockChangeErrorResult = (
+  change: StockChange,
+  error: unknown,
+): StockChangeResult | undefined => {
+  if (isApiError(error, "VARIANT_ARCHIVED", "NOT_FOUND")) {
+    return { kind: "gone" };
   }
-  const body = productToWrite(latest);
-  body.variants = body.variants.map((write) =>
-    write.id === variant.id ? { ...write, stock: to } : write,
-  );
-  return { kind: "write", body, variant, from: variant.stock, to };
+  if (!isApiError(error, "STOCK_CHANGED", "STOCK_OUT_OF_RANGE")) {
+    return undefined;
+  }
+  const stock = error.details.stock;
+  if (typeof stock !== "number") return undefined;
+  if (error.code === "STOCK_CHANGED" && change.mode === "set") {
+    return {
+      kind: "moved",
+      expected: change.expected,
+      current: stock,
+      wanted: change.value,
+    };
+  }
+  if (error.code === "STOCK_OUT_OF_RANGE" && change.mode === "add") {
+    return { kind: "out-of-range", current: stock, to: stock + change.amount };
+  }
+  return undefined;
 };
 
 /** A whole number as typed: "15", "1.250", "+20", "-3". */
@@ -163,8 +148,9 @@ export type ParsedStockInput =
 /**
  * Reads the quick change's input the way the product form reads numbers
  * (digits, or groups of three joined by dots, the Indonesian way). `add`
- * takes a sign and refuses 0 (nothing to do); `set` takes 0 to
- * VARIANT_STOCK_MAX and no sign.
+ * takes a sign and refuses 0 (nothing to do) and more than
+ * VARIANT_STOCK_MAX either way (the API's limit on `delta`); `set` takes
+ * 0 to VARIANT_STOCK_MAX and no sign.
  */
 export const parseStockInput = (
   mode: StockChange["mode"],
@@ -207,6 +193,12 @@ export const parseStockInput = (
   }
   if (size === 0) {
     return { ok: false, message: "Isi jumlah selain 0." };
+  }
+  if (size > VARIANT_STOCK_MAX) {
+    return {
+      ok: false,
+      message: `Perubahan paling banyak ${VARIANT_STOCK_MAX.toLocaleString("id-ID")}.`,
+    };
   }
   return { ok: true, value: sign === "-" ? -size : size };
 };

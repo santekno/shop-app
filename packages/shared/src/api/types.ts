@@ -156,6 +156,10 @@ export type SalesReportGroup = SalesReport["group"];
 export type SalesReportQuery = NonNullable<
   operations["getSalesReport"]["parameters"]["query"]
 >;
+/** The body of POST …/variants/{variant_id}/stock-adjustments: a delta, or a guarded count. */
+export type StockAdjustment = Schemas["StockAdjustment"];
+/** The answer of a stock adjustment: the variant after the change. */
+export type AdminVariantDetail = Schemas["AdminVariantDetail"];
 /** The body of every API error: {"error":{"code","message","details"}}. */
 export type ErrorBody = Schemas["Error"];
 

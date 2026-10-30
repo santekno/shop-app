@@ -14,6 +14,15 @@ import { ProductStatusBadge } from "./ProductStatusBadge.tsx";
 import { ProductThumbnail } from "./ProductThumbnail.tsx";
 import { StockBadge } from "./StockBadge.tsx";
 
+/**
+ * What the table as a whole tells its cells: the API's
+ * `low_stock_threshold` from the page's response, for the stock badge's
+ * "N unit atau kurang".
+ */
+interface ProductTableMeta {
+  lowStockThreshold: number;
+}
+
 /** What a column says about its own cells, beyond TanStack's options. */
 interface ProductColumnMeta {
   /** Numbers line up on the right, so their digits do. */
@@ -34,6 +43,7 @@ interface ProductColumnMeta {
 export const productTableFeatures = tableFeatures({
   rowSortingFeature,
   rowPaginationFeature,
+  tableMeta: metaHelper<ProductTableMeta>(),
   columnMeta: metaHelper<ProductColumnMeta>(),
 });
 
@@ -114,9 +124,12 @@ export const productColumns = column.columns([
     header: "Stok",
     sortDescFirst: true,
     meta: { align: "end" },
-    cell: ({ row }) => (
+    cell: ({ row, table }) => (
       <div className="flex items-center justify-end gap-2">
-        <StockBadge level={productStockLevel(row.original)} />
+        <StockBadge
+          level={productStockLevel(row.original)}
+          threshold={table.options.meta?.lowStockThreshold}
+        />
         <span className="tabular-nums">
           {row.original.stock.toLocaleString("id-ID")}
         </span>

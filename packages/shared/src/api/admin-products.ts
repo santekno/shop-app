@@ -3,6 +3,8 @@ import type { EndpointOptions } from "./catalog.ts";
 import type {
   AdminProduct,
   AdminProductDetail,
+  AdminVariant,
+  AdminVariantDetail,
   AdminProductImage,
   AdminProductImageDetail,
   AdminProductTable,
@@ -12,6 +14,7 @@ import type {
   ImageUploadRequest,
   ListAdminProductsQuery,
   ProductWrite,
+  StockAdjustment,
 } from "./types.ts";
 
 /**
@@ -92,12 +95,20 @@ export const createProduct = async (
 };
 
 /**
- * PUT /v1/admin/products/{id}: saves the whole product. A variant with an
- * `id` is updated and must carry the `version` it was loaded with; one
- * without is added; a sellable variant left out is archived. Throws what
- * createProduct throws, NOT_FOUND, and VERSION_CONFLICT (`details.
- * variant_id`) when a variant changed since it was loaded: nothing was
- * saved, reload and save again.
+ * PUT /v1/admin/products/{id}: saves the whole product. The body carries
+ * the product's `version` as it was loaded (required: 400 without it), and
+ * a variant with an `id` is updated and must carry the `version` it was
+ * loaded with; one without is added; a sellable variant left out is
+ * archived. Throws what createProduct throws, NOT_FOUND, and, with nothing
+ * saved:
+ *
+ * - VERSION_CONFLICT with `details.product_id`: the product changed since
+ *   (another admin's save, which may have added or archived variants, or
+ *   an archive). Checked first;
+ * - VERSION_CONFLICT with `details.variant_id`: a variant changed since
+ *   (a checkout, a cancel, a stock adjustment), the first stale one;
+ * - VARIANT_ARCHIVED (`details.variant_id`): the body names a variant
+ *   that was archived since it was loaded.
  */
 export const updateProduct = async (
   api: ApiClient,
@@ -110,6 +121,39 @@ export const updateProduct = async (
     body,
     signal,
   });
+  return response.data;
+};
+
+/**
+ * POST /v1/admin/products/{id}/variants/{variant_id}/stock-adjustments:
+ * changes one sellable variant's stock in one guarded statement, without
+ * sending the whole product back (Bab 12 artikel 05). Returns the variant
+ * after the change, its `version` bumped (the product's `version` does
+ * not move).
+ *
+ * - `{ delta }`: added to the stock as it is when the change runs, so a
+ *   sale in between is kept. Throws STOCK_OUT_OF_RANGE (409,
+ *   `details.stock`, `min`, `max`) when the result would leave 0 to
+ *   1,000,000.
+ * - `{ set, expected }`: a count, written only while the stock is still
+ *   `expected`. Throws STOCK_CHANGED (409, `details.stock`, the stock now)
+ *   otherwise.
+ *
+ * Also throws VARIANT_ARCHIVED (409), NOT_FOUND (a variant of another
+ * product, or an unknown ID) and VALIDATION_FAILED. Never retried, like
+ * every POST: a delta sent twice would count twice.
+ */
+export const adjustVariantStock = async (
+  api: ApiClient,
+  productId: string,
+  variantId: string,
+  body: StockAdjustment,
+  { signal }: EndpointOptions = {},
+): Promise<AdminVariant> => {
+  const response = await api.request<AdminVariantDetail>(
+    `${productPath(productId)}/variants/${encodeURIComponent(variantId)}/stock-adjustments`,
+    { method: "POST", body, signal },
+  );
   return response.data;
 };
 

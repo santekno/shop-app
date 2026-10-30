@@ -1,6 +1,10 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { KeyboardEvent, SubmitEvent } from "react";
-import { LOW_STOCK_THRESHOLD, stockLevel } from "@goshop/shared";
+import {
+  LOW_STOCK_THRESHOLD,
+  VARIANT_STOCK_MAX,
+  stockLevel,
+} from "@goshop/shared";
 import type { AdminProduct, AdminVariant } from "@goshop/shared";
 import { Button } from "@/components/ui/Button.tsx";
 import { Card } from "@/components/ui/Card.tsx";
@@ -28,7 +32,8 @@ const formatDifference = (value: number) =>
  * after every change). One variant is edited at a time, in place, under
  * its row; its button says so with `aria-expanded`. Closing the editor
  * (Batal, Escape, a save) gives the focus back to that button; a variant
- * that disappeared meanwhile (archived elsewhere) gives it to the heading.
+ * the API says is archived gives it to the heading, before the refetch
+ * removes its row (and its button) from under the focus.
  */
 export function StockPanel({ product }: { product: AdminProduct }) {
   const headingId = useId();
@@ -38,10 +43,10 @@ export function StockPanel({ product }: { product: AdminProduct }) {
   const [status, setStatus] = useState("");
   const summary = stockSummary(product.variants);
 
-  const close = (variantId: string, message?: string) => {
+  const close = (variantId: string, message?: string, gone = false) => {
     setEditing(null);
     if (message !== undefined) setStatus(message);
-    const button = buttons.current.get(variantId);
+    const button = gone ? undefined : buttons.current.get(variantId);
     if (button === undefined) headingRef.current?.focus();
     else button.focus();
   };
@@ -58,8 +63,8 @@ export function StockPanel({ product }: { product: AdminProduct }) {
           {summary.out > 0 && `, ${summary.out} habis`}
           {summary.low > 0 &&
             `, ${summary.low} menipis (${LOW_STOCK_THRESHOLD} atau kurang)`}
-          . Ubah stok satu varian di sini tanpa membuka formulir: perubahan
-          dihitung dari stok terbaru di server, jadi pembelian yang terjadi
+          . Ubah stok satu varian di sini tanpa membuka formulir: server
+          menghitungnya dari stok saat itu, jadi pembelian yang terjadi
           sementara tidak tertimpa.
         </p>
       </div>
@@ -112,8 +117,8 @@ export function StockPanel({ product }: { product: AdminProduct }) {
                   id={editorId}
                   productId={product.id}
                   variant={variant}
-                  onClose={(message) => {
-                    close(variant.id, message);
+                  onClose={(message, gone) => {
+                    close(variant.id, message, gone);
                   }}
                 />
               )}
@@ -130,27 +135,32 @@ interface StockEditorProps {
   productId: string;
   /** The variant as the server has it now (it updates while open). */
   variant: AdminVariant;
-  /** Closes the editor; `message` is announced in the panel's status. */
-  onClose: (message?: string) => void;
+  /**
+   * Closes the editor; `message` is announced in the panel's status.
+   * `gone`: the variant was archived, its row is about to disappear.
+   */
+  onClose: (message?: string, gone?: boolean) => void;
 }
 
 /** The stock moved under a count: what the seller saw, what is there now. */
 interface Moved {
-  seen: number;
+  expected: number;
   current: number;
   wanted: number;
 }
 
 /**
- * One variant's quick stock change, in two ways (see `StockChange`):
+ * One variant's quick stock change, in two ways (see `StockChange`), each
+ * one POST to the API's stock adjustment:
  *
  * - "Tambah atau kurangi" (the default): a difference, for deliveries
- *   and damage. Applied to the stock as it is at the moment of saving.
- * - "Setel jumlah": a count, after counting the shelf. Saved only if the
- *   stock is still the one shown when the editor opened (`seen`); if a
- *   sale or a cancellation moved it, the editor says by how much and the
- *   seller picks: their count anyway, or the server's stock plus their
- *   difference.
+ *   and damage (`{ delta }`). The API adds it to the stock as it is then.
+ * - "Setel jumlah": a count, after counting the shelf (`{ set, expected }`).
+ *   Saved only if the stock is still the one shown when the editor opened
+ *   (`expected`); if a sale or a cancellation moved it (409 STOCK_CHANGED,
+ *   with the stock now), the editor says by how much and the seller
+ *   picks: their count anyway (checked again against the stock now), or
+ *   their difference as a delta.
  */
 function StockEditor({ id, productId, variant, onClose }: StockEditorProps) {
   const change = useQuickStockChange(productId);
@@ -162,7 +172,8 @@ function StockEditor({ id, productId, variant, onClose }: StockEditorProps) {
   const [error, setError] = useState<string>();
   const [moved, setMoved] = useState<Moved>();
   // The stock on screen when the seller started: what a count is checked
-  // against. Read once; the row above keeps showing the live number.
+  // against (`expected`). Read once; the row above keeps showing the live
+  // number.
   const [seen] = useState(variant.stock);
 
   useEffect(() => {
@@ -192,22 +203,23 @@ function StockEditor({ id, productId, variant, onClose }: StockEditorProps) {
             return;
           case "moved":
             setMoved({
-              seen: result.seen,
-              current: result.variant.stock,
+              expected: result.expected,
+              current: result.current,
               wanted: result.wanted,
             });
             return;
           case "out-of-range":
             setError(
               result.to < 0
-                ? `Stok sekarang ${formatCount(result.variant.stock)}; tidak bisa dikurangi sebanyak itu.`
-                : "Stok sebanyak itu melebihi batas.",
+                ? `Stok sekarang ${formatCount(result.current)}; tidak bisa dikurangi sebanyak itu. Belum ada yang tersimpan.`
+                : `Stok sekarang ${formatCount(result.current)}; hasilnya melebihi batas ${formatCount(VARIANT_STOCK_MAX)}. Belum ada yang tersimpan.`,
             );
             inputRef.current?.focus();
             return;
           case "gone":
             onClose(
               `Varian ${variant.name} sudah diarsipkan di server; stoknya tidak diubah.`,
+              true,
             );
             return;
         }
@@ -238,7 +250,7 @@ function StockEditor({ id, productId, variant, onClose }: StockEditorProps) {
             mode,
             variantId: variant.id,
             value: parsed.value,
-            seen: { stock: seen },
+            expected: seen,
           },
     );
   };
@@ -250,7 +262,7 @@ function StockEditor({ id, productId, variant, onClose }: StockEditorProps) {
     }
   };
 
-  const difference = moved === undefined ? 0 : moved.wanted - moved.seen;
+  const difference = moved === undefined ? 0 : moved.wanted - moved.expected;
   const combined = moved === undefined ? 0 : moved.current + difference;
 
   return (
@@ -344,10 +356,10 @@ function StockEditor({ id, productId, variant, onClose }: StockEditorProps) {
           className="grid gap-3 rounded-md border border-destructive p-3"
         >
           <p className="text-sm">
-            Stok {variant.name} berubah dari {formatCount(moved.seen)} menjadi{" "}
-            {formatCount(moved.current)} sejak Anda mulai (pembelian, pembatalan
-            pesanan, atau admin lain). Belum ada yang tersimpan. Anda ingin
-            menyetel {formatCount(moved.wanted)}.
+            Stok {variant.name} berubah dari {formatCount(moved.expected)}{" "}
+            menjadi {formatCount(moved.current)} sejak Anda mulai (pembelian,
+            pembatalan pesanan, atau admin lain). Belum ada yang tersimpan. Anda
+            ingin menyetel {formatCount(moved.wanted)}.
           </p>
           <div className="flex flex-wrap gap-2">
             <Button
@@ -358,29 +370,31 @@ function StockEditor({ id, productId, variant, onClose }: StockEditorProps) {
                   mode: "set",
                   variantId: variant.id,
                   value: moved.wanted,
-                  seen: { stock: moved.current },
+                  expected: moved.current,
                 });
               }}
             >
               Tetap setel {formatCount(moved.wanted)}
             </Button>
-            {difference !== 0 && combined >= 0 && (
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={change.isPending}
-                onClick={() => {
-                  send({
-                    mode: "add",
-                    variantId: variant.id,
-                    amount: difference,
-                  });
-                }}
-              >
-                Pakai {formatCount(moved.current)}{" "}
-                {formatDifference(difference)} = {formatCount(combined)}
-              </Button>
-            )}
+            {difference !== 0 &&
+              combined >= 0 &&
+              combined <= VARIANT_STOCK_MAX && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={change.isPending}
+                  onClick={() => {
+                    send({
+                      mode: "add",
+                      variantId: variant.id,
+                      amount: difference,
+                    });
+                  }}
+                >
+                  Pakai {formatCount(moved.current)}{" "}
+                  {formatDifference(difference)} = {formatCount(combined)}
+                </Button>
+              )}
             <Button
               variant="ghost"
               size="sm"

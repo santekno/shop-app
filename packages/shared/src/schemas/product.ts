@@ -24,14 +24,16 @@ export const VARIANT_WEIGHT_MIN_GRAMS = 1;
 export const VARIANT_WEIGHT_MAX_GRAMS = 100_000;
 
 /**
- * A sellable variant with this many units or fewer is "low on stock": the
- * dashboard's badges, the product table's "Stok menipis" filter, and the
- * API's `low_stock` (`LowStockThreshold` in
- * apps/api/internal/product/table.go) all mean this number. The contract
- * states it only in prose ("5 units or fewer", AdminProductRow.low_stock
- * and the `low_stock` filter of GET /v1/admin/products), not as a value a
- * client could read, so the two are kept equal by hand: change both, or
- * neither.
+ * A sellable variant with this many units or fewer is "low on stock", for
+ * the screens no API response tells: the per-variant badges on the edit
+ * page (the Stok panel, the variant step, Tinjau). The product table does
+ * not use it: GET /v1/admin/products answers `low_stock_threshold` next to
+ * its rows, the rule behind `low_stock` and the "Stok menipis" filter
+ * (`LowStockThreshold` in apps/api/internal/product/table.go), and the
+ * table reads that. GET /v1/admin/products/{id} carries no threshold, so
+ * this copy is still kept equal to the API's by hand: if the API's
+ * changes, the edit page's badges disagree with the table until this
+ * changes too.
  */
 export const LOW_STOCK_THRESHOLD = 5;
 
@@ -175,8 +177,15 @@ export const variantSchema = z
  * output is a ProductWrite (`satisfies` checks it against the type
  * generated from the contract); the input may hold the numbers as the
  * strings a form field gives.
+ *
+ * `version` is the product's own optimistic lock (Bab 12): PUT requires
+ * the one the form loaded (400 without it, 409 VERSION_CONFLICT with
+ * `details.product_id` when another save or an archive came first), POST
+ * ignores it. Optional here because one schema serves both; the edit form
+ * always holds it (no input shows it).
  */
 export const productSchema = z.object({
+  version: z.number().int().min(0).optional(),
   category_id: z.guid({ error: "Pilih kategori produk." }),
   slug: z
     .string()

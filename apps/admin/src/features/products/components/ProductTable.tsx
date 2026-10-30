@@ -125,6 +125,8 @@ export function ProductTable({
     enableSortingRemoval: false,
     // One column at a time: the API sorts by one.
     enableMultiSort: false,
+    // Read by the stock cells (product-columns.tsx).
+    meta: { lowStockThreshold: result.low_stock_threshold },
   });
 
   const sortedColumn = table.getColumn(sort);
