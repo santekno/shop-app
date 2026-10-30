@@ -1,6 +1,12 @@
 // Objects in the contract's shapes (@goshop/shared's generated types), with
 // defaults a test overrides only where it matters.
 import type {
+  AdminProduct,
+  AdminProductImage,
+  AdminProductRow,
+  AdminProductTable,
+  AdminVariant,
+  Category,
   Order,
   OrderSummary,
   SalesReport,
@@ -174,3 +180,114 @@ export const salesReport = (
     ...overrides,
   };
 };
+
+// --- Products (artikel 02–05) ---------------------------------------------
+
+export const PRODUCT_ID = "11111111-1111-4111-8111-111111111111";
+export const CATEGORY_ID = "22222222-2222-4222-8222-222222222222";
+
+export const category = (
+  id: string,
+  name: string,
+  parentId: string | null = null,
+): Category => ({
+  id,
+  slug: name.toLowerCase().replace(/\s+/g, "-"),
+  name,
+  parent_id: parentId,
+});
+
+/** A variant: Rp 89.000, 12 in stock, 250 g, version 1, unless told otherwise. */
+export const adminVariant = (
+  n: number,
+  overrides: Partial<AdminVariant> = {},
+): AdminVariant => ({
+  id: `33333333-3333-4333-8333-${String(n).padStart(12, "0")}`,
+  sku: `KAOS-${String(n)}`,
+  name: `Varian ${String(n)}`,
+  price: idr(89_000),
+  stock: 12,
+  weight_grams: 250,
+  version: 1,
+  ...overrides,
+});
+
+/** A product image, ready unless told otherwise. */
+export const adminImage = (
+  n: number,
+  overrides: Partial<AdminProductImage> = {},
+): AdminProductImage => ({
+  id: `44444444-4444-4444-8444-${String(n).padStart(12, "0")}`,
+  status: "ready",
+  position: n,
+  alt: "",
+  content_type: "image/jpeg",
+  size_bytes: 120_000,
+  url: `http://storage.test/products/${String(n)}.jpg`,
+  width: 1200,
+  height: 1200,
+  variants: [
+    {
+      width: 400,
+      height: 400,
+      url: `http://storage.test/products/${String(n)}-400.jpg`,
+    },
+  ],
+  created_at: "2026-10-30T03:00:00Z",
+  updated_at: "2026-10-30T03:00:00Z",
+  ...overrides,
+});
+
+/** A product in GET /v1/admin/products/{id}'s shape: active, one variant, version 1. */
+export const adminProduct = (
+  overrides: Partial<AdminProduct> = {},
+): AdminProduct => ({
+  id: PRODUCT_ID,
+  category_id: CATEGORY_ID,
+  slug: "kaos-polos",
+  name: "Kaos Polos",
+  description: "Kaos katun.",
+  status: "active",
+  price_from: idr(89_000),
+  version: 1,
+  variants: [adminVariant(1)],
+  images: [],
+  created_at: "2026-10-30T03:00:00Z",
+  updated_at: "2026-10-30T03:00:00Z",
+  ...overrides,
+});
+
+/** One row of the product table. */
+export const productRow = (
+  n: number,
+  overrides: Partial<AdminProductRow> = {},
+): AdminProductRow => ({
+  id: `55555555-5555-4555-8555-${String(n).padStart(12, "0")}`,
+  slug: `produk-${String(n)}`,
+  name: `Produk ${String(n)}`,
+  status: "active",
+  category: { id: CATEGORY_ID, name: "Kaos" },
+  price_from: idr(89_000),
+  stock: 12,
+  variant_count: 1,
+  low_stock: false,
+  thumbnail_url: null,
+  created_at: "2026-10-30T03:00:00Z",
+  updated_at: "2026-10-30T04:00:00Z",
+  ...overrides,
+});
+
+/** A page of the product table (20 per page, threshold 5 unless told otherwise). */
+export const productTable = (
+  rows: AdminProductRow[],
+  { page = 1, perPage = 20, total = rows.length, threshold = 5 } = {},
+): AdminProductTable => ({
+  data: rows,
+  page: {
+    page,
+    per_page: perPage,
+    total,
+    total_pages: Math.max(1, Math.ceil(total / perPage)),
+  },
+  low_stock_threshold: threshold,
+});
