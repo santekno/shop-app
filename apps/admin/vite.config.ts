@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { fileURLToPath, URL } from "node:url";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
@@ -41,6 +42,76 @@ export default defineConfig(({ command, mode }) => {
     preview: {
       port: 4174,
       strictPort: true,
+    },
+    test: {
+      // Components render into a simulated DOM. Test files, setup and
+      // coverage thresholds belong to the test stage (test-engineer).
+      environment: "jsdom",
+      setupFiles: ["./src/vitest.setup.ts"],
+      // React Router ships ESM and CommonJS builds, and under Vitest
+      // `react-router/dom` (App.tsx's RouterProvider) loads the CommonJS
+      // one, which requires its own copy of `react-router`: two routers,
+      // two contexts, and every hook below RouterProvider throws
+      // "useLocation() may be used only in the context of a <Router>".
+      // Both names point at the ESM files, so there is one copy.
+      alias: [
+        {
+          find: /^react-router$/,
+          replacement: fileURLToPath(
+            new URL(
+              "./node_modules/react-router/dist/development/index.mjs",
+              import.meta.url,
+            ),
+          ),
+        },
+        {
+          find: /^react-router\/dom$/,
+          replacement: fileURLToPath(
+            new URL(
+              "./node_modules/react-router/dist/development/dom-export.mjs",
+              import.meta.url,
+            ),
+          ),
+        },
+      ],
+      // The dashboard's variables, empty whatever the shell exports (the
+      // e2e stack's VITE_API_URL, say): config.ts falls back to its
+      // development default, which the MSW handlers answer for.
+      env: {
+        VITE_API_URL: "",
+      },
+      // vi.stubEnv and vi.stubGlobal last for one test only.
+      unstubEnvs: true,
+      unstubGlobals: true,
+      // And vi.spyOn (a silenced console.error, say).
+      restoreMocks: true,
+      // Off for a plain `vitest run`; `make test-unit` passes --coverage.
+      coverage: {
+        provider: "v8",
+        // Every source file counts, including one no test imports yet.
+        include: ["src/**/*.{ts,tsx}"],
+        exclude: [
+          "src/**/*.test.{ts,tsx}",
+          "src/test/**",
+          "src/vitest.setup.ts",
+          // The entry point only mounts <App /> into index.html.
+          "src/main.tsx",
+          // Declarations only: nothing runs.
+          "src/**/*.d.ts",
+        ],
+        // A table in the terminal only: a report written into the app
+        // would be linted and format-checked with the source.
+        reporter: [["text", { skipFull: false }]],
+        // The gate is 70% for TypeScript; each file must meet it on its
+        // own, so a well-tested file cannot hide an untested one.
+        thresholds: {
+          lines: 70,
+          branches: 70,
+          functions: 70,
+          statements: 70,
+          perFile: true,
+        },
+      },
     },
   };
 });
