@@ -21,7 +21,10 @@ interface OrderQueueTableProps {
   orders: readonly OrderSummary[];
   /** Another page follows (`next_cursor` was not null). */
   hasMore: boolean;
-  /** The next page is on its way. */
+  /**
+   * The next page, or a refetch of the loaded ones, is on its way: the
+   * button says "Memuat…" and a press does nothing until it is done.
+   */
   loadingMore: boolean;
   /** Loading the next page failed; the button retries it. */
   loadMoreFailed: boolean;

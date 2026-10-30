@@ -61,7 +61,11 @@ export function OrdersPage() {
             status={status}
             orders={orders}
             hasMore={query.hasNextPage}
-            loadingMore={query.isFetchingNextPage}
+            // A refetch of the loaded pages (an order event, a reconnect)
+            // counts as loading too: fetchNextPage would cancel it, and the
+            // pages on screen would miss what it was fetching. The button
+            // says "Memuat…" and waits for it instead.
+            loadingMore={query.isFetchingNextPage || query.isRefetching}
             loadMoreFailed={query.isFetchNextPageError}
             onLoadMore={() => {
               void query.fetchNextPage();

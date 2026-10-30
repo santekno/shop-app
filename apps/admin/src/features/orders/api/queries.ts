@@ -1,5 +1,5 @@
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
-import type { QueryClient } from "@tanstack/react-query";
+import type { QueryClient, QueryKey } from "@tanstack/react-query";
 import { getAdminOrder, listAdminOrders } from "@goshop/shared";
 import type { ApiClient, OrderStatus } from "@goshop/shared";
 
@@ -80,11 +80,44 @@ export const invalidateOrderQueries = async (
   orderId?: string,
 ): Promise<void> => {
   if (orderId === undefined) {
-    await queryClient.invalidateQueries({ queryKey: orderKeys.all });
+    await invalidateWithoutCancelling(queryClient, orderKeys.all);
     return;
   }
   await Promise.all([
-    queryClient.invalidateQueries({ queryKey: orderKeys.queues }),
-    queryClient.invalidateQueries({ queryKey: orderKeys.detail(orderId) }),
+    invalidateWithoutCancelling(queryClient, orderKeys.queues),
+    invalidateWithoutCancelling(queryClient, orderKeys.detail(orderId)),
   ]);
+};
+
+/**
+ * invalidateQueries, except that a fetch already on its way is not
+ * cancelled: it is allowed to finish, and then its query is refetched.
+ *
+ * By default TanStack Query cancels a running fetch and starts a refetch
+ * (`cancelRefetch: true`). For an infinite query that loses work when the
+ * running fetch is "Muat lebih banyak": a refetch reloads only the pages
+ * already in the cache, so the page being loaded is dropped and the queue
+ * falls back to page 1. An event (or a reconnect) a moment after the press
+ * did exactly that. So the running fetch is kept (`cancelRefetch: false`
+ * joins it instead). It started before this invalidation, though, and a
+ * next page refreshes only itself, so such a query is invalidated once
+ * more when it is done: the pages before it are reloaded too, and the list
+ * is again one list from one moment.
+ */
+const invalidateWithoutCancelling = async (
+  queryClient: QueryClient,
+  queryKey: QueryKey,
+): Promise<void> => {
+  const running = queryClient
+    .getQueryCache()
+    .findAll({ queryKey, fetchStatus: "fetching" });
+  await queryClient.invalidateQueries({ queryKey }, { cancelRefetch: false });
+  await Promise.all(
+    running.map((query) =>
+      queryClient.invalidateQueries(
+        { queryKey: query.queryKey, exact: true },
+        { cancelRefetch: false },
+      ),
+    ),
+  );
 };
