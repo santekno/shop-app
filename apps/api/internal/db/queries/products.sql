@@ -311,3 +311,39 @@ ORDER BY
     CASE WHEN NOT @descending::boolean THEN p.id END ASC,
     CASE WHEN @descending::boolean THEN p.id END DESC
 LIMIT @page_size OFFSET @page_offset;
+
+-- Stock adjustments (Bab 12): one variant's stock, changed in one guarded
+-- statement, so the dashboard needs neither a GET nor a whole-product PUT
+-- for "20 received". Like a checkout's DecrementStock, every change bumps
+-- the variant's version (an open form that would write this stock gets
+-- 409) and never the product's version or updated_at: stock is not one of
+-- the product's own fields. One row, locked by the UPDATE itself and only
+-- for the statement, so it cannot take part in a lock-order cycle (ADR
+-- 0006). Under READ COMMITTED an UPDATE that waited for a checkout's lock
+-- re-checks its WHERE on the row the checkout left, so the guard always
+-- sees the true stock. No rows: GetVariantStock tells why.
+
+-- name: AdjustVariantStock :one
+-- stock + delta, only for a sellable variant of the product and only while
+-- the result stays within 0..max_stock.
+UPDATE product_variants
+SET stock = stock + @delta::integer, version = version + 1, updated_at = now()
+WHERE id = @id AND product_id = @product_id AND archived_at IS NULL
+  AND stock + @delta::integer BETWEEN 0 AND @max_stock::integer
+RETURNING id, sku, name, price, stock, weight_grams, version;
+
+-- name: SetVariantStock :one
+-- A count ("I counted 15"), written only while the stock is still the one
+-- the seller saw (expected): a sale in between makes the count wrong.
+UPDATE product_variants
+SET stock = @stock::integer, version = version + 1, updated_at = now()
+WHERE id = @id AND product_id = @product_id AND archived_at IS NULL
+  AND stock = @expected::integer
+RETURNING id, sku, name, price, stock, weight_grams, version;
+
+-- name: GetVariantStock :one
+-- After a stock change that changed nothing: the variant's stock now and
+-- whether it is archived. No row: not a variant of this product.
+SELECT stock, (archived_at IS NOT NULL)::boolean AS archived
+FROM product_variants
+WHERE id = @id AND product_id = @product_id;

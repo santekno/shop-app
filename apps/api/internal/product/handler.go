@@ -50,6 +50,7 @@ type Handler struct {
 	images    Images
 	publicURL func(key string) string
 	table     Table
+	stock     Stock
 }
 
 // NewHandler returns a Handler. svc is usually one *Service that is both
@@ -135,6 +136,8 @@ func toHTTPError(err error) error {
 	switch {
 	case errors.Is(err, ErrNotFound):
 		return httpapi.NotFoundError("product not found")
+	case errors.Is(err, ErrVariantNotFound):
+		return httpapi.NotFoundError("variant not found")
 	case errors.Is(err, ErrInvalidCursor):
 		return httpapi.ValidationError("invalid query parameters", map[string]any{
 			"cursor": "is not a cursor from page.next_cursor for these filters; start again without it",

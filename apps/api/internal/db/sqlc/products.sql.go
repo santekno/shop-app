@@ -13,6 +13,64 @@ import (
 	"github.com/lib/pq"
 )
 
+const adjustVariantStock = `-- name: AdjustVariantStock :one
+
+UPDATE product_variants
+SET stock = stock + $1::integer, version = version + 1, updated_at = now()
+WHERE id = $2 AND product_id = $3 AND archived_at IS NULL
+  AND stock + $1::integer BETWEEN 0 AND $4::integer
+RETURNING id, sku, name, price, stock, weight_grams, version
+`
+
+type AdjustVariantStockParams struct {
+	Delta     int32
+	ID        string
+	ProductID string
+	MaxStock  int32
+}
+
+type AdjustVariantStockRow struct {
+	ID          string
+	Sku         string
+	Name        string
+	Price       int64
+	Stock       int32
+	WeightGrams int32
+	Version     int32
+}
+
+// Stock adjustments (Bab 12): one variant's stock, changed in one guarded
+// statement, so the dashboard needs neither a GET nor a whole-product PUT
+// for "20 received". Like a checkout's DecrementStock, every change bumps
+// the variant's version (an open form that would write this stock gets
+// 409) and never the product's version or updated_at: stock is not one of
+// the product's own fields. One row, locked by the UPDATE itself and only
+// for the statement, so it cannot take part in a lock-order cycle (ADR
+// 0006). Under READ COMMITTED an UPDATE that waited for a checkout's lock
+// re-checks its WHERE on the row the checkout left, so the guard always
+// sees the true stock. No rows: GetVariantStock tells why.
+// stock + delta, only for a sellable variant of the product and only while
+// the result stays within 0..max_stock.
+func (q *Queries) AdjustVariantStock(ctx context.Context, arg AdjustVariantStockParams) (AdjustVariantStockRow, error) {
+	row := q.db.QueryRowContext(ctx, adjustVariantStock,
+		arg.Delta,
+		arg.ID,
+		arg.ProductID,
+		arg.MaxStock,
+	)
+	var i AdjustVariantStockRow
+	err := row.Scan(
+		&i.ID,
+		&i.Sku,
+		&i.Name,
+		&i.Price,
+		&i.Stock,
+		&i.WeightGrams,
+		&i.Version,
+	)
+	return i, err
+}
+
 const archiveProduct = `-- name: ArchiveProduct :execrows
 
 UPDATE products
@@ -228,6 +286,31 @@ func (q *Queries) GetProduct(ctx context.Context, id string) (GetProductRow, err
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
+	return i, err
+}
+
+const getVariantStock = `-- name: GetVariantStock :one
+SELECT stock, (archived_at IS NOT NULL)::boolean AS archived
+FROM product_variants
+WHERE id = $1 AND product_id = $2
+`
+
+type GetVariantStockParams struct {
+	ID        string
+	ProductID string
+}
+
+type GetVariantStockRow struct {
+	Stock    int32
+	Archived bool
+}
+
+// After a stock change that changed nothing: the variant's stock now and
+// whether it is archived. No row: not a variant of this product.
+func (q *Queries) GetVariantStock(ctx context.Context, arg GetVariantStockParams) (GetVariantStockRow, error) {
+	row := q.db.QueryRowContext(ctx, getVariantStock, arg.ID, arg.ProductID)
+	var i GetVariantStockRow
+	err := row.Scan(&i.Stock, &i.Archived)
 	return i, err
 }
 
@@ -847,6 +930,53 @@ FOR UPDATE
 func (q *Queries) LockProductVariants(ctx context.Context, productID string) error {
 	_, err := q.db.ExecContext(ctx, lockProductVariants, productID)
 	return err
+}
+
+const setVariantStock = `-- name: SetVariantStock :one
+UPDATE product_variants
+SET stock = $1::integer, version = version + 1, updated_at = now()
+WHERE id = $2 AND product_id = $3 AND archived_at IS NULL
+  AND stock = $4::integer
+RETURNING id, sku, name, price, stock, weight_grams, version
+`
+
+type SetVariantStockParams struct {
+	Stock     int32
+	ID        string
+	ProductID string
+	Expected  int32
+}
+
+type SetVariantStockRow struct {
+	ID          string
+	Sku         string
+	Name        string
+	Price       int64
+	Stock       int32
+	WeightGrams int32
+	Version     int32
+}
+
+// A count ("I counted 15"), written only while the stock is still the one
+// the seller saw (expected): a sale in between makes the count wrong.
+func (q *Queries) SetVariantStock(ctx context.Context, arg SetVariantStockParams) (SetVariantStockRow, error) {
+	row := q.db.QueryRowContext(ctx, setVariantStock,
+		arg.Stock,
+		arg.ID,
+		arg.ProductID,
+		arg.Expected,
+	)
+	var i SetVariantStockRow
+	err := row.Scan(
+		&i.ID,
+		&i.Sku,
+		&i.Name,
+		&i.Price,
+		&i.Stock,
+		&i.WeightGrams,
+		&i.Version,
+	)
+	return i, err
 }
 
 const updateProduct = `-- name: UpdateProduct :execrows

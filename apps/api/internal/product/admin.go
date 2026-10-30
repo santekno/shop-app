@@ -25,6 +25,9 @@ func (h *Handler) AdminRoutes(r chi.Router) {
 	r.Get("/products/{id}", h.GetProduct)
 	r.Put("/products/{id}", h.UpdateProduct)
 	r.Delete("/products/{id}", h.ArchiveProduct)
+	if h.stock != nil {
+		r.Post("/products/{id}/variants/{variant_id}/stock-adjustments", h.AdjustStock)
+	}
 	h.imageRoutes(r)
 }
 
@@ -50,7 +53,7 @@ type variantBody struct {
 	SKU         string `json:"sku" validate:"required,max=64"`
 	Name        string `json:"name" validate:"required,max=100"`
 	Price       int64  `json:"price" validate:"min=1,max=1000000000"`
-	Stock       int32  `json:"stock" validate:"min=0,max=1000000"`
+	Stock       int32  `json:"stock" validate:"min=0,max=1000000"` // MaxVariantStock
 	WeightGrams int32  `json:"weight_grams" validate:"min=1,max=100000"`
 }
 

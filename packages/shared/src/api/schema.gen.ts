@@ -207,6 +207,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/products/{id}/variants/{variant_id}/stock-adjustments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Product ID. One that is not a UUID returns 404 `NOT_FOUND`. */
+                id: components["parameters"]["ProductID"];
+                /** @description Variant ID. One that is not a UUID, or not a variant of this product, returns 404 `NOT_FOUND`. */
+                variant_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Change one variant's stock
+         * @description Changes the stock of one sellable variant in one guarded statement
+         *     (Bab 12), without loading the product and sending all of it back
+         *     with `PUT`. Two forms:
+         *
+         *     - `{"delta": 20}` adds to the stock as it is when the change runs
+         *       ("20 received", `-2` for two damaged), so a sale in between is
+         *       kept. The result must stay within 0 and 1,000,000: otherwise 409
+         *       `STOCK_OUT_OF_RANGE` and nothing changes.
+         *     - `{"set": 15, "expected": 12}` is a count: the stock becomes `set`
+         *       only while it is still `expected`, the stock the seller saw. If
+         *       a sale or another change moved it, 409 `STOCK_CHANGED` with the
+         *       stock now, and nothing changes; only the seller knows which
+         *       number is right.
+         *
+         *     Like a checkout, every change bumps the variant's `version` (a form
+         *     open on the product that would write this variant gets 409 on its
+         *     next save) and never the product's `version` or `updated_at`. An
+         *     archived variant is 409 `VARIANT_ARCHIVED`. The `stock` in a 409's
+         *     details is read right after the refused change: show it, but send
+         *     a new change rather than computing one from it.
+         */
+        post: operations["adjustVariantStock"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/products/{id}/images/uploads": {
         parameters: {
             query?: never;
@@ -1535,8 +1579,21 @@ export interface components {
             price: components["schemas"]["Money"];
             stock: number;
             weight_grams: number;
-            /** @description Changes with every write to the variant, a checkout's stock decrement included. Send it back with `PUT`. */
+            /** @description Changes with every write to the variant, a checkout's stock decrement and a stock adjustment included. Send it back with `PUT`. */
             version: number;
+        };
+        AdminVariantDetail: {
+            data: components["schemas"]["AdminVariant"];
+        };
+        /** @description A change to one variant's stock, either a difference or a guarded count. */
+        StockAdjustment: {
+            /** @description Units to add (negative to take away), not 0. */
+            delta: number;
+        } | {
+            /** @description The stock as counted. */
+            set: number;
+            /** @description The stock the seller saw before counting. */
+            expected: number;
         };
         /** @description A product as the admin sees it, in any status. */
         AdminProduct: {
@@ -2263,6 +2320,41 @@ export interface components {
                  *       }
                  *     }
                  */
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description The body is not valid JSON, mixes the two forms, has a `delta` of 0 or out of range, or a `set` without `expected` (`VALIDATION_FAILED`). */
+        BadStockAdjustment: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "error": {
+                 *         "code": "VALIDATION_FAILED",
+                 *         "message": "invalid request",
+                 *         "details": {
+                 *           "delta": "must not be 0"
+                 *         }
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /**
+         * @description Nothing was changed. `STOCK_OUT_OF_RANGE`: the `delta` would take
+         *     the stock below 0 or above 1,000,000 (`details.stock` is the stock
+         *     now, `min`, `max`). `STOCK_CHANGED`: the stock is no longer
+         *     `expected` (`details.stock` is the stock now). `VARIANT_ARCHIVED`:
+         *     the variant was archived. Each names `details.variant_id`.
+         */
+        StockConflict: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
                 "application/json": components["schemas"]["Error"];
             };
         };
@@ -3491,6 +3583,41 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    adjustVariantStock: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Product ID. One that is not a UUID returns 404 `NOT_FOUND`. */
+                id: components["parameters"]["ProductID"];
+                /** @description Variant ID. One that is not a UUID, or not a variant of this product, returns 404 `NOT_FOUND`. */
+                variant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StockAdjustment"];
+            };
+        };
+        responses: {
+            /** @description The variant after the change. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminVariantDetail"];
+                };
+            };
+            400: components["responses"]["BadStockAdjustment"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["StockConflict"];
             500: components["responses"]["InternalError"];
         };
     };

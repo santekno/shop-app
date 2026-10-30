@@ -139,7 +139,8 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 	validator := httpapi.NewValidator()
 	categoryHandler := category.NewHandler(categoryService)
 	productHandler := product.NewHandler(productService, productService, validator).
-		WithTable(product.NewTableService(productRepo))
+		WithTable(product.NewTableService(productRepo)).
+		WithStock(product.NewStockService(productRepo))
 	if o.store == nil {
 		store, err := ObjectStore(cfg.Storage)
 		if err != nil {
