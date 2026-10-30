@@ -166,7 +166,7 @@ func TestHandler_AdjustStock_Errors(t *testing.T) {
 		{
 			name: "out of range", err: &product.StockError{Err: product.ErrStockOutOfRange, VariantID: variantID, Stock: 3},
 			wantStatus: 409, wantCode: product.CodeStockOutOfRange,
-			wantMessage: "the change would take the stock below 0 or above the maximum; nothing was changed",
+			wantMessage: "the change would take the stock below 0, or raise it above the maximum; nothing was changed",
 			wantDetails: map[string]any{"variant_id": variantID, "stock": float64(3), "min": float64(0), "max": float64(1000000)},
 		},
 		{
@@ -178,7 +178,7 @@ func TestHandler_AdjustStock_Errors(t *testing.T) {
 		{
 			name: "archived", err: &product.VariantArchivedError{VariantID: variantID},
 			wantStatus: 409, wantCode: product.CodeVariantArchived,
-			wantMessage: "a variant was archived since you loaded it and can no longer be saved; reload the product",
+			wantMessage: "the variant is archived and can no longer be written; reload the product",
 			wantDetails: map[string]any{"variant_id": variantID},
 		},
 		{name: "not a variant of the product", err: product.ErrVariantNotFound, wantStatus: 404, wantCode: httpapi.CodeNotFound, wantMessage: "variant not found"},

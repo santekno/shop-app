@@ -44,6 +44,7 @@ func TestStockService_Change(t *testing.T) {
 		{name: "a count", change: StockChange{IsSet: true, Set: 15, Expected: 12}},
 		{name: "a count of 0", change: StockChange{IsSet: true, Set: 0, Expected: 3}},
 		{name: "a count of the max", change: StockChange{IsSet: true, Set: MaxVariantStock}},
+		{name: "a count from the max", change: StockChange{IsSet: true, Set: 5, Expected: MaxVariantStock}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -70,6 +71,10 @@ func TestStockService_ChangeRefuses(t *testing.T) {
 		{name: "delta under the min", change: StockChange{Delta: -MaxVariantStock - 1}, wantErr: "change stock: delta -1000001 out of range"},
 		{name: "negative count", change: StockChange{IsSet: true, Set: -1}, wantErr: "change stock: set -1 out of range"},
 		{name: "count over the max", change: StockChange{IsSet: true, Set: MaxVariantStock + 1}, wantErr: "change stock: set 1000001 out of range"},
+		{name: "negative expected", change: StockChange{IsSet: true, Set: 5, Expected: -1}, wantErr: "change stock: expected -1 out of range"},
+		{name: "expected over the max", change: StockChange{IsSet: true, Set: 5, Expected: MaxVariantStock + 1}, wantErr: "change stock: expected 1000001 out of range"},
+		// Expected belongs to a count only: a delta's is never read.
+		{name: "a delta with a stray expected", change: StockChange{Delta: 0, Expected: -1}, wantErr: "change stock: delta 0 out of range"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -118,7 +123,7 @@ func TestPostgresRepository_ChangeStockDelta(t *testing.T) {
 	call, _ := db.call("AdjustVariantStock")
 	assertArgs(t, call.args, []driver.Value{int64(20), vpVariantA, vpProductID, int64(MaxVariantStock)})
 	assertSQL(t, db, "AdjustVariantStock", "stock = stock + $1::integer", "version = version + 1",
-		"archived_at IS NULL", "BETWEEN 0 AND $4::integer")
+		"archived_at IS NULL", "stock + $1::integer >= 0", "($1::integer <= 0 OR stock + $1::integer <= $4::integer)")
 }
 
 func TestPostgresRepository_ChangeStockSet(t *testing.T) {
