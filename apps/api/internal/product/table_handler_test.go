@@ -56,9 +56,10 @@ func TestHandler_ListTable_Defaults(t *testing.T) {
 	testx.AssertEqual(t, table.calls[0], product.TableParams{
 		Sort: product.TableSortUpdatedAt, Descending: true, Page: 1, PerPage: 20,
 	})
-	// An empty page is [] with total_pages 0, never null.
+	// An empty page is [] with total_pages 0, never null; the low-stock
+	// rule travels with every page.
 	testx.AssertEqual(t, strings.TrimSpace(rec.Body.String()),
-		`{"data":[],"page":{"page":0,"per_page":0,"total":0,"total_pages":0}}`)
+		`{"data":[],"page":{"page":0,"per_page":0,"total":0,"total_pages":0},"low_stock_threshold":5}`)
 }
 
 func TestHandler_ListTable_Params(t *testing.T) {
@@ -149,8 +150,9 @@ func TestHandler_ListTable_Rows(t *testing.T) {
 
 	testx.AssertEqual(t, rec.Code, http.StatusOK, "body %s", rec.Body.String())
 	var got struct {
-		Data []map[string]any `json:"data"`
-		Page map[string]any   `json:"page"`
+		Data              []map[string]any `json:"data"`
+		Page              map[string]any   `json:"page"`
+		LowStockThreshold *int             `json:"low_stock_threshold"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode %q: %v", rec.Body.String(), err)
@@ -187,6 +189,8 @@ func TestHandler_ListTable_Rows(t *testing.T) {
 	testx.AssertEqual(t, got.Page["per_page"], any(float64(2)))
 	testx.AssertEqual(t, got.Page["total"], any(float64(5)))
 	testx.AssertEqual(t, got.Page["total_pages"], any(float64(3)))
+	testx.AssertTrue(t, got.LowStockThreshold != nil, "low_stock_threshold is top-level")
+	testx.AssertEqual(t, *got.LowStockThreshold, product.LowStockThreshold)
 }
 
 // Without WithImages the thumbnail is the bare key (imageURL's fallback).
