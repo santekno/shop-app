@@ -1,10 +1,12 @@
 import { memo, useId, useMemo, useState } from "react";
 import type { SalesReport } from "@goshop/shared";
 import { PageHeader } from "@/components/PageHeader.tsx";
+import { Button } from "@/components/ui/Button.tsx";
 import { Card } from "@/components/ui/Card.tsx";
 import { Skeleton } from "@/components/ui/Skeleton.tsx";
 import { EmptyState, ErrorState } from "@/components/ui/StatusMessage.tsx";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle.ts";
+import { errorMessage } from "@/lib/error-message.ts";
 import { cn } from "@/lib/utils.ts";
 import { useReportParams } from "../hooks/useReportParams.ts";
 import { useSalesReport } from "../hooks/useSalesReport.ts";
@@ -56,13 +58,39 @@ export function ReportsPage() {
 
       {report.isPending && <ReportSkeleton />}
 
-      {report.isError && (
+      {/*
+        Without a report, the error is the page. With one, it was a refetch
+        in the background (an order event, a reconnect, the window regaining
+        the focus) that failed: the report on screen is still a true answer
+        for its range, so it stays, with a line saying it may be behind.
+      */}
+      {report.isError && data === undefined && (
         <ErrorState
           error={report.error}
           onRetry={() => {
             void report.refetch();
           }}
         />
+      )}
+      {report.isError && data !== undefined && (
+        <div
+          role="status"
+          className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm"
+        >
+          <p className="text-destructive">
+            Laporan tidak bisa diperbarui; yang tampil adalah laporan terakhir
+            yang berhasil dimuat. {errorMessage(report.error)}
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              void report.refetch();
+            }}
+          >
+            Coba lagi
+          </Button>
+        </div>
       )}
 
       {data !== undefined && (
