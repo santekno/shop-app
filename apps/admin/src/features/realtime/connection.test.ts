@@ -45,6 +45,21 @@ const refuses =
 /** The network fails. */
 const unreachable: Attempt = () => Promise.reject(new TypeError("offline"));
 
+/**
+ * The request goes out and nothing comes back (offline on a blackholed
+ * network), until its signal is aborted, as a real fetch does.
+ */
+const hangs: Attempt = (init) =>
+  new Promise((_resolve, reject) => {
+    init?.signal?.addEventListener(
+      "abort",
+      () => {
+        reject(new DOMException("aborted", "AbortError"));
+      },
+      { once: true },
+    );
+  });
+
 const setup = ({
   attempts,
   random = () => 0,
@@ -497,5 +512,117 @@ describe("createEventConnection", () => {
     expect(statuses).toEqual(["connecting", "live"]);
     expect(events.map((event) => event.data)).toEqual(["still here"]);
     connection.stop();
+  });
+
+  describe("retryNow while an attempt is on its way", () => {
+    it("abandons it, tries again at once, and starts the backoff over", async () => {
+      const { connection, fetch, statuses, elapse } = setup({
+        attempts: [unreachable, unreachable, hangs, unreachable, opens()],
+      });
+      connection.start();
+      await elapse(500 + 1_000);
+      // Two failures, then an attempt that hangs.
+      expect(fetch).toHaveBeenCalledTimes(3);
+      const hanging = fetch.mock.calls[2]?.[1]?.signal;
+
+      connection.retryNow();
+      await elapse();
+
+      expect(hanging?.aborted).toBe(true);
+      expect(fetch).toHaveBeenCalledTimes(4);
+      expect(statuses).toEqual([
+        "connecting",
+        "reconnecting",
+        "reconnecting",
+        "reconnecting",
+        "reconnecting",
+      ]);
+      // The fourth failed: with the count started over, the wait is
+      // backoffDelay(0) (0.5 s here), not backoffDelay(2) (2 s).
+      await elapse(499);
+      expect(fetch).toHaveBeenCalledTimes(4);
+      await elapse(1);
+      expect(fetch).toHaveBeenCalledTimes(5);
+      connection.stop();
+    });
+
+    it("does nothing after stop", async () => {
+      const { connection, fetch, statuses, elapse } = setup({
+        attempts: [hangs, opens()],
+      });
+      connection.start();
+      await elapse();
+      connection.stop();
+
+      connection.retryNow();
+      await elapse(120_000);
+
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(statuses).toEqual(["connecting"]);
+    });
+
+    it("lets stop abort the attempt, with no status and no attempt after", async () => {
+      const { connection, fetch, statuses, elapse } = setup({
+        attempts: [hangs, opens()],
+      });
+      connection.start();
+      await elapse();
+      const signal = fetch.mock.calls[0]?.[1]?.signal;
+
+      connection.stop();
+      await elapse();
+      // At once, not when the 60 s idle timer would give up on it.
+      expect(signal?.aborted).toBe(true);
+      await elapse(120_000);
+
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(statuses).toEqual(["connecting"]);
+    });
+
+    it("leaves no abort listener behind on the connection per attempt", async () => {
+      // Each attempt listens for stop() on the connection's signal; a
+      // listener left behind per attempt would pile up over a long outage.
+      const added = vi.spyOn(AbortSignal.prototype, "addEventListener");
+      const removed = vi.spyOn(AbortSignal.prototype, "removeEventListener");
+      /** The abort listeners each signal still holds. */
+      const held = () => {
+        const listeners = new Map<unknown, Set<unknown>>();
+        const calls = [
+          ...added.mock.calls.map((call, i) => ({
+            call,
+            signal: added.mock.contexts[i],
+            order: added.mock.invocationCallOrder[i] ?? 0,
+            add: true,
+          })),
+          ...removed.mock.calls.map((call, i) => ({
+            call,
+            signal: removed.mock.contexts[i],
+            order: removed.mock.invocationCallOrder[i] ?? 0,
+            add: false,
+          })),
+        ].sort((x, y) => x.order - y.order);
+        for (const { call, signal, add } of calls) {
+          if (call[0] !== "abort") continue;
+          const set = listeners.get(signal) ?? new Set();
+          if (add) set.add(call[1]);
+          else set.delete(call[1]);
+          listeners.set(signal, set);
+        }
+        return [...listeners.values()].map((set) => set.size);
+      };
+      // Streams that open and close, and failures: both ways an attempt
+      // ends.
+      const { connection, fetch, elapse } = setup({
+        attempts: [sends(), unreachable, sends(), unreachable, hangs],
+      });
+      connection.start();
+      await elapse(500 + 1_000 + 2_000 + 4_000);
+      expect(fetch).toHaveBeenCalledTimes(5);
+
+      // Waiting or attempting, a signal holds at most this attempt's
+      // listener (or the wait's), never one per attempt before.
+      expect(Math.max(...held())).toBeLessThanOrEqual(1);
+      connection.stop();
+    });
   });
 });

@@ -3,7 +3,6 @@ import { act, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { createQueryClient } from "@/lib/query-client.ts";
 import { session } from "@/test/fixtures.ts";
-import { networkError } from "@/test/msw/answers.ts";
 import {
   eventStreamResponse,
   eventsHandler,
@@ -212,63 +211,6 @@ describe("useOrderEvents", () => {
     });
   });
 
-  it("tries again at once when the browser comes back online", async () => {
-    vi.spyOn(Math, "random").mockReturnValue(1);
-    let attempts = 0;
-    server.use(
-      eventsHandler(() => {
-        attempts += 1;
-        if (attempts === 1) return networkError();
-        const stream = openStream();
-        stream.push(": connected\n\n");
-        return eventStreamResponse(stream.body);
-      }),
-    );
-    const { result } = setup();
-    await waitFor(() => {
-      expect(result.current.status).toBe("reconnecting");
-    });
-
-    // The backoff would wait a whole second (random() = 1); "online" cuts it.
-    window.dispatchEvent(new Event("online"));
-
-    await waitFor(
-      () => {
-        expect(result.current.status).toBe("live");
-      },
-      { timeout: 500 },
-    );
-    expect(attempts).toBe(2);
-  });
-
-  it("retryNow cuts a wait short", async () => {
-    vi.spyOn(Math, "random").mockReturnValue(1);
-    let attempts = 0;
-    server.use(
-      eventsHandler(() => {
-        attempts += 1;
-        return attempts === 1
-          ? networkError()
-          : errorResponse(403, "FORBIDDEN");
-      }),
-    );
-    const { result } = setup();
-    await waitFor(() => {
-      expect(result.current.status).toBe("reconnecting");
-    });
-
-    act(() => {
-      result.current.retryNow();
-    });
-
-    await waitFor(
-      () => {
-        expect(result.current.status).toBe("forbidden");
-      },
-      { timeout: 500 },
-    );
-  });
-
   it("closes the stream when unmounted", async () => {
     const sent = recordRequests();
     liveStreams();
@@ -323,6 +265,64 @@ describe("useOrderEvents", () => {
         ORDERS,
         REPORTS,
       ]);
+    });
+
+    /**
+     * The first attempt fails on the network, the next one is answered
+     * by `second`: the backoff in between is a whole second
+     * (random() = 1), which the test never lets pass.
+     */
+    const setupFailingFirst = (
+      second: (init?: RequestInit) => Promise<Response>,
+    ) => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      vi.spyOn(Math, "random").mockReturnValue(1);
+      const answers = [() => Promise.reject(new TypeError("offline")), second];
+      const fetch = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+        const next = answers.shift();
+        return next === undefined
+          ? new Promise<Response>(() => undefined)
+          : next(init);
+      });
+      vi.stubGlobal("fetch", fetch);
+      return { fetch, ...setup() };
+    };
+
+    it("tries again at once when the browser comes back online", async () => {
+      const stream = openStream();
+      stream.push(": connected\n\n");
+      const { fetch, result } = setupFailingFirst((init) =>
+        fetchStream(stream)("", init),
+      );
+      await elapse(0);
+      expect(result.current.status).toBe("reconnecting");
+
+      window.dispatchEvent(new Event("online"));
+      await elapse(0);
+
+      expect(result.current.status).toBe("live");
+      expect(fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("retryNow cuts a wait short", async () => {
+      const { fetch, result } = setupFailingFirst(() =>
+        Promise.resolve(
+          Response.json(
+            { error: { code: "FORBIDDEN", message: "no" } },
+            { status: 403 },
+          ),
+        ),
+      );
+      await elapse(0);
+      expect(result.current.status).toBe("reconnecting");
+
+      act(() => {
+        result.current.retryNow();
+      });
+      await elapse(0);
+
+      expect(result.current.status).toBe("forbidden");
+      expect(fetch).toHaveBeenCalledTimes(2);
     });
 
     it("refetches nothing after unmounting with a refetch still waiting", async () => {
