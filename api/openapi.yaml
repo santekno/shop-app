@@ -12,7 +12,8 @@ info:
     - JSON everywhere, field names in `snake_case`.
     - Money is an integer amount of rupiah plus a currency, never a float.
     - Lists use cursor pagination: pass `page.next_cursor` back as `cursor`
-      until it is `null`.
+      until it is `null`. The one exception is the admin's product table
+      (`GET /v1/admin/products`), which has numbered pages and a total.
     - Every error uses the same body: `{"error":{"code","message","details"}}`,
       where `details` is optional. Unknown routes and wrong methods use it too
       (404 `NOT_FOUND`, 405 `METHOD_NOT_ALLOWED` with an `Allow` header): Bab 2
@@ -322,6 +323,108 @@ paths:
           $ref: "#/components/responses/InternalError"
 
   /v1/admin/products:
+    get:
+      tags: [Admin]
+      operationId: listAdminProducts
+      security:
+        - bearerAuth: []
+      summary: The admin's product table
+      description: |
+        Every product in any status, one numbered page at a time, for the
+        dashboard's data table (Bab 12). Unlike the catalog this list uses
+        offset pages, because a table jumps to page N and shows the total;
+        the order is stable because ties are broken by `id` in the same
+        direction. A page past the last one is an empty `data` with the
+        real `page.total`. Filters combine.
+      parameters:
+        - name: q
+          in: query
+          description: |
+            Text matched, case-insensitively and anywhere, against the
+            product's name and the SKU of any of its variants (archived
+            variants included, so a SKU from an old packing slip still
+            finds its product). Leading and trailing spaces are ignored;
+            only spaces is no search. `%` and `_` match themselves.
+          schema:
+            type: string
+            maxLength: 100
+          example: kaos
+        - name: status
+          in: query
+          description: Only products in this status; every status when absent.
+          schema:
+            type: string
+            enum: [draft, active, archived]
+        - name: category_id
+          in: query
+          description: Only products in this category or its child categories. An ID that names no category gives an empty page.
+          schema:
+            type: string
+            format: uuid
+        - name: low_stock
+          in: query
+          description: When `true`, only products with a sellable variant whose stock is 5 or less (`low_stock` in the rows).
+          schema:
+            type: boolean
+            default: false
+        - name: sort
+          in: query
+          description: The column to sort by. `stock` is the sum over the sellable variants; products without a price (`price_from` null) come last in both directions.
+          schema:
+            type: string
+            enum: [name, price_from, stock, updated_at, created_at]
+            default: updated_at
+        - name: order
+          in: query
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+        - name: page
+          in: query
+          description: Page number, 1 for the first.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 10000
+            default: 1
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: One page of the table.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminProductTable"
+              example:
+                data:
+                  - id: 0192f3a1-5e6f-7a8b-9c0d-1e2f3a4b5c6d
+                    slug: kaos-polos-hitam
+                    name: Kaos Polos Hitam
+                    status: active
+                    category: { id: 0192f3a0-1c2d-7b4e-8a10-3f5e6d7c8b91, name: Kaos }
+                    price_from: { amount: 89000, currency: IDR }
+                    stock: 12
+                    variant_count: 2
+                    low_stock: true
+                    thumbnail_url: http://localhost:8333/goshop/products/0192f3a1-5e6f-7a8b-9c0d-1e2f3a4b5c6d/0192f3b2-0a1b-7c2d-8e3f-4a5b6c7d8e9f/400.jpg
+                    created_at: "2026-11-01T08:00:00Z"
+                    updated_at: "2026-11-03T10:15:00Z"
+                page: { page: 1, per_page: 20, total: 1, total_pages: 1 }
+        "400":
+          $ref: "#/components/responses/BadProductTableQuery"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
     post:
       tags: [Admin]
       operationId: createProduct
@@ -2609,6 +2712,97 @@ components:
         data:
           $ref: "#/components/schemas/AdminProduct"
 
+    AdminProductRow:
+      type: object
+      description: One product of the admin's product table, in any status. The totals count the sellable (non-archived) variants only.
+      required: [id, slug, name, status, category, price_from, stock, variant_count, low_stock, thumbnail_url, created_at, updated_at]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
+          enum: [draft, active, archived]
+        category:
+          type: object
+          required: [id, name]
+          additionalProperties: false
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+        price_from:
+          description: Price of the cheapest sellable variant, or `null` when the product has none.
+          oneOf:
+            - $ref: "#/components/schemas/Money"
+            - type: "null"
+        stock:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Units of all sellable variants together.
+        variant_count:
+          type: integer
+          minimum: 0
+          description: How many sellable variants the product has.
+        low_stock:
+          type: boolean
+          description: Some sellable variant has 5 units or fewer.
+        thumbnail_url:
+          type: [string, "null"]
+          description: The narrowest copy (400 px wide) of the product's first ready photo, or `null` while no photo is ready.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+          description: The last admin save of the product; a checkout's stock decrement does not move it.
+
+    OffsetPageInfo:
+      type: object
+      description: Where an offset page sits in the whole list.
+      required: [page, per_page, total, total_pages]
+      additionalProperties: false
+      properties:
+        page:
+          type: integer
+          minimum: 1
+        per_page:
+          type: integer
+          minimum: 1
+          maximum: 100
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+          description: How many items match the filters, on every page.
+        total_pages:
+          type: integer
+          format: int64
+          minimum: 0
+          description: "`ceil(total / per_page)`; 0 when nothing matches."
+
+    AdminProductTable:
+      type: object
+      required: [data, page]
+      additionalProperties: false
+      properties:
+        data:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/AdminProductRow"
+        page:
+          $ref: "#/components/schemas/OffsetPageInfo"
+
     PageInfo:
       type: object
       required: [next_cursor]
@@ -3766,6 +3960,18 @@ components:
                   message: invalid query parameters
                   details:
                     cursor: is not a cursor from page.next_cursor for these filters; start again without it
+    BadProductTableQuery:
+      description: A query parameter of the product table is invalid (`VALIDATION_FAILED`, one entry per parameter).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: VALIDATION_FAILED
+              message: invalid query parameters
+              details:
+                sort: "must be one of: name, price_from, stock, updated_at, created_at"
     BadWrite:
       description: The body is not valid JSON or breaks the schema (`VALIDATION_FAILED`, with one entry per field such as `variants[0].price`), or `category_id` names no category (`UNKNOWN_CATEGORY`).
       content:

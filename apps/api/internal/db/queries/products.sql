@@ -215,3 +215,81 @@ SET archived_at = now(), updated_at = now()
 WHERE product_id = @product_id
   AND archived_at IS NULL
   AND id <> ALL(@keep_ids::uuid[]);
+
+-- The admin's product table (Bab 12): every status, offset pages, any
+-- column sort. Offset rather than the storefront's cursor, because a data
+-- table jumps to page N and shows "page 3 of 12", which needs the total.
+-- Both queries share one filter, written out twice so each stays plain
+-- SQL; a change to one must be made to the other.
+--
+-- Filters: status NULL means any status; category_id NULL means every
+-- category, otherwise the category and its children; search NULL means no
+-- search, otherwise an ILIKE pattern (the caller escapes % _ \) matched
+-- against the name and every variant's SKU, archived variants included,
+-- because a SKU on an old packing slip still names its product;
+-- low_stock_only keeps products with a sellable variant whose stock is at
+-- or below low_stock_threshold.
+--
+-- The sort is a fixed set of CASE expressions chosen by @sort and
+-- @descending, never SQL built from the request. No index can serve them
+-- (stock is a sum over the variants), and none needs to: the total has to
+-- count every matching product anyway, and an admin catalog is small. The
+-- id tie-break, in the same direction, keeps a page stable when values tie.
+
+-- name: CountAdminProducts :one
+SELECT count(*)
+FROM products p
+CROSS JOIN LATERAL (
+    SELECT bool_or(v.stock <= @low_stock_threshold::int) AS low_stock
+    FROM product_variants v
+    WHERE v.product_id = p.id AND v.archived_at IS NULL
+) s
+WHERE (sqlc.narg('status')::text IS NULL OR p.status = sqlc.narg('status')::text)
+  AND (sqlc.narg('category_id')::uuid IS NULL
+       OR p.category_id = sqlc.narg('category_id')::uuid
+       OR p.category_id IN (SELECT c.id FROM categories c WHERE c.parent_id = sqlc.narg('category_id')::uuid))
+  AND (sqlc.narg('search')::text IS NULL
+       OR p.name ILIKE sqlc.narg('search')::text
+       OR EXISTS (SELECT 1 FROM product_variants sv
+                  WHERE sv.product_id = p.id AND sv.sku ILIKE sqlc.narg('search')::text))
+  AND (NOT @low_stock_only::boolean OR COALESCE(s.low_stock, false));
+
+-- name: ListAdminProducts :many
+-- One row per product with its category and its sellable variants' totals
+-- (a product with none has stock 0, variant_count 0, low_stock false).
+SELECT p.id, p.slug, p.name, p.status, p.price_from, p.created_at, p.updated_at,
+       c.id AS category_id, c.name AS category_name,
+       s.stock, s.variant_count, s.low_stock
+FROM products p
+JOIN categories c ON c.id = p.category_id
+CROSS JOIN LATERAL (
+    SELECT COALESCE(sum(v.stock), 0)::bigint AS stock,
+           count(*)::int AS variant_count,
+           COALESCE(bool_or(v.stock <= @low_stock_threshold::int), false)::boolean AS low_stock
+    FROM product_variants v
+    WHERE v.product_id = p.id AND v.archived_at IS NULL
+) s
+WHERE (sqlc.narg('status')::text IS NULL OR p.status = sqlc.narg('status')::text)
+  AND (sqlc.narg('category_id')::uuid IS NULL
+       OR p.category_id = sqlc.narg('category_id')::uuid
+       OR p.category_id IN (SELECT c2.id FROM categories c2 WHERE c2.parent_id = sqlc.narg('category_id')::uuid))
+  AND (sqlc.narg('search')::text IS NULL
+       OR p.name ILIKE sqlc.narg('search')::text
+       OR EXISTS (SELECT 1 FROM product_variants sv
+                  WHERE sv.product_id = p.id AND sv.sku ILIKE sqlc.narg('search')::text))
+  AND (NOT @low_stock_only::boolean OR s.low_stock)
+ORDER BY
+    CASE WHEN @sort::text = 'name' AND NOT @descending::boolean THEN p.name END ASC,
+    CASE WHEN @sort::text = 'name' AND @descending::boolean THEN p.name END DESC,
+    -- A draft without a sellable variant has no price: last either way.
+    CASE WHEN @sort::text = 'price_from' AND NOT @descending::boolean THEN p.price_from END ASC NULLS LAST,
+    CASE WHEN @sort::text = 'price_from' AND @descending::boolean THEN p.price_from END DESC NULLS LAST,
+    CASE WHEN @sort::text = 'stock' AND NOT @descending::boolean THEN s.stock END ASC,
+    CASE WHEN @sort::text = 'stock' AND @descending::boolean THEN s.stock END DESC,
+    CASE WHEN @sort::text = 'updated_at' AND NOT @descending::boolean THEN p.updated_at END ASC,
+    CASE WHEN @sort::text = 'updated_at' AND @descending::boolean THEN p.updated_at END DESC,
+    CASE WHEN @sort::text = 'created_at' AND NOT @descending::boolean THEN p.created_at END ASC,
+    CASE WHEN @sort::text = 'created_at' AND @descending::boolean THEN p.created_at END DESC,
+    CASE WHEN NOT @descending::boolean THEN p.id END ASC,
+    CASE WHEN @descending::boolean THEN p.id END DESC
+LIMIT @page_size OFFSET @page_offset;

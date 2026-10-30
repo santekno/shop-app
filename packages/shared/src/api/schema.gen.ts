@@ -119,7 +119,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * The admin's product table
+         * @description Every product in any status, one numbered page at a time, for the
+         *     dashboard's data table (Bab 12). Unlike the catalog this list uses
+         *     offset pages, because a table jumps to page N and shows the total;
+         *     the order is stable because ties are broken by `id` in the same
+         *     direction. A page past the last one is an empty `data` with the
+         *     real `page.total`. Filters combine.
+         */
+        get: operations["listAdminProducts"];
         put?: never;
         /**
          * Create a product with its variants
@@ -1473,6 +1482,59 @@ export interface components {
         AdminProductDetail: {
             data: components["schemas"]["AdminProduct"];
         };
+        /** @description One product of the admin's product table, in any status. The totals count the sellable (non-archived) variants only. */
+        AdminProductRow: {
+            /** Format: uuid */
+            id: string;
+            slug: string;
+            name: string;
+            /** @enum {string} */
+            status: "draft" | "active" | "archived";
+            category: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+            };
+            /** @description Price of the cheapest sellable variant, or `null` when the product has none. */
+            price_from: components["schemas"]["Money"] | null;
+            /**
+             * Format: int64
+             * @description Units of all sellable variants together.
+             */
+            stock: number;
+            /** @description How many sellable variants the product has. */
+            variant_count: number;
+            /** @description Some sellable variant has 5 units or fewer. */
+            low_stock: boolean;
+            /** @description The narrowest copy (400 px wide) of the product's first ready photo, or `null` while no photo is ready. */
+            thumbnail_url: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /**
+             * Format: date-time
+             * @description The last admin save of the product; a checkout's stock decrement does not move it.
+             */
+            updated_at: string;
+        };
+        /** @description Where an offset page sits in the whole list. */
+        OffsetPageInfo: {
+            page: number;
+            per_page: number;
+            /**
+             * Format: int64
+             * @description How many items match the filters, on every page.
+             */
+            total: number;
+            /**
+             * Format: int64
+             * @description `ceil(total / per_page)`; 0 when nothing matches.
+             */
+            total_pages: number;
+        };
+        AdminProductTable: {
+            data: components["schemas"]["AdminProductRow"][];
+            page: components["schemas"]["OffsetPageInfo"];
+        };
         PageInfo: {
             /** @description Cursor for the next page, or `null` on the last page. A page may hold fewer than `limit` products, even none, while `next_cursor` is not null; stop only when it is null. */
             next_cursor: string | null;
@@ -2081,6 +2143,26 @@ export interface components {
                 [name: string]: unknown;
             };
             content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description A query parameter of the product table is invalid (`VALIDATION_FAILED`, one entry per parameter). */
+        BadProductTableQuery: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "error": {
+                 *         "code": "VALIDATION_FAILED",
+                 *         "message": "invalid query parameters",
+                 *         "details": {
+                 *           "sort": "must be one of: name, price_from, stock, updated_at, created_at"
+                 *         }
+                 *       }
+                 *     }
+                 */
                 "application/json": components["schemas"]["Error"];
             };
         };
@@ -3074,6 +3156,84 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listAdminProducts: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Text matched, case-insensitively and anywhere, against the
+                 *     product's name and the SKU of any of its variants (archived
+                 *     variants included, so a SKU from an old packing slip still
+                 *     finds its product). Leading and trailing spaces are ignored;
+                 *     only spaces is no search. `%` and `_` match themselves.
+                 * @example kaos
+                 */
+                q?: string;
+                /** @description Only products in this status; every status when absent. */
+                status?: "draft" | "active" | "archived";
+                /** @description Only products in this category or its child categories. An ID that names no category gives an empty page. */
+                category_id?: string;
+                /** @description When `true`, only products with a sellable variant whose stock is 5 or less (`low_stock` in the rows). */
+                low_stock?: boolean;
+                /** @description The column to sort by. `stock` is the sum over the sellable variants; products without a price (`price_from` null) come last in both directions. */
+                sort?: "name" | "price_from" | "stock" | "updated_at" | "created_at";
+                order?: "asc" | "desc";
+                /** @description Page number, 1 for the first. */
+                page?: number;
+                per_page?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the table. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": [
+                     *         {
+                     *           "id": "0192f3a1-5e6f-7a8b-9c0d-1e2f3a4b5c6d",
+                     *           "slug": "kaos-polos-hitam",
+                     *           "name": "Kaos Polos Hitam",
+                     *           "status": "active",
+                     *           "category": {
+                     *             "id": "0192f3a0-1c2d-7b4e-8a10-3f5e6d7c8b91",
+                     *             "name": "Kaos"
+                     *           },
+                     *           "price_from": {
+                     *             "amount": 89000,
+                     *             "currency": "IDR"
+                     *           },
+                     *           "stock": 12,
+                     *           "variant_count": 2,
+                     *           "low_stock": true,
+                     *           "thumbnail_url": "http://localhost:8333/goshop/products/0192f3a1-5e6f-7a8b-9c0d-1e2f3a4b5c6d/0192f3b2-0a1b-7c2d-8e3f-4a5b6c7d8e9f/400.jpg",
+                     *           "created_at": "2026-11-01T08:00:00Z",
+                     *           "updated_at": "2026-11-03T10:15:00Z"
+                     *         }
+                     *       ],
+                     *       "page": {
+                     *         "page": 1,
+                     *         "per_page": 20,
+                     *         "total": 1,
+                     *         "total_pages": 1
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["AdminProductTable"];
+                };
+            };
+            400: components["responses"]["BadProductTableQuery"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             500: components["responses"]["InternalError"];
         };
     };

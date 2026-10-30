@@ -89,6 +89,15 @@ func (img Image) Largest() (ImageVariant, bool) {
 	return img.Variants[len(img.Variants)-1], true
 }
 
+// Smallest is the narrowest variant, which the admin's product table shows
+// as a thumbnail; false while there is none.
+func (img Image) Smallest() (ImageVariant, bool) {
+	if len(img.Variants) == 0 {
+		return ImageVariant{}, false
+	}
+	return img.Variants[0], true
+}
+
 // Upload is a presigned upload of a new image.
 type Upload struct {
 	Image  Image

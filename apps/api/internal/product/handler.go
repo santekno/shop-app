@@ -48,6 +48,7 @@ type Handler struct {
 	validator *httpapi.Validator
 	images    Images
 	publicURL func(key string) string
+	table     Table
 }
 
 // NewHandler returns a Handler. svc is usually one *Service that is both

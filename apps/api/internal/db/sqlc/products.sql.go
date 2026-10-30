@@ -56,6 +56,66 @@ func (q *Queries) ArchiveVariantsNotIn(ctx context.Context, arg ArchiveVariantsN
 	return err
 }
 
+const countAdminProducts = `-- name: CountAdminProducts :one
+
+SELECT count(*)
+FROM products p
+CROSS JOIN LATERAL (
+    SELECT bool_or(v.stock <= $1::int) AS low_stock
+    FROM product_variants v
+    WHERE v.product_id = p.id AND v.archived_at IS NULL
+) s
+WHERE ($2::text IS NULL OR p.status = $2::text)
+  AND ($3::uuid IS NULL
+       OR p.category_id = $3::uuid
+       OR p.category_id IN (SELECT c.id FROM categories c WHERE c.parent_id = $3::uuid))
+  AND ($4::text IS NULL
+       OR p.name ILIKE $4::text
+       OR EXISTS (SELECT 1 FROM product_variants sv
+                  WHERE sv.product_id = p.id AND sv.sku ILIKE $4::text))
+  AND (NOT $5::boolean OR COALESCE(s.low_stock, false))
+`
+
+type CountAdminProductsParams struct {
+	LowStockThreshold int32
+	Status            sql.NullString
+	CategoryID        *string
+	Search            sql.NullString
+	LowStockOnly      bool
+}
+
+// The admin's product table (Bab 12): every status, offset pages, any
+// column sort. Offset rather than the storefront's cursor, because a data
+// table jumps to page N and shows "page 3 of 12", which needs the total.
+// Both queries share one filter, written out twice so each stays plain
+// SQL; a change to one must be made to the other.
+//
+// Filters: status NULL means any status; category_id NULL means every
+// category, otherwise the category and its children; search NULL means no
+// search, otherwise an ILIKE pattern (the caller escapes % _ \) matched
+// against the name and every variant's SKU, archived variants included,
+// because a SKU on an old packing slip still names its product;
+// low_stock_only keeps products with a sellable variant whose stock is at
+// or below low_stock_threshold.
+//
+// The sort is a fixed set of CASE expressions chosen by @sort and
+// @descending, never SQL built from the request. No index can serve them
+// (stock is a sum over the variants), and none needs to: the total has to
+// count every matching product anyway, and an admin catalog is small. The
+// id tie-break, in the same direction, keeps a page stable when values tie.
+func (q *Queries) CountAdminProducts(ctx context.Context, arg CountAdminProductsParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countAdminProducts,
+		arg.LowStockThreshold,
+		arg.Status,
+		arg.CategoryID,
+		arg.Search,
+		arg.LowStockOnly,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const getActiveProductBySlug = `-- name: GetActiveProductBySlug :many
 SELECT p.id, p.slug, p.name, p.description, p.price_from, p.created_at, p.updated_at,
        c.id AS category_id, c.slug AS category_slug, c.name AS category_name, c.parent_id AS category_parent_id,
@@ -241,6 +301,120 @@ func (q *Queries) InsertVariant(ctx context.Context, arg InsertVariantParams) er
 		arg.Position,
 	)
 	return err
+}
+
+const listAdminProducts = `-- name: ListAdminProducts :many
+SELECT p.id, p.slug, p.name, p.status, p.price_from, p.created_at, p.updated_at,
+       c.id AS category_id, c.name AS category_name,
+       s.stock, s.variant_count, s.low_stock
+FROM products p
+JOIN categories c ON c.id = p.category_id
+CROSS JOIN LATERAL (
+    SELECT COALESCE(sum(v.stock), 0)::bigint AS stock,
+           count(*)::int AS variant_count,
+           COALESCE(bool_or(v.stock <= $1::int), false)::boolean AS low_stock
+    FROM product_variants v
+    WHERE v.product_id = p.id AND v.archived_at IS NULL
+) s
+WHERE ($2::text IS NULL OR p.status = $2::text)
+  AND ($3::uuid IS NULL
+       OR p.category_id = $3::uuid
+       OR p.category_id IN (SELECT c2.id FROM categories c2 WHERE c2.parent_id = $3::uuid))
+  AND ($4::text IS NULL
+       OR p.name ILIKE $4::text
+       OR EXISTS (SELECT 1 FROM product_variants sv
+                  WHERE sv.product_id = p.id AND sv.sku ILIKE $4::text))
+  AND (NOT $5::boolean OR s.low_stock)
+ORDER BY
+    CASE WHEN $6::text = 'name' AND NOT $7::boolean THEN p.name END ASC,
+    CASE WHEN $6::text = 'name' AND $7::boolean THEN p.name END DESC,
+    -- A draft without a sellable variant has no price: last either way.
+    CASE WHEN $6::text = 'price_from' AND NOT $7::boolean THEN p.price_from END ASC NULLS LAST,
+    CASE WHEN $6::text = 'price_from' AND $7::boolean THEN p.price_from END DESC NULLS LAST,
+    CASE WHEN $6::text = 'stock' AND NOT $7::boolean THEN s.stock END ASC,
+    CASE WHEN $6::text = 'stock' AND $7::boolean THEN s.stock END DESC,
+    CASE WHEN $6::text = 'updated_at' AND NOT $7::boolean THEN p.updated_at END ASC,
+    CASE WHEN $6::text = 'updated_at' AND $7::boolean THEN p.updated_at END DESC,
+    CASE WHEN $6::text = 'created_at' AND NOT $7::boolean THEN p.created_at END ASC,
+    CASE WHEN $6::text = 'created_at' AND $7::boolean THEN p.created_at END DESC,
+    CASE WHEN NOT $7::boolean THEN p.id END ASC,
+    CASE WHEN $7::boolean THEN p.id END DESC
+LIMIT $9 OFFSET $8
+`
+
+type ListAdminProductsParams struct {
+	LowStockThreshold int32
+	Status            sql.NullString
+	CategoryID        *string
+	Search            sql.NullString
+	LowStockOnly      bool
+	Sort              string
+	Descending        bool
+	PageOffset        int32
+	PageSize          int32
+}
+
+type ListAdminProductsRow struct {
+	ID           string
+	Slug         string
+	Name         string
+	Status       string
+	PriceFrom    sql.NullInt64
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	CategoryID   string
+	CategoryName string
+	Stock        int64
+	VariantCount int32
+	LowStock     bool
+}
+
+// One row per product with its category and its sellable variants' totals
+// (a product with none has stock 0, variant_count 0, low_stock false).
+func (q *Queries) ListAdminProducts(ctx context.Context, arg ListAdminProductsParams) ([]ListAdminProductsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listAdminProducts,
+		arg.LowStockThreshold,
+		arg.Status,
+		arg.CategoryID,
+		arg.Search,
+		arg.LowStockOnly,
+		arg.Sort,
+		arg.Descending,
+		arg.PageOffset,
+		arg.PageSize,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListAdminProductsRow
+	for rows.Next() {
+		var i ListAdminProductsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Slug,
+			&i.Name,
+			&i.Status,
+			&i.PriceFrom,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CategoryID,
+			&i.CategoryName,
+			&i.Stock,
+			&i.VariantCount,
+			&i.LowStock,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listProductsNewest = `-- name: ListProductsNewest :many

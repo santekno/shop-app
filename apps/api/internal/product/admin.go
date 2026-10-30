@@ -18,6 +18,9 @@ import (
 // /v1/admin). internal/app mounts them behind the auth middleware and the
 // seller or admin role, so this package does not check who is calling.
 func (h *Handler) AdminRoutes(r chi.Router) {
+	if h.table != nil {
+		r.Get("/products", h.ListTable)
+	}
 	r.Post("/products", h.CreateProduct)
 	r.Get("/products/{id}", h.GetProduct)
 	r.Put("/products/{id}", h.UpdateProduct)

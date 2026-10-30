@@ -134,7 +134,8 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 	// Handlers: HTTP in and out, given their services.
 	validator := httpapi.NewValidator()
 	categoryHandler := category.NewHandler(categoryService)
-	productHandler := product.NewHandler(productService, productService, validator)
+	productHandler := product.NewHandler(productService, productService, validator).
+		WithTable(product.NewTableService(productRepo))
 	if o.store == nil {
 		store, err := ObjectStore(cfg.Storage)
 		if err != nil {
