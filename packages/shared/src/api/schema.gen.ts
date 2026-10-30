@@ -1644,7 +1644,7 @@ export interface components {
             stock: number;
             /** @description How many sellable variants the product has. */
             variant_count: number;
-            /** @description Some sellable variant has 5 units or fewer. */
+            /** @description Some sellable variant has `low_stock_threshold` (5) units or fewer. */
             low_stock: boolean;
             /** @description The narrowest copy (400 px wide) of the product's first ready photo, or `null` while no photo is ready. */
             thumbnail_url: string | null;
@@ -1674,6 +1674,11 @@ export interface components {
         AdminProductTable: {
             data: components["schemas"]["AdminProductRow"][];
             page: components["schemas"]["OffsetPageInfo"];
+            /**
+             * @description A sellable variant with this many units or fewer is low on stock (5), the rule behind `low_stock` and the `low_stock` filter. Read it instead of keeping a copy in the client.
+             * @example 5
+             */
+            low_stock_threshold: number;
         };
         /** @description The `data` of an `order` event on `GET /v1/admin/events`. It names the order and its new status, and never carries buyer data. */
         AdminOrderEvent: {
@@ -3408,7 +3413,7 @@ export interface operations {
                 status?: "draft" | "active" | "archived";
                 /** @description Only products in this category or its child categories. An ID that names no category gives an empty page. */
                 category_id?: string;
-                /** @description When `true`, only products with a sellable variant whose stock is 5 or less (`low_stock` in the rows). */
+                /** @description When `true`, only products with a sellable variant whose stock is at or below the threshold, 5 (`low_stock` in the rows, `low_stock_threshold` in the response). */
                 low_stock?: boolean;
                 /** @description The column to sort by. `stock` is the sum over the sellable variants; products without a price (`price_from` null) come last in both directions. */
                 sort?: "name" | "price_from" | "stock" | "updated_at" | "created_at";
@@ -3458,7 +3463,8 @@ export interface operations {
                      *         "per_page": 20,
                      *         "total": 1,
                      *         "total_pages": 1
-                     *       }
+                     *       },
+                     *       "low_stock_threshold": 5
                      *     }
                      */
                     "application/json": components["schemas"]["AdminProductTable"];

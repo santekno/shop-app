@@ -88,6 +88,9 @@ type offsetPageJSON struct {
 type tableResponse struct {
 	Data []tableRowJSON `json:"data"`
 	Page offsetPageJSON `json:"page"`
+	// LowStockThreshold is the rule behind low_stock and the low_stock
+	// filter, so a client reads it instead of keeping a copy.
+	LowStockThreshold int `json:"low_stock_threshold"`
 }
 
 func (h *Handler) toTableJSON(page TablePage) tableResponse {
@@ -111,5 +114,5 @@ func (h *Handler) toTableJSON(page TablePage) tableResponse {
 	}
 	return tableResponse{Data: data, Page: offsetPageJSON{
 		Page: page.Page, PerPage: page.PerPage, Total: page.Total, TotalPages: page.TotalPages(),
-	}}
+	}, LowStockThreshold: LowStockThreshold}
 }

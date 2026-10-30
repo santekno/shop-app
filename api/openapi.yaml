@@ -365,7 +365,7 @@ paths:
             format: uuid
         - name: low_stock
           in: query
-          description: When `true`, only products with a sellable variant whose stock is 5 or less (`low_stock` in the rows).
+          description: When `true`, only products with a sellable variant whose stock is at or below the threshold, 5 (`low_stock` in the rows, `low_stock_threshold` in the response).
           schema:
             type: boolean
             default: false
@@ -419,6 +419,7 @@ paths:
                     created_at: "2026-11-01T08:00:00Z"
                     updated_at: "2026-11-03T10:15:00Z"
                 page: { page: 1, per_page: 20, total: 1, total_pages: 1 }
+                low_stock_threshold: 5
         "400":
           $ref: "#/components/responses/BadProductTableQuery"
         "401":
@@ -2993,7 +2994,7 @@ components:
           description: How many sellable variants the product has.
         low_stock:
           type: boolean
-          description: Some sellable variant has 5 units or fewer.
+          description: Some sellable variant has `low_stock_threshold` (5) units or fewer.
         thumbnail_url:
           type: [string, "null"]
           description: The narrowest copy (400 px wide) of the product's first ready photo, or `null` while no photo is ready.
@@ -3031,7 +3032,7 @@ components:
 
     AdminProductTable:
       type: object
-      required: [data, page]
+      required: [data, page, low_stock_threshold]
       additionalProperties: false
       properties:
         data:
@@ -3041,6 +3042,11 @@ components:
             $ref: "#/components/schemas/AdminProductRow"
         page:
           $ref: "#/components/schemas/OffsetPageInfo"
+        low_stock_threshold:
+          type: integer
+          minimum: 0
+          description: A sellable variant with this many units or fewer is low on stock (5), the rule behind `low_stock` and the `low_stock` filter. Read it instead of keeping a copy in the client.
+          example: 5
 
     AdminOrderEvent:
       type: object
