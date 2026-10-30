@@ -4,9 +4,10 @@ import type { ComponentProps } from "react";
 import { cn } from "@/lib/utils.ts";
 
 /**
- * From shadcn/ui's Badge, as the storefront has it (apps/web), with two
- * looks the dashboard adds: `success` (an active product) and `outline`
- * (an archived one). Every look keeps its text in a colour role checked
+ * From shadcn/ui's Badge, as the storefront has it (apps/web), with the
+ * looks the dashboard adds: `success` (an active product), `outline` (an
+ * archived one) and `danger`, filled, for the one state stronger than a
+ * warning (a variant with no stock left, artikel 05). Every look keeps its text in a colour role checked
  * for contrast on the card (index.css), so the colour is never the only
  * thing that carries the meaning: the word is always there.
  */
@@ -17,6 +18,7 @@ const badgeVariants = cva(
       variant: {
         default: "border-transparent bg-primary text-primary-foreground",
         destructive: "border-destructive text-destructive",
+        danger: "border-transparent bg-destructive text-destructive-foreground",
         muted: "border-border bg-muted text-foreground",
         success: "border-success text-success",
         outline: "border-border text-muted-foreground",

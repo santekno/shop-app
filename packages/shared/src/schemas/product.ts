@@ -23,6 +23,31 @@ export const VARIANT_STOCK_MAX = 1_000_000;
 export const VARIANT_WEIGHT_MIN_GRAMS = 1;
 export const VARIANT_WEIGHT_MAX_GRAMS = 100_000;
 
+/**
+ * A sellable variant with this many units or fewer is "low on stock": the
+ * dashboard's badges, the product table's "Stok menipis" filter, and the
+ * API's `low_stock` (`LowStockThreshold` in
+ * apps/api/internal/product/table.go) all mean this number. The contract
+ * states it only in prose ("5 units or fewer", AdminProductRow.low_stock
+ * and the `low_stock` filter of GET /v1/admin/products), not as a value a
+ * client could read, so the two are kept equal by hand: change both, or
+ * neither.
+ */
+export const LOW_STOCK_THRESHOLD = 5;
+
+/** How much of a variant is left: none, a few, or enough. */
+export type StockLevel = "out" | "low" | "ok";
+
+/**
+ * A variant's stock as a level: 0 is "out", 1 to LOW_STOCK_THRESHOLD is
+ * "low", more is "ok". "Out" is low too, for the API's `low_stock`; the
+ * dashboard shows the stronger of the two.
+ */
+export const stockLevel = (stock: number): StockLevel => {
+  if (stock <= 0) return "out";
+  return stock <= LOW_STOCK_THRESHOLD ? "low" : "ok";
+};
+
 /** The statuses a product can be saved with. Only `active` is on sale. */
 export const PRODUCT_STATUSES = ["draft", "active", "archived"] as const;
 

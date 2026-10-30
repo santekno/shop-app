@@ -102,6 +102,20 @@ export const productToFormValues = (product: AdminProduct): ProductInput => ({
   })),
 });
 
+/**
+ * The variants the form loaded that are no longer in its list: each is
+ * archived when the form is saved.
+ */
+export const variantsToArchive = (
+  loaded: readonly VariantInput[],
+  current: readonly VariantInput[],
+): VariantInput[] =>
+  loaded.filter(
+    (variant) =>
+      variant.id !== undefined &&
+      !current.some((other) => other.id === variant.id),
+  );
+
 /** A field of the form that has an input, and so can show a message. */
 const FIELD_PATTERN =
   /^(name|slug|category_id|status|description|variants\.\d+\.(sku|name|price|stock|weight_grams))$/;
@@ -114,9 +128,25 @@ export interface ProductApiErrors {
   variants?: string;
   /** For the whole form, when no field fits. */
   form?: string;
-  /** 409 VERSION_CONFLICT: the product changed since the form loaded it. */
+  /**
+   * The product changed on the server since the form loaded it: 409
+   * VERSION_CONFLICT, or a variant the form still holds was archived by
+   * someone else. The form fetches the product again and shows what
+   * changed (artikel 05) instead of a message.
+   */
   conflict: boolean;
 }
+
+/**
+ * The API's answer when the form sends an `id` that is no longer a
+ * sellable variant of the product: someone else archived it since the
+ * form loaded it. It is a 400 VALIDATION_FAILED on `variants` (the
+ * contract has no code of its own for it), recognised by its text, the
+ * one place this file reads a message instead of a code.
+ */
+const isArchivedVariantError = (details: Readonly<Record<string, unknown>>) =>
+  typeof details.variants === "string" &&
+  details.variants.includes("sellable variant");
 
 /**
  * Sorts an error from POST or PUT /v1/admin/products into the places the
@@ -127,10 +157,17 @@ export interface ProductApiErrors {
  *   A name with no input (a variant's `id`) goes to the form instead.
  * - UNKNOWN_CATEGORY, SLUG_TAKEN: the field they are about.
  * - SKU_TAKEN: the variant list (the API does not say which SKU).
- * - VERSION_CONFLICT: `conflict`, with a sentence for the form.
+ * - VERSION_CONFLICT, or a variant archived by someone else: `conflict`
+ *   (the form shows what changed, artikel 05).
  * - anything else: one sentence for the form.
  */
 export const toProductApiErrors = (error: unknown): ProductApiErrors => {
+  if (
+    isApiError(error, "VALIDATION_FAILED") &&
+    isArchivedVariantError(error.details)
+  ) {
+    return { fields: [], conflict: true };
+  }
   if (isApiError(error, "VALIDATION_FAILED")) {
     const fields: ProductApiErrors["fields"] = [];
     const other: string[] = [];
@@ -184,11 +221,7 @@ export const toProductApiErrors = (error: unknown): ProductApiErrors => {
     };
   }
   if (isApiError(error, "VERSION_CONFLICT")) {
-    return {
-      fields: [],
-      form: "Produk ini berubah sejak Anda membukanya: ada pembelian yang mengurangi stok, atau admin lain menyimpannya. Tidak ada yang tersimpan. Muat ulang data terbaru, lalu ulangi perubahan Anda.",
-      conflict: true,
-    };
+    return { fields: [], conflict: true };
   }
   return { fields: [], form: saveErrorMessage(error), conflict: false };
 };

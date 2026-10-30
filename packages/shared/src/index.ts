@@ -139,6 +139,7 @@ export {
 export type { AddressInput } from "./schemas/address.ts";
 
 export {
+  LOW_STOCK_THRESHOLD,
   PRODUCT_DESCRIPTION_MAX_LENGTH,
   PRODUCT_NAME_MAX_LENGTH,
   PRODUCT_SLUG_MAX_LENGTH,
@@ -153,10 +154,15 @@ export {
   VARIANT_WEIGHT_MAX_GRAMS,
   VARIANT_WEIGHT_MIN_GRAMS,
   productSchema,
+  stockLevel,
   toProductSlug,
   variantSchema,
 } from "./schemas/product.ts";
-export type { ProductInput, VariantInput } from "./schemas/product.ts";
+export type {
+  ProductInput,
+  StockLevel,
+  VariantInput,
+} from "./schemas/product.ts";
 
 export {
   PRODUCT_IMAGES_MAX,

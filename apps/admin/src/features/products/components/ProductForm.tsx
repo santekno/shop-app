@@ -19,6 +19,14 @@ import {
   stepOfField,
   toProductApiErrors,
 } from "../product-form.ts";
+import {
+  applyMerge,
+  conflictVariantId,
+  mergeProduct,
+} from "../product-merge.ts";
+import type { MergeChoice } from "../product-merge.ts";
+import { ProductConflictReview } from "./ProductConflictReview.tsx";
+import type { ConflictReviewState } from "./ProductConflictReview.tsx";
 import { ProductInfoStep } from "./ProductInfoStep.tsx";
 import { ProductReviewStep } from "./ProductReviewStep.tsx";
 import { ProductVariantsStep } from "./ProductVariantsStep.tsx";
@@ -38,13 +46,28 @@ interface ProductFormProps {
   /** After a successful save: the page decides what comes next. */
   onSaved: (product: AdminProduct) => void;
   /**
-   * Edit only: fetch the product again after a 409 VERSION_CONFLICT and
-   * start over from it (the page remounts the form).
+   * Edit only: fetch the product as the server has it now. Called after a
+   * 409 VERSION_CONFLICT, to show what changed (artikel 05).
    */
-  onReload?: () => void;
+  loadLatest?: () => Promise<AdminProduct>;
+  /**
+   * Edit only: the product as the page's query has it now (refetched in
+   * the background, or replaced by a quick stock change). A form with no
+   * changes follows it; a form with changes keeps them and says the
+   * server moved.
+   */
+  latest?: AdminProduct | undefined;
   /** Where "Batal" goes. */
   cancelTo: string;
 }
+
+/** The conflict review, with what it needs to fetch again. */
+type ConflictReview = ConflictReviewState & {
+  rejectedVariantId: string | undefined;
+};
+
+/** A product's form values as one comparable string. */
+const valuesKey = (values: ProductInput) => JSON.stringify(values);
 
 /** Where the focus goes after the step changes: a field, or the heading. */
 interface FocusRequest {
@@ -68,14 +91,21 @@ interface FocusRequest {
  *
  * The API has the last word. Its field errors land on their fields, on
  * whichever step they are: the form goes to the first such step and puts
- * the focus on the field. A 409 is shown for the whole form.
+ * the focus on the field.
+ *
+ * A 409 (the product changed on the server since the form loaded it)
+ * replaces the form with a review of what changed (artikel 05): the
+ * seller's changes put on top of the latest product, or dropped. The
+ * form's values survive the review (React Hook Form keeps them while no
+ * input is on screen).
  */
 export function ProductForm({
   mode,
   defaultValues,
   onSave,
   onSaved,
-  onReload,
+  loadLatest,
+  latest,
   cancelTo,
 }: ProductFormProps) {
   const form = useForm({
@@ -95,12 +125,18 @@ export function ProductForm({
     setError,
     setFocus,
     trigger,
-    formState: { errors, isDirty, isSubmitting },
+    formState: { defaultValues: loaded, errors, isDirty, isSubmitting },
   } = form;
+  // What the form started from: the loaded product, or the last product
+  // it was reset to (a save, a merge). The schema's input type, partial
+  // only in React Hook Form's typing: every reset below passes a whole
+  // product. Each variant's `version` is read from here.
+  const base = loaded as ProductInput;
 
   const [step, setStep] = useState(0);
   const [focusRequest, setFocusRequest] = useState<FocusRequest | null>(null);
-  const [conflict, setConflict] = useState(false);
+  const [review, setReview] = useState<ConflictReview | null>(null);
+  const [notice, setNotice] = useState<string>();
   const headingRef = useRef<HTMLHeadingElement>(null);
   const headingId = useId();
   const { blocker, allowNavigation } = useUnsavedChangesGuard(isDirty);
@@ -117,6 +153,21 @@ export function ProductForm({
       setFocus(focusRequest.field, { shouldSelect: false });
     }
   }, [focusRequest, setFocus]);
+
+  // The server's product changed (a background refetch, a quick stock
+  // change on this page). A form with no changes takes it, versions
+  // included, so its next save is not refused for nothing; a form with
+  // changes keeps them, because they are the seller's (a 409 then shows
+  // both). Compared as values: a refetch that changed nothing does
+  // nothing.
+  const serverMoved =
+    latest !== undefined &&
+    valuesKey(productToFormValues(latest)) !== valuesKey(base);
+  useEffect(() => {
+    if (latest === undefined || !serverMoved) return;
+    if (isDirty || isSubmitting || review !== null) return;
+    reset(productToFormValues(latest));
+  }, [latest, serverMoved, isDirty, isSubmitting, review, reset]);
 
   /** Shows a step, and moves the focus to `field` or the step's heading. */
   const show = (index: number, field?: ProductFieldPath) => {
@@ -169,7 +220,10 @@ export function ProductForm({
     if (result.form !== undefined) {
       setError("root.server", { type: "server", message: result.form });
     }
-    setConflict(result.conflict);
+    if (result.conflict) {
+      void openReview(conflictVariantId(error));
+      return;
+    }
     if (result.fields.length > 0) {
       // The earliest step with an error, and its first field on screen
       // (the API's order is alphabetical, not the form's).
@@ -183,8 +237,61 @@ export function ProductForm({
     // Otherwise FormAlert takes the focus itself.
   };
 
+  /**
+   * The save was refused because the product changed on the server:
+   * fetch it as it is now, and show the three copies side by side (what
+   * the form loaded, what the seller changed, what the server has).
+   */
+  const openReview = async (rejectedVariantId: string | undefined) => {
+    if (loadLatest === undefined) return;
+    setReview({ status: "loading", rejectedVariantId });
+    try {
+      const now = await loadLatest();
+      setReview({
+        status: "ready",
+        rejectedVariantId,
+        merge: mergeProduct({
+          base,
+          mine: getValues(),
+          latest: productToFormValues(now),
+          rejectedVariantId,
+        }),
+      });
+    } catch (error) {
+      setReview({ status: "error", error, rejectedVariantId });
+    }
+  };
+
+  /**
+   * "Terapkan perubahan saya": the latest product becomes the form's
+   * starting point (its versions are what the next save sends), and the
+   * merged values go on top of it, so the form is dirty with exactly the
+   * seller's changes. Two resets: the first sets the new defaults, the
+   * second the values while keeping those defaults.
+   */
+  const keepMine = (choices: Record<string, MergeChoice>) => {
+    if (review?.status !== "ready") return;
+    const merged = applyMerge(review.merge, choices);
+    reset(review.merge.latest);
+    reset(merged, { keepDefaultValues: true });
+    setReview(null);
+    setNotice(
+      "Perubahan Anda diterapkan ke data terbaru. Periksa hasilnya, lalu simpan.",
+    );
+    show(REVIEW_STEP);
+  };
+
+  /** "Buang perubahan saya": the form becomes the latest product. */
+  const discardMine = () => {
+    if (review?.status !== "ready") return;
+    reset(review.merge.latest);
+    setReview(null);
+    setNotice("Perubahan Anda dibuang. Formulir berisi data terbaru.");
+    show(0);
+  };
+
   const save = async (body: ProductWrite) => {
-    setConflict(false);
+    setNotice(undefined);
     try {
       const saved = await onSave(body);
       // The create page goes on to the new product's page: nothing is
@@ -210,6 +317,45 @@ export function ProductForm({
   };
 
   const currentStep = PRODUCT_FORM_STEPS[step] ?? PRODUCT_FORM_STEPS[0];
+  // Edit only: the variants as loaded, for "akan diarsipkan" and the
+  // stock each one had.
+  const loadedVariants = mode === "edit" ? base.variants : [];
+
+  // Asks before a navigation away from unsaved changes; rendered with
+  // the form and with the review alike, since both have something to lose.
+  const leaveDialog = (
+    <ConfirmDialog
+      open={blocker.state === "blocked"}
+      title="Tinggalkan halaman ini?"
+      confirmLabel="Tinggalkan"
+      cancelLabel="Tetap di sini"
+      destructive
+      onConfirm={() => {
+        blocker.proceed?.();
+      }}
+      onCancel={() => {
+        blocker.reset?.();
+      }}
+    >
+      <p>Perubahan pada produk ini belum disimpan dan akan hilang.</p>
+    </ConfirmDialog>
+  );
+
+  if (review !== null) {
+    return (
+      <>
+        <Card>
+          <ProductConflictReview
+            state={review}
+            onRetry={() => void openReview(review.rejectedVariantId)}
+            onKeepMine={keepMine}
+            onDiscard={discardMine}
+          />
+        </Card>
+        {leaveDialog}
+      </>
+    );
+  }
 
   return (
     <FormProvider {...form}>
@@ -244,11 +390,25 @@ export function ProductForm({
             </p>
           </div>
 
+          <p role="status" className="empty:hidden">
+            {notice}
+          </p>
+          {serverMoved && isDirty && (
+            <p className="rounded-md border border-border bg-muted p-3 text-sm">
+              Produk ini berubah di server sejak Anda mulai mengubahnya
+              (misalnya stok terjual). Lanjutkan saja: saat Anda menyimpan,
+              perubahan itu ditampilkan berdampingan dengan perubahan Anda.
+            </p>
+          )}
+
           {step === 0 && <ProductInfoStep mode={mode} />}
-          {step === 1 && <ProductVariantsStep mode={mode} />}
+          {step === 1 && (
+            <ProductVariantsStep mode={mode} loaded={loadedVariants} />
+          )}
           {step === REVIEW_STEP && (
             <ProductReviewStep
               mode={mode}
+              loaded={loadedVariants}
               onEdit={(index) => {
                 show(index);
               }}
@@ -259,11 +419,6 @@ export function ProductForm({
             {/* Takes the focus when it appears: the save button was
                 disabled while the request ran. */}
             <FormAlert error={errors.root?.server} />
-            {conflict && onReload !== undefined && (
-              <Button variant="outline" onClick={onReload}>
-                Muat ulang data terbaru
-              </Button>
-            )}
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-4">
@@ -296,21 +451,7 @@ export function ProductForm({
         </form>
       </Card>
 
-      <ConfirmDialog
-        open={blocker.state === "blocked"}
-        title="Tinggalkan halaman ini?"
-        confirmLabel="Tinggalkan"
-        cancelLabel="Tetap di sini"
-        destructive
-        onConfirm={() => {
-          blocker.proceed?.();
-        }}
-        onCancel={() => {
-          blocker.reset?.();
-        }}
-      >
-        <p>Perubahan pada produk ini belum disimpan dan akan hilang.</p>
-      </ConfirmDialog>
+      {leaveDialog}
     </FormProvider>
   );
 }

@@ -17,6 +17,7 @@ import { ArchiveProductButton } from "./ArchiveProductButton.tsx";
 import { ProductForm } from "./ProductForm.tsx";
 import { ProductPhotosSection } from "./ProductPhotosSection.tsx";
 import { ProductStatusBadge } from "./ProductStatusBadge.tsx";
+import { StockPanel } from "./StockPanel.tsx";
 
 /** What another page may hand this one in the history entry's state. */
 export interface ProductPageState {
@@ -48,11 +49,17 @@ const focusPageHeading = () => {
  * seller: a background refetch (the window regaining the focus) does not
  * overwrite what is being typed. The form also keeps each variant's
  * `version` from that load, which is what makes a stale save fail with 409
- * instead of overwriting stock a buyer just took. Three things start the
- * form over from the product as the server has it now, by changing its
- * `key` (React mounts a new one): reloading after a 409, archiving, and
- * nothing else. A save does not need it: the form resets itself to the
- * saved product, new versions included.
+ * instead of overwriting stock a buyer just took. After a 409 the form
+ * fetches the product again (`loadLatest`) and shows what changed next
+ * to the seller's changes (artikel 05). A form with no changes follows
+ * the query (`latest`), so a quick stock change above it does not make
+ * its next save fail. Archiving starts the form over from the product as
+ * the server has it now, by changing its `key` (React mounts a new one).
+ * A save does not need it: the form resets itself to the saved product,
+ * new versions included.
+ *
+ * "Stok" (StockPanel, artikel 05) sits above the form: the server's stock
+ * per variant, with a quick change that does not go through the form.
  *
  * The photos are their own section under the form (artikel 04), not a
  * step of it: a photo belongs to a product that exists, and each photo is
@@ -87,16 +94,12 @@ export function ProductEditPage() {
     if (formKey > 0) focusPageHeading();
   }, [formKey]);
 
-  const reload = async () => {
+  /** The product as the server has it now, for the conflict review. */
+  const loadLatest = async () => {
     const result = await query.refetch();
-    if (result.isSuccess) {
-      setNotice(
-        "Data terbaru dimuat. Ulangi perubahan Anda di formulir, lalu simpan.",
-      );
-      setFormKey((key) => key + 1);
-    } else {
-      setNotice("Data terbaru belum dapat dimuat. Coba lagi.");
-    }
+    if (result.isError) throw result.error;
+    if (result.data === undefined) throw new Error("product not loaded");
+    return result.data;
   };
 
   return (
@@ -153,6 +156,8 @@ export function ProductEditPage() {
           />
         ))}
 
+      {product !== undefined && <StockPanel product={product} />}
+
       {product !== undefined && (
         <ProductForm
           key={`${product.id}:${formKey}`}
@@ -163,7 +168,8 @@ export function ProductEditPage() {
           onSaved={(saved) => {
             setNotice(`Perubahan pada “${saved.name}” tersimpan.`);
           }}
-          onReload={() => void reload()}
+          loadLatest={loadLatest}
+          latest={product}
         />
       )}
 

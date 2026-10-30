@@ -8,10 +8,11 @@ import {
 import { Link } from "react-router";
 import { formatRupiah } from "@goshop/shared";
 import type { AdminProductRow } from "@goshop/shared";
-import { Badge } from "@/components/ui/Badge.tsx";
 import { formatDateTime } from "@/lib/format-date.ts";
+import { productStockLevel } from "../stock.ts";
 import { ProductStatusBadge } from "./ProductStatusBadge.tsx";
 import { ProductThumbnail } from "./ProductThumbnail.tsx";
+import { StockBadge } from "./StockBadge.tsx";
 
 /** What a column says about its own cells, beyond TanStack's options. */
 interface ProductColumnMeta {
@@ -115,9 +116,7 @@ export const productColumns = column.columns([
     meta: { align: "end" },
     cell: ({ row }) => (
       <div className="flex items-center justify-end gap-2">
-        {row.original.low_stock && (
-          <Badge variant="destructive">Stok menipis</Badge>
-        )}
+        <StockBadge level={productStockLevel(row.original)} />
         <span className="tabular-nums">
           {row.original.stock.toLocaleString("id-ID")}
         </span>

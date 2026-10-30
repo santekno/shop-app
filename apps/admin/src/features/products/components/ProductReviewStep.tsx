@@ -1,7 +1,7 @@
 import { useId } from "react";
 import { useFormContext } from "react-hook-form";
-import { formatRupiah, productSchema } from "@goshop/shared";
-import type { ProductInput, ProductWrite } from "@goshop/shared";
+import { formatRupiah, productSchema, stockLevel } from "@goshop/shared";
+import type { ProductInput, ProductWrite, VariantInput } from "@goshop/shared";
 import { Button } from "@/components/ui/Button.tsx";
 import {
   Table,
@@ -13,11 +13,15 @@ import {
   TableRow,
 } from "@/components/ui/Table.tsx";
 import { useCategoryOptions } from "../hooks/useCategoryOptions.ts";
+import { variantsToArchive } from "../product-form.ts";
 import { STATUS_OPTIONS } from "../product-table-params.ts";
 import type { ProductFormMode } from "./ProductForm.tsx";
+import { StockBadge } from "./StockBadge.tsx";
 
 interface ProductReviewStepProps {
   mode: ProductFormMode;
+  /** Edit only: the variants as loaded, to list the ones archived on save. */
+  loaded: readonly VariantInput[];
   /** "Ubah": back to the step that holds this part. */
   onEdit: (step: number) => void;
 }
@@ -33,12 +37,19 @@ const formatCount = (value: number) => value.toLocaleString("id-ID");
  * will hold. The steps before were validated on the way here, so the parse
  * succeeds; should it not, the save itself reports the field.
  */
-export function ProductReviewStep({ mode, onEdit }: ProductReviewStepProps) {
+export function ProductReviewStep({
+  mode,
+  loaded,
+  onEdit,
+}: ProductReviewStepProps) {
   const { getValues } = useFormContext<ProductInput, unknown, ProductWrite>();
   const categories = useCategoryOptions();
   const infoId = useId();
   const variantsId = useId();
-  const parsed = productSchema.safeParse(getValues());
+  const archivedId = useId();
+  const values = getValues();
+  const parsed = productSchema.safeParse(values);
+  const toArchive = variantsToArchive(loaded, values.variants);
 
   if (!parsed.success) {
     return (
@@ -129,8 +140,11 @@ export function ProductReviewStep({ mode, onEdit }: ProductReviewStepProps) {
                   <TableCell className="text-right whitespace-nowrap">
                     {formatRupiah({ amount: variant.price, currency: "IDR" })}
                   </TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {formatCount(variant.stock)}
+                  <TableCell className="text-right">
+                    <span className="inline-flex items-center gap-2 tabular-nums">
+                      <StockBadge level={stockLevel(variant.stock)} />
+                      {formatCount(variant.stock)}
+                    </span>
                   </TableCell>
                   <TableCell className="text-right whitespace-nowrap tabular-nums">
                     {formatCount(variant.weight_grams)} g
@@ -141,6 +155,24 @@ export function ProductReviewStep({ mode, onEdit }: ProductReviewStepProps) {
           </Table>
         </TableContainer>
       </section>
+
+      {toArchive.length > 0 && (
+        <section aria-labelledby={archivedId} className="grid gap-2">
+          <h3 id={archivedId}>Diarsipkan saat disimpan ({toArchive.length})</h3>
+          <p className="text-sm text-muted-foreground">
+            Hilang dari toko dan tidak dapat dikembalikan; riwayat pesanannya
+            tetap ada, dan SKU-nya tidak dapat dipakai lagi.
+          </p>
+          <ul className="grid list-disc gap-1 pl-5">
+            {toArchive.map((variant) => (
+              <li key={variant.id} className="break-all">
+                {variant.name}{" "}
+                <span className="font-mono text-xs">({variant.sku})</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {mode === "create" && (
         <p className="text-sm text-muted-foreground">

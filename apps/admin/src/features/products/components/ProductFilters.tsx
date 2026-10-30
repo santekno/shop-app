@@ -1,4 +1,5 @@
 import { useId } from "react";
+import { LOW_STOCK_THRESHOLD } from "@goshop/shared";
 import { Button } from "@/components/ui/Button.tsx";
 import { Label } from "@/components/ui/Label.tsx";
 import { NativeSelect } from "@/components/ui/NativeSelect.tsx";
@@ -136,7 +137,7 @@ export function ProductFilters({ params, onChange }: ProductFiltersProps) {
             className="size-4 accent-primary"
           />
           <Label htmlFor={lowStockId} className="whitespace-nowrap">
-            Stok menipis (≤ 5)
+            Stok menipis (≤ {LOW_STOCK_THRESHOLD})
           </Label>
         </div>
         {hasActiveFilters(params) && (
