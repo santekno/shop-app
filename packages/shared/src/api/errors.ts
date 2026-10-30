@@ -73,6 +73,8 @@ export const SERVER_ERROR_CODES = [
   "IMAGE_LIMIT_REACHED",
   "UPLOAD_MISSING",
   "UPLOAD_INVALID",
+  // The admin dashboard's order event stream (Bab 12).
+  "TOO_MANY_STREAMS",
 ] as const;
 
 /**
