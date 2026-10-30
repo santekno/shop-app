@@ -55,10 +55,12 @@ func skus[V product.AdminVariant | product.Variant](variants []V) []string {
 func asInput(p product.AdminProduct) product.Input {
 	in := product.Input{
 		CategoryID: p.CategoryID, Slug: p.Slug, Name: p.Name, Description: p.Description, Status: p.Status,
+		Version: p.Version,
 	}
 	for _, v := range p.Variants {
 		in.Variants = append(in.Variants, product.VariantInput{
 			ID: v.ID, SKU: v.SKU, Name: v.Name, Price: v.Price, Stock: v.Stock, WeightGrams: v.WeightGrams,
+			Version: v.Version,
 		})
 	}
 	return in
@@ -454,8 +456,10 @@ func TestProductRepository_UpdateAndArchive(t *testing.T) {
 }
 
 // TestProductRepository_ConcurrentSaves runs many saves of one product at
-// once. LockProduct makes them take turns, so the last save wins whole:
-// the stored variants are exactly one request's, and price_from matches them.
+// once, all from the same loaded version. LockProduct makes them take
+// turns, and since Bab 12 the product's version lets exactly one through:
+// the others are ErrVersionConflict and write nothing, so the stored
+// variants are the winner's whole, and price_from matches them.
 func TestProductRepository_ConcurrentSaves(t *testing.T) {
 	_, db := newTestDB(t)
 	c := newCatalog(t, db)
@@ -478,16 +482,22 @@ func TestProductRepository_ConcurrentSaves(t *testing.T) {
 		})
 	}
 	wg.Wait()
+	won := -1
 	for i, err := range errs {
-		if err != nil {
-			t.Errorf("save %d: %v", i, err)
+		switch {
+		case err == nil && won < 0:
+			won = i
+		case err == nil:
+			t.Errorf("saves %d and %d both won", won, i)
+		case !errors.Is(err, product.ErrVersionConflict):
+			t.Errorf("save %d: %v, want ErrVersionConflict", i, err)
 		}
 	}
 
 	p := getAdmin(t, c, id)
 	var winner int
-	if _, err := fmt.Sscanf(p.Name, "Save %d", &winner); err != nil {
-		t.Fatalf("name %q is not one of the saves", p.Name)
+	if _, err := fmt.Sscanf(p.Name, "Save %d", &winner); err != nil || winner != won {
+		t.Fatalf("name %q is not the winning save %d", p.Name, won)
 	}
 	want := []string{fmt.Sprintf("RB-%d-A", winner), fmt.Sprintf("RB-%d-B", winner)}
 	if got := skus(p.Variants); !slices.Equal(got, want) {
