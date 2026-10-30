@@ -2,12 +2,23 @@
 // test.setupFiles).
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
-import { afterEach, vi } from "vitest";
+import { afterAll, afterEach, vi } from "vitest";
+import { server } from "@/test/msw/server.ts";
 
-// No unit test reaches the network: a request fails at once instead of
-// trying a real server. (Artikel 11 puts MSW here, as the network.)
-globalThis.fetch = () =>
-  Promise.reject(new TypeError("unit tests must not reach the network"));
+// MSW is the network (src/test/msw/): a request no handler of the test
+// answers fails the test instead of trying a real server. Started here,
+// at the top, not in beforeAll: lib/api.ts keeps the fetch it finds when
+// its module loads (createApiClient's default), which happens while the
+// test file is imported, before any beforeAll runs. Started first, MSW's
+// fetch is the one it keeps.
+server.listen({ onUnhandledFrame: "error" });
+afterEach(() => {
+  server.resetHandlers();
+  server.events.removeAllListeners();
+});
+afterAll(() => {
+  server.close();
+});
 
 // Testing Library unmounts what a test rendered only when `afterEach` is a
 // global; Vitest's globals are off, so unmount here. Every test starts

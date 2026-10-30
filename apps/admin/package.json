@@ -51,6 +51,7 @@
     "eslint-plugin-react-refresh": "catalog:",
     "globals": "catalog:",
     "jsdom": "catalog:",
+    "msw": "catalog:",
     "prettier": "catalog:",
     "tailwindcss": "catalog:",
     "typescript": "catalog:",
