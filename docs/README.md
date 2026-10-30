@@ -46,3 +46,4 @@ An ADR records one significant decision: the context, the decision and its conse
 | [0006](adr/0006-cart-checkout-orders.md) | Keep carts in PostgreSQL and create an order in one guarded transaction | Accepted |
 | [0007](adr/0007-payments-uploads-worker.md) | Take payments through Midtrans Snap, upload images straight to S3, and run side effects on an Asynq worker | Accepted |
 | [0008](adr/0008-web-session-cookie.md) | Give the browser its refresh token in an httpOnly cookie on dedicated web endpoints | Accepted |
+| [0009](adr/0009-admin-live-events-sse.md) | Push order events to the admin dashboard with Server-Sent Events fed by Redis pub/sub | Accepted |
