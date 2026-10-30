@@ -278,6 +278,61 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Live order events for the dashboard (Server-Sent Events)
+         * @description A `text/event-stream` of the store's order changes as they happen
+         *     (Bab 12, ADR 0009), for sellers and admins. Send the access token
+         *     in `Authorization: Bearer <token>`: browsers' `EventSource` cannot
+         *     send headers, so read the stream with `fetch` and parse it.
+         *
+         *     The stream opens with the comment line `: connected`. Each order
+         *     change is one event:
+         *
+         *     ```
+         *     id: 0192f5e0-7a1b-7c2d-8e3f-4a5b6c7d8e9f
+         *     event: order
+         *     data: {"type":"order.paid","order_id":"…","code":"GS-20261023-ABC123","status":"paid","total":{"amount":117000,"currency":"IDR"},"occurred_at":"2026-10-23T08:00:00Z"}
+         *     ```
+         *
+         *     `id` is the outbox event's ID and `data` is one line of JSON
+         *     (`AdminOrderEvent`) with no buyer data. `type` is `order.created`,
+         *     `order.paid`, `order.processing`, `order.shipped`,
+         *     `order.completed` or `order.cancelled`. Events arrive within a few
+         *     seconds of the change (the worker publishes the outbox every 5
+         *     seconds).
+         *
+         *     - **At least once:** the same `id` can arrive twice; drop
+         *       duplicates.
+         *     - **No replay:** `Last-Event-ID` is ignored and nothing missed
+         *       while disconnected is sent again. After every (re)connect,
+         *       refetch what the page shows.
+         *     - **Heartbeat:** a `: ping` comment every 25 seconds while idle.
+         *     - **End:** the server ends the stream with `event: end` and
+         *       `data: {"reason":"token_expired"}` when the access token
+         *       expires (refresh it, then reconnect), or `{"reason":"shutdown"}`
+         *       when the instance stops (reconnect at once). The stream can also
+         *       close without an `end` event (network, a lost connection to
+         *       Redis): reconnect with backoff.
+         *
+         *     The stream is exempt from the request timeout (`TIMEOUT`). At most
+         *     5 streams per account are open at once on one API instance.
+         */
+        get: operations["streamAdminEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/reports/sales": {
         parameters: {
             query?: never;
@@ -1537,6 +1592,23 @@ export interface components {
             data: components["schemas"]["AdminProductRow"][];
             page: components["schemas"]["OffsetPageInfo"];
         };
+        /** @description The `data` of an `order` event on `GET /v1/admin/events`. It names the order and its new status, and never carries buyer data. */
+        AdminOrderEvent: {
+            /** @enum {string} */
+            type: "order.created" | "order.paid" | "order.processing" | "order.shipped" | "order.completed" | "order.cancelled";
+            /** Format: uuid */
+            order_id: string;
+            /** @example GS-20261023-ABC123 */
+            code: string;
+            /** @enum {string} */
+            status: "pending_payment" | "paid" | "processing" | "shipped" | "completed" | "cancelled";
+            total: components["schemas"]["Money"];
+            /**
+             * Format: date-time
+             * @description When the order changed.
+             */
+            occurred_at: string;
+        };
         PageInfo: {
             /** @description Cursor for the next page, or `null` on the last page. A page may hold fewer than `limit` products, even none, while `next_cursor` is not null; stop only when it is null. */
             next_cursor: string | null;
@@ -2313,6 +2385,26 @@ export interface components {
                  *       "error": {
                  *         "code": "FORBIDDEN",
                  *         "message": "your role is not allowed to do this"
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description The account already has 5 event streams open on this API instance (`TOO_MANY_STREAMS`). Close one (another tab, or a stream a reconnect left behind) and try again. */
+        TooManyStreams: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "error": {
+                 *         "code": "TOO_MANY_STREAMS",
+                 *         "message": "too many open event streams for this account; close one first",
+                 *         "details": {
+                 *           "max": 5
+                 *         }
                  *       }
                  *     }
                  */
@@ -3469,6 +3561,48 @@ export interface operations {
             404: components["responses"]["ImageNotFound"];
             500: components["responses"]["InternalError"];
             503: components["responses"]["StorageUnavailable"];
+        };
+    };
+    streamAdminEvents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /**
+             * @description The event stream. It carries `Cache-Control: no-store` like every
+             *     response, and `X-Accel-Buffering: no` so proxies pass each event
+             *     on at once.
+             */
+            200: {
+                headers: {
+                    /** @description Always `no`. */
+                    "X-Accel-Buffering"?: "no";
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example : connected
+                     *
+                     *     id: 0192f5e0-7a1b-7c2d-8e3f-4a5b6c7d8e9f
+                     *     event: order
+                     *     data: {"type":"order.paid","order_id":"0192f5d0-1a2b-7c3d-8e4f-5a6b7c8d9e0f","code":"GS-20261023-ABC123","status":"paid","total":{"amount":117000,"currency":"IDR"},"occurred_at":"2026-10-23T08:00:00Z"}
+                     *
+                     *     : ping
+                     *
+                     *     event: end
+                     *     data: {"reason":"token_expired"}
+                     */
+                    "text/event-stream": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            429: components["responses"]["TooManyStreams"];
+            500: components["responses"]["InternalError"];
         };
     };
     getSalesReport: {

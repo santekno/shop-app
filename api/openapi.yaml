@@ -19,8 +19,9 @@ info:
       (404 `NOT_FOUND`, 405 `METHOD_NOT_ALLOWED` with an `Allow` header): Bab 2
       sets chi's `NotFound` and `MethodNotAllowed` handlers to the same JSON
       error writer.
-    - Any endpoint except the health probes may answer 503 `TIMEOUT` with the
-      same body when a request runs past the server's time limit
+    - Any endpoint except the health probes and the admin's event stream
+      (`GET /v1/admin/events`) may answer 503 `TIMEOUT` with the same body
+      when a request runs past the server's time limit
       (`APP_REQUEST_TIMEOUT`, 15s by default). Retry later.
     - Text in a JSON body must be valid UTF-8 without NUL characters; a
       string that is not answers 400 `VALIDATION_FAILED`. One exception: a
@@ -685,6 +686,89 @@ paths:
           $ref: "#/components/responses/InternalError"
         "503":
           $ref: "#/components/responses/StorageUnavailable"
+
+  /v1/admin/events:
+    get:
+      tags: [Admin]
+      operationId: streamAdminEvents
+      summary: Live order events for the dashboard (Server-Sent Events)
+      description: |
+        A `text/event-stream` of the store's order changes as they happen
+        (Bab 12, ADR 0009), for sellers and admins. Send the access token
+        in `Authorization: Bearer <token>`: browsers' `EventSource` cannot
+        send headers, so read the stream with `fetch` and parse it.
+
+        The stream opens with the comment line `: connected`. Each order
+        change is one event:
+
+        ```
+        id: 0192f5e0-7a1b-7c2d-8e3f-4a5b6c7d8e9f
+        event: order
+        data: {"type":"order.paid","order_id":"…","code":"GS-20261023-ABC123","status":"paid","total":{"amount":117000,"currency":"IDR"},"occurred_at":"2026-10-23T08:00:00Z"}
+        ```
+
+        `id` is the outbox event's ID and `data` is one line of JSON
+        (`AdminOrderEvent`) with no buyer data. `type` is `order.created`,
+        `order.paid`, `order.processing`, `order.shipped`,
+        `order.completed` or `order.cancelled`. Events arrive within a few
+        seconds of the change (the worker publishes the outbox every 5
+        seconds).
+
+        - **At least once:** the same `id` can arrive twice; drop
+          duplicates.
+        - **No replay:** `Last-Event-ID` is ignored and nothing missed
+          while disconnected is sent again. After every (re)connect,
+          refetch what the page shows.
+        - **Heartbeat:** a `: ping` comment every 25 seconds while idle.
+        - **End:** the server ends the stream with `event: end` and
+          `data: {"reason":"token_expired"}` when the access token
+          expires (refresh it, then reconnect), or `{"reason":"shutdown"}`
+          when the instance stops (reconnect at once). The stream can also
+          close without an `end` event (network, a lost connection to
+          Redis): reconnect with backoff.
+
+        The stream is exempt from the request timeout (`TIMEOUT`). At most
+        5 streams per account are open at once on one API instance.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: |
+            The event stream. It carries `Cache-Control: no-store` like every
+            response, and `X-Accel-Buffering: no` so proxies pass each event
+            on at once.
+          headers:
+            X-Accel-Buffering:
+              description: Always `no`.
+              schema:
+                type: string
+                const: "no"
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: Server-Sent Events; each `order` event's `data` is an `AdminOrderEvent`.
+                x-event-data:
+                  $ref: "#/components/schemas/AdminOrderEvent"
+              example: |
+                : connected
+
+                id: 0192f5e0-7a1b-7c2d-8e3f-4a5b6c7d8e9f
+                event: order
+                data: {"type":"order.paid","order_id":"0192f5d0-1a2b-7c3d-8e4f-5a6b7c8d9e0f","code":"GS-20261023-ABC123","status":"paid","total":{"amount":117000,"currency":"IDR"},"occurred_at":"2026-10-23T08:00:00Z"}
+
+                : ping
+
+                event: end
+                data: {"reason":"token_expired"}
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyStreams"
+        "500":
+          $ref: "#/components/responses/InternalError"
 
   /v1/admin/reports/sales:
     get:
@@ -2806,6 +2890,31 @@ components:
         page:
           $ref: "#/components/schemas/OffsetPageInfo"
 
+    AdminOrderEvent:
+      type: object
+      description: The `data` of an `order` event on `GET /v1/admin/events`. It names the order and its new status, and never carries buyer data.
+      required: [type, order_id, code, status, total, occurred_at]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum: [order.created, order.paid, order.processing, order.shipped, order.completed, order.cancelled]
+        order_id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          example: GS-20261023-ABC123
+        status:
+          type: string
+          enum: [pending_payment, paid, processing, shipped, completed, cancelled]
+        total:
+          $ref: "#/components/schemas/Money"
+        occurred_at:
+          type: string
+          format: date-time
+          description: When the order changed.
+
     PageInfo:
       type: object
       required: [next_cursor]
@@ -4134,6 +4243,19 @@ components:
             error:
               code: FORBIDDEN
               message: your role is not allowed to do this
+
+    TooManyStreams:
+      description: The account already has 5 event streams open on this API instance (`TOO_MANY_STREAMS`). Close one (another tab, or a stream a reconnect left behind) and try again.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: TOO_MANY_STREAMS
+              message: too many open event streams for this account; close one first
+              details:
+                max: 5
 
     AdminOnly:
       description: The caller is logged in but is not an `admin`. A `seller` gets this too; the role is checked before the order is looked up.

@@ -54,6 +54,23 @@ type Publisher interface {
 	Publish(ctx context.Context, e Event) error
 }
 
+// Publishers publishes every event to each of its publishers in turn and
+// stops at the first that fails, so the dispatcher tries the event again
+// on its next run: the publishers before it then see it twice, which
+// at-least-once delivery already asks every consumer to handle. The worker
+// publishes to the task queue first and then to the admin feed (ADR 0009).
+type Publishers []Publisher
+
+// Publish implements Publisher.
+func (ps Publishers) Publish(ctx context.Context, e Event) error {
+	for _, p := range ps {
+		if err := p.Publish(ctx, e); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // LogPublisher publishes an event by writing it to the log: Bab 5's
 // stand-in, kept for tests and demonstrations. It delivers to nobody, so
 // the API and the worker never use it.
