@@ -16,6 +16,15 @@ export const WEB_URL = trimSlash(
   process.env.GOSHOP_WEB_URL ?? "http://localhost:5173",
 );
 
+/**
+ * The admin dashboard container (Bab 12). localhost, like WEB_URL: its
+ * origin must be exactly the one APP_CORS_ALLOWED_ORIGINS allows
+ * (http://localhost:5174 by default).
+ */
+export const ADMIN_URL = trimSlash(
+  process.env.GOSHOP_ADMIN_URL ?? "http://localhost:5174",
+);
+
 /** The api container, as the tests reach it from this machine. */
 export const API_URL = trimSlash(
   process.env.GOSHOP_API_URL ?? "http://localhost:8080",
