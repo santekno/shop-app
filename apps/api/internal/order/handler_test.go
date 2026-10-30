@@ -135,7 +135,10 @@ func newOrderRouter(f *fakeOrders) chi.Router {
 	h := NewHandler(f, f, f, httpapi.NewValidator())
 	r := chi.NewRouter()
 	h.Routes(r)
-	r.Route("/admin", h.AdminRoutes)
+	r.Route("/admin", func(r chi.Router) {
+		h.AdminRoutes(r)
+		h.AdminOnlyRoutes(r) // internal/app puts the admin role in front
+	})
 	return r
 }
 
@@ -615,6 +618,31 @@ func TestHandler_StaffMoves(t *testing.T) {
 			assertError(t, serveOrder(f, http.MethodPost, "/admin/orders/zzz/"+path, "", nil), 404, httpapi.CodeNotFound)
 			testx.AssertEqual(t, len(f.calls), 0)
 		})
+	}
+}
+
+// Cancelling is the one staff move AdminRoutes leaves out (Bab 12): a
+// seller-or-admin mount alone does not reach it, so internal/app can put
+// the admin role in front of AdminOnlyRoutes.
+func TestHandler_AdminRoutesSplit(t *testing.T) {
+	h := NewHandler(&fakeOrders{}, &fakeOrders{}, &fakeOrders{}, httpapi.NewValidator())
+	staff, admins := chi.NewRouter(), chi.NewRouter()
+	h.AdminRoutes(staff)
+	h.AdminOnlyRoutes(admins)
+	tests := []struct {
+		method, path string
+		staff, admin bool
+	}{
+		{method: http.MethodPost, path: "/orders/" + orderID1 + "/cancel", staff: false, admin: true},
+		{method: http.MethodPost, path: "/orders/" + orderID1 + "/process", staff: true, admin: false},
+		{method: http.MethodPost, path: "/orders/" + orderID1 + "/ship", staff: true, admin: false},
+		{method: http.MethodPost, path: "/orders/" + orderID1 + "/complete", staff: true, admin: false},
+		{method: http.MethodGet, path: "/orders", staff: true, admin: false},
+		{method: http.MethodGet, path: "/orders/" + orderID1, staff: true, admin: false},
+	}
+	for _, tt := range tests {
+		testx.AssertEqual(t, staff.Match(chi.NewRouteContext(), tt.method, tt.path), tt.staff, "AdminRoutes: %s %s", tt.method, tt.path)
+		testx.AssertEqual(t, admins.Match(chi.NewRouteContext(), tt.method, tt.path), tt.admin, "AdminOnlyRoutes: %s %s", tt.method, tt.path)
 	}
 }
 
