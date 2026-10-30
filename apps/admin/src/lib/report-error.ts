@@ -5,8 +5,9 @@
  * onCaughtError, so each error is reported once, here. A real deployment
  * would also send it to an error tracker.
  *
- * Unlike the storefront, nothing is "expected" yet: no page throws on
- * purpose. Artikel 08 may add the API's 403 here.
+ * Unlike the storefront, nothing is "expected": no page throws on
+ * purpose, not even for the API's 403 (artikel 08), which each page shows
+ * in place.
  */
 export const reportCaughtError = (error: unknown, context?: unknown): void => {
   console.error(error, context);

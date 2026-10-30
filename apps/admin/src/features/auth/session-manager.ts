@@ -1,7 +1,8 @@
 // The storefront's session manager (Bab 10 artikel 12–14, apps/web/src/
 // features/auth/session-manager.ts) without its guest-cart hook (onStart):
-// the dashboard has no cart to merge, and every cookie call names the
-// dashboard (`ADMIN_CLIENT`). Why it is a copy, not an import from
+// the dashboard has no cart to merge, every cookie call names the
+// dashboard (`ADMIN_CLIENT`), and a 403 refreshes the role
+// (refreshAfterForbidden, artikel 08). Why it is a copy, not an import from
 // @goshop/shared: apps/admin/README.md, artikel 01.
 import {
   ApiError,
@@ -108,6 +109,8 @@ export const createSessionManager = ({
   // milliseconds; null when unknown (a session set by setSession).
   let refreshAt: number | null = null;
   let refreshing: Promise<Session | null> | null = null;
+  // The token the last refresh after a 403 issued (refreshAfterForbidden).
+  let issuedAfterForbidden: string | null = null;
   let restoring: Promise<void> | null =
     initialSession === undefined ? null : Promise.resolve();
 
@@ -231,6 +234,34 @@ export const createSessionManager = ({
         return current.accessToken;
       }
       return (await refresh())?.accessToken ?? null;
+    },
+
+    /**
+     * After a request sent with `staleToken` came back 403 FORBIDDEN
+     * (artikel 08): the token's role may not do that. The API reads the
+     * role from the token, and a token carries the role the account had
+     * when it was issued; the dashboard shows that same role. So a 403 for
+     * something the dashboard offered means the two may be out of date
+     * (the role was changed since), or the dashboard's permission table is
+     * older than the API's rule. A refresh answers both with one request:
+     * a new token and the account, with the role read from the database
+     * now, so what the UI shows and what the API judges agree again.
+     *
+     * Never more than one refresh per token: a token that another request
+     * has replaced already, or one this refresh issued (its role is
+     * minutes, not hours old), is left alone, so a page that keeps
+     * getting 403 cannot turn into a stream of refreshes. Resolves either
+     * way, and never rejects: a failed refresh leaves the session as it
+     * is, and the caller still gets its 403.
+     */
+    refreshAfterForbidden: async (staleToken: string): Promise<void> => {
+      if (current?.accessToken !== staleToken) return;
+      if (staleToken === issuedAfterForbidden) return;
+      try {
+        issuedAfterForbidden = (await refresh())?.accessToken ?? null;
+      } catch {
+        // The network or the server: the session stays, the 403 stands.
+      }
     },
 
     /**

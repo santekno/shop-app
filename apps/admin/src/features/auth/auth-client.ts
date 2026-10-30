@@ -1,6 +1,7 @@
 // The storefront's interceptor (Bab 10 artikel 14, apps/web/src/features/
-// auth/auth-client.ts), unchanged: the admin logs in through the same web
-// session endpoints. Why it is a copy, not an import from @goshop/shared:
+// auth/auth-client.ts), plus one step the storefront does not need: a 403
+// refreshes the session (5 below, artikel 08). The admin logs in through
+// the same web session endpoints. Why it is a copy, not an import from @goshop/shared:
 // apps/admin/README.md, artikel 01.
 import { isApiError } from "@goshop/shared";
 import type { ApiClient, RequestOptions } from "@goshop/shared";
@@ -47,6 +48,11 @@ export interface TokenSource {
   ensureFreshToken: () => Promise<string | null>;
   /** After a 401 with `staleToken`: the token to retry with, or null. */
   refreshAfterUnauthorized: (staleToken: string) => Promise<string | null>;
+  /**
+   * After a 403 with `staleToken`: bring the session's role up to date
+   * (artikel 08). Never rejects.
+   */
+  refreshAfterForbidden: (staleToken: string) => Promise<void>;
 }
 
 /**
@@ -76,6 +82,14 @@ export interface TokenSource {
  *    without a token: its caller chose the logged-in path, and the API
  *    would only answer 401 again.
  *
+ * 5. A 403 FORBIDDEN (artikel 08) is not retried: the token's role may
+ *    not do this. But the dashboard only offers what the session's role
+ *    may do, so the session may be out of date (the role was changed
+ *    since the token was issued). The session is refreshed first, and the
+ *    403 is thrown once that has settled: the page shows the message and
+ *    the new role (fewer buttons, or the "no access" page) in the same
+ *    render. A 403 to the retry in (2) needs no refresh: that token is new.
+ *
  * Retrying a POST is safe here: a 401 comes from the auth middleware,
  * before the handler runs, so nothing was done the first time. A second
  * 401 is not retried again; there is no loop.
@@ -94,6 +108,10 @@ export const createAuthClient = (
     try {
       return await api.request<T>(path, withBearer(options ?? {}, token));
     } catch (error) {
+      if (isApiError(error, "FORBIDDEN")) {
+        await tokens.refreshAfterForbidden(token);
+        throw error;
+      }
       if (!isApiError(error, "UNAUTHORIZED")) throw error;
       const fresh = await tokens.refreshAfterUnauthorized(token);
       if (fresh === null) throw error;

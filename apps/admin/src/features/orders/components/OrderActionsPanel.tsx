@@ -4,6 +4,7 @@ import type { Order } from "@goshop/shared";
 import { Button } from "@/components/ui/Button.tsx";
 import { Card } from "@/components/ui/Card.tsx";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog.tsx";
+import { useSessionUser } from "@/features/auth/session-context.ts";
 import { useOrderAction } from "../hooks/useOrderAction.ts";
 import type { OrderActionInput } from "../hooks/useOrderAction.ts";
 import {
@@ -12,6 +13,7 @@ import {
   actionErrorMessage,
   actionFailure,
   orderActions,
+  withheldOrderActions,
 } from "../order-actions.ts";
 import { ShipOrderForm } from "./ShipOrderForm.tsx";
 
@@ -24,9 +26,9 @@ interface PanelError {
 }
 
 /**
- * "Tindakan": what can happen to the order next, from orderActions(order)
- * (the one function artikel 08 extends with the role), and what just
- * happened.
+ * "Tindakan": what can happen to the order next, from orderActions(order,
+ * role): what the status allows and the logged-in role may do (artikel
+ * 08), and what just happened.
  *
  * - "Proses pesanan" (paid → processing) runs at once: it is the normal
  *   next step and changes nothing the buyer sees but the status.
@@ -35,6 +37,8 @@ interface PanelError {
  *   normally the buyer confirms receipt themselves.
  * - "Batalkan pesanan" asks first, in red: final, it returns the stock
  *   and the voucher, and a paid order's money is not refunded by it.
+ *   Admins only: a seller sees, instead, one sentence saying the store's
+ *   admin cancels orders, under an order that could still be cancelled.
  *
  * After a change the buttons are different ones (the order moved), so
  * the focus goes to the panel's heading, and the notice under it
@@ -53,7 +57,11 @@ export function OrderActionsPanel({ order }: { order: Order }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
   const alertRef = useRef<HTMLParagraphElement>(null);
   const mutation = useOrderAction(order.id);
-  const actions = orderActions(order);
+  // Read on every render: when a refresh brings another role, the
+  // buttons follow without a reload.
+  const { role } = useSessionUser();
+  const actions = orderActions(order, role);
+  const withheld = withheldOrderActions(order, role);
   const [confirming, setConfirming] = useState<ConfirmedAction | null>(null);
   const [dialogError, setDialogError] = useState<string | undefined>();
   const [notice, setNotice] = useState<string | undefined>();
@@ -185,6 +193,13 @@ export function OrderActionsPanel({ order }: { order: Order }) {
           </Button>
         )}
       </div>
+
+      {withheld.includes("cancel") && (
+        <p className="mt-3 text-sm text-muted-foreground">
+          Pembatalan pesanan dilakukan oleh admin toko. Jika pesanan ini perlu
+          dibatalkan, hubungi admin.
+        </p>
+      )}
 
       <ConfirmDialog
         open={confirming === "complete"}

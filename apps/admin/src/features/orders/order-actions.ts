@@ -1,5 +1,8 @@
 import { isApiError } from "@goshop/shared";
 import type { Order, OrderStatus } from "@goshop/shared";
+import { can } from "@/features/auth/permissions.ts";
+import type { Permission } from "@/features/auth/permissions.ts";
+import type { Role } from "@/features/auth/roles.ts";
 import { errorMessage } from "@/lib/error-message.ts";
 import { ORDER_STATUS_OPTIONS, orderStatusLabel } from "./order-status.ts";
 
@@ -30,18 +33,53 @@ const ACTION_ORDER: readonly OrderAction[] = [
 ];
 
 /**
- * The changes that may be offered for `order` right now, in the order the
- * buttons appear. The one place that decides what the dashboard offers:
- * the detail page asks it, never the status directly.
- *
- * Today it reads the status only, so a seller sees "Batalkan" too and the
- * API answers 403 (cancel is admin-only since Bab 12; the page says so
- * plainly). Artikel 08 adds the role here (`can(role, "cancel")`), and
- * every caller follows. The API stays the judge either way: a button is a
- * convenience, the 403 or 409 is the truth.
+ * Who may make each change (permissions.ts, which mirrors the API): a
+ * seller moves orders on, only an admin cancels one (Bab 12).
  */
-export const orderActions = (order: Pick<Order, "status">): OrderAction[] =>
+const ACTION_PERMISSION: Record<OrderAction, Permission> = {
+  process: "order:fulfil",
+  ship: "order:fulfil",
+  complete: "order:fulfil",
+  cancel: "order:cancel",
+};
+
+/** The changes the life cycle allows from `order`'s status, by anyone. */
+const allowedByStatus = (order: Pick<Order, "status">): OrderAction[] =>
   ACTION_ORDER.filter((action) => ALLOWED_FROM[action].includes(order.status));
+
+/**
+ * The changes that may be offered for `order` to `role` right now, in the
+ * order the buttons appear: the life cycle allows it from the order's
+ * status, and the role may make it (artikel 08). The one place that
+ * decides what the dashboard offers: the detail page asks it, never the
+ * status or the role directly, so a seller sees no "Batalkan pesanan"
+ * anywhere this function is asked.
+ *
+ * The API stays the judge: a button is a convenience, the 403 or 409 is
+ * the truth.
+ */
+export const orderActions = (
+  order: Pick<Order, "status">,
+  role: Role,
+): OrderAction[] =>
+  allowedByStatus(order).filter((action) =>
+    can(role, ACTION_PERMISSION[action]),
+  );
+
+/**
+ * The changes the order's status allows but `role` may not make: what an
+ * admin would be offered and this seller is not. The page explains them
+ * instead of leaving the seller to wonder where "Batalkan" went; for an
+ * order nobody can cancel any more (shipped, completed) there is nothing
+ * to explain.
+ */
+export const withheldOrderActions = (
+  order: Pick<Order, "status">,
+  role: Role,
+): OrderAction[] =>
+  allowedByStatus(order).filter(
+    (action) => !can(role, ACTION_PERMISSION[action]),
+  );
 
 /** Each change's button text, and what the notice says after it. */
 export const ACTION_LABEL: Record<OrderAction, string> = {
@@ -85,7 +123,11 @@ const currentStatusOf = (error: unknown): OrderStatus | undefined => {
  *   first (another admin, the buyer, the payment expiry). The page
  *   refetches the order and says so; retrying would fail again.
  * - "forbidden" (403): this role may not make the change (a seller
- *   cancelling, since Bab 12). Final: the message says who can.
+ *   cancelling, since Bab 12). Final: the message says who can. The
+ *   dashboard offers no change the role may not make, so a 403 means the
+ *   role changed under the page (or permissions.ts is older than the
+ *   API). The session has been refreshed by then (auth-client.ts), and
+ *   the page already shows the buttons of the role the API now knows.
  * - "gone" (404): the order no longer exists for this account.
  * - "retry": the network or the server; the same action may succeed.
  */

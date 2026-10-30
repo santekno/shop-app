@@ -11,8 +11,10 @@ import { CenteredPage } from "./CenteredPage.tsx";
  * layout, so the sidebar and the header stay and any link leaves the
  * error behind (the router resets the boundary on the next navigation).
  *
- * Everything is "unexpected" for now. Artikel 08 adds the API's 403 as
- * its own clear message.
+ * Everything that reaches it is unexpected. The API's 403 never does
+ * (artikel 08): no page throws a failed request (TanStack Query keeps it
+ * in the query), so a 403 is told where it happened, in that page's own
+ * words (ErrorState, the order panel's alert).
  */
 export function RouteErrorPage() {
   const error = useRouteError();

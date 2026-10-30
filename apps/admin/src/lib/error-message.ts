@@ -15,6 +15,11 @@ export const errorMessage = (error: unknown): string => {
   if (isApiError(error, "RATE_LIMITED")) {
     return "Terlalu banyak permintaan. Tunggu sebentar, lalu coba lagi.";
   }
+  // Artikel 08: the role may not read this. The session has already been
+  // refreshed (auth-client.ts), so if the role changed, the page shows it.
+  if (isApiError(error, "FORBIDDEN")) {
+    return "Peran akun Anda tidak boleh membuka data ini. Jika peran Anda baru saja diubah, muat ulang halaman.";
+  }
   return "Terjadi kesalahan saat memuat data. Coba lagi.";
 };
 

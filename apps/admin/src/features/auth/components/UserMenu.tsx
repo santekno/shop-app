@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { ChevronDown, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/Button.tsx";
 import {
@@ -11,6 +12,7 @@ import {
 import { useLogout } from "../hooks/useLogout.ts";
 import { roleLabel } from "../roles.ts";
 import { useSessionUser } from "../session-context.ts";
+import { RoleChangeNotice } from "./RoleChangeNotice.tsx";
 
 /**
  * The header's menu under the user's name: who is logged in, as which
@@ -22,16 +24,25 @@ import { useSessionUser } from "../session-context.ts";
  * login page, and useRouteFocus moves the focus to its heading: the menu
  * that had the focus is gone. When the logout fails, the user stays
  * logged in and is told so, next to the menu.
+ *
+ * Under it, RoleChangeNotice says so when the role changes during the
+ * session (artikel 08); closing it puts the focus back on this menu.
  */
 export function UserMenu() {
   const user = useSessionUser();
   const logout = useLogout();
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   return (
     <div className="flex flex-col items-end gap-1">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="sm" disabled={logout.isPending}>
+          <Button
+            ref={triggerRef}
+            variant="ghost"
+            size="sm"
+            disabled={logout.isPending}
+          >
             <span className="max-w-40 truncate">{user.name}</span>
             <span className="hidden text-muted-foreground sm:inline">
               ({roleLabel(user.role)})
@@ -65,6 +76,11 @@ export function UserMenu() {
           Gagal keluar. Periksa koneksi Anda, lalu coba lagi.
         </p>
       )}
+      <RoleChangeNotice
+        onClose={() => {
+          triggerRef.current?.focus();
+        }}
+      />
     </div>
   );
 }
