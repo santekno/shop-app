@@ -9,6 +9,7 @@ Every unit test in this repository is written by the `test-engineer` agent (`.cl
 | Go, Bab 12 backend (admin table, product version, stock adjustments, SSE, admin cookie, seed role)                   | a brief per pass, written by the orchestrator, plus a per-function list from backend-engineer's report | `apps/api/**/*_test.go` (coverage 97.7%) | mutation counts per pass (below)                         |
 | TypeScript slice A: dashboard shell, auth, orders, reports, realtime, plus the Vitest and MSW setup (artikel 10, 11) | [`testing-ai/prompt-slice-a.md`](testing-ai/prompt-slice-a.md), verbatim                               | 750 admin tests                          | [`testing-ai/log-slice-a.md`](testing-ai/log-slice-a.md) |
 | TypeScript slice B: the products feature (artikel 02–05) and the slice-A updates                                     | a follow-up message to the same agent; it split the work into four parallel runs, one per article      | 1,377 admin tests in all, 533 shared     | [`testing-ai/log-slice-b.md`](testing-ai/log-slice-b.md) |
+| Stage-4 fix round: tests for the review's findings and the fixes it led to                                           | a brief from the orchestrator listing every finding and the exact assertions the fixes need            | 1,432 admin tests in all                 | [`testing-ai/log-stage4.md`](testing-ai/log-stage4.md)   |
 
 The prompt is the AI box's first part ([ai-rules.md](ai-rules.md)). The raw output was not kept file by file: every test file was reworked by the agent itself after its own review. What the logs keep instead is the part that matters for this article, **every place the first draft was weak**, why, and what changed.
 
@@ -31,6 +32,7 @@ A surviving mutant has two possible meanings: the test is weak, or the mutant ch
 | -------------------------- | ------------- | ------------------------------------ | -------------------- | --------------------------- |
 | TS slice A                 | 225           | 209 (93%)                            | 218                  | 7                           |
 | TS slice B                 | 339           | 316 of 336 run against a draft (94%) | 333                  | 6                           |
+| TS stage-4 fix round       | 68            | 58 (85%)                             | 62                   | 6                           |
 | Go, pass 1 (B1–B7)         | 61            | not recorded per draft               | 59                   | 2                           |
 | Go, pass 2 (B8–B11)        | 42            | not recorded per draft               | 42                   | 0                           |
 | Go, pass 3 (stage-2 fixes) | 10            | not recorded per draft               | 10                   | 0                           |
@@ -38,6 +40,15 @@ A surviving mutant has two possible meanings: the test is weak, or the mutant ch
 A mutant that survives the draft is not always a miss: an equivalent mutant cannot be killed by any test. Leaving those out, slice A's drafts survived 16 mutants, 7 of them equivalent, so they **really missed 9 of the 218 killable ones**; slice B's drafts survived 20, at most 6 of them equivalent, so **at least 14 of about 330**. That is roughly one guarded line in 22 to 24 that the AI's first draft did not really test, although every draft passed and coverage was high. The Go numbers come from the test agent's report after each pass; no per-mutant log was kept for them, and they record only the final result. The TypeScript runs were asked to log the draft separately, which is why only they can say how good a first draft is.
 
 The counts above were corrected in the stage-4 review (the first version of this page said "one in twelve to sixteen", counting equivalent mutants as misses); the logs carry an errata note for the same corrections.
+
+## What the review found that the mutation checks did not
+
+Mutation checks only test the guards someone thought to break. The stage-4 review (the `quality-review` agent, reading the whole chapter) found two problems the logs above had missed, both in the tests' foundations rather than in one assertion:
+
+1. **"An unhandled request fails the test" was false.** The setup said MSW's `onUnhandledFrame: "error"` makes a test fail when it sends a request no handler answers. It only failed the request: the code under test saw a network error, handled it, and the test stayed green. Three tests were silently relying on that (each sent an unanswered session refresh after a 403). Now every unhandled request is recorded and the test fails in `afterEach`, and those three tests answer the refresh.
+2. **A focus test passed against broken code.** The conflict review is meant to keep keyboard focus on its heading. In a browser the focus was lost every time, because the heading of the loading state was replaced by a different heading when the data arrived. The test never saw a loading state: MSW answered so fast that React skipped it. The fix was in the component (one heading for every state), and the new test delays the answer by 100 ms.
+
+The second one is the lesson for everyone using a mock API: **a mock that is faster than any real network can hide every bug that lives in the time between the request and the answer.**
 
 ## Why the first drafts missed
 
