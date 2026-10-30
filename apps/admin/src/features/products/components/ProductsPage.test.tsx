@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import type { AdminProductTable } from "@goshop/shared";
@@ -13,6 +13,7 @@ import {
 } from "@/test/msw/products.ts";
 import { server } from "@/test/msw/server.ts";
 import { renderRoute } from "@/test/render.tsx";
+import { productKeys } from "../api/queries.ts";
 import { ProductsPage } from "./ProductsPage.tsx";
 
 const renderPage = (
@@ -126,6 +127,97 @@ describe("ProductsPage", () => {
     expect(
       await screen.findByRole("link", { name: productRow(1).name }),
     ).toBeInTheDocument();
+  });
+
+  describe("when a refetch fails with rows on screen", () => {
+    const STALE = "Daftar produk tidak bisa diperbarui";
+    const staleLine = () =>
+      screen
+        .queryAllByRole("status")
+        .find((status) => status.textContent.includes(STALE));
+    const theStaleLine = () => {
+      const line = staleLine();
+      if (line === undefined) throw new Error("no stale line");
+      return line;
+    };
+
+    /** The page loaded, then a refetch in the background (a stock change). */
+    const loadedThenFailed = async (answers: (() => Response)[]) => {
+      let calls = 0;
+      const view = renderPage("/produk", () => {
+        const answer = answers[calls] ?? answers[answers.length - 1];
+        calls += 1;
+        if (answer === undefined) throw new Error("no answer");
+        return answer();
+      });
+      await screen.findByRole("link", { name: productRow(1).name });
+      await act(() =>
+        view.queryClient.refetchQueries({ queryKey: productKeys.tables }),
+      );
+      await waitFor(() => {
+        expect(calls).toBe(2);
+        expect(staleLine()).toBeDefined();
+      });
+      return { ...view, calls: () => calls };
+    };
+
+    it("keeps the rows, with a line saying they may be behind instead of the error card", async () => {
+      await loadedThenFailed([
+        () => productTableResponse(productTable([productRow(1)])),
+        () => errorResponse(500, "INTERNAL_ERROR"),
+      ]);
+
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(
+        screen.getByRole("link", { name: productRow(1).name }),
+      ).toBeInTheDocument();
+      expect(staleLine()?.textContent).toBe(
+        "Daftar produk tidak bisa diperbarui; yang tampil adalah daftar terakhir yang berhasil dimuat. Terjadi kesalahan saat memuat data. Coba lagi.Coba lagi",
+      );
+    });
+
+    it("loads again from the line's Coba lagi, and drops the line once it works", async () => {
+      const user = userEvent.setup();
+      const { calls } = await loadedThenFailed([
+        () => productTableResponse(productTable([productRow(1)])),
+        () => errorResponse(500, "INTERNAL_ERROR"),
+        () => productTableResponse(productTable([productRow(2)])),
+      ]);
+
+      await user.click(
+        within(theStaleLine()).getByRole("button", {
+          name: "Coba lagi",
+        }),
+      );
+
+      expect(
+        await screen.findByRole("link", { name: productRow(2).name }),
+      ).toBeInTheDocument();
+      expect(staleLine()).toBeUndefined();
+      expect(calls()).toBe(3);
+    });
+
+    it("shows the error card for a filter that fails, with no rows for it", async () => {
+      let calls = 0;
+      const user = userEvent.setup();
+      renderPage("/produk", () => {
+        calls += 1;
+        return calls === 1
+          ? productTableResponse(productTable([productRow(1)]))
+          : errorResponse(500, "INTERNAL_ERROR");
+      });
+      await screen.findByRole("link", { name: productRow(1).name });
+
+      await user.selectOptions(screen.getByLabelText("Status"), "Draf");
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        "Terjadi kesalahan saat memuat data. Coba lagi.",
+      );
+      expect(staleLine()).toBeUndefined();
+      expect(
+        screen.queryByRole("link", { name: productRow(1).name }),
+      ).toBeNull();
+    });
   });
 
   it("says there are no products yet, without Hapus filter", async () => {
