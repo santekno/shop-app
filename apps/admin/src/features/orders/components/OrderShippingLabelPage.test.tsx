@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { Order } from "@goshop/shared";
@@ -137,6 +137,41 @@ describe("OrderShippingLabelPage", () => {
       ),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Cetak" })).toBeDisabled();
+  });
+
+  it("gives the page heading the focus when Coba lagi turns the error into loading, and keeps it there", async () => {
+    let calls = 0;
+    const second = deferred<Response>();
+    const userEvents = userEvent.setup();
+    renderLabel(() => {
+      calls += 1;
+      return calls === 1
+        ? errorResponse(500, "INTERNAL_ERROR")
+        : second.promise;
+    });
+    const retry = within(await screen.findByRole("alert")).getByRole("button", {
+      name: "Coba lagi",
+    });
+    retry.focus();
+
+    await userEvents.keyboard("{Enter}");
+
+    await waitFor(() => {
+      expect(retry).not.toBeInTheDocument();
+    });
+    expect(screen.getByText("Memuat pesanan…")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { level: 1, name: /^Resi pengiriman/ }),
+    ).toHaveFocus();
+
+    second.resolve(orderResponse(order()));
+
+    expect(
+      await screen.findByRole("region", { name: "Label pengiriman" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { level: 1, name: /^Resi pengiriman/ }),
+    ).toHaveFocus();
   });
 
   it("offers to try again after another failure", async () => {

@@ -13,6 +13,7 @@ import {
 } from "@/test/msw/products.ts";
 import { server } from "@/test/msw/server.ts";
 import { renderRoute } from "@/test/render.tsx";
+import { MAIN_ID } from "@/app/useRouteFocus.ts";
 import { productKeys } from "../api/queries.ts";
 import { ProductsPage } from "./ProductsPage.tsx";
 
@@ -24,8 +25,18 @@ const renderPage = (
     categoriesHandler([category("c-kaos", "Kaos")]),
     productTableHandler(answer),
   );
-  return renderRoute(<ProductsPage />, { path: "/produk", url });
+  // In <main>, as DashboardLayout renders it: "Coba lagi" focuses the
+  // page's heading through it.
+  return renderRoute(
+    <main id={MAIN_ID} tabIndex={-1}>
+      <ProductsPage />
+    </main>,
+    { path: "/produk", url },
+  );
 };
+
+const pageHeading = () =>
+  screen.getByRole("heading", { level: 1, name: "Produk" });
 
 const tableRequests = (sent: ReturnType<typeof recordRequests>) =>
   sent.filter((r) => r.url.pathname === "/v1/admin/products");
@@ -129,6 +140,35 @@ describe("ProductsPage", () => {
     ).toBeInTheDocument();
   });
 
+  it("gives the page heading the focus when Coba lagi turns the error into loading, and keeps it there", async () => {
+    let calls = 0;
+    const second = deferred<Response>();
+    const user = userEvent.setup();
+    renderPage("/produk", () => {
+      calls += 1;
+      return calls === 1
+        ? errorResponse(500, "INTERNAL_ERROR")
+        : second.promise;
+    });
+    const retry = within(await screen.findByRole("alert")).getByRole("button", {
+      name: "Coba lagi",
+    });
+    retry.focus();
+
+    await user.keyboard("{Enter}");
+
+    expect(await screen.findByText("Memuat produk…")).toBeInTheDocument();
+    expect(retry).not.toBeInTheDocument();
+    expect(pageHeading()).toHaveFocus();
+
+    second.resolve(productTableResponse(productTable([productRow(1)])));
+
+    expect(
+      await screen.findByRole("link", { name: productRow(1).name }),
+    ).toBeInTheDocument();
+    expect(pageHeading()).toHaveFocus();
+  });
+
   describe("when a refetch fails with rows on screen", () => {
     const STALE = "Daftar produk tidak bisa diperbarui";
     const staleLine = () =>
@@ -142,7 +182,9 @@ describe("ProductsPage", () => {
     };
 
     /** The page loaded, then a refetch in the background (a stock change). */
-    const loadedThenFailed = async (answers: (() => Response)[]) => {
+    const loadedThenFailed = async (
+      answers: (() => Response | Promise<Response>)[],
+    ) => {
       let calls = 0;
       const view = renderPage("/produk", () => {
         const answer = answers[calls] ?? answers[answers.length - 1];
@@ -195,6 +237,34 @@ describe("ProductsPage", () => {
       ).toBeInTheDocument();
       expect(staleLine()).toBeUndefined();
       expect(calls()).toBe(3);
+    });
+
+    it("gives the page heading the focus from the line's Coba lagi, which goes once the rows arrive", async () => {
+      const third = deferred<Response>();
+      const user = userEvent.setup();
+      await loadedThenFailed([
+        () => productTableResponse(productTable([productRow(1)])),
+        () => errorResponse(500, "INTERNAL_ERROR"),
+        () => third.promise,
+      ]);
+      const retry = within(theStaleLine()).getByRole("button", {
+        name: "Coba lagi",
+      });
+      retry.focus();
+
+      await user.keyboard("{Enter}");
+
+      // Still on its way: the line (and the button) are still there.
+      expect(retry).toBeInTheDocument();
+      expect(pageHeading()).toHaveFocus();
+
+      third.resolve(productTableResponse(productTable([productRow(2)])));
+
+      expect(
+        await screen.findByRole("link", { name: productRow(2).name }),
+      ).toBeInTheDocument();
+      expect(staleLine()).toBeUndefined();
+      expect(pageHeading()).toHaveFocus();
     });
 
     it("shows the error card for a filter that fails, with no rows for it", async () => {

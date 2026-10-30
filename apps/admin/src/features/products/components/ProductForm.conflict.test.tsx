@@ -386,6 +386,13 @@ describe("ProductForm, artikel 05", () => {
       }),
     ).toBeInTheDocument();
     expect(gets).toBe(2);
+    // The button went with the error; the focus did not fall to <body>.
+    expect(
+      screen.getByRole("heading", {
+        level: 2,
+        name: "Produk ini berubah sejak Anda membukanya",
+      }),
+    ).toHaveFocus();
   });
 
   it("follows the page's refetched product while the form is untouched", async () => {

@@ -9,6 +9,7 @@ import { errorResponse, recordRequests } from "@/test/msw/http.ts";
 import { salesReportHandler, salesReportResponse } from "@/test/msw/reports.ts";
 import { server } from "@/test/msw/server.ts";
 import { renderRoute } from "@/test/render.tsx";
+import { MAIN_ID } from "@/app/useRouteFocus.ts";
 import { stubSizedResizeObserver } from "@/test/resize-observer.ts";
 import { plain } from "@/test/text.ts";
 import { reportKeys } from "../api/queries.ts";
@@ -29,8 +30,18 @@ const renderPage = (
     SalesReport | Parameters<typeof salesReportHandler>[0] = salesReport(),
 ) => {
   server.use(salesReportHandler(report));
-  return renderRoute(<ReportsPage />, { path: "/laporan", url });
+  // In <main>, as DashboardLayout renders it: "Coba lagi" focuses the
+  // page's heading through it.
+  return renderRoute(
+    <main id={MAIN_ID} tabIndex={-1}>
+      <ReportsPage />
+    </main>,
+    { path: "/laporan", url },
+  );
 };
+
+const pageHeading = () =>
+  screen.getByRole("heading", { level: 1, name: "Laporan" });
 
 const loaded = () =>
   screen.findByText(
@@ -223,6 +234,35 @@ describe("ReportsPage", () => {
     expect(await loaded()).toBeInTheDocument();
   });
 
+  it("gives the page heading the focus when Coba lagi turns the error into loading, and keeps it there", async () => {
+    let calls = 0;
+    const second = deferred<Response>();
+    const userEvents = userEvent.setup();
+    renderPage("/laporan", () => {
+      calls += 1;
+      return calls === 1
+        ? errorResponse(500, "INTERNAL_ERROR")
+        : second.promise;
+    });
+    const retry = within(await screen.findByRole("alert")).getByRole("button", {
+      name: "Coba lagi",
+    });
+    retry.focus();
+
+    await userEvents.keyboard("{Enter}");
+
+    await waitFor(() => {
+      expect(retry).not.toBeInTheDocument();
+    });
+    expect(screen.getByText("Memuat laporan…")).toBeInTheDocument();
+    expect(pageHeading()).toHaveFocus();
+
+    second.resolve(salesReportResponse(salesReport()));
+
+    expect(await loaded()).toBeInTheDocument();
+    expect(pageHeading()).toHaveFocus();
+  });
+
   describe("when a refetch fails with a report on screen", () => {
     const STALE = "Laporan tidak bisa diperbarui";
     const staleLine = () =>
@@ -236,7 +276,9 @@ describe("ReportsPage", () => {
     };
 
     /** The page loaded, then a refetch in the background (an order event). */
-    const loadedThenFailed = async (answers: (() => Response)[]) => {
+    const loadedThenFailed = async (
+      answers: (() => Response | Promise<Response>)[],
+    ) => {
       let calls = 0;
       const view = renderPage("/laporan", () => {
         const answer = answers[calls] ?? answers[answers.length - 1];
@@ -289,6 +331,35 @@ describe("ReportsPage", () => {
       });
       expect(calls()).toBe(3);
       expect(screen.queryByRole("alert")).toBeNull();
+    });
+
+    it("gives the page heading the focus from the line's Coba lagi, which goes once the report arrives", async () => {
+      const third = deferred<Response>();
+      const userEvents = userEvent.setup();
+      await loadedThenFailed([
+        () => salesReportResponse(salesReport()),
+        () => errorResponse(500, "INTERNAL_ERROR"),
+        () => third.promise,
+      ]);
+      const retry = within(theStaleLine()).getByRole("button", {
+        name: "Coba lagi",
+      });
+      retry.focus();
+
+      await userEvents.keyboard("{Enter}");
+
+      // Still on its way: the line (and the button) are still there.
+      expect(retry).toBeInTheDocument();
+      expect(pageHeading()).toHaveFocus();
+
+      third.resolve(
+        salesReportResponse(salesReport({ series: [period("2026-10-30", 7)] })),
+      );
+
+      await waitFor(() => {
+        expect(staleLine()).toBeUndefined();
+      });
+      expect(pageHeading()).toHaveFocus();
     });
 
     it("shows the error card for a new range that fails, with no report for it", async () => {

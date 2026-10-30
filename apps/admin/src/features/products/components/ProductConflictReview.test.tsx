@@ -146,7 +146,12 @@ describe("ProductConflictReview", () => {
      * The review as ProductForm holds it: the state changes under the
      * same element as the refetch goes on.
      */
-    const renderChanging = (initial: ConflictReviewState) => {
+    const renderChanging = (
+      initial: ConflictReviewState,
+      /** What "Coba lagi" does: ProductForm loads the product again. */
+      onRetry: (change: (next: ConflictReviewState) => void) => void = () =>
+        undefined,
+    ) => {
       let change: (next: ConflictReviewState) => void = () => undefined;
       function Changing() {
         const [state, setState] = useState(initial);
@@ -155,7 +160,9 @@ describe("ProductConflictReview", () => {
           <ProductConflictReview
             state={state}
             cause={{ kind: "product" }}
-            onRetry={vi.fn()}
+            onRetry={() => {
+              onRetry(setState);
+            }}
             onKeepMine={vi.fn()}
             onDiscard={vi.fn()}
           />
@@ -212,6 +219,44 @@ describe("ProductConflictReview", () => {
       });
 
       expect(screen.getByRole("alert")).toBeInTheDocument();
+      expect(onlyHeading()).toBe(first);
+      expect(first).toHaveFocus();
+    });
+
+    it("gives the heading the focus when Coba lagi loads again, and keeps it when the product arrives", async () => {
+      const { user, moveTo } = renderChanging(
+        {
+          status: "error",
+          error: new ApiError({
+            status: 500,
+            code: "INTERNAL_ERROR",
+            message: "x",
+          }),
+        },
+        (change) => {
+          change({ status: "loading" });
+        },
+      );
+      const first = onlyHeading();
+      const retry = within(screen.getByRole("alert")).getByRole("button", {
+        name: "Coba lagi",
+      });
+      retry.focus();
+
+      await user.keyboard("{Enter}");
+
+      // The error, and the button with it, became "Memuat…".
+      expect(retry).not.toBeInTheDocument();
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "Memuat data terbaru dari server…",
+      );
+      expect(first).toHaveFocus();
+
+      moveTo(ready(same, (v) => ({ ...v, name: "Baru" })));
+
+      expect(
+        screen.getByText(/Belum ada yang tersimpan\./),
+      ).toBeInTheDocument();
       expect(onlyHeading()).toBe(first);
       expect(first).toHaveFocus();
     });

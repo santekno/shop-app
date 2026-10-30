@@ -84,6 +84,42 @@ describe("ConnectionStatus", () => {
     expect(retryNow).toHaveBeenCalledTimes(1);
   });
 
+  it("gives its status line the focus from Coba lagi, since the button goes once the feed is live", async () => {
+    const user = userEvent.setup();
+    const retryNow = vi.fn();
+    const at = (status: Status) => (
+      <OrderEventsContext
+        value={{
+          status,
+          retryNow,
+          unread: 0,
+          toasts: [],
+          announcement: "",
+          dismissToast: () => undefined,
+        }}
+      >
+        <ConnectionStatus />
+      </OrderEventsContext>
+    );
+    const { rerender } = render(at("unreachable"));
+    const retry = screen.getByRole("button", { name: /^Coba lagi/ });
+    retry.focus();
+
+    await user.keyboard("{Enter}");
+
+    expect(retryNow).toHaveBeenCalledTimes(1);
+    const line = screen.getByText("Terputus").parentElement;
+    expect(line).toHaveFocus();
+    // Focusable from code only: Tab never stops on it.
+    expect(line).toHaveAttribute("tabindex", "-1");
+
+    rerender(at("live"));
+
+    expect(retry).not.toBeInTheDocument();
+    expect(screen.getByText("Langsung").parentElement).toBe(line);
+    expect(line).toHaveFocus();
+  });
+
   it("throws outside the provider", () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     expect(() => render(<ConnectionStatus />)).toThrow(

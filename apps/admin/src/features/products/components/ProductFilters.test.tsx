@@ -156,6 +156,39 @@ describe("ProductFilters", () => {
     expect(screen.queryByText(/Kategori tidak dapat dimuat/)).toBeNull();
   });
 
+  it("gives the category list the focus when Coba lagi goes with its error, and keeps it there", async () => {
+    let calls = 0;
+    const second = deferred<Response>();
+    server.use(
+      categoriesHandler(() => {
+        calls += 1;
+        return calls === 1
+          ? errorResponse(500, "INTERNAL_ERROR")
+          : second.promise;
+      }),
+    );
+    const user = userEvent.setup();
+    renderFilters();
+    const error = await screen.findByText(/Kategori tidak dapat dimuat\./);
+    const retry = within(error).getByRole("button", { name: "Coba lagi" });
+    retry.focus();
+
+    await user.keyboard("{Enter}");
+
+    expect(
+      await within(categorySelect()).findByRole("option", {
+        name: "Memuat kategori…",
+      }),
+    ).toBeInTheDocument();
+    expect(retry).not.toBeInTheDocument();
+    expect(categorySelect()).toHaveFocus();
+
+    second.resolve(categoriesResponse(categories));
+
+    await within(categorySelect()).findByRole("option", { name: "Kaos" });
+    expect(categorySelect()).toHaveFocus();
+  });
+
   it("turns the low-stock filter on and off", async () => {
     server.use(categoriesHandler(categories));
     const user = userEvent.setup();

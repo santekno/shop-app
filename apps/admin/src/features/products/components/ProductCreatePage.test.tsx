@@ -144,6 +144,36 @@ describe("ProductCreatePage", () => {
       expect(screen.queryByText(/Kategori tidak dapat dimuat/)).toBeNull();
     });
 
+    it("gives the category select the focus when Coba lagi goes with its error, and keeps it there", async () => {
+      let calls = 0;
+      const second = deferred<Response>();
+      const user = userEvent.setup();
+      renderCreate(() => {
+        calls += 1;
+        return calls === 1
+          ? errorResponse(500, "INTERNAL_ERROR")
+          : second.promise;
+      });
+      await screen.findByText(/Kategori tidak dapat dimuat\./);
+      const retry = screen.getByRole("button", { name: "Coba lagi" });
+      retry.focus();
+
+      await user.keyboard("{Enter}");
+
+      expect(
+        await screen.findByRole("option", { name: "Memuat kategori…" }),
+      ).toBeInTheDocument();
+      expect(retry).not.toBeInTheDocument();
+      expect(screen.getByLabelText("Kategori")).toHaveFocus();
+
+      second.resolve(categoriesResponse(formCategories));
+
+      expect(
+        await screen.findByRole("option", { name: "Kaos" }),
+      ).toBeInTheDocument();
+      expect(screen.getByLabelText("Kategori")).toHaveFocus();
+    });
+
     it("checks the step on Lanjut and focuses its first invalid field", async () => {
       const user = userEvent.setup();
       renderCreate();

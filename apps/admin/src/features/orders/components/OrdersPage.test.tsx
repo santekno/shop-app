@@ -7,12 +7,20 @@ import { errorResponse, recordRequests } from "@/test/msw/http.ts";
 import { orderListResponse, orderQueueHandler } from "@/test/msw/orders.ts";
 import { server } from "@/test/msw/server.ts";
 import { renderRoute } from "@/test/render.tsx";
+import { MAIN_ID } from "@/app/useRouteFocus.ts";
 import { formatDateTime } from "@/lib/format-date.ts";
 import { invalidateOrderQueries } from "../api/queries.ts";
 import { OrdersPage } from "./OrdersPage.tsx";
 
+// In <main>, as DashboardLayout renders it: "Coba lagi" focuses the
+// page's heading through it.
 const renderPage = (url = "/pesanan") =>
-  renderRoute(<OrdersPage />, { path: "/pesanan", url });
+  renderRoute(
+    <main id={MAIN_ID} tabIndex={-1}>
+      <OrdersPage />
+    </main>,
+    { path: "/pesanan", url },
+  );
 
 /** Answers each cursor with its own page: "" is the first. */
 const pages = (byCursor: Record<string, () => Response | Promise<Response>>) =>
@@ -134,6 +142,46 @@ describe("OrdersPage", () => {
     expect(
       await screen.findByRole("link", { name: orderSummary(1).code }),
     ).toBeInTheDocument();
+  });
+
+  it("gives the page heading the focus when Coba lagi turns the error into loading, and keeps it there", async () => {
+    let calls = 0;
+    const second = deferred<Response>();
+    const userEvents = userEvent.setup();
+    server.use(
+      pages({
+        "": () => {
+          calls += 1;
+          return calls === 1
+            ? errorResponse(500, "INTERNAL_ERROR")
+            : second.promise;
+        },
+      }),
+    );
+    renderPage();
+    const retry = within(await screen.findByRole("alert")).getByRole("button", {
+      name: "Coba lagi",
+    });
+    retry.focus();
+
+    await userEvents.keyboard("{Enter}");
+
+    await waitFor(() => {
+      expect(retry).not.toBeInTheDocument();
+    });
+    expect(screen.getByText("Memuat pesanan…")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Pesanan" }),
+    ).toHaveFocus();
+
+    second.resolve(orderListResponse([orderSummary(1)]));
+
+    expect(
+      await screen.findByRole("link", { name: orderSummary(1).code }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Pesanan" }),
+    ).toHaveFocus();
   });
 
   describe("loading more", () => {

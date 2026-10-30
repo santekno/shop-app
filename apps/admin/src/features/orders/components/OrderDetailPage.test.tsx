@@ -8,6 +8,8 @@ import { errorResponse } from "@/test/msw/http.ts";
 import { orderDetailHandler, orderResponse } from "@/test/msw/orders.ts";
 import { server } from "@/test/msw/server.ts";
 import { renderRoute } from "@/test/render.tsx";
+import { deferred } from "@/test/deferred.ts";
+import { MAIN_ID } from "@/app/useRouteFocus.ts";
 import { plain } from "@/test/text.ts";
 import { OrderDetailPage } from "./OrderDetailPage.tsx";
 
@@ -15,10 +17,17 @@ const renderPage = (
   value: Order | Parameters<typeof orderDetailHandler>[0] = order(),
 ) => {
   server.use(orderDetailHandler(value));
-  return renderRoute(<OrderDetailPage />, {
-    path: "/pesanan/:orderId",
-    url: `/pesanan/${ORDER_ID}`,
-  });
+  // In <main>, as DashboardLayout renders it: "Coba lagi" focuses the
+  // page's heading through it.
+  return renderRoute(
+    <main id={MAIN_ID} tabIndex={-1}>
+      <OrderDetailPage />
+    </main>,
+    {
+      path: "/pesanan/:orderId",
+      url: `/pesanan/${ORDER_ID}`,
+    },
+  );
 };
 
 const section = (name: string) => screen.getByRole("region", { name });
@@ -78,6 +87,39 @@ describe("OrderDetailPage", () => {
     );
 
     expect(await screen.findByText(order().code)).toBeInTheDocument();
+  });
+
+  it("gives the page heading the focus when Coba lagi turns the error into loading, and keeps it there", async () => {
+    let calls = 0;
+    const second = deferred<Response>();
+    const userEvents = userEvent.setup();
+    renderPage(() => {
+      calls += 1;
+      return calls === 1
+        ? errorResponse(500, "INTERNAL_ERROR")
+        : second.promise;
+    });
+    const retry = within(await screen.findByRole("alert")).getByRole("button", {
+      name: "Coba lagi",
+    });
+    retry.focus();
+
+    await userEvents.keyboard("{Enter}");
+
+    await waitFor(() => {
+      expect(retry).not.toBeInTheDocument();
+    });
+    expect(screen.getByText("Memuat pesanan…")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Detail pesanan" }),
+    ).toHaveFocus();
+
+    second.resolve(orderResponse(order()));
+
+    expect(await screen.findByText(order().code)).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Detail pesanan" }),
+    ).toHaveFocus();
   });
 
   it("lists what was bought, with the totals, and no discount row without one", async () => {

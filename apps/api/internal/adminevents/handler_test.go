@@ -306,10 +306,13 @@ func TestStream_Heartbeat(t *testing.T) {
 }
 
 // A stream outlives the server's ReadTimeout and WriteTimeout (internal/
-// app sets both, far shorter than a stream lives): the handler lifts the
-// read deadline and moves the write deadline on every write. With both
-// at 200 ms and a heartbeat of 500 ms, two pings arrive about a second
-// in, long after either timeout would have ended the stream.
+// app sets both, far shorter than a stream lives): the handler moves the
+// write deadline on every write, and lifts the read deadline too. With
+// both at 200 ms and a heartbeat of 500 ms, two pings arrive about a
+// second in, long after the WriteTimeout would have ended the stream.
+// The ReadTimeout alone would not: net/http already clears the read
+// deadline of a request without a body before the handler runs (ADR
+// 0009), so this test guards the write deadline, not the lifted read one.
 func TestStream_OutlivesTheServersTimeouts(t *testing.T) {
 	env := newStreamEnvOn(t, time.Now, 500*time.Millisecond, func(srv *http.Server) {
 		srv.ReadTimeout = 200 * time.Millisecond

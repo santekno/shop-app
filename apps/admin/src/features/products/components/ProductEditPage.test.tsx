@@ -14,6 +14,7 @@ import {
 import { server } from "@/test/msw/server.ts";
 import { formCategories, stepHeading } from "@/test/products-form.ts";
 import { renderRoutes } from "@/test/render.tsx";
+import { deferred } from "@/test/deferred.ts";
 import { ProductEditPage } from "./ProductEditPage.tsx";
 
 const renderEdit = (
@@ -92,6 +93,41 @@ describe("ProductEditPage", () => {
     expect(await screen.findByLabelText("Nama produk")).toHaveValue(
       "Kaos Polos",
     );
+  });
+
+  it("gives the page heading the focus when Coba lagi turns the error into loading, and keeps it there", async () => {
+    let calls = 0;
+    const second = deferred<Response>();
+    const user = userEvent.setup();
+    renderEdit(() => {
+      calls += 1;
+      return calls === 1
+        ? errorResponse(500, "INTERNAL_ERROR")
+        : second.promise;
+    });
+    const retry = within(await screen.findByRole("alert")).getByRole("button", {
+      name: "Coba lagi",
+    });
+    retry.focus();
+
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => {
+      expect(retry).not.toBeInTheDocument();
+    });
+    expect(screen.getByText("Memuat produk…")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Ubah produk" }),
+    ).toHaveFocus();
+
+    second.resolve(productResponse(adminProduct()));
+
+    expect(await screen.findByLabelText("Nama produk")).toHaveValue(
+      "Kaos Polos",
+    );
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Ubah produk" }),
+    ).toHaveFocus();
   });
 
   it("shows the create page's notice once, and forgets it in the history entry", async () => {
