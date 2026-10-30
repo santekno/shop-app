@@ -8,6 +8,7 @@
   },
   "scripts": {
     "dev": "pnpm --filter @goshop/web dev",
+    "dev:admin": "pnpm --filter @goshop/admin dev",
     "gen:types": "pnpm --filter @goshop/shared gen",
     "typecheck": "pnpm -r --if-present run typecheck",
     "lint": "pnpm -r --if-present run lint",

@@ -49,8 +49,10 @@ export {
   register,
   webLogin,
   webLogout,
+  webClientHeaders,
   webRefresh,
 } from "./api/auth.ts";
+export type { WebClient, WebSessionOptions } from "./api/auth.ts";
 
 export {
   EMAIL_MAX_LENGTH,
@@ -80,6 +82,43 @@ export {
   getShippingQuotes,
   previewCheckout,
 } from "./api/checkout.ts";
+
+export {
+  adjustVariantStock,
+  archiveProduct,
+  confirmProductImage,
+  createProduct,
+  deleteProductImage,
+  getAdminProduct,
+  listAdminProducts,
+  startProductImageUpload,
+  updateProduct,
+} from "./api/admin-products.ts";
+
+export {
+  cancelOrder,
+  completeOrder,
+  getAdminOrder,
+  listAdminOrders,
+  processOrder,
+  shipOrder,
+} from "./api/admin-orders.ts";
+export {
+  TRACKING_NUMBER_MAX_LENGTH,
+  TRACKING_NUMBER_MIN_LENGTH,
+  TRACKING_NUMBER_PATTERN,
+  shipOrderSchema,
+} from "./schemas/shipment.ts";
+export type { ShipOrderInput, ShipOrderOutput } from "./schemas/shipment.ts";
+export type {
+  Courier,
+  ListAdminOrdersQuery,
+  OrderCancelReason,
+  OrderShipping,
+  ShipRequest,
+  ShippingAddressSnapshot,
+} from "./api/types.ts";
+export { getSalesReport } from "./api/admin-reports.ts";
 
 export { getOrder, listOrders, payOrder, placeOrder } from "./api/orders.ts";
 export type { ListOrdersQuery, PlaceOrderOptions } from "./api/orders.ts";
@@ -125,11 +164,60 @@ export {
 } from "./schemas/address.ts";
 export type { AddressInput } from "./schemas/address.ts";
 
+export {
+  LOW_STOCK_THRESHOLD,
+  PRODUCT_DESCRIPTION_MAX_LENGTH,
+  PRODUCT_NAME_MAX_LENGTH,
+  PRODUCT_SLUG_MAX_LENGTH,
+  PRODUCT_SLUG_PATTERN,
+  PRODUCT_STATUSES,
+  PRODUCT_VARIANTS_MAX,
+  VARIANT_NAME_MAX_LENGTH,
+  VARIANT_PRICE_MAX,
+  VARIANT_PRICE_MIN,
+  VARIANT_SKU_MAX_LENGTH,
+  VARIANT_STOCK_MAX,
+  VARIANT_WEIGHT_MAX_GRAMS,
+  VARIANT_WEIGHT_MIN_GRAMS,
+  productSchema,
+  stockLevel,
+  toProductSlug,
+  variantSchema,
+} from "./schemas/product.ts";
+export type {
+  ProductInput,
+  StockLevel,
+  VariantInput,
+} from "./schemas/product.ts";
+
+export {
+  PRODUCT_IMAGES_MAX,
+  PRODUCT_IMAGE_MAX_BYTES,
+  PRODUCT_IMAGE_MAX_PIXELS,
+  PRODUCT_IMAGE_MAX_SIDE,
+  PRODUCT_IMAGE_SNIFF_BYTES,
+  PRODUCT_IMAGE_TYPES,
+  productImageDimensionsProblem,
+  productImageSizeProblem,
+  productImageTypeProblem,
+  sniffProductImageType,
+} from "./schemas/product-image.ts";
+
 export type {
   Address,
   AddressCreate,
+  AdminProduct,
+  AdminProductDetail,
+  AdminProductImage,
+  AdminProductImageDetail,
+  AdminProductImageStatus,
+  AdminProductRow,
+  AdminProductSort,
+  AdminProductStatus,
+  AdminProductTable,
   AddressDetail,
   AddressList,
+  AdminVariant,
   AppliedVoucher,
   Cart,
   CartAddResult,
@@ -145,9 +233,16 @@ export type {
   CheckoutProblem,
   CheckoutRequest,
   ErrorBody,
+  ImageConfirmRequest,
+  ImageUpload,
+  ImageUploadDetail,
+  ImageUploadRequest,
+  ImageUploadTicket,
+  ListAdminProductsQuery,
   ListProductsQuery,
   LoginRequest,
   Money,
+  OffsetPageInfo,
   Order,
   OrderDetail,
   OrderItem,
@@ -163,19 +258,35 @@ export type {
   Product,
   ProductDetail,
   ProductImage,
+  ProductImageContentType,
   ProductList,
   ProductVariant,
+  ProductWrite,
   RegisterRequest,
+  SalesReport,
+  SalesReportDetail,
+  SalesReportGroup,
+  SalesReportPeriod,
+  SalesReportQuery,
+  SalesReportTopProduct,
   ShippingQuote,
   ShippingQuotes,
   ShippingQuotesDetail,
+  SortOrder,
   TokenPair,
   TokenPairDetail,
   User,
   UserDetail,
+  VariantWrite,
+  // Bab 12 artikel 05: one variant's stock adjustment.
+  AdminVariantDetail,
+  StockAdjustment,
   WebSession,
   WebSessionDetail,
   components,
   operations,
   paths,
 } from "./api/types.ts";
+
+// The admin dashboard's live order events (Bab 12 artikel 09).
+export type { AdminOrderEvent } from "./api/types.ts";

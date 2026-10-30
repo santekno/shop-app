@@ -83,6 +83,22 @@ func withVersion(v map[string]any, version int32) map[string]any {
 	return v
 }
 
+// asVersion is the ProductWrite body with the product's version, which a
+// PUT must send back since Bab 12 (the product's own optimistic lock).
+func asVersion(t *testing.T, body string, version int32) string {
+	t.Helper()
+	var m map[string]any
+	if err := json.Unmarshal([]byte(body), &m); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	m["version"] = version
+	b, err := json.Marshal(m)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	return string(b)
+}
+
 // catalogServer is a development server with the example categories and
 // the listing fixture in its own database, whose s.send and s.do act as an
 // admin (the admin routes need a seller or admin token since Bab 4).
@@ -211,8 +227,8 @@ func TestAdminHTTP_CreateGetUpdate(t *testing.T) {
 	// Update: keep M (by id), leave L out (archived), add S; the order in
 	// the body is the position.
 	m := created.Variants[0]
-	resp = s.send(t, http.MethodPut, "/v1/admin/products/"+created.ID, productJSON(t, c.cats["kaos"], "kaos-admin", "active",
-		variantJSON("", "KA-S", "S", 89000, 2), withVersion(variantJSON(m.ID, "KA-M", "M", 89000, 4), m.Version)))
+	resp = s.send(t, http.MethodPut, "/v1/admin/products/"+created.ID, asVersion(t, productJSON(t, c.cats["kaos"], "kaos-admin", "active",
+		variantJSON("", "KA-S", "S", 89000, 2), withVersion(variantJSON(m.ID, "KA-M", "M", 89000, 4), m.Version)), created.Version))
 	if resp.Status != http.StatusOK {
 		t.Fatalf("PUT = %d, want 200: %s", resp.Status, resp.Body)
 	}
@@ -233,15 +249,17 @@ func TestAdminHTTP_CreateGetUpdate(t *testing.T) {
 
 	// Last save wins: two saves in a row, each with the version the
 	// previous one returned, and the second one is what stays.
-	version := updated.Variants[0].Version
+	version, productVersion := updated.Variants[0].Version, updated.Version
 	for _, name := range []string{"first", "second"} {
-		body := strings.Replace(productJSON(t, c.cats["kemeja"], "kaos-admin", "draft",
-			withVersion(variantJSON(updated.Variants[0].ID, "KA-S", "S", 79000, 1), version)), `"Produk kaos-admin"`, `"`+name+`"`, 1)
+		body := strings.Replace(asVersion(t, productJSON(t, c.cats["kemeja"], "kaos-admin", "draft",
+			withVersion(variantJSON(updated.Variants[0].ID, "KA-S", "S", 79000, 1), version)), productVersion),
+			`"Produk kaos-admin"`, `"`+name+`"`, 1)
 		r := s.send(t, http.MethodPut, "/v1/admin/products/"+created.ID, body)
 		if r.Status != http.StatusOK {
 			t.Fatalf("PUT %s = %d: %s", name, r.Status, r.Body)
 		}
-		version = assertAdminProduct(t, r.Body).Variants[0].Version
+		saved := assertAdminProduct(t, r.Body)
+		version, productVersion = saved.Variants[0].Version, saved.Version
 	}
 	final := assertAdminProduct(t, s.get(t, "/v1/admin/products/"+created.ID).Body)
 	if final.Name != "second" || final.CategoryID != c.cats["kemeja"] || final.Status != "draft" ||
@@ -268,6 +286,9 @@ func TestAdminHTTP_WriteErrors(t *testing.T) {
 	ada := getAdmin(t, c, existing).Variants[0]
 	adaVariant := ada.ID
 	other := c.create(t, "kaos", "kaos-polos", "Kaos Polos", "", variant("KP-1", "M", 1000, 1))
+	// An update sends the product's version since Bab 12; the current one,
+	// so each case fails for its own reason.
+	update := func(body string) string { return asVersion(t, body, getAdmin(t, c, other).Version) }
 	ok := variantJSON("", "NEW-1", "M", 1000, 1)
 	before := queryInt(t, s.db, `SELECT count(*) FROM products`) + queryInt(t, s.db, `SELECT count(*) FROM product_variants`)
 
@@ -318,12 +339,12 @@ func TestAdminHTTP_WriteErrors(t *testing.T) {
 		{"archived SKU taken", "POST", "", productJSON(t, kaos, "kaos-baru", "active", variantJSON("", "ADA-2", "L", 10, 1)),
 			409, "SKU_TAKEN", "variants", ""},
 		{"update: variant of another product", "PUT", "/" + other,
-			productJSON(t, kaos, "kaos-polos", "active", withVersion(variantJSON(adaVariant, "KP-1", "M", 1000, 1), ada.Version)),
+			update(productJSON(t, kaos, "kaos-polos", "active", withVersion(variantJSON(adaVariant, "KP-1", "M", 1000, 1), ada.Version))),
 			400, "VALIDATION_FAILED", "variants", "sellable variant of this product"},
 		{"update: slug taken", "PUT", "/" + other,
-			productJSON(t, kaos, "kaos-ada", "active", variantJSON("", "KP-9", "M", 1000, 1)), 409, "SLUG_TAKEN", "slug", ""},
+			update(productJSON(t, kaos, "kaos-ada", "active", variantJSON("", "KP-9", "M", 1000, 1))), 409, "SLUG_TAKEN", "slug", ""},
 		{"update: SKU taken", "PUT", "/" + other,
-			productJSON(t, kaos, "kaos-polos", "active", variantJSON("", "ADA-1", "M", 1000, 1)), 409, "SKU_TAKEN", "variants", ""},
+			update(productJSON(t, kaos, "kaos-polos", "active", variantJSON("", "ADA-1", "M", 1000, 1))), 409, "SKU_TAKEN", "variants", ""},
 		// NUL cannot be stored in a PostgreSQL text column: refused as a
 		// 400 naming the field, never a 500 from the database.
 		{"NUL in name", "POST", "", strings.Replace(productJSON(t, kaos, "kaos-nul", "active", ok),
@@ -336,7 +357,7 @@ func TestAdminHTTP_WriteErrors(t *testing.T) {
 		{"NUL in a variant's name", "POST", "", productJSON(t, kaos, "kaos-nul", "active", ok, variantJSON("", "NUL-2", "L\x00", 10, 1)),
 			400, "VALIDATION_FAILED", "variants[1].name", httpapi.InvalidTextMessage},
 		{"update: NUL in a variant's name", "PUT", "/" + other,
-			productJSON(t, kaos, "kaos-polos", "active", variantJSON("", "KP-NUL", "M\x00", 1000, 1)),
+			update(productJSON(t, kaos, "kaos-polos", "active", variantJSON("", "KP-NUL", "M\x00", 1000, 1))),
 			400, "VALIDATION_FAILED", "variants[0].name", httpapi.InvalidTextMessage},
 	}
 
@@ -370,7 +391,7 @@ func TestAdminHTTP_NotFound(t *testing.T) {
 	s := startServer(t, nil)
 	s.actAsStaff(t)
 	c := newCatalog(t, s.db)
-	body := productJSON(t, c.cats["kaos"], "kaos-x", "active", variantJSON("", "X-1", "M", 1000, 1))
+	body := asVersion(t, productJSON(t, c.cats["kaos"], "kaos-x", "active", variantJSON("", "X-1", "M", 1000, 1)), 0)
 	for _, id := range []string{uuidx.NewV7(), "not-a-uuid", "123"} {
 		for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
 			t.Run(method+" "+id, func(t *testing.T) {

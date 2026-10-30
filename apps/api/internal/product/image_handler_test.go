@@ -417,15 +417,10 @@ func TestImages_AdminJSON_NoImagesIsEmptyList(t *testing.T) {
 	} {
 		body := tt.body
 		if tt.method != http.MethodGet {
-			body = productBody(t)
+			body = putBody(t, 9, nil) // POST ignores the version
 		}
 		rec := serveImages(&fakeService{admin: adminProduct()}, &fakeImages{}, tt.method, tt.target, body)
 		testx.AssertEqual(t, rec.Code, tt.want, tt.method)
 		testx.AssertContains(t, rec.Body.String(), `"images":[]`)
 	}
-}
-
-func productBody(t *testing.T) string {
-	t.Helper()
-	return body(t, nil)
 }

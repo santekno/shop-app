@@ -34,6 +34,13 @@ type Options struct {
 	// middleware except the request timeout: a probe must stay cheap
 	// and answer on its own terms, never with 503 TIMEOUT.
 	Probes func(r chi.Router)
+	// Streams, when set, registers the long-lived streaming routes (the
+	// admin's event stream, Bab 12). Like the probes they get every
+	// middleware except the request timeout, which would end a stream
+	// after APP_REQUEST_TIMEOUT; each stream bounds its own life and lifts
+	// the server's read and write timeouts for its own response. Routes
+	// are given with their full path, such as /v1/admin/events.
+	Streams func(r chi.Router)
 }
 
 // NewRouter returns the chi router of the API with the middleware chain every
@@ -88,6 +95,9 @@ func NewRouter(opts Options, mount func(r chi.Router)) http.Handler {
 
 	if opts.Probes != nil {
 		opts.Probes(r)
+	}
+	if opts.Streams != nil {
+		opts.Streams(r)
 	}
 	// Everything else runs under the request deadline. A group shares the
 	// router, and its NotFound and 405 handlers, but adds a middleware.

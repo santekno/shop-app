@@ -119,7 +119,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * The admin's product table
+         * @description Every product in any status, one numbered page at a time, for the
+         *     dashboard's data table (Bab 12). Unlike the catalog this list uses
+         *     offset pages, because a table jumps to page N and shows the total;
+         *     the order is stable because ties are broken by `id` in the same
+         *     direction. A page past the last one is an empty `data` with the
+         *     real `page.total`. Filters combine.
+         */
+        get: operations["listAdminProducts"];
         put?: never;
         /**
          * Create a product with its variants
@@ -159,13 +168,26 @@ export interface paths {
          *     history, never deleted; its SKU stays taken). Everything runs in one
          *     transaction that also recomputes `price_from`.
          *
-         *     **Optimistic locking (Bab 5, ADR 0006):** every existing variant
-         *     must carry the `version` it was loaded with (`GET
-         *     /v1/admin/products/{id}`). If anything changed the variant since (a
-         *     checkout took stock, another admin saved), nothing is saved and the
-         *     answer is 409 `VERSION_CONFLICT` naming the variant: reload and save
-         *     again. Without the check, a form that stayed open would overwrite
-         *     the stock buyers had just taken.
+         *     **Optimistic locking (Bab 5 and 12, ADR 0006):** the body must carry
+         *     the product's `version`, and every existing variant the `version` it
+         *     was loaded with (`GET /v1/admin/products/{id}`). Nothing is saved,
+         *     and the answer is 409 `VERSION_CONFLICT`, when:
+         *
+         *     - the product changed since (another admin's save, which may also
+         *       have added or archived variants, or an archive):
+         *       `details.product_id`. Checked first, before any variant is
+         *       written, so a variant another admin added is never archived by a
+         *       form that never saw it;
+         *     - a variant changed since (a checkout or a cancel moved its stock,
+         *       a stock adjustment, another save): `details.variant_id`, the
+         *       first stale variant in the body's order (there may be more).
+         *
+         *     Reload and save again. Without the checks, a form that stayed open
+         *     would overwrite the stock buyers had just taken, or another admin's
+         *     name, price or variants. Stock changes never move the product's
+         *     `version`, only the variant's.
+         *
+         *     A body without `version` is 400 `VALIDATION_FAILED` (`version`).
          */
         put: operations["updateProduct"];
         post?: never;
@@ -175,9 +197,59 @@ export interface paths {
          *     takes the product off the storefront. Nothing is deleted: orders
          *     keep pointing at the product and its variants, and saving it again
          *     with another status restores it. Archiving an archived product
-         *     answers 204 as well.
+         *     answers 204 as well. Every archive bumps the product's `version`, so
+         *     a form still open on it gets 409 on its next save instead of
+         *     putting the product back on sale.
          */
         delete: operations["archiveProduct"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/products/{id}/variants/{variant_id}/stock-adjustments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Product ID. One that is not a UUID returns 404 `NOT_FOUND`. */
+                id: components["parameters"]["ProductID"];
+                /** @description Variant ID. One that is not a UUID, or not a variant of this product, returns 404 `NOT_FOUND`. */
+                variant_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Change one variant's stock
+         * @description Changes the stock of one sellable variant in one guarded statement
+         *     (Bab 12), without loading the product and sending all of it back
+         *     with `PUT`. Two forms:
+         *
+         *     - `{"delta": 20}` adds to the stock as it is when the change runs
+         *       ("20 received", `-2` for two damaged), so a sale in between is
+         *       kept. The result must not go below 0, and an increase must not
+         *       take it above 1,000,000: otherwise 409 `STOCK_OUT_OF_RANGE` and
+         *       nothing changes. A decrease is never capped, because a cancelled
+         *       order's restore can leave the stock above 1,000,000.
+         *     - `{"set": 15, "expected": 12}` is a count: the stock becomes `set`
+         *       only while it is still `expected`, the stock the seller saw. If
+         *       a sale or another change moved it, 409 `STOCK_CHANGED` with the
+         *       stock now, and nothing changes; only the seller knows which
+         *       number is right. Both are 0 to 1,000,000; a stock above that is
+         *       brought down with a negative `delta`.
+         *
+         *     Like a checkout, every change bumps the variant's `version` (a form
+         *     open on the product that would write this variant gets 409 on its
+         *     next save) and never the product's `version` or `updated_at`. A
+         *     variant archived by a save, before or while the change ran, is 409
+         *     `VARIANT_ARCHIVED`. The `stock` in a 409's
+         *     details is read right after the refused change: show it, but send
+         *     a new change rather than computing one from it.
+         */
+        post: operations["adjustVariantStock"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -264,6 +336,61 @@ export interface paths {
          * @description Deletes the photo and its files.
          */
         delete: operations["deleteProductImage"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Live order events for the dashboard (Server-Sent Events)
+         * @description A `text/event-stream` of the store's order changes as they happen
+         *     (Bab 12, ADR 0009), for sellers and admins. Send the access token
+         *     in `Authorization: Bearer <token>`: browsers' `EventSource` cannot
+         *     send headers, so read the stream with `fetch` and parse it.
+         *
+         *     The stream opens with the comment line `: connected`. Each order
+         *     change is one event:
+         *
+         *     ```
+         *     id: 0192f5e0-7a1b-7c2d-8e3f-4a5b6c7d8e9f
+         *     event: order
+         *     data: {"type":"order.paid","order_id":"…","code":"GS-20261023-ABC123","status":"paid","total":{"amount":117000,"currency":"IDR"},"occurred_at":"2026-10-23T08:00:00Z"}
+         *     ```
+         *
+         *     `id` is the outbox event's ID and `data` is one line of JSON
+         *     (`AdminOrderEvent`) with no buyer data. `type` is `order.created`,
+         *     `order.paid`, `order.processing`, `order.shipped`,
+         *     `order.completed` or `order.cancelled`. Events arrive within a few
+         *     seconds of the change (the worker publishes the outbox every 5
+         *     seconds).
+         *
+         *     - **At least once:** the same `id` can arrive twice; drop
+         *       duplicates.
+         *     - **No replay:** `Last-Event-ID` is ignored and nothing missed
+         *       while disconnected is sent again. After every (re)connect,
+         *       refetch what the page shows.
+         *     - **Heartbeat:** a `: ping` comment every 25 seconds while idle.
+         *     - **End:** the server ends the stream with `event: end` and
+         *       `data: {"reason":"token_expired"}` when the access token
+         *       expires (refresh it, then reconnect), or `{"reason":"shutdown"}`
+         *       when the instance stops (reconnect at once). The stream can also
+         *       close without an `end` event (network, a lost connection to
+         *       Redis): reconnect with backoff.
+         *
+         *     The stream is exempt from the request timeout (`TIMEOUT`). At most
+         *     5 streams per account are open at once on one API instance.
+         */
+        get: operations["streamAdminEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -439,6 +566,13 @@ export interface paths {
          *     `X-GoShop-Client: web`. The web session needs the storefront and
          *     the API on one site (one registrable domain): see
          *     `docs/configuration.md`.
+         *
+         *     The admin dashboard (Bab 12) calls the same three endpoints with
+         *     `X-GoShop-Client: admin`, and its session lives in its own cookie,
+         *     `goshop_admin_refresh` (same attributes), so logging into one app
+         *     never ends the other's session. Everything said here about
+         *     `goshop_refresh` holds for `goshop_admin_refresh` on the admin's
+         *     calls; each call reads and writes only its client's cookie.
          */
         post: operations["webLogin"];
         delete?: never;
@@ -1224,10 +1358,12 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Cancel an order before it ships
+         * Cancel an order before it ships (admin only)
          * @description pending_payment, paid or processing → cancelled (`seller_cancelled`).
          *     The stock (its variants locked in id order) and the voucher use go
          *     back in the same transaction. Refunding a paid order is Bab 6's.
+         *     From Bab 12 only an `admin` may cancel: admins own cancellations
+         *     and refunds, while sellers keep every other order operation.
          */
         post: operations["cancelOrder"];
         delete?: never;
@@ -1398,6 +1534,8 @@ export interface components {
         };
         /** @description A product as the admin writes it. */
         ProductWrite: {
+            /** @description Required by `PUT`, ignored by `POST`. The product's `version` as the form loaded it (`AdminProduct.version`); a stale one is 409 `VERSION_CONFLICT` with `details.product_id`. */
+            version?: number;
             /** Format: uuid */
             category_id: string;
             /** @example kaos-polos-hitam */
@@ -1445,8 +1583,21 @@ export interface components {
             price: components["schemas"]["Money"];
             stock: number;
             weight_grams: number;
-            /** @description Changes with every write to the variant, a checkout's stock decrement included. Send it back with `PUT`. */
+            /** @description Changes with every write to the variant, a checkout's stock decrement and a stock adjustment included. Send it back with `PUT`. */
             version: number;
+        };
+        AdminVariantDetail: {
+            data: components["schemas"]["AdminVariant"];
+        };
+        /** @description A change to one variant's stock, either a difference or a guarded count. */
+        StockAdjustment: {
+            /** @description Units to add (negative to take away), not 0. */
+            delta: number;
+        } | {
+            /** @description The stock as counted. */
+            set: number;
+            /** @description The stock the seller saw before counting. */
+            expected: number;
         };
         /** @description A product as the admin sees it, in any status. */
         AdminProduct: {
@@ -1461,6 +1612,8 @@ export interface components {
             status: "draft" | "active" | "archived";
             /** @description Price of the cheapest sellable variant, or `null` when the product has none. */
             price_from: components["schemas"]["Money"] | null;
+            /** @description The product's own version (Bab 12). Changes with every admin save of the product (its fields, adding or archiving variants) and every archive; never with stock or photos, which move only a variant's `version` or nothing. Send it back with `PUT`. */
+            version: number;
             /** @description The sellable (non-archived) variants, cheapest first. */
             variants: components["schemas"]["AdminVariant"][];
             /** @description Every photo in order, pending uploads included (at most 10). */
@@ -1472,6 +1625,81 @@ export interface components {
         };
         AdminProductDetail: {
             data: components["schemas"]["AdminProduct"];
+        };
+        /** @description One product of the admin's product table, in any status. The totals count the sellable (non-archived) variants only. */
+        AdminProductRow: {
+            /** Format: uuid */
+            id: string;
+            slug: string;
+            name: string;
+            /** @enum {string} */
+            status: "draft" | "active" | "archived";
+            category: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+            };
+            /** @description Price of the cheapest sellable variant, or `null` when the product has none. */
+            price_from: components["schemas"]["Money"] | null;
+            /**
+             * Format: int64
+             * @description Units of all sellable variants together.
+             */
+            stock: number;
+            /** @description How many sellable variants the product has. */
+            variant_count: number;
+            /** @description Some sellable variant has `low_stock_threshold` (5) units or fewer. */
+            low_stock: boolean;
+            /** @description The narrowest copy (400 px wide) of the product's first ready photo, or `null` while no photo is ready. */
+            thumbnail_url: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /**
+             * Format: date-time
+             * @description The last admin save of the product; a checkout's stock decrement does not move it.
+             */
+            updated_at: string;
+        };
+        /** @description Where an offset page sits in the whole list. */
+        OffsetPageInfo: {
+            page: number;
+            per_page: number;
+            /**
+             * Format: int64
+             * @description How many items match the filters, on every page.
+             */
+            total: number;
+            /**
+             * Format: int64
+             * @description `ceil(total / per_page)`; 0 when nothing matches.
+             */
+            total_pages: number;
+        };
+        AdminProductTable: {
+            data: components["schemas"]["AdminProductRow"][];
+            page: components["schemas"]["OffsetPageInfo"];
+            /**
+             * @description A sellable variant with this many units or fewer is low on stock (5), the rule behind `low_stock` and the `low_stock` filter. Read it instead of keeping a copy in the client.
+             * @example 5
+             */
+            low_stock_threshold: number;
+        };
+        /** @description The `data` of an `order` event on `GET /v1/admin/events`. It names the order and its new status, and never carries buyer data. */
+        AdminOrderEvent: {
+            /** @enum {string} */
+            type: "order.created" | "order.paid" | "order.processing" | "order.shipped" | "order.completed" | "order.cancelled";
+            /** Format: uuid */
+            order_id: string;
+            /** @example GS-20261023-ABC123 */
+            code: string;
+            /** @enum {string} */
+            status: "pending_payment" | "paid" | "processing" | "shipped" | "completed" | "cancelled";
+            total: components["schemas"]["Money"];
+            /**
+             * Format: date-time
+             * @description When the order changed.
+             */
+            occurred_at: string;
         };
         PageInfo: {
             /** @description Cursor for the next page, or `null` on the last page. A page may hold fewer than `limit` products, even none, while `next_cursor` is not null; stop only when it is null. */
@@ -1545,7 +1773,7 @@ export interface components {
         TokenPairDetail: {
             data: components["schemas"]["TokenPair"];
         };
-        /** @description A web session (ADR 0008) and the account it belongs to. The refresh token is in the `goshop_refresh` cookie, never in the body. */
+        /** @description A web session (ADR 0008) and the account it belongs to. The refresh token is in the `goshop_refresh` cookie (for the admin dashboard, `goshop_admin_refresh`), never in the body. */
         WebSession: {
             /** @description A JWT. Send it as `Authorization: Bearer <access_token>`. Keep it in memory only, never in `localStorage`. Clients must not rely on its claims; they may change. */
             access_token: string;
@@ -2084,6 +2312,62 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
+        /** @description A query parameter of the product table is invalid (`VALIDATION_FAILED`, one entry per parameter). */
+        BadProductTableQuery: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "error": {
+                 *         "code": "VALIDATION_FAILED",
+                 *         "message": "invalid query parameters",
+                 *         "details": {
+                 *           "sort": "must be one of: name, price_from, stock, updated_at, created_at"
+                 *         }
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description The body is not valid JSON, mixes the two forms, has a `delta` of 0 or out of range, or a `set` without `expected` (`VALIDATION_FAILED`). */
+        BadStockAdjustment: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "error": {
+                 *         "code": "VALIDATION_FAILED",
+                 *         "message": "invalid request",
+                 *         "details": {
+                 *           "delta": "must not be 0"
+                 *         }
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /**
+         * @description Nothing was changed. `STOCK_OUT_OF_RANGE`: the `delta` would take
+         *     the stock below 0, or is an increase that would take it above
+         *     1,000,000 (`details.stock` is the stock now; `min` bounds every
+         *     change, `max` only increases). `STOCK_CHANGED`: the stock is no longer
+         *     `expected` (`details.stock` is the stock now). `VARIANT_ARCHIVED`:
+         *     the variant was archived. Each names `details.variant_id`.
+         */
+        StockConflict: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
         /** @description The body is not valid JSON or breaks the schema (`VALIDATION_FAILED`, with one entry per field such as `variants[0].price`), or `category_id` names no category (`UNKNOWN_CATEGORY`). */
         BadWrite: {
             headers: {
@@ -2094,7 +2378,7 @@ export interface components {
             };
         };
         /**
-         * @description Another product already has the slug (`SLUG_TAKEN`), a variant anywhere in the store, archived ones included, already has one of the SKUs (`SKU_TAKEN`), or (on `PUT`) a variant changed since its `version` was read (`VERSION_CONFLICT`, `details.variant_id`; reload and save again).
+         * @description Another product already has the slug (`SLUG_TAKEN`), a variant anywhere in the store, archived ones included, already has one of the SKUs (`SKU_TAKEN`), or (on `PUT`) the product changed since its `version` was read (`VERSION_CONFLICT`, `details.product_id`) or a variant did (`VERSION_CONFLICT`, `details.variant_id`, the first stale one); reload and save again. A variant `id` that names an archived variant of this product is `VARIANT_ARCHIVED` with `details.variant_id`: it can no longer be written, so reload and leave it out. This is not how a concurrent save shows up: every archive goes through a save, which bumps the product's `version`, so a form that loaded the product before another admin archived a variant gets `VERSION_CONFLICT` with `details.product_id` first. `VARIANT_ARCHIVED` is the fallback for a body that carries the current product `version` with the `id` of a variant that was already archived when the product was loaded (a body built from an older copy of the variants). An `id` that is not a variant of this product at all stays 400 `VALIDATION_FAILED`.
          *
          *     Known Bab 3 limitation: within one save, each variant's SKU is checked when that variant is written, so swapping the SKUs of two variants, or giving one variant the SKU another variant of the same product has right now, answers 409 `SKU_TAKEN`. Save twice instead, through a temporary SKU.
          */
@@ -2235,9 +2519,47 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
+        /** @description The account already has 5 event streams open on this API instance (`TOO_MANY_STREAMS`). Close one (another tab, or a stream a reconnect left behind) and try again. */
+        TooManyStreams: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "error": {
+                 *         "code": "TOO_MANY_STREAMS",
+                 *         "message": "too many open event streams for this account; close one first",
+                 *         "details": {
+                 *           "max": 5
+                 *         }
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description The caller is logged in but is not an `admin`. A `seller` gets this too; the role is checked before the order is looked up. */
+        AdminOnly: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "error": {
+                 *         "code": "FORBIDDEN",
+                 *         "message": "your role is not allowed to do this"
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["Error"];
+            };
+        };
         /**
-         * @description Not a request from the web storefront: the `X-GoShop-Client: web`
-         *     header is missing or wrong (`details.reason` `client_header`), or
+         * @description Not a request from the web storefront or the admin dashboard: the
+         *     `X-GoShop-Client` header is missing, sent twice or neither `web`
+         *     nor `admin` (`details.reason` `client_header`), or
          *     the `Origin` header names an origin that is not in
          *     `APP_CORS_ALLOWED_ORIGINS` (`details.reason` `origin`). Nothing is
          *     counted against a rate limit and no cookie is set or cleared.
@@ -2753,14 +3075,17 @@ export interface components {
     };
     parameters: {
         /**
-         * @description Must be exactly `web`. A page on another origin cannot add a custom
-         *     header without a CORS preflight, which the API answers only for the
+         * @description Must be exactly `web` (the storefront) or `admin` (the admin
+         *     dashboard, Bab 12), sent once. The value picks the session's
+         *     cookie: `goshop_refresh` for `web`, `goshop_admin_refresh` for
+         *     `admin`. A page on another origin cannot add a custom header
+         *     without a CORS preflight, which the API answers only for the
          *     origins in `APP_CORS_ALLOWED_ORIGINS`; together with
          *     `SameSite=Strict` and the `Origin` check this keeps other sites,
          *     sibling subdomains included, from using the cookie (CSRF). Missing
          *     or wrong: 403 `FORBIDDEN` with `details.reason` `client_header`.
          */
-        GoShopClientHeader: "web";
+        GoShopClientHeader: "web" | "admin";
         /** @description Product ID. One that is not a UUID returns 404 `NOT_FOUND`. */
         ProductID: string;
         /** @description Image ID. One that is not a UUID returns 404 `NOT_FOUND`. */
@@ -2778,12 +3103,12 @@ export interface components {
     requestBodies: never;
     headers: {
         /**
-         * @description The session's new refresh token in the `goshop_refresh` cookie.
+         * @description The session's new refresh token in the `goshop_refresh` cookie (`goshop_admin_refresh` with `X-GoShop-Client admin`).
          * @example goshop_refresh=0192f5d4-7c1e-7a8b-9c3d-4e5f6a7b8c9d.q8XbS0pV2lYc7mWfN3rT5uJhK9dGzA1eR6tB4yOiPxw; Path=/v1/auth/web; Max-Age=2592000; HttpOnly; Secure; SameSite=Strict
          */
         SetRefreshCookie: string;
         /**
-         * @description Deletes the `goshop_refresh` cookie (same name, path and attributes, empty value, `Max-Age=0`).
+         * @description Deletes the `goshop_refresh` cookie, or `goshop_admin_refresh` with `X-GoShop-Client admin` (same name, path and attributes, empty value, `Max-Age=0`).
          * @example goshop_refresh=; Path=/v1/auth/web; Max-Age=0; HttpOnly; Secure; SameSite=Strict
          */
         ClearRefreshCookie: string;
@@ -3077,6 +3402,85 @@ export interface operations {
             500: components["responses"]["InternalError"];
         };
     };
+    listAdminProducts: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Text matched, case-insensitively and anywhere, against the
+                 *     product's name and the SKU of any of its variants (archived
+                 *     variants included, so a SKU from an old packing slip still
+                 *     finds its product). Leading and trailing spaces are ignored;
+                 *     only spaces is no search. `%` and `_` match themselves.
+                 * @example kaos
+                 */
+                q?: string;
+                /** @description Only products in this status; every status when absent. */
+                status?: "draft" | "active" | "archived";
+                /** @description Only products in this category or its child categories. An ID that names no category gives an empty page. */
+                category_id?: string;
+                /** @description When `true`, only products with a sellable variant whose stock is at or below the threshold, 5 (`low_stock` in the rows, `low_stock_threshold` in the response). */
+                low_stock?: boolean;
+                /** @description The column to sort by. `stock` is the sum over the sellable variants; products without a price (`price_from` null) come last in both directions. */
+                sort?: "name" | "price_from" | "stock" | "updated_at" | "created_at";
+                order?: "asc" | "desc";
+                /** @description Page number, 1 for the first. */
+                page?: number;
+                per_page?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the table. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": [
+                     *         {
+                     *           "id": "0192f3a1-5e6f-7a8b-9c0d-1e2f3a4b5c6d",
+                     *           "slug": "kaos-polos-hitam",
+                     *           "name": "Kaos Polos Hitam",
+                     *           "status": "active",
+                     *           "category": {
+                     *             "id": "0192f3a0-1c2d-7b4e-8a10-3f5e6d7c8b91",
+                     *             "name": "Kaos"
+                     *           },
+                     *           "price_from": {
+                     *             "amount": 89000,
+                     *             "currency": "IDR"
+                     *           },
+                     *           "stock": 12,
+                     *           "variant_count": 2,
+                     *           "low_stock": true,
+                     *           "thumbnail_url": "http://localhost:8333/goshop/products/0192f3a1-5e6f-7a8b-9c0d-1e2f3a4b5c6d/0192f3b2-0a1b-7c2d-8e3f-4a5b6c7d8e9f/400.jpg",
+                     *           "created_at": "2026-11-01T08:00:00Z",
+                     *           "updated_at": "2026-11-03T10:15:00Z"
+                     *         }
+                     *       ],
+                     *       "page": {
+                     *         "page": 1,
+                     *         "per_page": 20,
+                     *         "total": 1,
+                     *         "total_pages": 1
+                     *       },
+                     *       "low_stock_threshold": 5
+                     *     }
+                     */
+                    "application/json": components["schemas"]["AdminProductTable"];
+                };
+            };
+            400: components["responses"]["BadProductTableQuery"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
     createProduct: {
         parameters: {
             query?: never;
@@ -3193,6 +3597,41 @@ export interface operations {
             500: components["responses"]["InternalError"];
         };
     };
+    adjustVariantStock: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Product ID. One that is not a UUID returns 404 `NOT_FOUND`. */
+                id: components["parameters"]["ProductID"];
+                /** @description Variant ID. One that is not a UUID, or not a variant of this product, returns 404 `NOT_FOUND`. */
+                variant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StockAdjustment"];
+            };
+        };
+        responses: {
+            /** @description The variant after the change. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminVariantDetail"];
+                };
+            };
+            400: components["responses"]["BadStockAdjustment"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["StockConflict"];
+            500: components["responses"]["InternalError"];
+        };
+    };
     startProductImageUpload: {
         parameters: {
             query?: never;
@@ -3290,6 +3729,48 @@ export interface operations {
             404: components["responses"]["ImageNotFound"];
             500: components["responses"]["InternalError"];
             503: components["responses"]["StorageUnavailable"];
+        };
+    };
+    streamAdminEvents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /**
+             * @description The event stream. It carries `Cache-Control: no-store` like every
+             *     response, and `X-Accel-Buffering: no` so proxies pass each event
+             *     on at once.
+             */
+            200: {
+                headers: {
+                    /** @description Always `no`. */
+                    "X-Accel-Buffering"?: "no";
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example : connected
+                     *
+                     *     id: 0192f5e0-7a1b-7c2d-8e3f-4a5b6c7d8e9f
+                     *     event: order
+                     *     data: {"type":"order.paid","order_id":"0192f5d0-1a2b-7c3d-8e4f-5a6b7c8d9e0f","code":"GS-20261023-ABC123","status":"paid","total":{"amount":117000,"currency":"IDR"},"occurred_at":"2026-10-23T08:00:00Z"}
+                     *
+                     *     : ping
+                     *
+                     *     event: end
+                     *     data: {"reason":"token_expired"}
+                     */
+                    "text/event-stream": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            429: components["responses"]["TooManyStreams"];
+            500: components["responses"]["InternalError"];
         };
     };
     getSalesReport: {
@@ -3454,8 +3935,11 @@ export interface operations {
             query?: never;
             header: {
                 /**
-                 * @description Must be exactly `web`. A page on another origin cannot add a custom
-                 *     header without a CORS preflight, which the API answers only for the
+                 * @description Must be exactly `web` (the storefront) or `admin` (the admin
+                 *     dashboard, Bab 12), sent once. The value picks the session's
+                 *     cookie: `goshop_refresh` for `web`, `goshop_admin_refresh` for
+                 *     `admin`. A page on another origin cannot add a custom header
+                 *     without a CORS preflight, which the API answers only for the
                  *     origins in `APP_CORS_ALLOWED_ORIGINS`; together with
                  *     `SameSite=Strict` and the `Origin` check this keeps other sites,
                  *     sibling subdomains included, from using the cookie (CSRF). Missing
@@ -3500,8 +3984,11 @@ export interface operations {
             query?: never;
             header: {
                 /**
-                 * @description Must be exactly `web`. A page on another origin cannot add a custom
-                 *     header without a CORS preflight, which the API answers only for the
+                 * @description Must be exactly `web` (the storefront) or `admin` (the admin
+                 *     dashboard, Bab 12), sent once. The value picks the session's
+                 *     cookie: `goshop_refresh` for `web`, `goshop_admin_refresh` for
+                 *     `admin`. A page on another origin cannot add a custom header
+                 *     without a CORS preflight, which the API answers only for the
                  *     origins in `APP_CORS_ALLOWED_ORIGINS`; together with
                  *     `SameSite=Strict` and the `Origin` check this keeps other sites,
                  *     sibling subdomains included, from using the cookie (CSRF). Missing
@@ -3556,8 +4043,11 @@ export interface operations {
             query?: never;
             header: {
                 /**
-                 * @description Must be exactly `web`. A page on another origin cannot add a custom
-                 *     header without a CORS preflight, which the API answers only for the
+                 * @description Must be exactly `web` (the storefront) or `admin` (the admin
+                 *     dashboard, Bab 12), sent once. The value picks the session's
+                 *     cookie: `goshop_refresh` for `web`, `goshop_admin_refresh` for
+                 *     `admin`. A page on another origin cannot add a custom header
+                 *     without a CORS preflight, which the API answers only for the
                  *     origins in `APP_CORS_ALLOWED_ORIGINS`; together with
                  *     `SameSite=Strict` and the `Origin` check this keeps other sites,
                  *     sibling subdomains included, from using the cookie (CSRF). Missing
@@ -4551,7 +5041,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
+            403: components["responses"]["AdminOnly"];
             404: components["responses"]["OrderNotFound"];
             409: components["responses"]["InvalidTransition"];
             500: components["responses"]["InternalError"];

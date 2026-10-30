@@ -569,7 +569,7 @@ func TestWebSession_TwoCookies(t *testing.T) {
 		assertError(t, resp, http.StatusUnauthorized, "TOKEN_INVALID")
 		assertCookieCleared(t, resp, "two cookies")
 	}
-	if !strings.Contains(s.logs.String(), "several goshop_refresh cookies") {
+	if !strings.Contains(s.logs.String(), "several session cookies") || !strings.Contains(s.logs.String(), "cookie=goshop_refresh count=2") {
 		t.Errorf("the planted cookie was not logged:\n%s", s.logs.String())
 	}
 	if s.liveSessions(t, victim.ID) != 1 || s.liveSessions(t, attacker.ID) != 1 {

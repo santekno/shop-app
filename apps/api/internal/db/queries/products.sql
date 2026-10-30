@@ -105,15 +105,19 @@ ORDER BY v.price, v.position, v.id;
 -- Admin reads and writes (sellers and admins only, from Bab 4).
 
 -- name: GetProduct :one
--- Any product, whatever its status.
-SELECT id, category_id, slug, name, description, status, price_from, created_at, updated_at
+-- Any product, whatever its status, with the version a save must send
+-- back.
+SELECT id, category_id, slug, name, description, status, price_from, version, created_at, updated_at
 FROM products
 WHERE id = @id;
 
 -- name: LockProduct :one
 -- Locks the product row for the rest of the transaction, so two admin saves
--- of the same product run one after the other and price_from stays right.
-SELECT id
+-- of the same product run one after the other and price_from stays right,
+-- and returns its version: the save compares it with the one its form
+-- loaded before it writes anything (Bab 12). Locked, it cannot change
+-- before the save's UpdateProduct bumps it.
+SELECT version
 FROM products
 WHERE id = @id
 FOR UPDATE;
@@ -152,7 +156,9 @@ VALUES (@id, @category_id, @slug, @name, @description, 'draft', NULL);
 -- name: UpdateProduct :execrows
 -- Writes the product's fields and recomputes price_from from its sellable
 -- variants in the same statement, so the price_from CHECK sees the final
--- status and price together. Every product write ends with this query.
+-- status and price together. Every product write ends with this query,
+-- and bumps the product's version: its fields or its variant set may have
+-- changed (a new product ends at version 1).
 UPDATE products
 SET category_id = @category_id,
     slug        = @slug,
@@ -161,6 +167,7 @@ SET category_id = @category_id,
     status      = @status,
     price_from  = (SELECT min(v.price) FROM product_variants v
                    WHERE v.product_id = products.id AND v.archived_at IS NULL),
+    version     = version + 1,
     updated_at  = now()
 WHERE products.id = @id;
 
@@ -193,15 +200,26 @@ WHERE id = @id AND product_id = @product_id AND archived_at IS NULL
 SELECT version FROM product_variants
 WHERE id = @id AND product_id = @product_id AND archived_at IS NULL;
 
+-- name: IsVariantArchived :one
+-- After GetVariantVersion found no sellable variant: whether the id names
+-- an archived variant of the product (409 VARIANT_ARCHIVED, Bab 12)
+-- rather than no variant of it at all (400).
+SELECT EXISTS (
+    SELECT 1 FROM product_variants
+    WHERE id = @id AND product_id = @product_id AND archived_at IS NOT NULL
+) AS archived;
+
 -- Soft delete: products and variants are archived, never deleted, because
 -- order items (Bab 5) point to them. updated_at is set by every UPDATE in
 -- this file, not by a trigger, so each write shows it.
 
 -- name: ArchiveProduct :execrows
--- Takes the product off the storefront. Archiving it again changes nothing
--- but updated_at. Zero rows: there is no such product.
+-- Takes the product off the storefront and bumps its version, so a form
+-- still open on it cannot save it back to active by accident. Archiving
+-- it again changes nothing but updated_at and the version. Zero rows:
+-- there is no such product.
 UPDATE products
-SET status = 'archived', updated_at = now()
+SET status = 'archived', version = version + 1, updated_at = now()
 WHERE id = @id;
 
 -- name: ArchiveVariantsNotIn :exec
@@ -215,3 +233,127 @@ SET archived_at = now(), updated_at = now()
 WHERE product_id = @product_id
   AND archived_at IS NULL
   AND id <> ALL(@keep_ids::uuid[]);
+
+-- The admin's product table (Bab 12): every status, offset pages, any
+-- column sort. Offset rather than the storefront's cursor, because a data
+-- table jumps to page N and shows "page 3 of 12", which needs the total.
+-- Both queries share one filter, written out twice so each stays plain
+-- SQL; a change to one must be made to the other.
+--
+-- Filters: status NULL means any status; category_id NULL means every
+-- category, otherwise the category and its children; search NULL means no
+-- search, otherwise an ILIKE pattern (the caller escapes % _ \) matched
+-- against the name and every variant's SKU, archived variants included,
+-- because a SKU on an old packing slip still names its product;
+-- low_stock_only keeps products with a sellable variant whose stock is at
+-- or below low_stock_threshold, an EXISTS that stops at the first such
+-- variant (served by product_variants_product_id_idx) and runs only when
+-- the filter is on, rather than the totals' aggregate over every variant
+-- of every product.
+--
+-- The sort is a fixed set of CASE expressions chosen by @sort and
+-- @descending, never SQL built from the request. No index can serve them
+-- (stock is a sum over the variants), and none needs to: the total has to
+-- count every matching product anyway, and an admin catalog is small. The
+-- id tie-break, in the same direction, keeps a page stable when values tie.
+
+-- name: CountAdminProducts :one
+SELECT count(*)
+FROM products p
+WHERE (sqlc.narg('status')::text IS NULL OR p.status = sqlc.narg('status')::text)
+  AND (sqlc.narg('category_id')::uuid IS NULL
+       OR p.category_id = sqlc.narg('category_id')::uuid
+       OR p.category_id IN (SELECT c.id FROM categories c WHERE c.parent_id = sqlc.narg('category_id')::uuid))
+  AND (sqlc.narg('search')::text IS NULL
+       OR p.name ILIKE sqlc.narg('search')::text
+       OR EXISTS (SELECT 1 FROM product_variants sv
+                  WHERE sv.product_id = p.id AND sv.sku ILIKE sqlc.narg('search')::text))
+  AND (NOT @low_stock_only::boolean OR EXISTS (SELECT 1 FROM product_variants lv
+                                                 WHERE lv.product_id = p.id AND lv.archived_at IS NULL
+                                                   AND lv.stock <= @low_stock_threshold::int));
+
+-- name: ListAdminProducts :many
+-- One row per product with its category and its sellable variants' totals
+-- (a product with none has stock 0, variant_count 0, low_stock false).
+SELECT p.id, p.slug, p.name, p.status, p.price_from, p.created_at, p.updated_at,
+       c.id AS category_id, c.name AS category_name,
+       s.stock, s.variant_count, s.low_stock
+FROM products p
+JOIN categories c ON c.id = p.category_id
+CROSS JOIN LATERAL (
+    SELECT COALESCE(sum(v.stock), 0)::bigint AS stock,
+           count(*)::int AS variant_count,
+           COALESCE(bool_or(v.stock <= @low_stock_threshold::int), false)::boolean AS low_stock
+    FROM product_variants v
+    WHERE v.product_id = p.id AND v.archived_at IS NULL
+) s
+WHERE (sqlc.narg('status')::text IS NULL OR p.status = sqlc.narg('status')::text)
+  AND (sqlc.narg('category_id')::uuid IS NULL
+       OR p.category_id = sqlc.narg('category_id')::uuid
+       OR p.category_id IN (SELECT c2.id FROM categories c2 WHERE c2.parent_id = sqlc.narg('category_id')::uuid))
+  AND (sqlc.narg('search')::text IS NULL
+       OR p.name ILIKE sqlc.narg('search')::text
+       OR EXISTS (SELECT 1 FROM product_variants sv
+                  WHERE sv.product_id = p.id AND sv.sku ILIKE sqlc.narg('search')::text))
+  AND (NOT @low_stock_only::boolean OR EXISTS (SELECT 1 FROM product_variants lv
+                                                 WHERE lv.product_id = p.id AND lv.archived_at IS NULL
+                                                   AND lv.stock <= @low_stock_threshold::int))
+ORDER BY
+    CASE WHEN @sort::text = 'name' AND NOT @descending::boolean THEN p.name END ASC,
+    CASE WHEN @sort::text = 'name' AND @descending::boolean THEN p.name END DESC,
+    -- A draft without a sellable variant has no price: last either way.
+    CASE WHEN @sort::text = 'price_from' AND NOT @descending::boolean THEN p.price_from END ASC NULLS LAST,
+    CASE WHEN @sort::text = 'price_from' AND @descending::boolean THEN p.price_from END DESC NULLS LAST,
+    CASE WHEN @sort::text = 'stock' AND NOT @descending::boolean THEN s.stock END ASC,
+    CASE WHEN @sort::text = 'stock' AND @descending::boolean THEN s.stock END DESC,
+    CASE WHEN @sort::text = 'updated_at' AND NOT @descending::boolean THEN p.updated_at END ASC,
+    CASE WHEN @sort::text = 'updated_at' AND @descending::boolean THEN p.updated_at END DESC,
+    CASE WHEN @sort::text = 'created_at' AND NOT @descending::boolean THEN p.created_at END ASC,
+    CASE WHEN @sort::text = 'created_at' AND @descending::boolean THEN p.created_at END DESC,
+    CASE WHEN NOT @descending::boolean THEN p.id END ASC,
+    CASE WHEN @descending::boolean THEN p.id END DESC
+LIMIT @page_size OFFSET @page_offset;
+
+-- Stock adjustments (Bab 12): one variant's stock, changed in one guarded
+-- statement, so the dashboard needs neither a GET nor a whole-product PUT
+-- for "20 received". Like a checkout's DecrementStock, every change bumps
+-- the variant's version (an open form that would write this stock gets
+-- 409) and never the product's version or updated_at: stock is not one of
+-- the product's own fields. One row, locked by the UPDATE itself and only
+-- for the statement, so it cannot take part in a lock-order cycle (ADR
+-- 0006). Under READ COMMITTED an UPDATE that waited for a checkout's lock
+-- re-checks its WHERE on the row the checkout left, so the guard always
+-- sees the true stock. No rows: GetVariantStock tells why.
+
+-- name: AdjustVariantStock :one
+-- stock + delta, only for a sellable variant of the product, never below
+-- 0, and an increase only up to max_stock. A decrease is never capped:
+-- a cancellation's restore can leave the stock above max_stock (an admin
+-- set it to the maximum, a checkout took some, the order was cancelled),
+-- and "-1 damaged" must still work there. There is deliberately no CHECK
+-- (stock <= max) for the same reason.
+UPDATE product_variants
+SET stock = stock + @delta::integer, version = version + 1, updated_at = now()
+WHERE id = @id AND product_id = @product_id AND archived_at IS NULL
+  AND stock + @delta::integer >= 0
+  AND (@delta::integer <= 0 OR stock + @delta::integer <= @max_stock::integer)
+RETURNING id, sku, name, price, stock, weight_grams, version;
+
+-- name: SetVariantStock :one
+-- A count ("I counted 15"), written only while the stock is still the one
+-- the seller saw (expected): a sale in between makes the count wrong. The
+-- service bounds set and expected to 0..MaxVariantStock, so a count never
+-- writes more than the maximum; a stock a restore left above it is
+-- brought down with a delta.
+UPDATE product_variants
+SET stock = @stock::integer, version = version + 1, updated_at = now()
+WHERE id = @id AND product_id = @product_id AND archived_at IS NULL
+  AND stock = @expected::integer
+RETURNING id, sku, name, price, stock, weight_grams, version;
+
+-- name: GetVariantStock :one
+-- After a stock change that changed nothing: the variant's stock now and
+-- whether it is archived. No row: not a variant of this product.
+SELECT stock, (archived_at IS NOT NULL)::boolean AS archived
+FROM product_variants
+WHERE id = @id AND product_id = @product_id;

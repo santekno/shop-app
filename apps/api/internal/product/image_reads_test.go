@@ -147,7 +147,7 @@ func TestPostgresRepository_GetBySlug_Errors(t *testing.T) {
 
 func adminProductRow(price driver.Value) fakeAnswer {
 	updated := imgCreated.Add(time.Hour)
-	return rows(readProductA, "cat-1", "kaos", "Kaos", "Desc", StatusDraft, price, imgCreated, updated)
+	return rows(readProductA, "cat-1", "kaos", "Kaos", "Desc", StatusDraft, price, int64(6), imgCreated, updated)
 }
 
 func TestPostgresRepository_GetAdmin_AttachesEveryImage(t *testing.T) {
@@ -163,6 +163,7 @@ func TestPostgresRepository_GetAdmin_AttachesEveryImage(t *testing.T) {
 	testx.AssertNoError(t, err)
 	testx.AssertEqual(t, got.ID, readProductA)
 	testx.AssertEqual(t, got.Status, StatusDraft)
+	testx.AssertEqual(t, got.Version, int32(6), "the product's version, for the save to send back")
 	testx.AssertTrue(t, got.PriceFrom != nil && *got.PriceFrom == 89000)
 	testx.AssertEqual(t, len(got.Variants), 1)
 	testx.AssertEqual(t, got.Variants[0], AdminVariant{ID: "v1", SKU: "KPH-S", Name: "S", Price: 89000, Stock: 4, WeightGrams: 180, Version: 3})

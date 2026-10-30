@@ -13,18 +13,83 @@ import (
 	"github.com/lib/pq"
 )
 
+const adjustVariantStock = `-- name: AdjustVariantStock :one
+
+UPDATE product_variants
+SET stock = stock + $1::integer, version = version + 1, updated_at = now()
+WHERE id = $2 AND product_id = $3 AND archived_at IS NULL
+  AND stock + $1::integer >= 0
+  AND ($1::integer <= 0 OR stock + $1::integer <= $4::integer)
+RETURNING id, sku, name, price, stock, weight_grams, version
+`
+
+type AdjustVariantStockParams struct {
+	Delta     int32
+	ID        string
+	ProductID string
+	MaxStock  int32
+}
+
+type AdjustVariantStockRow struct {
+	ID          string
+	Sku         string
+	Name        string
+	Price       int64
+	Stock       int32
+	WeightGrams int32
+	Version     int32
+}
+
+// Stock adjustments (Bab 12): one variant's stock, changed in one guarded
+// statement, so the dashboard needs neither a GET nor a whole-product PUT
+// for "20 received". Like a checkout's DecrementStock, every change bumps
+// the variant's version (an open form that would write this stock gets
+// 409) and never the product's version or updated_at: stock is not one of
+// the product's own fields. One row, locked by the UPDATE itself and only
+// for the statement, so it cannot take part in a lock-order cycle (ADR
+// 0006). Under READ COMMITTED an UPDATE that waited for a checkout's lock
+// re-checks its WHERE on the row the checkout left, so the guard always
+// sees the true stock. No rows: GetVariantStock tells why.
+// stock + delta, only for a sellable variant of the product, never below
+// 0, and an increase only up to max_stock. A decrease is never capped:
+// a cancellation's restore can leave the stock above max_stock (an admin
+// set it to the maximum, a checkout took some, the order was cancelled),
+// and "-1 damaged" must still work there. There is deliberately no CHECK
+// (stock <= max) for the same reason.
+func (q *Queries) AdjustVariantStock(ctx context.Context, arg AdjustVariantStockParams) (AdjustVariantStockRow, error) {
+	row := q.db.QueryRowContext(ctx, adjustVariantStock,
+		arg.Delta,
+		arg.ID,
+		arg.ProductID,
+		arg.MaxStock,
+	)
+	var i AdjustVariantStockRow
+	err := row.Scan(
+		&i.ID,
+		&i.Sku,
+		&i.Name,
+		&i.Price,
+		&i.Stock,
+		&i.WeightGrams,
+		&i.Version,
+	)
+	return i, err
+}
+
 const archiveProduct = `-- name: ArchiveProduct :execrows
 
 UPDATE products
-SET status = 'archived', updated_at = now()
+SET status = 'archived', version = version + 1, updated_at = now()
 WHERE id = $1
 `
 
 // Soft delete: products and variants are archived, never deleted, because
 // order items (Bab 5) point to them. updated_at is set by every UPDATE in
 // this file, not by a trigger, so each write shows it.
-// Takes the product off the storefront. Archiving it again changes nothing
-// but updated_at. Zero rows: there is no such product.
+// Takes the product off the storefront and bumps its version, so a form
+// still open on it cannot save it back to active by accident. Archiving
+// it again changes nothing but updated_at and the version. Zero rows:
+// there is no such product.
 func (q *Queries) ArchiveProduct(ctx context.Context, id string) (int64, error) {
 	result, err := q.db.ExecContext(ctx, archiveProduct, id)
 	if err != nil {
@@ -54,6 +119,66 @@ type ArchiveVariantsNotInParams struct {
 func (q *Queries) ArchiveVariantsNotIn(ctx context.Context, arg ArchiveVariantsNotInParams) error {
 	_, err := q.db.ExecContext(ctx, archiveVariantsNotIn, arg.ProductID, pq.Array(arg.KeepIds))
 	return err
+}
+
+const countAdminProducts = `-- name: CountAdminProducts :one
+
+SELECT count(*)
+FROM products p
+WHERE ($1::text IS NULL OR p.status = $1::text)
+  AND ($2::uuid IS NULL
+       OR p.category_id = $2::uuid
+       OR p.category_id IN (SELECT c.id FROM categories c WHERE c.parent_id = $2::uuid))
+  AND ($3::text IS NULL
+       OR p.name ILIKE $3::text
+       OR EXISTS (SELECT 1 FROM product_variants sv
+                  WHERE sv.product_id = p.id AND sv.sku ILIKE $3::text))
+  AND (NOT $4::boolean OR EXISTS (SELECT 1 FROM product_variants lv
+                                                 WHERE lv.product_id = p.id AND lv.archived_at IS NULL
+                                                   AND lv.stock <= $5::int))
+`
+
+type CountAdminProductsParams struct {
+	Status            sql.NullString
+	CategoryID        *string
+	Search            sql.NullString
+	LowStockOnly      bool
+	LowStockThreshold int32
+}
+
+// The admin's product table (Bab 12): every status, offset pages, any
+// column sort. Offset rather than the storefront's cursor, because a data
+// table jumps to page N and shows "page 3 of 12", which needs the total.
+// Both queries share one filter, written out twice so each stays plain
+// SQL; a change to one must be made to the other.
+//
+// Filters: status NULL means any status; category_id NULL means every
+// category, otherwise the category and its children; search NULL means no
+// search, otherwise an ILIKE pattern (the caller escapes % _ \) matched
+// against the name and every variant's SKU, archived variants included,
+// because a SKU on an old packing slip still names its product;
+// low_stock_only keeps products with a sellable variant whose stock is at
+// or below low_stock_threshold, an EXISTS that stops at the first such
+// variant (served by product_variants_product_id_idx) and runs only when
+// the filter is on, rather than the totals' aggregate over every variant
+// of every product.
+//
+// The sort is a fixed set of CASE expressions chosen by @sort and
+// @descending, never SQL built from the request. No index can serve them
+// (stock is a sum over the variants), and none needs to: the total has to
+// count every matching product anyway, and an admin catalog is small. The
+// id tie-break, in the same direction, keeps a page stable when values tie.
+func (q *Queries) CountAdminProducts(ctx context.Context, arg CountAdminProductsParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countAdminProducts,
+		arg.Status,
+		arg.CategoryID,
+		arg.Search,
+		arg.LowStockOnly,
+		arg.LowStockThreshold,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
 }
 
 const getActiveProductBySlug = `-- name: GetActiveProductBySlug :many
@@ -130,7 +255,7 @@ func (q *Queries) GetActiveProductBySlug(ctx context.Context, slug string) ([]Ge
 
 const getProduct = `-- name: GetProduct :one
 
-SELECT id, category_id, slug, name, description, status, price_from, created_at, updated_at
+SELECT id, category_id, slug, name, description, status, price_from, version, created_at, updated_at
 FROM products
 WHERE id = $1
 `
@@ -143,12 +268,14 @@ type GetProductRow struct {
 	Description string
 	Status      string
 	PriceFrom   sql.NullInt64
+	Version     int32
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }
 
 // Admin reads and writes (sellers and admins only, from Bab 4).
-// Any product, whatever its status.
+// Any product, whatever its status, with the version a save must send
+// back.
 func (q *Queries) GetProduct(ctx context.Context, id string) (GetProductRow, error) {
 	row := q.db.QueryRowContext(ctx, getProduct, id)
 	var i GetProductRow
@@ -160,9 +287,35 @@ func (q *Queries) GetProduct(ctx context.Context, id string) (GetProductRow, err
 		&i.Description,
 		&i.Status,
 		&i.PriceFrom,
+		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
+	return i, err
+}
+
+const getVariantStock = `-- name: GetVariantStock :one
+SELECT stock, (archived_at IS NOT NULL)::boolean AS archived
+FROM product_variants
+WHERE id = $1 AND product_id = $2
+`
+
+type GetVariantStockParams struct {
+	ID        string
+	ProductID string
+}
+
+type GetVariantStockRow struct {
+	Stock    int32
+	Archived bool
+}
+
+// After a stock change that changed nothing: the variant's stock now and
+// whether it is archived. No row: not a variant of this product.
+func (q *Queries) GetVariantStock(ctx context.Context, arg GetVariantStockParams) (GetVariantStockRow, error) {
+	row := q.db.QueryRowContext(ctx, getVariantStock, arg.ID, arg.ProductID)
+	var i GetVariantStockRow
+	err := row.Scan(&i.Stock, &i.Archived)
 	return i, err
 }
 
@@ -241,6 +394,144 @@ func (q *Queries) InsertVariant(ctx context.Context, arg InsertVariantParams) er
 		arg.Position,
 	)
 	return err
+}
+
+const isVariantArchived = `-- name: IsVariantArchived :one
+SELECT EXISTS (
+    SELECT 1 FROM product_variants
+    WHERE id = $1 AND product_id = $2 AND archived_at IS NOT NULL
+) AS archived
+`
+
+type IsVariantArchivedParams struct {
+	ID        string
+	ProductID string
+}
+
+// After GetVariantVersion found no sellable variant: whether the id names
+// an archived variant of the product (409 VARIANT_ARCHIVED, Bab 12)
+// rather than no variant of it at all (400).
+func (q *Queries) IsVariantArchived(ctx context.Context, arg IsVariantArchivedParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, isVariantArchived, arg.ID, arg.ProductID)
+	var archived bool
+	err := row.Scan(&archived)
+	return archived, err
+}
+
+const listAdminProducts = `-- name: ListAdminProducts :many
+SELECT p.id, p.slug, p.name, p.status, p.price_from, p.created_at, p.updated_at,
+       c.id AS category_id, c.name AS category_name,
+       s.stock, s.variant_count, s.low_stock
+FROM products p
+JOIN categories c ON c.id = p.category_id
+CROSS JOIN LATERAL (
+    SELECT COALESCE(sum(v.stock), 0)::bigint AS stock,
+           count(*)::int AS variant_count,
+           COALESCE(bool_or(v.stock <= $1::int), false)::boolean AS low_stock
+    FROM product_variants v
+    WHERE v.product_id = p.id AND v.archived_at IS NULL
+) s
+WHERE ($2::text IS NULL OR p.status = $2::text)
+  AND ($3::uuid IS NULL
+       OR p.category_id = $3::uuid
+       OR p.category_id IN (SELECT c2.id FROM categories c2 WHERE c2.parent_id = $3::uuid))
+  AND ($4::text IS NULL
+       OR p.name ILIKE $4::text
+       OR EXISTS (SELECT 1 FROM product_variants sv
+                  WHERE sv.product_id = p.id AND sv.sku ILIKE $4::text))
+  AND (NOT $5::boolean OR EXISTS (SELECT 1 FROM product_variants lv
+                                                 WHERE lv.product_id = p.id AND lv.archived_at IS NULL
+                                                   AND lv.stock <= $1::int))
+ORDER BY
+    CASE WHEN $6::text = 'name' AND NOT $7::boolean THEN p.name END ASC,
+    CASE WHEN $6::text = 'name' AND $7::boolean THEN p.name END DESC,
+    -- A draft without a sellable variant has no price: last either way.
+    CASE WHEN $6::text = 'price_from' AND NOT $7::boolean THEN p.price_from END ASC NULLS LAST,
+    CASE WHEN $6::text = 'price_from' AND $7::boolean THEN p.price_from END DESC NULLS LAST,
+    CASE WHEN $6::text = 'stock' AND NOT $7::boolean THEN s.stock END ASC,
+    CASE WHEN $6::text = 'stock' AND $7::boolean THEN s.stock END DESC,
+    CASE WHEN $6::text = 'updated_at' AND NOT $7::boolean THEN p.updated_at END ASC,
+    CASE WHEN $6::text = 'updated_at' AND $7::boolean THEN p.updated_at END DESC,
+    CASE WHEN $6::text = 'created_at' AND NOT $7::boolean THEN p.created_at END ASC,
+    CASE WHEN $6::text = 'created_at' AND $7::boolean THEN p.created_at END DESC,
+    CASE WHEN NOT $7::boolean THEN p.id END ASC,
+    CASE WHEN $7::boolean THEN p.id END DESC
+LIMIT $9 OFFSET $8
+`
+
+type ListAdminProductsParams struct {
+	LowStockThreshold int32
+	Status            sql.NullString
+	CategoryID        *string
+	Search            sql.NullString
+	LowStockOnly      bool
+	Sort              string
+	Descending        bool
+	PageOffset        int32
+	PageSize          int32
+}
+
+type ListAdminProductsRow struct {
+	ID           string
+	Slug         string
+	Name         string
+	Status       string
+	PriceFrom    sql.NullInt64
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	CategoryID   string
+	CategoryName string
+	Stock        int64
+	VariantCount int32
+	LowStock     bool
+}
+
+// One row per product with its category and its sellable variants' totals
+// (a product with none has stock 0, variant_count 0, low_stock false).
+func (q *Queries) ListAdminProducts(ctx context.Context, arg ListAdminProductsParams) ([]ListAdminProductsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listAdminProducts,
+		arg.LowStockThreshold,
+		arg.Status,
+		arg.CategoryID,
+		arg.Search,
+		arg.LowStockOnly,
+		arg.Sort,
+		arg.Descending,
+		arg.PageOffset,
+		arg.PageSize,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListAdminProductsRow
+	for rows.Next() {
+		var i ListAdminProductsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Slug,
+			&i.Name,
+			&i.Status,
+			&i.PriceFrom,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CategoryID,
+			&i.CategoryName,
+			&i.Stock,
+			&i.VariantCount,
+			&i.LowStock,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listProductsNewest = `-- name: ListProductsNewest :many
@@ -608,19 +899,22 @@ func (q *Queries) ListSellableVariants(ctx context.Context, productID string) ([
 }
 
 const lockProduct = `-- name: LockProduct :one
-SELECT id
+SELECT version
 FROM products
 WHERE id = $1
 FOR UPDATE
 `
 
 // Locks the product row for the rest of the transaction, so two admin saves
-// of the same product run one after the other and price_from stays right.
-func (q *Queries) LockProduct(ctx context.Context, id string) (string, error) {
+// of the same product run one after the other and price_from stays right,
+// and returns its version: the save compares it with the one its form
+// loaded before it writes anything (Bab 12). Locked, it cannot change
+// before the save's UpdateProduct bumps it.
+func (q *Queries) LockProduct(ctx context.Context, id string) (int32, error) {
 	row := q.db.QueryRowContext(ctx, lockProduct, id)
-	var id_2 string
-	err := row.Scan(&id_2)
-	return id_2, err
+	var version int32
+	err := row.Scan(&version)
+	return version, err
 }
 
 const lockProductVariants = `-- name: LockProductVariants :exec
@@ -645,6 +939,56 @@ func (q *Queries) LockProductVariants(ctx context.Context, productID string) err
 	return err
 }
 
+const setVariantStock = `-- name: SetVariantStock :one
+UPDATE product_variants
+SET stock = $1::integer, version = version + 1, updated_at = now()
+WHERE id = $2 AND product_id = $3 AND archived_at IS NULL
+  AND stock = $4::integer
+RETURNING id, sku, name, price, stock, weight_grams, version
+`
+
+type SetVariantStockParams struct {
+	Stock     int32
+	ID        string
+	ProductID string
+	Expected  int32
+}
+
+type SetVariantStockRow struct {
+	ID          string
+	Sku         string
+	Name        string
+	Price       int64
+	Stock       int32
+	WeightGrams int32
+	Version     int32
+}
+
+// A count ("I counted 15"), written only while the stock is still the one
+// the seller saw (expected): a sale in between makes the count wrong. The
+// service bounds set and expected to 0..MaxVariantStock, so a count never
+// writes more than the maximum; a stock a restore left above it is
+// brought down with a delta.
+func (q *Queries) SetVariantStock(ctx context.Context, arg SetVariantStockParams) (SetVariantStockRow, error) {
+	row := q.db.QueryRowContext(ctx, setVariantStock,
+		arg.Stock,
+		arg.ID,
+		arg.ProductID,
+		arg.Expected,
+	)
+	var i SetVariantStockRow
+	err := row.Scan(
+		&i.ID,
+		&i.Sku,
+		&i.Name,
+		&i.Price,
+		&i.Stock,
+		&i.WeightGrams,
+		&i.Version,
+	)
+	return i, err
+}
+
 const updateProduct = `-- name: UpdateProduct :execrows
 UPDATE products
 SET category_id = $1,
@@ -654,6 +998,7 @@ SET category_id = $1,
     status      = $5,
     price_from  = (SELECT min(v.price) FROM product_variants v
                    WHERE v.product_id = products.id AND v.archived_at IS NULL),
+    version     = version + 1,
     updated_at  = now()
 WHERE products.id = $6
 `
@@ -669,7 +1014,9 @@ type UpdateProductParams struct {
 
 // Writes the product's fields and recomputes price_from from its sellable
 // variants in the same statement, so the price_from CHECK sees the final
-// status and price together. Every product write ends with this query.
+// status and price together. Every product write ends with this query,
+// and bumps the product's version: its fields or its variant set may have
+// changed (a new product ends at version 1).
 func (q *Queries) UpdateProduct(ctx context.Context, arg UpdateProductParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, updateProduct,
 		arg.CategoryID,

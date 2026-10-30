@@ -20,6 +20,7 @@ import (
 	"github.com/santekno/sdk/logx"
 
 	"github.com/santekno/shop-app/apps/api/internal/address"
+	"github.com/santekno/shop-app/apps/api/internal/adminevents"
 	"github.com/santekno/shop-app/apps/api/internal/auth"
 	"github.com/santekno/shop-app/apps/api/internal/cart"
 	"github.com/santekno/shop-app/apps/api/internal/category"
@@ -50,6 +51,9 @@ type App struct {
 	logger    logx.Logger
 	readiness *health.Readiness
 	handler   http.Handler
+	// events serves the admin's event streams, which Serve ends when the
+	// server shuts down.
+	events *adminevents.Handler
 }
 
 // New builds the API from cfg on db, the PostgreSQL pool, and rdb, the
@@ -134,7 +138,9 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 	// Handlers: HTTP in and out, given their services.
 	validator := httpapi.NewValidator()
 	categoryHandler := category.NewHandler(categoryService)
-	productHandler := product.NewHandler(productService, productService, validator)
+	productHandler := product.NewHandler(productService, productService, validator).
+		WithTable(product.NewTableService(productRepo)).
+		WithStock(product.NewStockService(productRepo))
 	if o.store == nil {
 		store, err := ObjectStore(cfg.Storage)
 		if err != nil {
@@ -177,6 +183,9 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 		Service: cartService, Validator: validator, Limiter: o.limiter, TrustedProxyHops: cfg.TrustedProxyHops,
 	})
 	guard := auth.NewGuard(accessTokens, o.revocations)
+	// The admin dashboard's live feed (ADR 0009): each stream subscribes
+	// to the order events the worker publishes to Redis.
+	eventsHandler := adminevents.NewHandler(adminevents.NewRedisSubscriber(rdb), o.clock)
 	healthHandler := health.NewHandler(logger, readiness, !cfg.IsDevelopment(),
 		health.PostgresCheck(db), health.RedisCheck(redisconn.NewPinger(rdb)))
 
@@ -188,6 +197,12 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 		RequestTimeout:         cfg.RequestTimeout,
 		HSTS:                   !cfg.IsDevelopment(),
 		Probes:                 func(r chi.Router) { health.Routes(r, healthHandler) },
+		// Outside the request timeout: a stream lives until its access
+		// token expires. Staff only, like every /v1/admin route.
+		Streams: func(r chi.Router) {
+			r.With(guard.Authenticate, auth.RequireRole(user.RoleSeller, user.RoleAdmin)).
+				Get("/v1/admin/events", eventsHandler.Stream)
+		},
 	}, func(r chi.Router) {
 		r.Route("/v1", func(r chi.Router) {
 			categoryHandler.Routes(r)
@@ -211,19 +226,25 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 				orderHandler.Routes(r)
 				paymentHandler.ProtectedRoutes(r)
 				authHandler.ProtectedRoutes(r)
-				// Store staff only: sellers manage the catalog, and admins
-				// can do everything a seller can (docs/prd.md).
+				// Store staff only: sellers manage the catalog and the
+				// orders, and admins can do everything a seller can
+				// (docs/prd.md).
 				r.With(auth.RequireRole(user.RoleSeller, user.RoleAdmin)).
 					Route("/admin", func(r chi.Router) {
 						productHandler.AdminRoutes(r)
 						orderHandler.AdminRoutes(r)
 						reportHandler.AdminRoutes(r)
+						// Admins only: cancelling an order (Bab 12).
+						r.Group(func(r chi.Router) {
+							r.Use(auth.RequireRole(user.RoleAdmin))
+							orderHandler.AdminOnlyRoutes(r)
+						})
 					})
 			})
 		})
 	})
 
-	return &App{cfg: cfg, logger: logger, readiness: readiness, handler: router}
+	return &App{cfg: cfg, logger: logger, readiness: readiness, handler: router, events: eventsHandler}
 }
 
 // shippingProvider is Biteship when BITESHIP_API_KEY is set, and the fixed
@@ -360,6 +381,9 @@ func (a *App) Ready() bool { return !a.readiness.Draining() }
 // gracefully (see httpserver.Serve).
 func (a *App) Serve(ctx context.Context, ln net.Listener) error {
 	srv := httpserver.New(ln.Addr().String(), a.handler, a.cfg.RequestTimeout)
+	// Event streams never finish on their own; end them as soon as the
+	// shutdown starts, so it does not wait for them until its timeout.
+	srv.RegisterOnShutdown(a.events.Shutdown)
 	a.logger.Info("api listening", "addr", ln.Addr().String())
 	return httpserver.Serve(ctx, srv, ln, httpserver.ShutdownOptions{
 		OnDrain:    a.readiness.StartDraining,
@@ -499,7 +523,8 @@ func publishEvents(publisher outbox.Publisher) func(context.Context, *sql.DB, lo
 }
 
 // runPublishEvents is `api publish-events`: the outbox to the worker's
-// queue (notify.QueuePublisher), the same publisher the worker uses.
+// queue and the admin feed (EventPublisher), the same publisher the
+// worker uses.
 // The database is opened first, like every job.
 func runPublishEvents(ctx context.Context, cfg config.Config, logger logx.Logger) error {
 	db, err := database.Open(ctx, cfg.Database, logger)
@@ -512,11 +537,21 @@ func runPublishEvents(ctx context.Context, cfg config.Config, logger logx.Logger
 		return err
 	}
 	defer closeRedis(rdb, logger)
-	publisher := notify.NewQueuePublisher(asynq.NewClientFromRedisClient(rdb), notify.NewRoutes(cfg.Telegram.BotToken != ""))
-	if err := publishEvents(publisher)(ctx, db, logger); err != nil {
+	if err := publishEvents(EventPublisher(cfg, rdb))(ctx, db, logger); err != nil {
 		return fmt.Errorf("publish-events: %w", err)
 	}
 	return nil
+}
+
+// EventPublisher is where the outbox's domain events go, in the worker and
+// in `api publish-events`: first the worker's tasks (emails, the seller's
+// Telegram message; ADR 0007), then the admin dashboard's live feed (ADR
+// 0009).
+func EventPublisher(cfg config.Config, rdb redis.UniversalClient) outbox.Publisher {
+	return outbox.Publishers{
+		notify.NewQueuePublisher(asynq.NewClientFromRedisClient(rdb), notify.NewRoutes(cfg.Telegram.BotToken != "")),
+		adminevents.NewPublisher(rdb),
+	}
 }
 
 // reconcilePayments asks the payment gateway about the open payments and

@@ -47,6 +47,9 @@ DATABASE_URL ?= postgres://goshop:goshop@localhost:5432/goshop?sslmode=disable
 # make seed-loadtest: how many load-test buyers.
 users ?= 50
 
+# make seed-admin: the role of the staff account (Bab 12: admin or seller).
+role ?= admin
+
 # Destructive targets refuse any database that is not on this machine. A
 # host= or hostaddr= parameter is refused outright: pgx lets it override the
 # host in the URL, and the local Compose URL never needs one.
@@ -87,13 +90,19 @@ help: ## List targets
 doctor: ## Check that the required tools are installed
 	./scripts/check-tools.sh
 
+# The browser apps bake the API's public URL in at build time: the
+# storefront (Next.js, NEXT_PUBLIC_API_URL) and, from Bab 12, the admin
+# dashboard (Vite, VITE_API_URL), whose build refuses to run without one.
+# Both default to the local API.
 build: $(if $(HAS_PNPM),$(PNPM_INSTALLED)) ## Compile and type-check every app present
 ifneq ($(HAS_API),)
 	cd $(API) && go build -o bin/ ./...
 endif
 ifneq ($(HAS_PNPM),)
 	pnpm -r --if-present run typecheck
-	NEXT_PUBLIC_API_URL=$${NEXT_PUBLIC_API_URL:-http://localhost:8080} pnpm -r --if-present run build
+	NEXT_PUBLIC_API_URL=$${NEXT_PUBLIC_API_URL:-http://localhost:8080} \
+		VITE_API_URL=$${VITE_API_URL:-http://localhost:8080} \
+		pnpm -r --if-present run build
 endif
 	@echo "build: ok"
 
@@ -132,14 +141,18 @@ ifneq ($(HAS_PNPM),)
 endif
 	@echo "test-unit: ok"
 
+# The integration package runs for 10 to 13 minutes on a loaded machine, past
+# go test's default -timeout of 10m, which would kill it mid-run; 30m leaves
+# headroom without letting a hung test block the gate forever. The e2e specs
+# drive both browser apps, so both containers start.
 test-integration: $(if $(HAS_PNPM),$(PNPM_INSTALLED)) ## Integration and e2e tests against the Compose stack; fails on any skipped test
 	./scripts/no-skips.sh --self-test
 ifneq ($(HAS_API),)
 	$(COMPOSE) up -d --wait --build postgres redis storage api worker
-	cd $(API) && $(IT_ENV) ../../scripts/no-skips.sh go test -tags=integration -count=1 -json ./...
+	cd $(API) && $(IT_ENV) ../../scripts/no-skips.sh go test -tags=integration -count=1 -timeout 30m -json ./...
 endif
 ifneq ($(HAS_PNPM),)
-	$(COMPOSE) up -d --wait --build web
+	$(COMPOSE) up -d --wait --build web admin
 	$(if $(HAS_API),$(MAKE) --no-print-directory seed)
 	GOSHOP_COMPOSE='$(COMPOSE)' pnpm -r --if-present run test:e2e
 endif
@@ -159,6 +172,8 @@ docs-api: ## Render api/openapi.yaml to static HTML in dist/api-docs/
 	$(REDOCLY) build-docs api/openapi.yaml --output $(API_DOCS) --title "GoShop API"
 	@echo "docs-api: open $(API_DOCS)"
 
+# The compose file passes each browser app its build argument (web:
+# NEXT_PUBLIC_API_URL, admin: VITE_API_URL), with the local API as default.
 docker-build: ## Build every service image the compose file defines
 	$(COMPOSE) build
 	@echo "docker-build: ok"
@@ -197,11 +212,12 @@ seed-large: ## The example catalog plus 10000 generated products, for EXPLAIN AN
 	$(require_local_db)
 	@cd $(API) && DATABASE_URL='$(DATABASE_URL)' go run ./cmd/seed -generated 10000
 
-seed-admin: ## Create or promote a local admin: SEED_ADMIN_PASSWORD=… make seed-admin email=admin@goshop.local
+seed-admin: ## Create or update a local staff account: SEED_ADMIN_PASSWORD=… make seed-admin email=admin@goshop.local [role=seller]
 	$(require_local_db)
-	@[[ "$(email)" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+$$ ]] || { echo "usage: SEED_ADMIN_PASSWORD=… make seed-admin email=admin@goshop.local" >&2; exit 1; }
+	@[[ "$(email)" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+$$ ]] || { echo "usage: SEED_ADMIN_PASSWORD=… make seed-admin email=admin@goshop.local [role=admin|seller]" >&2; exit 1; }
+	@[[ "$(role)" =~ ^(admin|seller)$$ ]] || { echo "seed-admin: role must be admin or seller, got '$(role)'" >&2; exit 1; }
 	@[ -n "$$SEED_ADMIN_PASSWORD" ] || { echo "seed-admin: set SEED_ADMIN_PASSWORD (read from the environment, never a flag)" >&2; exit 1; }
-	@cd $(API) && DATABASE_URL='$(DATABASE_URL)' go run ./cmd/seed -admin '$(email)'
+	@cd $(API) && DATABASE_URL='$(DATABASE_URL)' go run ./cmd/seed -admin '$(email)' -role '$(role)'
 
 seed-loadtest: ## Load-test buyers and stock for the k6 checkout test: SEED_LOADTEST_PASSWORD=… make seed-loadtest users=50
 	$(require_local_db)

@@ -13,3 +13,7 @@ docs
 .env
 .env.*
 !.env.example
+# Go test code: the api, migrate and worker images only run go build, which
+# never reads it, so editing a test must not rebuild the images.
+apps/api/tests
+apps/api/**/*_test.go

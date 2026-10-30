@@ -3,6 +3,7 @@ import {
   WEB_CLIENT_HEADERS,
   login,
   register,
+  webClientHeaders,
   webLogin,
   webLogout,
   webRefresh,
@@ -279,4 +280,54 @@ describe("the web session calls", () => {
     expect(fetchSignal()?.aborted).toBe(true);
     await pending.catch(() => undefined);
   });
+});
+
+// Bab 12: the dashboard's session has its own cookie, picked by the header.
+describe("the web session calls for the dashboard (client: admin)", () => {
+  it("webClientHeaders names the app, web by default", () => {
+    expect(webClientHeaders()).toEqual({ "X-GoShop-Client": "web" });
+    expect(webClientHeaders("web")).toEqual({ "X-GoShop-Client": "web" });
+    expect(webClientHeaders("admin")).toEqual({ "X-GoShop-Client": "admin" });
+  });
+
+  it.each([
+    [
+      "webLogin",
+      "/v1/auth/web/login",
+      () => Response.json({ data: webSession }),
+      (api: ReturnType<typeof createApiClient>) =>
+        webLogin(
+          api,
+          { email: "b@example.com", password: "x" },
+          { client: "admin" },
+        ),
+    ],
+    [
+      "webRefresh",
+      "/v1/auth/web/refresh",
+      () => Response.json({ data: webSession }),
+      (api: ReturnType<typeof createApiClient>) =>
+        webRefresh(api, { client: "admin" }),
+    ],
+    [
+      "webLogout",
+      "/v1/auth/web/logout",
+      () => new Response(null, { status: 204 }),
+      (api: ReturnType<typeof createApiClient>) =>
+        webLogout(api, { client: "admin" }),
+    ],
+  ])(
+    "%s sends X-GoShop-Client: admin, with the cookie",
+    async (_name, path, response, send) => {
+      const { api, call } = setup(response);
+
+      await send(api);
+
+      const [input, init] = call();
+      expect(input).toBe(`http://api.test${path}`);
+      expect(init?.method).toBe("POST");
+      expect(init?.credentials).toBe("include");
+      expect(new Headers(init?.headers).get("X-GoShop-Client")).toBe("admin");
+    },
+  );
 });

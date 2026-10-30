@@ -18,7 +18,7 @@ cp .env.example .env   # .env is gitignored; never commit it
 | `APP_PORT` | api | no | Port to listen on when `PORT` is not set (local default `8080`). | Bab 2 |
 | `PORT` | api | no | Set by Railway at runtime. When present it wins over `APP_PORT`. Do not put it in `.env`. | Bab 2 |
 | `APP_LOG_LEVEL` | api, worker | no | `debug`, `info` (default), `warn` or `error`. Development logs human-readable text, every other environment one JSON object per line. | Bab 2 |
-| `APP_CORS_ALLOWED_ORIGINS` | api | no | Comma-separated browser origins allowed to call the API, e.g. `http://localhost:5173,https://shop.example.com` (scheme and host, no path or trailing slash). Empty means no cross-origin browser access; `*` is refused. From Bab 10 the same list is the only origins that may use the web session (`/v1/auth/web/*`, the only paths where CORS allows credentials); a request from any other `Origin` gets 403. A storefront served from the API's own origin must list that origin too. | Bab 2 |
+| `APP_CORS_ALLOWED_ORIGINS` | api | no | Comma-separated browser origins allowed to call the API, e.g. `http://localhost:5173,https://shop.example.com` (scheme and host, no path or trailing slash). Empty means no cross-origin browser access; `*` is refused. From Bab 10 the same list is the only origins that may use the web session (`/v1/auth/web/*`, the only paths where CORS allows credentials); a request from any other `Origin` gets 403. A storefront served from the API's own origin must list that origin too. From Bab 12 `make up` and `.env.example` list the admin dashboard's origin as well: `http://localhost:5173,http://localhost:5174`; a deployment lists its admin origin next to its storefront's. | Bab 2 |
 | `APP_REQUEST_TIMEOUT` | api | no | How long one request may run (Go duration, `1s`–`60s`, default `15s`). Past it the context is cancelled and the client gets 503 `TIMEOUT`. **With the web storefront (Bab 10), keep it below 20 s**, the storefront's timeout for `/v1/auth/web/*` (`WEB_SESSION_TIMEOUT_MS`, `packages/shared/src/api/auth.ts`): a refresh the client gave up on but the server still rotated leaves the browser with a used cookie, and the next refresh is treated as reuse and revokes the session (ADR 0008). Raise both together. | Bab 2 |
 | `APP_DRAIN_DELAY` | api | no | After SIGTERM, how long `/readyz` answers 503 while requests are still served, so a load balancer stops routing here first (Go duration, `0s`–`60s`, default `0s`; use a few seconds behind a load balancer). | Bab 2 |
 | `APP_SHUTDOWN_TIMEOUT` | api | no | How long in-flight requests may take to finish during shutdown (Go duration, `1s`–`60s`, default `10s`). Keep drain delay + shutdown timeout below the platform's kill timeout. | Bab 2 |
@@ -30,7 +30,7 @@ cp .env.example .env   # .env is gitignored; never commit it
 | `APP_TRUSTED_PROXY_HOPS` | api | no | How many proxies in front of the API set the client address in `X-Forwarded-For` (`0`–`5`). The per-IP rate limits use the entry that many places from the right; entries further left were sent by the client and can be forged. Defaults to `0` in development only (the TCP peer, right for `make up`); **staging and production must set it**, because no default is safe: too high lets a client forge its address, too low puts every user behind the proxy's one address. **On Railway set `1`**: requests reach the service through one Railway edge proxy, which, according to Railway staff on the Railway Help Station, overwrites `X-Forwarded-For` (and `X-Real-IP`) with the address that connected to it rather than appending to what the client sent, so the header holds one entry. Railway's own specs ([public networking: specs and limits](https://docs.railway.com/networking/public-networking/specs-and-limits)) document `X-Real-IP` as the client's address and do not describe `X-Forwarded-For`, so check the header on a real request after the first deploy. A CDN in front of Railway adds hops. | Bab 4 |
 | `JWT_SECRET` | api | **yes** | HS256 key that signs access tokens ([ADR 0005](adr/0005-auth-tokens.md)). Required; at least 32 bytes; different per environment. The `.env.example` placeholder (or anything containing `change-me`) is accepted in development only: staging and production refuse to start with it. Rotating it ends every access token at once; clients refresh. | Bab 4 |
 | `APP_REFRESH_TOKEN_TTL` | api | no | How long a refresh token lives after it is issued (Go duration, `1h`–`2160h`, default `720h` = 30 days). Every refresh issues a new one, so an active user stays logged in and an idle one is logged out. | Bab 4 |
-| `APP_AUTH_COOKIE_SECURE` | api | no | Whether the web session cookie `goshop_refresh` carries `Secure` (`true` or `false`, default `true`; [ADR 0008](adr/0008-web-session-cookie.md)). **`false` is accepted only with `APP_ENV=development`**; staging and production refuse to start with it. Leave it unset for `make up`: Chromium and Firefox store a `Secure` cookie from `http://localhost`. Set `false` only for a browser that is not in a secure context, such as a phone opening `http://192.168.x.x:5173`; the API then logs a warning at start. | Bab 10 |
+| `APP_AUTH_COOKIE_SECURE` | api | no | Whether the web session cookies `goshop_refresh` (storefront) and `goshop_admin_refresh` (admin dashboard, Bab 12) carry `Secure` (`true` or `false`, default `true`; [ADR 0008](adr/0008-web-session-cookie.md)). **`false` is accepted only with `APP_ENV=development`**; staging and production refuse to start with it. Leave it unset for `make up`: Chromium and Firefox store a `Secure` cookie from `http://localhost`. Set `false` only for a browser that is not in a secure context, such as a phone opening `http://192.168.x.x:5173`; the API then logs a warning at start. | Bab 10 |
 | `APP_ACCESS_TOKEN_TTL` | api | no | How long an access token lives (Go duration, `1m`–`1h`, default `15m`). Also how long a revoked session's marker stays in Redis. | Bab 4 |
 | `BITESHIP_API_KEY` | api | **yes** | Key for [Biteship](https://biteship.com)'s rates API, which prices shipping by postal code for JNE, J&T and SiCepat ([ADR 0006](adr/0006-cart-checkout-orders.md)). **Empty turns Biteship off**: the API then prices from a fixed table per started kilogram (`shipping.Static`) in every environment, and logs `shipping fees provider=static` at start. Use a test key (Biteship's dashboard → API keys) outside production. | Bab 5 |
 | `APP_SHIPPING_ORIGIN_POSTAL_CODE` | api | no | Postal code of the warehouse parcels leave from, five digits such as `40111`. **Required when `BITESHIP_API_KEY` is set**; the fixed table ignores it. | Bab 5 |
@@ -78,6 +78,35 @@ A variable that a chapter does not use yet may stay empty. When a chapter starts
 
 When `POSTGRES_DSN` or `REDIS_ADDR` is missing, testx skips the test, and the gate fails on any skipped test.
 
+### Admin dashboard (Bab 12)
+
+The admin dashboard (`apps/admin`, the `admin` service of `make up` on `http://localhost:5174`) is static files served by Caddy, so it reads none of the API's variables. Its own settings:
+
+| Variable | Kind | Description | Default under `make up` |
+|---|---|---|---|
+| `VITE_API_URL` | build argument (`apps/admin/Dockerfile`) | The API's public URL, as the browser reaches it. Vite writes it into the JavaScript bundle and the Dockerfile writes its origin into the CSP's `connect-src`, so the two always name the same API. Public, never a secret; another API means another image. The build fails without it. `make build` defaults it to `http://localhost:8080`, and `pnpm dev` uses that URL when it is unset. | `http://localhost:8080` |
+| `IMAGE_ORIGIN` | run time (Caddy) | Origin(s) the product photos load from, for the CSP's `img-src`: the origin of `S3_PRESIGN_ENDPOINT` (or of `S3_PUBLIC_URL`). The same variable as the storefront's. Empty blocks the photos, nothing else. | `S3_PRESIGN_ENDPOINT`, else `http://localhost:8333` |
+| `UPLOAD_ORIGIN` | run time (Caddy) | Origin(s) the browser uploads photos to with presigned `PUT`s, for the CSP's `connect-src`: the origin of `S3_PRESIGN_ENDPOINT`. Empty blocks uploads, nothing else. | `S3_PRESIGN_ENDPOINT`, else `http://localhost:8333` |
+
+`PORT` (default `8080`) is where Caddy listens, as for every service. The dashboard's origin must also be in the API's `APP_CORS_ALLOWED_ORIGINS`.
+
+#### The bucket's CORS rule (photo uploads)
+
+The dashboard uploads photos from the browser straight to the bucket with the presigned `PUT` the API signs (Bab 12 artikel 04, [ADR 0007](adr/0007-payments-uploads-worker.md)). That request goes to another origin than the dashboard, so **the bucket must allow it with a CORS rule of its own**; the API's `APP_CORS_ALLOWED_ORIGINS` does not reach the storage. A production bucket needs at least:
+
+```json
+[
+  {
+    "AllowedOrigins": ["https://admin.example.com"],
+    "AllowedMethods": ["PUT"],
+    "AllowedHeaders": ["Content-Type"],
+    "MaxAgeSeconds": 3000
+  }
+]
+```
+
+(the AWS S3 and Cloudflare R2 format; other S3-compatible stores take the same fields). `Content-Type` is signed into the URL, so the browser sends it and the preflight must allow it; `Content-Length` is set by the browser and needs no rule. The rule must match the upload exactly, origin included, because S3 adds `Access-Control-Allow-Origin` to **error** responses only when a rule matches: without it the browser hides the storage's answer (an expired URL, a size that does not match the signature) and the dashboard sees a bare network error instead of a message it can explain. The dashboard reads nothing but the status and the error body, so no `ExposeHeaders` is needed. `UPLOAD_ORIGIN` (above) must name the same bucket origin, or the dashboard's own CSP blocks the request before it leaves the browser. The local SeaweedFS answers CORS for any origin, so `make up` needs no rule.
+
 ## Development, staging and production
 
 | | Development | Staging | Production |
@@ -105,7 +134,7 @@ The web storefront keeps its session in the `SameSite=Strict` cookie `goshop_ref
 | `https://shop.example.com` → `https://api.example.com` | yes | works |
 | `https://web-xxx.up.railway.app` → `https://api-xxx.up.railway.app` | **no** | never sent |
 
-Railway's generated `*.up.railway.app` domains are on the [Public Suffix List](https://publicsuffix.org/list/), so every service on them is its own site, and most browsers also block such cookies as third-party. **A deployment that uses the web session needs custom domains for the web and the API under one registrable domain** (Railway: the service's Settings → Networking → Custom Domain), with `APP_CORS_ALLOWED_ORIGINS` set to the storefront's custom origin. The full deployment is Bab 19. The mobile app is not affected: it sends the refresh token in the body.
+Railway's generated `*.up.railway.app` domains are on the [Public Suffix List](https://publicsuffix.org/list/), so every service on them is its own site, and most browsers also block such cookies as third-party. **A deployment that uses the web session needs custom domains for the web and the API under one registrable domain** (Railway: the service's Settings → Networking → Custom Domain), with `APP_CORS_ALLOWED_ORIGINS` set to the storefront's custom origin. The admin dashboard (Bab 12) keeps its session the same way in its own cookie, `goshop_admin_refresh`, so it needs a custom domain under the same registrable domain too, and its origin in the same list. The full deployment is Bab 19. The mobile app is not affected: it sends the refresh token in the body.
 
 ## Secrets
 

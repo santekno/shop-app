@@ -129,6 +129,8 @@ func TestWebConstants(t *testing.T) {
 	testx.AssertEqual(t, WebPathPrefix, "/v1/auth/web/")
 	testx.AssertEqual(t, WebClientHeader, "X-GoShop-Client")
 	testx.AssertEqual(t, WebClientValue, "web")
+	testx.AssertEqual(t, AdminClientValue, "admin")
+	testx.AssertEqual(t, AdminCookieName, "goshop_admin_refresh")
 }
 
 // requireWebClient refuses before any rate limit, service call or cookie.
@@ -149,6 +151,22 @@ func TestHandler_RequireWebClientRefuses(t *testing.T) {
 			change: func(r *http.Request) { r.Header.Set(WebClientHeader, "Web") }},
 		{name: "the header twice, both web", origins: []string{webOrigin}, wantReason: "client_header",
 			change: func(r *http.Request) { r.Header.Add(WebClientHeader, WebClientValue) }},
+		{name: "the admin value in another case", origins: []string{webOrigin}, wantReason: "client_header",
+			change: func(r *http.Request) { r.Header.Set(WebClientHeader, "Admin") }},
+		{name: "the header twice, web and admin", origins: []string{webOrigin}, wantReason: "client_header",
+			change: func(r *http.Request) { r.Header.Add(WebClientHeader, AdminClientValue) }},
+		{name: "the header twice, both admin", origins: []string{webOrigin}, wantReason: "client_header",
+			change: func(r *http.Request) {
+				r.Header.Set(WebClientHeader, AdminClientValue)
+				r.Header.Add(WebClientHeader, AdminClientValue)
+			}},
+		{name: "the cookie name as the value", origins: []string{webOrigin}, wantReason: "client_header",
+			change: func(r *http.Request) { r.Header.Set(WebClientHeader, AdminCookieName) }},
+		{name: "admin from a foreign origin", origins: []string{webOrigin}, wantReason: "origin",
+			change: func(r *http.Request) {
+				r.Header.Set(WebClientHeader, AdminClientValue)
+				r.Header.Set("Origin", "https://evil.example.com")
+			}},
 		{name: "a foreign origin", origins: []string{webOrigin}, wantReason: "origin",
 			change: func(r *http.Request) { r.Header.Set("Origin", "https://evil.example.com") }},
 		{name: "a sibling subdomain", origins: []string{webOrigin}, wantReason: "origin",
@@ -192,7 +210,7 @@ func TestHandler_RequireWebClientMessages(t *testing.T) {
 	rec := sendWeb(env, webRequest(context.Background(), "/v1/auth/web/refresh", "",
 		func(r *http.Request) { r.Header.Del(WebClientHeader) }))
 	testx.AssertEqual(t, assertError(t, rec, http.StatusForbidden, "FORBIDDEN").Error.Message,
-		"this endpoint needs the X-GoShop-Client: web header")
+		"this endpoint needs the X-GoShop-Client header: web or admin")
 
 	rec = sendWeb(env, webRequest(context.Background(), "/v1/auth/web/refresh", "",
 		func(r *http.Request) { r.Header.Set("Origin", "https://evil.example.com") }))
@@ -216,6 +234,7 @@ func TestHandler_RequireWebClientPasses(t *testing.T) {
 			change: func(r *http.Request) { r.Header.Del("Origin") }},
 		{name: "no origin and none configured", origins: nil,
 			change: func(r *http.Request) { r.Header.Del("Origin") }},
+		{name: "the admin dashboard", origins: []string{"http://localhost:5174"}, change: asAdmin("http://localhost:5174")},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -527,9 +546,10 @@ func TestHandler_WebRefreshSeveralCookies(t *testing.T) {
 			assertSetCookie(t, rec, wantClearedCookie)
 			testx.AssertEqual(t, len(env.svc.called), 0, "Refresh is not called")
 			testx.AssertEqual(t, strings.Join(env.limiter.seen(), ","), "refresh-ip:203.0.113.7")
-			line, ok := findLog(t, logs, "web refresh refused: several goshop_refresh cookies")
+			line, ok := findLog(t, logs, "web refresh refused: several session cookies")
 			testx.AssertTrue(t, ok, "warning logged: %s", logs.String())
 			testx.AssertEqual(t, line["count"], any(float64(n)))
+			testx.AssertEqual(t, line["cookie"], any(WebCookieName))
 		})
 	}
 	t.Run("rate limited first", func(t *testing.T) {
@@ -602,4 +622,159 @@ func TestEndsWebSession(t *testing.T) {
 	testx.AssertTrue(t, endsWebSession(ErrNoUser), "no user")
 	testx.AssertFalse(t, endsWebSession(errBoom), "other errors keep the cookie")
 	testx.AssertFalse(t, endsWebSession(ErrInvalidCredentials), "a login error is not a refresh error")
+}
+
+// The admin dashboard's session (Bab 12): X-GoShop-Client: admin picks the
+// goshop_admin_refresh cookie, with the same path and attributes.
+
+const (
+	wantAdminRotatedCookie = "goshop_admin_refresh=" + id3 + ".secret; Path=/v1/auth/web; Max-Age=2592000; HttpOnly; Secure; SameSite=Strict"
+	wantAdminClearedCookie = "goshop_admin_refresh=; Path=/v1/auth/web; Max-Age=0; HttpOnly; Secure; SameSite=Strict"
+)
+
+// asAdmin makes a web request the admin dashboard's, from origin.
+func asAdmin(origin string) func(*http.Request) {
+	return func(r *http.Request) {
+		r.Header.Set(WebClientHeader, AdminClientValue)
+		r.Header.Set("Origin", origin)
+	}
+}
+
+// adminWith is asAdmin from webOrigin, with the raw Cookie header.
+func adminWith(cookie string) func(*http.Request) {
+	return func(r *http.Request) {
+		asAdmin(webOrigin)(r)
+		if cookie != "" {
+			r.Header.Set("Cookie", cookie)
+		}
+	}
+}
+
+func TestSessionCookie(t *testing.T) {
+	tests := []struct {
+		header []string
+		want   string
+	}{
+		{header: []string{"web"}, want: WebCookieName},
+		{header: []string{"admin"}, want: AdminCookieName},
+		// requireWebClient refuses these first; the storefront's cookie
+		// is the fallback, never the dashboard's.
+		{header: nil, want: WebCookieName},
+		{header: []string{"Admin"}, want: WebCookieName},
+		{header: []string{"mobile"}, want: WebCookieName},
+	}
+	for _, tt := range tests {
+		t.Run(strings.Join(tt.header, ","), func(t *testing.T) {
+			r := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/", nil)
+			for _, v := range tt.header {
+				r.Header.Add(WebClientHeader, v)
+			}
+			testx.AssertEqual(t, sessionCookie(r), tt.want)
+		})
+	}
+}
+
+func TestHandler_AdminWebLogin(t *testing.T) {
+	env := newWebEnv(WebSession{AllowedOrigins: []string{webOrigin}})
+	env.svc.login = func(string, string) (Tokens, error) { return env.testTokens(), nil }
+	rec := sendWeb(env, webRequest(context.Background(), "/v1/auth/web/login",
+		`{"email":"admin@example.com","password":"x"}`, adminWith(WebCookieName+"="+id4+".storefront")))
+
+	testx.AssertEqual(t, rec.Code, http.StatusOK, "body %s", rec.Body.String())
+	// Only the dashboard's cookie is set: the storefront's session lives on.
+	assertSetCookie(t, rec, wantAdminRotatedCookie)
+	assertWebSessionBody(t, rec)
+	testx.AssertEqual(t, strings.Join(env.svc.called, ","), "Login")
+}
+
+// Each client refreshes with its own cookie and ignores the other's, which
+// the browser sends along (same path).
+func TestHandler_AdminWebRefreshUsesItsOwnCookie(t *testing.T) {
+	both := WebCookieName + "=" + id1 + ".web; " + AdminCookieName + "=" + id2 + ".admin"
+	tests := []struct {
+		name       string
+		change     func(*http.Request)
+		wantToken  string
+		wantCookie string
+	}{
+		{name: "admin with both cookies", change: adminWith(both), wantToken: id2 + ".admin", wantCookie: wantAdminRotatedCookie},
+		{name: "web with both cookies", change: func(r *http.Request) { r.Header.Set("Cookie", both) },
+			wantToken: id1 + ".web", wantCookie: wantRotatedCookie},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newWebEnv(WebSession{AllowedOrigins: []string{webOrigin}})
+			var got []string
+			env.svc.refresh = func(token string) (Tokens, error) { got = append(got, token); return env.testTokens(), nil }
+			rec := sendWeb(env, webRequest(context.Background(), "/v1/auth/web/refresh", "", tt.change))
+
+			testx.AssertEqual(t, rec.Code, http.StatusOK, "body %s", rec.Body.String())
+			testx.AssertEqual(t, strings.Join(got, ","), tt.wantToken)
+			assertSetCookie(t, rec, tt.wantCookie)
+		})
+	}
+}
+
+// The dashboard without its own cookie has no session, even when the
+// storefront's cookie is there.
+func TestHandler_AdminWebRefreshWithOnlyTheStorefrontCookie(t *testing.T) {
+	env := newWebEnv(WebSession{AllowedOrigins: []string{webOrigin}})
+	rec := sendWeb(env, webRequest(context.Background(), "/v1/auth/web/refresh", "",
+		adminWith(WebCookieName+"="+id1+".web")))
+	testx.AssertEqual(t, rec.Code, http.StatusNoContent)
+	assertNoSetCookie(t, rec)
+	testx.AssertEqual(t, len(env.svc.called), 0)
+}
+
+func TestHandler_AdminWebRefreshEndsSession(t *testing.T) {
+	env := newWebEnv(WebSession{AllowedOrigins: []string{webOrigin}})
+	env.svc.refresh = func(string) (Tokens, error) { return Tokens{}, ErrRefreshTokenExpired }
+	rec := sendWeb(env, webRequest(context.Background(), "/v1/auth/web/refresh", "",
+		adminWith(AdminCookieName+"="+id2+".admin")))
+	assertError(t, rec, http.StatusUnauthorized, CodeTokenExpired)
+	assertSetCookie(t, rec, wantAdminClearedCookie)
+}
+
+func TestHandler_AdminWebRefreshSeveralCookies(t *testing.T) {
+	env := newWebEnv(WebSession{AllowedOrigins: []string{webOrigin}})
+	ctx, logs := ctxWithLogs()
+	// One storefront cookie and two dashboard cookies: the two are the
+	// problem, the storefront's is not counted.
+	cookie := WebCookieName + "=w; " + AdminCookieName + "=" + id1 + ".planted; " + AdminCookieName + "=" + id2 + ".mine"
+	rec := sendWeb(env, webRequest(ctx, "/v1/auth/web/refresh", "", adminWith(cookie)))
+
+	assertError(t, rec, http.StatusUnauthorized, CodeTokenInvalid)
+	assertSetCookie(t, rec, wantAdminClearedCookie)
+	testx.AssertEqual(t, len(env.svc.called), 0, "Refresh is not called")
+	line, ok := findLog(t, logs, "web refresh refused: several session cookies")
+	testx.AssertTrue(t, ok, "warning logged: %s", logs.String())
+	testx.AssertEqual(t, line["cookie"], any(AdminCookieName))
+	testx.AssertEqual(t, line["count"], any(float64(2)))
+}
+
+func TestHandler_AdminWebLogout(t *testing.T) {
+	env := newWebEnv(WebSession{AllowedOrigins: []string{webOrigin}})
+	var got []string
+	env.svc.logout = func(token string) error { got = append(got, token); return nil }
+	cookie := WebCookieName + "=web-session; " + AdminCookieName + "=admin-session"
+	rec := sendWeb(env, webRequest(context.Background(), "/v1/auth/web/logout", "", adminWith(cookie)))
+
+	testx.AssertEqual(t, rec.Code, http.StatusNoContent, "body %s", rec.Body.String())
+	testx.AssertEqual(t, strings.Join(got, ","), "admin-session", "the storefront's session is not revoked")
+	assertSetCookie(t, rec, wantAdminClearedCookie)
+}
+
+// The storefront's logout, with the dashboard's cookie also present,
+// revokes and clears only its own.
+func TestHandler_WebLogoutLeavesTheAdminSession(t *testing.T) {
+	env := newWebEnv(WebSession{AllowedOrigins: []string{webOrigin}})
+	var got []string
+	env.svc.logout = func(token string) error { got = append(got, token); return nil }
+	rec := sendWeb(env, webRequest(context.Background(), "/v1/auth/web/logout", "", func(r *http.Request) {
+		r.Header.Set("Cookie", WebCookieName+"=web-session; "+AdminCookieName+"=admin-session")
+	}))
+
+	testx.AssertEqual(t, rec.Code, http.StatusNoContent, "body %s", rec.Body.String())
+	testx.AssertEqual(t, strings.Join(got, ","), "web-session", "the dashboard's session is not revoked")
+	assertSetCookie(t, rec, wantClearedCookie)
 }

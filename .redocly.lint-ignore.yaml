@@ -8,3 +8,10 @@ api/openapi.yaml:
     - '#/paths/~1healthz/get/responses'
     - '#/paths/~1readyz/get/responses'
     - '#/paths/~1v1~1categories/get/responses'
+  # AdminOrderEvent is the JSON in the data line of each `order` event on
+  # GET /v1/admin/events. OpenAPI 3.1 cannot give the events of a
+  # text/event-stream a schema (itemSchema arrives in 3.2), so the stream's
+  # schema points at it through x-event-data, which the linter does not
+  # count as a use. The component stays so the clients get its type.
+  no-unused-components:
+    - '#/components/schemas/AdminOrderEvent'

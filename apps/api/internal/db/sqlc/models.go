@@ -173,6 +173,7 @@ type Product struct {
 	Search      interface{}
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+	Version     int32
 }
 
 type ProductImage struct {

@@ -324,6 +324,51 @@ func TestRouter_ProbesRunWithoutTimeout(t *testing.T) {
 	}
 }
 
+// Streams, like probes, get every middleware except the request timeout:
+// a stream outlives APP_REQUEST_TIMEOUT. CORS still answers for the admin
+// origin, so the dashboard can read the stream with its Authorization
+// header.
+func TestRouter_StreamsRunWithoutTimeout(t *testing.T) {
+	const timeout = 20 * time.Millisecond
+	const origin = "http://localhost:5174"
+	var logs bytes.Buffer
+	h := httpserver.NewRouter(httpserver.Options{
+		Logger:         logging.New(&logs, false, "debug"),
+		AllowedOrigins: []string{origin},
+		RequestTimeout: timeout,
+		Streams: func(r chi.Router) {
+			r.Get("/v1/admin/events", markDeadline)
+		},
+	}, func(r chi.Router) {
+		r.Get("/v1/products", markDeadline)
+	})
+
+	tests := []struct {
+		path         string
+		wantDeadline string
+	}{
+		{path: "/v1/admin/events", wantDeadline: "false"},
+		{path: "/v1/products", wantDeadline: "true"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			rec := do(h, http.MethodGet, tt.path, map[string]string{"Origin": origin})
+			testx.AssertEqual(t, rec.Code, http.StatusOK, "body %s", rec.Body.String())
+			testx.AssertEqual(t, rec.Header().Get("X-Has-Deadline"), tt.wantDeadline)
+			testx.AssertTrue(t, rec.Header().Get("X-Request-ID") != "", "streams still get the request id")
+			testx.AssertEqual(t, rec.Header().Get("Access-Control-Allow-Origin"), origin)
+		})
+	}
+
+	// The preflight of a stream with the bearer token.
+	rec := do(h, http.MethodOptions, "/v1/admin/events", map[string]string{
+		"Origin": origin, "Access-Control-Request-Method": http.MethodGet, "Access-Control-Request-Headers": "authorization",
+	})
+	testx.AssertEqual(t, rec.Header().Get("Access-Control-Allow-Origin"), origin)
+	testx.AssertContains(t, strings.ToLower(rec.Header().Get("Access-Control-Allow-Headers")), "authorization")
+	testx.AssertContains(t, logs.String(), `"path":"/v1/admin/events"`, "the access log sees streams")
+}
+
 // HEAD runs the GET handler, and net/http sends no body. A real server is
 // used because httptest.ResponseRecorder keeps whatever the handler wrote.
 func TestRouter_Head(t *testing.T) {

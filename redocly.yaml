@@ -14,3 +14,7 @@ rules:
 # that take no client input (/healthz, /readyz, GET /v1/categories) have no
 # meaningful 4xx response, so those three locations, and only those, are
 # listed in .redocly.lint-ignore.yaml.
+#
+# no-unused-components stays on too. Its one ignored location is the
+# schema of the admin event stream's data lines (Bab 12), which OpenAPI 3.1
+# has no place to reference from; the reason is in the ignore file.

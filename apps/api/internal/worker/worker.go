@@ -85,8 +85,7 @@ func serve(ctx context.Context, cfg config.Config, logger logx.Logger, db *sql.D
 		return err
 	}
 	telegramOn := cfg.Telegram.BotToken != ""
-	publisher := notify.NewQueuePublisher(asynq.NewClientFromRedisClient(rdb), notify.NewRoutes(telegramOn))
-	deps := JobDeps{DB: db, Gateway: app.PaymentGateway(cfg.Payment, logger, rdb), Publisher: publisher}
+	deps := JobDeps{DB: db, Gateway: app.PaymentGateway(cfg.Payment, logger, rdb), Publisher: app.EventPublisher(cfg, rdb)}
 	if store != nil {
 		deps.Store = store
 	}

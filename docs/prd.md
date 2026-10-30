@@ -70,4 +70,4 @@ Prices are in rupiah (IDR) without decimals, e.g. Rp149.000. Payments go through
 2. How long is the payment deadline (`payment_expires_at`) for an unpaid order? Stock is taken at checkout and returned when the order expires, so the deadline should match the payment expiry we set on each Midtrans transaction.
 3. Do we need guest checkout, or must buyers log in to pay?
 4. Product reviews: only from buyers with a completed order?
-5. Who may cancel a paid order, and who handles the refund in Midtrans — seller or admin only?
+5. ~~Who may cancel a paid order, and who handles the refund in Midtrans — seller or admin only?~~ Answered in Bab 12: only an admin may cancel an order (`POST /v1/admin/orders/{id}/cancel`); sellers process, ship and complete orders. Refunding a cancelled paid order in Midtrans is still manual and stays with the admin.

@@ -18,10 +18,16 @@ import (
 // /v1/admin). internal/app mounts them behind the auth middleware and the
 // seller or admin role, so this package does not check who is calling.
 func (h *Handler) AdminRoutes(r chi.Router) {
+	if h.table != nil {
+		r.Get("/products", h.ListTable)
+	}
 	r.Post("/products", h.CreateProduct)
 	r.Get("/products/{id}", h.GetProduct)
 	r.Put("/products/{id}", h.UpdateProduct)
 	r.Delete("/products/{id}", h.ArchiveProduct)
+	if h.stock != nil {
+		r.Post("/products/{id}/variants/{variant_id}/stock-adjustments", h.AdjustStock)
+	}
 	h.imageRoutes(r)
 }
 
@@ -29,6 +35,9 @@ func (h *Handler) AdminRoutes(r chi.Router) {
 // Variants are validated one by one (see validate), so each failure is
 // reported as variants[i].field.
 type productBody struct {
+	// Version is required by PUT: the product's version the form loaded.
+	// POST ignores it.
+	Version     *int32        `json:"version" validate:"omitnil,min=0"`
 	CategoryID  string        `json:"category_id" validate:"required,uuid"`
 	Slug        string        `json:"slug" validate:"required,max=200"`
 	Name        string        `json:"name" validate:"required,max=200"`
@@ -44,7 +53,7 @@ type variantBody struct {
 	SKU         string `json:"sku" validate:"required,max=64"`
 	Name        string `json:"name" validate:"required,max=100"`
 	Price       int64  `json:"price" validate:"min=1,max=1000000000"`
-	Stock       int32  `json:"stock" validate:"min=0,max=1000000"`
+	Stock       int32  `json:"stock" validate:"min=0,max=1000000"` // MaxVariantStock
 	WeightGrams int32  `json:"weight_grams" validate:"min=1,max=100000"`
 }
 
@@ -71,7 +80,7 @@ func (h *Handler) CreateProduct(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, r, err)
 		return
 	}
-	p, err := h.admin.Create(r.Context(), in)
+	p, err := h.admin.Create(r.Context(), in.Input)
 	if err != nil {
 		httpapi.Error(w, r, toHTTPError(err))
 		return
@@ -94,7 +103,13 @@ func (h *Handler) UpdateProduct(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, r, err)
 		return
 	}
-	p, err := h.admin.Update(r.Context(), id, in)
+	if !in.hasVersion {
+		httpapi.Error(w, r, httpapi.ValidationError("invalid request", map[string]any{
+			"version": "is required: send the product's version you loaded it with",
+		}))
+		return
+	}
+	p, err := h.admin.Update(r.Context(), id, in.Input)
 	if err != nil {
 		httpapi.Error(w, r, toHTTPError(err))
 		return
@@ -117,21 +132,29 @@ func (h *Handler) ArchiveProduct(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// decodedInput is a decoded body: the Input, and whether it carried the
+// product's version (PUT requires it).
+type decodedInput struct {
+	Input
+	hasVersion bool
+}
+
 // decodeInput decodes and validates the body, and returns it as an Input
 // with SKUs trimmed and upper-cased, the form the database requires.
-func (h *Handler) decodeInput(w http.ResponseWriter, r *http.Request) (Input, error) {
+func (h *Handler) decodeInput(w http.ResponseWriter, r *http.Request) (decodedInput, error) {
 	var body productBody
 	if err := httpapi.DecodeJSON(w, r, &body); err != nil {
-		return Input{}, err
+		return decodedInput{}, err
 	}
 	for i := range body.Variants {
 		body.Variants[i].SKU = strings.ToUpper(strings.TrimSpace(body.Variants[i].SKU))
 	}
 	if err := h.validate(body); err != nil {
-		return Input{}, err
+		return decodedInput{}, err
 	}
 
 	in := Input{
+		Version:    ptrx.Deref(body.Version, 0),
 		CategoryID: body.CategoryID, Slug: body.Slug, Name: body.Name,
 		Description: body.Description, Status: body.Status,
 	}
@@ -141,7 +164,7 @@ func (h *Handler) decodeInput(w http.ResponseWriter, r *http.Request) (Input, er
 			Version: ptrx.Deref(v.Version, 0), // a new variant has no version yet
 		})
 	}
-	return in, nil
+	return decodedInput{Input: in, hasVersion: body.Version != nil}, nil
 }
 
 // validate checks the body and every variant, and reports all failures in
@@ -209,6 +232,7 @@ type adminProductJSON struct {
 	Description string             `json:"description"`
 	Status      string             `json:"status"`
 	PriceFrom   *moneyJSON         `json:"price_from"` // null without a sellable variant
+	Version     int32              `json:"version"`
 	Variants    []adminVariantJSON `json:"variants"`
 	// Images is filled by the handler, which knows the public URLs.
 	Images    []adminImageJSON `json:"images"`
@@ -226,7 +250,7 @@ func (h *Handler) adminJSON(p AdminProduct) adminProductJSON {
 func toAdminJSON(p AdminProduct) adminProductJSON {
 	out := adminProductJSON{
 		ID: p.ID, CategoryID: p.CategoryID, Slug: p.Slug, Name: p.Name,
-		Description: p.Description, Status: p.Status,
+		Description: p.Description, Status: p.Status, Version: p.Version,
 		Variants:  make([]adminVariantJSON, 0, len(p.Variants)),
 		Images:    []adminImageJSON{},
 		CreatedAt: p.CreatedAt.UTC(), UpdatedAt: p.UpdatedAt.UTC(),

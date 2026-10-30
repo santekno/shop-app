@@ -78,7 +78,10 @@ type AdminProduct struct {
 	Description string
 	Status      string
 	PriceFrom   *int64 // nil when no variant is sellable
-	Variants    []AdminVariant
+	// Version changes with every admin write of the product (a save, an
+	// archive), never with stock; a save must send back the one it read.
+	Version  int32
+	Variants []AdminVariant
 	// Images are all the product's photos, pending uploads included.
 	Images    []Image
 	CreatedAt time.Time
@@ -101,6 +104,9 @@ type AdminVariant struct {
 // Input is what the admin writes: the product's fields and its complete
 // list of sellable variants.
 type Input struct {
+	// Version is the product's version the admin's form loaded. Update
+	// requires it to be current; Create ignores it.
+	Version     int32
 	CategoryID  string
 	Slug        string
 	Name        string
@@ -132,9 +138,13 @@ var (
 	ErrSKUTaken = errors.New("sku already taken")
 	// ErrUnknownCategory: the category ID names no category.
 	ErrUnknownCategory = errors.New("unknown category")
-	// ErrUnknownVariant: a variant ID is not a sellable variant of the
-	// product being saved.
+	// ErrUnknownVariant: a variant ID is not a variant of the product
+	// being saved.
 	ErrUnknownVariant = errors.New("unknown variant")
+	// ErrVariantArchived: a variant ID names a variant of the product that
+	// is archived, which can no longer be written. See VariantArchivedError
+	// for which one.
+	ErrVariantArchived = errors.New("variant archived")
 	// ErrVersionConflict: a variant changed since the admin loaded it (a
 	// sale, or another admin's save); reload and save again. See
 	// VersionConflictError for which one.
@@ -143,6 +153,30 @@ var (
 	// that the handler's checks let through.
 	ErrInvalidText = errors.New("invalid text")
 )
+
+// VariantArchivedError is ErrVariantArchived for one variant.
+type VariantArchivedError struct {
+	VariantID string
+}
+
+func (e *VariantArchivedError) Error() string { return "variant " + e.VariantID + ": archived" }
+
+// Unwrap makes errors.Is(err, ErrVariantArchived) true.
+func (e *VariantArchivedError) Unwrap() error { return ErrVariantArchived }
+
+// StaleProductError is ErrVersionConflict for the product
+// itself: another save or an archive changed its fields or its variants
+// since the admin loaded it.
+type StaleProductError struct {
+	ProductID string
+}
+
+func (e *StaleProductError) Error() string {
+	return "product " + e.ProductID + ": version conflict"
+}
+
+// Unwrap makes errors.Is(err, ErrVersionConflict) true.
+func (e *StaleProductError) Unwrap() error { return ErrVersionConflict }
 
 // VersionConflictError is ErrVersionConflict for one variant.
 type VersionConflictError struct {

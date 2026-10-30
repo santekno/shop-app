@@ -20,6 +20,7 @@ Start with the [repository README](../README.md) to run the project, then read t
 | [configuration.md](configuration.md) | Every environment variable, dev vs staging vs prod, where secrets live |
 | [`../CONTRIBUTING.md`](../CONTRIBUTING.md) | Branch per chapter, commit format, merging fixes forward |
 | [ai-rules.md](ai-rules.md) | When to use AI, the AI box in articles, what never goes into a prompt |
+| [testing-ai-review.md](testing-ai-review.md) | How Bab 12's AI-generated tests were reviewed with mutation checks: the prompt, the numbers, the misses, the bugs found (`testing-ai/`) |
 | [`../CLAUDE.md`](../CLAUDE.md) | The verified gate and the agents that run it |
 | [sdk-gaps.md](sdk-gaps.md) | Concerns santekno/sdk does not cover yet, and GoShop's adapters |
 | [web/README.md](web/README.md) | JS/TS for Go developers: the Bab 7 concepts mapped to files in `packages/shared` and `apps/web` |
@@ -46,3 +47,4 @@ An ADR records one significant decision: the context, the decision and its conse
 | [0006](adr/0006-cart-checkout-orders.md) | Keep carts in PostgreSQL and create an order in one guarded transaction | Accepted |
 | [0007](adr/0007-payments-uploads-worker.md) | Take payments through Midtrans Snap, upload images straight to S3, and run side effects on an Asynq worker | Accepted |
 | [0008](adr/0008-web-session-cookie.md) | Give the browser its refresh token in an httpOnly cookie on dedicated web endpoints | Accepted |
+| [0009](adr/0009-admin-live-events-sse.md) | Push order events to the admin dashboard with Server-Sent Events fed by Redis pub/sub | Accepted |

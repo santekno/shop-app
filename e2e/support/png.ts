@@ -2,6 +2,7 @@
 // the API checks the file's first bytes and its size before the worker
 // resizes it, so a stand-in must be a decodable image. Node's zlib and a
 // CRC table are all a PNG needs; no image library.
+import { randomFillSync } from "node:crypto";
 import { deflateSync } from "node:zlib";
 
 const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
@@ -51,6 +52,33 @@ export const pngImage = (width: number, height: number): Buffer => {
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
     chunk("IHDR", header),
     chunk("IDAT", deflateSync(pixels)),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
+};
+
+/**
+ * An 8-bit RGB PNG of width × height random pixels: noise does not
+ * compress, so the file is about width × height × 3 bytes, big enough for
+ * an upload whose progress can be watched (the dashboard's photo upload,
+ * Bab 12 artikel 04).
+ */
+export const noisePngImage = (width: number, height: number): Buffer => {
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8;
+  header[9] = 2;
+  const row = 1 + width * 3;
+  const pixels = Buffer.alloc(row * height);
+  for (let y = 0; y < height; y++) {
+    const at = y * row;
+    pixels[at] = 0;
+    randomFillSync(pixels, at + 1, width * 3);
+  }
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk("IHDR", header),
+    chunk("IDAT", deflateSync(pixels, { level: 1 })),
     chunk("IEND", Buffer.alloc(0)),
   ]);
 };

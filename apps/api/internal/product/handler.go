@@ -19,6 +19,7 @@ const (
 	CodeSlugTaken       = "SLUG_TAKEN"
 	CodeSKUTaken        = "SKU_TAKEN"
 	CodeVersionConflict = "VERSION_CONFLICT"
+	CodeVariantArchived = "VARIANT_ARCHIVED"
 )
 
 // slugPattern is the contract's slug pattern for products and categories.
@@ -48,6 +49,8 @@ type Handler struct {
 	validator *httpapi.Validator
 	images    Images
 	publicURL func(key string) string
+	table     Table
+	stock     Stock
 }
 
 // NewHandler returns a Handler. svc is usually one *Service that is both
@@ -128,9 +131,13 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 // Anything it does not know stays as it is and becomes a 500.
 func toHTTPError(err error) error {
 	var versionErr *VersionConflictError
+	var productVersionErr *StaleProductError
+	var archivedErr *VariantArchivedError
 	switch {
 	case errors.Is(err, ErrNotFound):
 		return httpapi.NotFoundError("product not found")
+	case errors.Is(err, ErrVariantNotFound):
+		return httpapi.NotFoundError("variant not found")
 	case errors.Is(err, ErrInvalidCursor):
 		return httpapi.ValidationError("invalid query parameters", map[string]any{
 			"cursor": "is not a cursor from page.next_cursor for these filters; start again without it",
@@ -139,6 +146,12 @@ func toHTTPError(err error) error {
 		return conflict(CodeSlugTaken, "another product already uses this slug", "slug")
 	case errors.Is(err, ErrSKUTaken):
 		return conflict(CodeSKUTaken, "a variant with one of these SKUs already exists", "variants")
+	case errors.As(err, &productVersionErr):
+		// details names the product, where a variant's conflict names the
+		// variant: the client tells the two apart by the key.
+		return errx.New(CodeVersionConflict, "the product changed since you loaded it (another save or an archive); reload it and save again").
+			WithHTTPStatus(http.StatusConflict).
+			WithDetails(map[string]any{"product_id": productVersionErr.ProductID})
 	case errors.As(err, &versionErr):
 		return errx.New(CodeVersionConflict, "a variant changed since you loaded it (a sale or another save); reload the product and save again").
 			WithHTTPStatus(http.StatusConflict).
@@ -147,6 +160,10 @@ func toHTTPError(err error) error {
 		return errx.New(CodeUnknownCategory, "category not found").
 			WithHTTPStatus(http.StatusBadRequest).
 			WithDetails(map[string]any{"category_id": "names no category"})
+	case errors.As(err, &archivedErr):
+		return errx.New(CodeVariantArchived, "the variant is archived and can no longer be written; reload the product").
+			WithHTTPStatus(http.StatusConflict).
+			WithDetails(map[string]any{"variant_id": archivedErr.VariantID})
 	case errors.Is(err, ErrUnknownVariant):
 		return httpapi.ValidationError("invalid request", map[string]any{
 			"variants": "an id must name a sellable variant of this product; leave it out for a new variant",

@@ -19,7 +19,7 @@ func adminProduct() product.AdminProduct {
 	price := int64(89000)
 	return product.AdminProduct{
 		ID: productID, CategoryID: catID, Slug: "kaos-polos-hitam", Name: "Kaos Polos Hitam",
-		Description: "Katun", Status: product.StatusActive, PriceFrom: &price,
+		Description: "Katun", Status: product.StatusActive, PriceFrom: &price, Version: 9,
 		Variants: []product.AdminVariant{
 			{ID: variantID, SKU: "KPH-S", Name: "S", Price: 89000, Stock: 3, WeightGrams: 180, Version: 4},
 		},
@@ -52,6 +52,17 @@ func body(t *testing.T, change func(m map[string]any)) string {
 	return string(b)
 }
 
+// putBody is body with the product's version a PUT must send back.
+func putBody(t *testing.T, version any, change func(m map[string]any)) string {
+	t.Helper()
+	return body(t, func(m map[string]any) {
+		m["version"] = version
+		if change != nil {
+			change(m)
+		}
+	})
+}
+
 func variants(vs ...map[string]any) []any {
 	out := make([]any, len(vs))
 	for i, v := range vs {
@@ -82,6 +93,7 @@ func TestAdmin_GetProduct(t *testing.T) {
 	testx.AssertEqual(t, v["weight_grams"], any(json.Number("180")))
 	testx.AssertEqual(t, v["sku"], any("KPH-S"))
 	testx.AssertEqual(t, v["version"], any(json.Number("4")), "the form sends it back with the save")
+	testx.AssertEqual(t, data["version"], any(json.Number("9")), "the product's own version, for the save too")
 }
 
 func TestAdmin_GetProduct_NoSellableVariant(t *testing.T) {
@@ -165,7 +177,7 @@ func TestAdmin_CreateProduct(t *testing.T) {
 func TestAdmin_UpdateProduct(t *testing.T) {
 	svc := &fakeService{admin: adminProduct()}
 
-	rec := serve(svc, http.MethodPut, "/v1/admin/products/"+productID, body(t, func(m map[string]any) {
+	rec := serve(svc, http.MethodPut, "/v1/admin/products/"+productID, putBody(t, 9, func(m map[string]any) {
 		v := variant("kph-s")
 		v["id"] = variantID
 		v["version"] = 3 // the version the form loaded
@@ -176,6 +188,7 @@ func TestAdmin_UpdateProduct(t *testing.T) {
 	testx.AssertEqual(t, rec.Header().Get("Location"), "", "no Location on an update")
 	testx.AssertEqual(t, strings.Join(svc.updatedIDs, ","), productID)
 	in := svc.updated[0]
+	testx.AssertEqual(t, in.Version, int32(9), "the product's loaded version goes to the repository's check")
 	testx.AssertEqual(t, in.Variants[0].ID, variantID, "an existing variant keeps its id")
 	testx.AssertEqual(t, in.Variants[0].SKU, "KPH-S")
 	testx.AssertEqual(t, in.Variants[0].Version, int32(3), "the loaded version goes to the repository's check")
@@ -430,7 +443,19 @@ func TestAdmin_ServiceErrors(t *testing.T) {
 			name: "version conflict", err: &product.VersionConflictError{VariantID: variantID}, wantStatus: 409, wantCode: product.CodeVersionConflict,
 			wantDetails: map[string]any{"variant_id": variantID},
 		},
+		{
+			// Another save or an archive changed the product itself: the
+			// details name the product, not a variant (Bab 12).
+			name: "stale product", err: &product.StaleProductError{ProductID: productID}, wantStatus: 409, wantCode: product.CodeVersionConflict,
+			wantDetails: map[string]any{"product_id": productID},
+		},
+		{
+			// A variant the form still shows was archived by another save.
+			name: "variant archived", err: &product.VariantArchivedError{VariantID: variantID}, wantStatus: 409, wantCode: product.CodeVariantArchived,
+			wantDetails: map[string]any{"variant_id": variantID},
+		},
 		{name: "not found", err: product.ErrNotFound, wantStatus: 404, wantCode: httpapi.CodeNotFound},
+		{name: "variant not found", err: product.ErrVariantNotFound, wantStatus: 404, wantCode: httpapi.CodeNotFound},
 		{name: "failure", err: errors.New("connection refused"), wantStatus: 500, wantCode: httpapi.CodeInternal},
 	}
 	for _, tt := range tests {
@@ -444,7 +469,7 @@ func TestAdmin_ServiceErrors(t *testing.T) {
 					target += "/" + productID
 				}
 
-				rec := serve(svc, method, target, body(t, nil))
+				rec := serve(svc, method, target, putBody(t, 3, nil))
 
 				testx.AssertEqual(t, rec.Code, tt.wantStatus)
 				got := decodeError(t, rec).Error
@@ -457,4 +482,51 @@ func TestAdmin_ServiceErrors(t *testing.T) {
 			})
 		}
 	}
+}
+
+// PUT must send the product's version back (Bab 12); POST does not need
+// one and ignores it.
+func TestAdmin_UpdateProductVersion(t *testing.T) {
+	t.Run("PUT without a version", func(t *testing.T) {
+		svc := &fakeService{admin: adminProduct()}
+		rec := serve(svc, http.MethodPut, "/v1/admin/products/"+productID, body(t, nil))
+		testx.AssertEqual(t, rec.Code, http.StatusBadRequest, "body %s", rec.Body.String())
+		got := decodeError(t, rec).Error
+		testx.AssertEqual(t, got.Code, httpapi.CodeValidationFailed)
+		testx.AssertEqual(t, len(got.Details), 1, "details %v", got.Details)
+		testx.AssertEqual(t, got.Details["version"], any("is required: send the product's version you loaded it with"))
+		testx.AssertEqual(t, len(svc.updated), 0, "the service was asked")
+	})
+	t.Run("PUT with version null", func(t *testing.T) {
+		svc := &fakeService{admin: adminProduct()}
+		rec := serve(svc, http.MethodPut, "/v1/admin/products/"+productID, putBody(t, nil, nil))
+		testx.AssertEqual(t, rec.Code, http.StatusBadRequest)
+		testx.AssertEqual(t, decodeError(t, rec).Error.Details["version"], any("is required: send the product's version you loaded it with"))
+		testx.AssertEqual(t, len(svc.updated), 0)
+	})
+	t.Run("PUT with a negative version", func(t *testing.T) {
+		svc := &fakeService{admin: adminProduct()}
+		rec := serve(svc, http.MethodPut, "/v1/admin/products/"+productID, putBody(t, -1, nil))
+		testx.AssertEqual(t, rec.Code, http.StatusBadRequest)
+		testx.AssertEqual(t, decodeError(t, rec).Error.Details["version"], any("must be at least 0"))
+		testx.AssertEqual(t, len(svc.updated), 0)
+	})
+	t.Run("PUT with version 0", func(t *testing.T) {
+		svc := &fakeService{admin: adminProduct()}
+		rec := serve(svc, http.MethodPut, "/v1/admin/products/"+productID, putBody(t, 0, nil))
+		testx.AssertEqual(t, rec.Code, http.StatusOK, "body %s", rec.Body.String())
+		testx.AssertEqual(t, svc.updated[0].Version, int32(0), "0 is a version, not a missing one")
+	})
+	t.Run("POST without a version", func(t *testing.T) {
+		svc := &fakeService{admin: adminProduct()}
+		rec := serve(svc, http.MethodPost, "/v1/admin/products", body(t, nil))
+		testx.AssertEqual(t, rec.Code, http.StatusCreated, "body %s", rec.Body.String())
+		testx.AssertEqual(t, len(svc.created), 1)
+	})
+	t.Run("POST with a version", func(t *testing.T) {
+		svc := &fakeService{admin: adminProduct()}
+		rec := serve(svc, http.MethodPost, "/v1/admin/products", putBody(t, 7, nil))
+		testx.AssertEqual(t, rec.Code, http.StatusCreated, "body %s", rec.Body.String())
+		testx.AssertEqual(t, len(svc.created), 1)
+	})
 }

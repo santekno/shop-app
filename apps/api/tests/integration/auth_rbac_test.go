@@ -83,7 +83,7 @@ func TestSeedAdmin(t *testing.T) {
 
 	buyer, _ := s.newAccount(t, "dipromosikan")
 	out, err = seedAdmin(t, s.dbURL, buyer.Email, otherPassword)
-	if err != nil || !strings.Contains(out, "existing account promoted, password replaced") {
+	if err != nil || !strings.Contains(out, "existing account given the admin role, password replaced; its sessions are revoked") {
 		t.Fatalf("make seed-admin (existing) = %v:\n%s", err, out)
 	}
 	assertError(t, s.call(t, http.MethodPost, "/v1/auth/login", map[string]string{"email": buyer.Email, "password": testPassword}, ""),
@@ -95,6 +95,32 @@ func TestSeedAdmin(t *testing.T) {
 	if n := s.count(t, `SELECT count(*) FROM users WHERE role = 'admin'`); n != 2 {
 		t.Errorf("%d admins, want 2", n)
 	}
+}
+
+// TestSeedAdmin_Seller: make seed-admin role=seller (Bab 12) makes a
+// seller, who reaches the staff routes but not the admin-only cancel.
+func TestSeedAdmin_Seller(t *testing.T) {
+	s := startServer(t, nil)
+	email := uniqueEmail("penjual")
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
+	defer cancel()
+	//nolint:gosec // G204: make with the test's own arguments, not user input
+	cmd := exec.CommandContext(ctx, "make", "--no-print-directory", "-C", repoRoot, "seed-admin",
+		"email="+email, "role=seller", "DATABASE_URL="+s.dbURL)
+	cmd.Env = append(os.Environ(), "SEED_ADMIN_PASSWORD="+testPassword)
+	out, err := cmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(out), "seller "+email+" created") {
+		t.Fatalf("make seed-admin role=seller = %v:\n%s", err, out)
+	}
+	seller := s.login(t, email, testPassword)
+	if seller.User.Role != "seller" || !seller.User.EmailVerified {
+		t.Errorf("seeded seller = %+v, want role seller with a verified email", seller.User)
+	}
+	if r := s.call(t, http.MethodGet, "/v1/admin/orders", nil, seller.AccessToken); r.Status != http.StatusOK {
+		t.Errorf("GET /v1/admin/orders as the seller = %d: %s", r.Status, r.Body)
+	}
+	assertError(t, s.call(t, http.MethodPost, "/v1/admin/orders/"+uuidx.NewV7()+"/cancel", nil, seller.AccessToken),
+		http.StatusForbidden, "FORBIDDEN")
 }
 
 // TestSeedAdmin_Refusals checks what make seed-admin refuses before it

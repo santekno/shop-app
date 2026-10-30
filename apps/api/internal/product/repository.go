@@ -175,6 +175,7 @@ func (r *PostgresRepository) GetAdmin(ctx context.Context, id string) (AdminProd
 		Name:        row.Name,
 		Description: row.Description,
 		Status:      row.Status,
+		Version:     row.Version,
 		CreatedAt:   row.CreatedAt,
 		UpdatedAt:   row.UpdatedAt,
 		Variants:    make([]AdminVariant, 0, len(variants)),
@@ -220,18 +221,27 @@ func (r *PostgresRepository) Create(ctx context.Context, in Input) (string, erro
 	return id, nil
 }
 
-// Update saves the product with id and its variants in one transaction: a
-// variant with an ID is updated if its Version is still current, one
-// without is added, and a sellable variant missing from in.Variants is
-// archived. It returns ErrNotFound for an unknown product,
-// ErrUnknownVariant for a variant ID that is not a sellable variant of it,
-// and a *VersionConflictError when a variant changed since it was read.
+// Update saves the product with id and its variants in one transaction,
+// if in.Version is still the product's version: a variant with an ID is
+// updated if its Version is still current, one without is added, and a
+// sellable variant missing from in.Variants is archived. It returns
+// ErrNotFound for an unknown product, a *StaleProductError when
+// the product changed since it was read (checked first, before anything
+// is written, so a variant another admin added is never archived),
+// ErrUnknownVariant for a variant ID that is not a sellable variant of
+// it, and a *VersionConflictError when a variant changed since it was
+// read.
 func (r *PostgresRepository) Update(ctx context.Context, id string, in Input) error {
 	return database.WithTx(ctx, r.db, func(q *sqlc.Queries) error {
-		if _, err := q.LockProduct(ctx, id); errors.Is(err, sql.ErrNoRows) {
+		version, err := q.LockProduct(ctx, id)
+		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound
-		} else if err != nil {
+		}
+		if err != nil {
 			return fmt.Errorf("lock product: %w", err)
+		}
+		if version != in.Version {
+			return &StaleProductError{ProductID: id}
 		}
 		// Then all its variants, in id order, before writing any of them
 		// in the form's order (ADR 0006, "Lock order").
@@ -312,12 +322,29 @@ func updateVariant(ctx context.Context, q *sqlc.Queries, productID string, posit
 	}
 	_, err = q.GetVariantVersion(ctx, sqlc.GetVariantVersionParams{ID: v.ID, ProductID: productID})
 	if errors.Is(err, sql.ErrNoRows) {
-		return ErrUnknownVariant
+		return notSellable(ctx, q, productID, v.ID)
 	}
 	if err != nil {
 		return fmt.Errorf("query variant version: %w", err)
 	}
 	return &VersionConflictError{VariantID: v.ID}
+}
+
+// notSellable tells why variantID is not a sellable variant of productID:
+// a *VariantArchivedError when it is an archived one, ErrUnknownVariant
+// when it is none of the product's variants. A save racing another admin's
+// archive never gets here: the archive bumped the product's version, which
+// Update checked first. This is for a body that sends the current product
+// version with a variant that was already archived when it was loaded.
+func notSellable(ctx context.Context, q *sqlc.Queries, productID, variantID string) error {
+	archived, err := q.IsVariantArchived(ctx, sqlc.IsVariantArchivedParams{ID: variantID, ProductID: productID})
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("query archived variant: %w", err)
+	}
+	if archived {
+		return &VariantArchivedError{VariantID: variantID}
+	}
+	return ErrUnknownVariant
 }
 
 // updateProduct writes the product's fields and recomputes price_from. It is

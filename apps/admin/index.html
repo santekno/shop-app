@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!-- A dashboard behind a login has nothing for a search engine. Caddy
+         also sends X-Robots-Tag: noindex with every response. -->
+    <meta name="robots" content="noindex, nofollow" />
+    <!-- Both themes follow the device: before the CSS arrives, the browser
+         paints the page in the device's scheme, not always white. -->
+    <meta name="color-scheme" content="light dark" />
+    <title>GoShop Admin</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

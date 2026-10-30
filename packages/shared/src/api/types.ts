@@ -88,6 +88,78 @@ export type PaymentStatus = OrderLatestPayment["status"];
 /** A Midtrans Snap transaction for an order (Bab 6, ADR 0007). */
 export type PaymentSession = Schemas["PaymentSession"];
 export type PaymentSessionDetail = Schemas["PaymentSessionDetail"];
+/** One product of the dashboard's product table (Bab 12), in any status. */
+export type AdminProductRow = Schemas["AdminProductRow"];
+/** One numbered page of the dashboard's product table, with its total. */
+export type AdminProductTable = Schemas["AdminProductTable"];
+/** Where an offset page sits in the whole list: page, per_page, total, total_pages. */
+export type OffsetPageInfo = Schemas["OffsetPageInfo"];
+/** A product's status: only `active` products are in the catalog. */
+export type AdminProductStatus = AdminProductRow["status"];
+/** The query of GET /v1/admin/products, every parameter optional. */
+export type ListAdminProductsQuery = NonNullable<
+  operations["listAdminProducts"]["parameters"]["query"]
+>;
+/** The columns GET /v1/admin/products can sort by. */
+export type AdminProductSort = NonNullable<ListAdminProductsQuery["sort"]>;
+/** A sort direction of GET /v1/admin/products. */
+export type SortOrder = NonNullable<ListAdminProductsQuery["order"]>;
+/** A product as the dashboard sees and edits it (Bab 12), in any status. */
+export type AdminProduct = Schemas["AdminProduct"];
+export type AdminProductDetail = Schemas["AdminProductDetail"];
+/** A sellable variant with its `version`, which a PUT sends back. */
+export type AdminVariant = Schemas["AdminVariant"];
+/** A product photo as the dashboard sees it, pending uploads included. */
+export type AdminProductImage = Schemas["AdminProductImage"];
+export type AdminProductImageDetail = Schemas["AdminProductImageDetail"];
+/** Where a photo is: pending_upload, processing, ready or failed. */
+export type AdminProductImageStatus = AdminProductImage["status"];
+/** The file types a photo may be uploaded as: JPEG, PNG or WebP. */
+export type ProductImageContentType = AdminProductImage["content_type"];
+/** The body of POST …/images/uploads: the file's type and exact size. */
+export type ImageUploadRequest = Schemas["ImageUploadRequest"];
+/** The pending photo and the presigned request that uploads its file. */
+export type ImageUpload = Schemas["ImageUpload"];
+export type ImageUploadDetail = Schemas["ImageUploadDetail"];
+/** The presigned request: method, URL, headers, and when it stops working. */
+export type ImageUploadTicket = ImageUpload["upload"];
+/** The body of POST …/images/{image_id}/confirm: the photo's alt text. */
+export type ImageConfirmRequest = Schemas["ImageConfirmRequest"];
+/** The body of POST and PUT /v1/admin/products: the whole product. */
+export type ProductWrite = Schemas["ProductWrite"];
+/** One variant of a ProductWrite: `id` and `version` only for an existing one. */
+export type VariantWrite = Schemas["VariantWrite"];
+/** Where an order goes and with whom: courier, service, resi, address copy. */
+export type OrderShipping = Schemas["OrderShipping"];
+/** The courier the buyer chose at checkout: jne, jnt or sicepat. */
+export type Courier = OrderShipping["courier"];
+/** The shipping address as it was at checkout, kept on the order. */
+export type ShippingAddressSnapshot = Schemas["ShippingAddressSnapshot"];
+/** Why an order was cancelled, or null. */
+export type OrderCancelReason = Order["cancel_reason"];
+/** The query of GET /v1/admin/orders (Bab 12): status, cursor, limit. */
+export type ListAdminOrdersQuery = NonNullable<
+  operations["listOrdersByStatus"]["parameters"]["query"]
+>;
+/** The body of POST /v1/admin/orders/{id}/ship: the courier's airway bill. */
+export type ShipRequest = Schemas["ShipRequest"];
+/** The dashboard's sales report (Bab 12): totals, one row per period, the top 5. */
+export type SalesReport = Schemas["SalesReport"];
+export type SalesReportDetail = Schemas["SalesReportDetail"];
+/** One period of the report: its first day, revenue, orders, average, running total. */
+export type SalesReportPeriod = SalesReport["series"][number];
+/** One of the report's top products, by revenue (goods only, before vouchers). */
+export type SalesReportTopProduct = SalesReport["top_products"][number];
+/** What one period of the report is: a day, a week (from Monday) or a month. */
+export type SalesReportGroup = SalesReport["group"];
+/** The query of GET /v1/admin/reports/sales: from, to, group, every one optional. */
+export type SalesReportQuery = NonNullable<
+  operations["getSalesReport"]["parameters"]["query"]
+>;
+/** The body of POST …/variants/{variant_id}/stock-adjustments: a delta, or a guarded count. */
+export type StockAdjustment = Schemas["StockAdjustment"];
+/** The answer of a stock adjustment: the variant after the change. */
+export type AdminVariantDetail = Schemas["AdminVariantDetail"];
 /** The body of every API error: {"error":{"code","message","details"}}. */
 export type ErrorBody = Schemas["Error"];
 
@@ -101,3 +173,9 @@ export type ErrorBody = Schemas["Error"];
 export type ListProductsQuery = NonNullable<
   operations["listProducts"]["parameters"]["query"]
 >;
+
+/**
+ * The `data` of an `order` event on GET /v1/admin/events (Bab 12,
+ * ADR 0009): which order changed, its new status and total. No buyer data.
+ */
+export type AdminOrderEvent = Schemas["AdminOrderEvent"];

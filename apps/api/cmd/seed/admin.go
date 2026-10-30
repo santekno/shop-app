@@ -10,23 +10,39 @@ import (
 	"github.com/santekno/sdk/uuidx"
 
 	"github.com/santekno/shop-app/apps/api/internal/auth"
+	"github.com/santekno/shop-app/apps/api/internal/user"
 )
 
-// adminPasswordEnv holds the admin's password. It is read from the
-// environment, not a flag, so it does not end up in the shell history or
-// in the process list.
+// adminPasswordEnv holds the staff account's password. It is read from
+// the environment, not a flag, so it does not end up in the shell history
+// or in the process list.
 const adminPasswordEnv = "SEED_ADMIN_PASSWORD"
 
-// seedAdmin creates the admin account email, or promotes the account that
-// already has it, with password, a verified email and the admin role.
-// Promoting replaces the password, so the account's sessions are revoked
-// too (their access tokens run out within APP_ACCESS_TOKEN_TTL). It is
-// for a developer's machine only (make seed-admin, which refuses a remote
-// database): the API has no way to create an admin, and production admins
-// are made by hand by someone who can already reach the database.
+// staffNames is the display name a new staff account gets, per role; also
+// the roles -role accepts. A buyer registers through the API.
+var staffNames = map[user.Role]string{user.RoleAdmin: "Admin", user.RoleSeller: "Seller"}
+
+// seedAdmin is seedStaff with the admin role.
+func seedAdmin(ctx context.Context, db *sql.DB, email, password string) (bool, error) {
+	return seedStaff(ctx, db, email, password, user.RoleAdmin)
+}
+
+// seedStaff creates the staff account email with role (admin or seller,
+// from Bab 12), or gives the account that already has it that role, with
+// password and a verified email. Changing an existing account replaces
+// its password, so its sessions are revoked too (their access tokens run
+// out within APP_ACCESS_TOKEN_TTL); it also demotes an admin given the
+// seller role, which is what was asked. It is for a developer's machine
+// only (make seed-admin, which refuses a remote database): the API has no
+// way to create staff, and production staff are made by hand by someone
+// who can already reach the database.
 //
 // It reports whether the account is new.
-func seedAdmin(ctx context.Context, db *sql.DB, email, password string) (bool, error) {
+func seedStaff(ctx context.Context, db *sql.DB, email, password string, role user.Role) (bool, error) {
+	name, ok := staffNames[role]
+	if !ok {
+		return false, fmt.Errorf("-role %q must be admin or seller", role)
+	}
 	email = auth.NormalizeEmail(email)
 	if addr, err := mail.ParseAddress(email); err != nil || addr.Address != email {
 		return false, fmt.Errorf("-admin %q is not an email address", email)
@@ -54,14 +70,14 @@ func seedAdmin(ctx context.Context, db *sql.DB, email, password string) (bool, e
 	var inserted bool
 	err = tx.QueryRowContext(ctx, `
 		INSERT INTO users (id, email, password_hash, name, role, email_verified_at)
-		VALUES ($1, $2, $3, 'Admin', 'admin', now())
+		VALUES ($1, $2, $3, $4, $5, now())
 		ON CONFLICT (email) DO UPDATE
-		SET role = 'admin', password_hash = EXCLUDED.password_hash,
+		SET role = EXCLUDED.role, password_hash = EXCLUDED.password_hash,
 		    email_verified_at = COALESCE(users.email_verified_at, now()), updated_at = now()
 		RETURNING id, xmax = 0`,
-		uuidx.NewV7(), email, hash).Scan(&id, &inserted)
+		uuidx.NewV7(), email, hash, name, string(role)).Scan(&id, &inserted)
 	if err != nil {
-		return false, fmt.Errorf("upsert admin (did you run make migrate-up?): %w", err)
+		return false, fmt.Errorf("upsert %s (did you run make migrate-up?): %w", role, err)
 	}
 	if !inserted {
 		// The password was replaced, so end the account's sessions, as a
