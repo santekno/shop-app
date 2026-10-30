@@ -12,6 +12,7 @@ package adminevents
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -54,18 +55,44 @@ type money struct {
 }
 
 // orderPayload is the part of the outbox's order payload (order's
-// eventPayload) the feed reads.
+// eventPayload) the feed reads. Total is a pointer so that a missing total
+// is told apart from a total of 0.
 type orderPayload struct {
 	OrderID    string    `json:"order_id"`
 	Code       string    `json:"code"`
 	Status     string    `json:"status"`
-	Total      int64     `json:"total"`
+	Total      *int64    `json:"total"`
 	Currency   string    `json:"currency"`
 	OccurredAt time.Time `json:"occurred_at"`
 }
 
+// check reports the first field the feed needs that p lacks. JSON decoding
+// leaves a field it does not find at its zero value without complaint, so
+// if order's eventPayload ever renamed a field, every event would decode
+// into an empty ID, code or a total of 0; the dashboard's duplicate check
+// and its "new order" toast would quietly degrade. Such a payload is
+// treated as one that does not decode.
+func (p orderPayload) check() error {
+	switch {
+	case p.OrderID == "":
+		return errors.New("no order_id")
+	case p.Code == "":
+		return errors.New("no code")
+	case p.Status == "":
+		return errors.New("no status")
+	case p.Total == nil:
+		return errors.New("no total")
+	case *p.Total < 0:
+		return fmt.Errorf("negative total %d", *p.Total)
+	case p.Currency == "":
+		return errors.New("no currency")
+	}
+	return nil
+}
+
 // FromEvent is the feed message of e, and false for an event the feed does
-// not carry (anything but an order's).
+// not carry (anything but an order's). An order payload that does not
+// decode, or lacks a field the feed copies, is an error.
 func FromEvent(e outbox.Event) (Message, bool, error) {
 	if e.AggregateType != "order" {
 		return Message{}, false, nil
@@ -74,9 +101,12 @@ func FromEvent(e outbox.Event) (Message, bool, error) {
 	if err := json.Unmarshal(e.Payload, &p); err != nil {
 		return Message{}, false, fmt.Errorf("decode %s event %s: %w", e.Type, e.ID, err)
 	}
+	if err := p.check(); err != nil {
+		return Message{}, false, fmt.Errorf("decode %s event %s: %w", e.Type, e.ID, err)
+	}
 	data, err := json.Marshal(orderData{
 		Type: e.Type, OrderID: p.OrderID, Code: p.Code, Status: p.Status,
-		Total: money{Amount: p.Total, Currency: p.Currency}, OccurredAt: p.OccurredAt.UTC(),
+		Total: money{Amount: *p.Total, Currency: p.Currency}, OccurredAt: p.OccurredAt.UTC(),
 	})
 	if err != nil {
 		return Message{}, false, fmt.Errorf("encode %s event %s: %w", e.Type, e.ID, err)
@@ -101,7 +131,7 @@ type Publisher struct {
 func NewPublisher(rdb RedisPublisher) *Publisher { return &Publisher{rdb: rdb} }
 
 // Publish implements outbox.Publisher. An order event whose payload does
-// not decode is logged and skipped, never returned: the dispatcher would
+// not decode or lacks a field (FromEvent's error) is logged and skipped, never returned: the dispatcher would
 // otherwise retry it for ever and hold back every event after it, emails
 // included, for the sake of a dashboard notification.
 func (p *Publisher) Publish(ctx context.Context, e outbox.Event) error {
