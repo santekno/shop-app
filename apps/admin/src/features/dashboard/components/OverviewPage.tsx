@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/PageHeader.tsx";
 import { Card } from "@/components/ui/Card.tsx";
 import { roleLabel } from "@/features/auth/roles.ts";
 import { useSessionUser } from "@/features/auth/session-context.ts";
+import { RecentSalesTile } from "@/features/reports/components/RecentSalesTile.tsx";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle.ts";
 
 /**
@@ -22,6 +23,7 @@ export function OverviewPage() {
         title="Ringkasan"
         description={`Halo, ${user.name}. Anda masuk sebagai ${roleLabel(user.role)}.`}
       />
+      <RecentSalesTile />
       <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {sections.map(({ to, label, icon: Icon, description }) => (
           <li key={to}>

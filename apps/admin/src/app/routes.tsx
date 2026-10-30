@@ -12,7 +12,7 @@ import {
   loadProductCreatePage,
   loadProductEditPage,
 } from "@/features/products/lazy.ts";
-import { ReportsPage } from "@/features/reports/components/ReportsPage.tsx";
+import { loadReportsPage } from "@/features/reports/lazy.ts";
 import { AppLoading } from "./AppLoading.tsx";
 import { AppRoot } from "./AppRoot.tsx";
 import type { RouteHandle } from "./route-crumbs.ts";
@@ -48,8 +48,8 @@ const crumb = (label: string): RouteHandle => ({ crumb: label });
  *
  * Code splitting: the login page and the two product-form pages are lazy
  * (features/auth/lazy.ts, features/products/lazy.ts): they carry React
- * Hook Form and Zod. Every other page is in the main bundle; Recharts
- * (artikel 07) will be the next split.
+ * Hook Form and Zod. The report page is lazy too (features/reports/lazy.ts):
+ * it carries Recharts. Every other page is in the main bundle.
  *
  * The pages sit under a pathless route with an ErrorBoundary, so an error
  * replaces the page but keeps the sidebar; the root has one too, for an
@@ -135,7 +135,10 @@ export const routes: RouteObject[] = [
                   },
                   {
                     path: "laporan",
-                    Component: ReportsPage,
+                    // lazy: Recharts is downloaded with this page only.
+                    lazy: async () => ({
+                      Component: (await loadReportsPage()).ReportsPage,
+                    }),
                     handle: crumb("Laporan"),
                   },
                   {

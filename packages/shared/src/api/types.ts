@@ -143,6 +143,19 @@ export type ListAdminOrdersQuery = NonNullable<
 >;
 /** The body of POST /v1/admin/orders/{id}/ship: the courier's airway bill. */
 export type ShipRequest = Schemas["ShipRequest"];
+/** The dashboard's sales report (Bab 12): totals, one row per period, the top 5. */
+export type SalesReport = Schemas["SalesReport"];
+export type SalesReportDetail = Schemas["SalesReportDetail"];
+/** One period of the report: its first day, revenue, orders, average, running total. */
+export type SalesReportPeriod = SalesReport["series"][number];
+/** One of the report's top products, by revenue (goods only, before vouchers). */
+export type SalesReportTopProduct = SalesReport["top_products"][number];
+/** What one period of the report is: a day, a week (from Monday) or a month. */
+export type SalesReportGroup = SalesReport["group"];
+/** The query of GET /v1/admin/reports/sales: from, to, group, every one optional. */
+export type SalesReportQuery = NonNullable<
+  operations["getSalesReport"]["parameters"]["query"]
+>;
 /** The body of every API error: {"error":{"code","message","details"}}. */
 export type ErrorBody = Schemas["Error"];
 

@@ -26,7 +26,9 @@
     "react": "catalog:",
     "react-dom": "catalog:",
     "react-hook-form": "catalog:",
+    "react-is": "catalog:",
     "react-router": "catalog:",
+    "recharts": "catalog:",
     "tailwind-merge": "catalog:",
     "zod": "catalog:"
   },

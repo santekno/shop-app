@@ -117,6 +117,7 @@ export type {
   ShipRequest,
   ShippingAddressSnapshot,
 } from "./api/types.ts";
+export { getSalesReport } from "./api/admin-reports.ts";
 
 export { getOrder, listOrders, payOrder, placeOrder } from "./api/orders.ts";
 export type { ListOrdersQuery, PlaceOrderOptions } from "./api/orders.ts";
@@ -261,6 +262,12 @@ export type {
   ProductVariant,
   ProductWrite,
   RegisterRequest,
+  SalesReport,
+  SalesReportDetail,
+  SalesReportGroup,
+  SalesReportPeriod,
+  SalesReportQuery,
+  SalesReportTopProduct,
   ShippingQuote,
   ShippingQuotes,
   ShippingQuotesDetail,

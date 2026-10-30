@@ -360,3 +360,66 @@ Paths are relative to `apps/admin/src`.
 | The timeline's steps                                            | `features/orders/order-timeline.ts`                                                                              |
 | The print view, print colours                                   | `features/orders/components/OrderShippingLabelPage.tsx`, `index.css` (section 4)                                 |
 | Routes (lazy), "Dasbor › Pesanan › Detail pesanan"              | `app/routes.tsx`, `features/orders/lazy.ts`                                                                      |
+
+## Grafik penjualan dengan Recharts (artikel 07)
+
+`/laporan` is the sales report: for a range of days (the last 7, 30 or 90, or two chosen dates) and a grouping (per day, week or month), the range's revenue, orders and average order value, a revenue chart, an orders chart, every number as a table, and the five best-selling products. It reads `GET /v1/admin/reports/sales` (Bab 6), which does the arithmetic in SQL; the page only draws it. The overview page (`/`) gets a small "Penjualan 7 hari terakhir" tile from the same endpoint.
+
+### The mental model
+
+| Idea                                  | What it means                                                                                                                                                                                       | Go comparison                                                         |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| **The server aggregates, we draw**    | Sums, empty periods, weeks from Monday, the running total and the top 5 come from the API (`generate_series`, window functions). The page never adds two numbers it could get wrong                 | The handler returns a view model; the template only formats it        |
+| **A chart is a picture of a table**   | The same rows feed the charts and the data table. The charts are for the shape at a glance, the table for an exact figure and for anyone who cannot see the picture                                 | One query, two renderers                                              |
+| **The URL is the report's state**     | `?rentang=7`, `?dari=…&sampai=…`, `?kelompok=minggu`: a bookmark opens the same report, Back undoes a choice (the product table's pattern, artikel 02)                                              | Query parameters parsed and validated per request                     |
+| **A date is a Jakarta calendar date** | "2026-10-30" has no time and no zone. Today is computed at UTC+7, arithmetic runs on midnight UTC and formatting uses `timeZone: "UTC"`, so the browser's own zone can never shift a label by a day | `time.FixedZone("WIB", 7*3600)` and `t.Format(time.DateOnly)`         |
+| **Recharts is code-split**            | The page is a lazy route: about 100 kB gzipped of chart code is downloaded the first time someone opens "Laporan", never by a seller who only works through orders                                  | A heavy dependency behind a build tag, linked only where it is needed |
+
+### Decisions
+
+- **The range.** Three presets and "Pilih tanggal", drawn as one segmented control that is a real radio group (`<fieldset>` with visually hidden radios inside their labels; the style is written against `has-checked`, the same fact a screen reader announces). Arrow keys move between the options, and a screen reader says "30 hari, 2 of 4". A preset moves with the calendar (a bookmark of `?rentang=7` shows the last 7 days whenever it is opened); chosen dates do not. A preset is still sent as two explicit dates, computed against today in Jakarta, the API's own "today": the query key then names exactly which days are cached, and after midnight WIB the same preset is a new key.
+- **Validation mirrors the API, field by field** (`rangeErrors` in `report-params.ts`): both dates must be calendar dates (`2026-02-30` is refused, as Go's `time.Parse` refuses it, not rolled over into March as `new Date` would), the end may not be before the start, and the range is at most 366 days, both included (the API's `report.ErrRange`). The messages say what to do and land on the field that needs the change, which gets the focus. Unlike the API, both dates are required: the API's defaults for a missing date are what the presets are for. Nothing is fetched until "Terapkan", and nothing is fetched for an invalid range. Validate late, re-check early, as in the product form.
+- **A URL is input.** `?dari=2026-02-30`, a 400-day range or `?kelompok=tahun` fall back to the default (the last 30 days, per day) instead of a 400 from the API. Defaults are left out of the URL.
+- **Two charts, never two axes.** Revenue (millions) and orders (tens) on two scales in one frame would make their crossings meaningless; they are two charts, one measure each, one colour each, so no legend is needed (the heading names the series). "Tampilkan kumulatif" switches the revenue chart to the running total (`cumulative_revenue`) as an area: a sum that only grows reads as a line, not as separate bars.
+- **Rupiah: compact on the axis, exact everywhere else.** The axis says "Rp1,65 jt" (`Intl.NumberFormat("id-ID", { notation: "compact" })`, up to two decimals so neighbouring ticks never contradict each other); the tooltip, the tiles and the tables say "Rp 1.650.000" (`formatRupiah` from `@goshop/shared`). The tooltip shows every number of the period (revenue, orders, average, running total), whichever chart it is on.
+- **Periods are labelled with the days they count.** The API lists a week or a month by its first day, and the first week (from Monday) or month may start before the range, the last may end after it; only the range's days are counted. A label therefore shows the counted days and says "(sebagian)", so a short first week is not read as a slow one: "2–31 Agu 2026 (sebagian)", "September 2026", "12–18 Okt 2026".
+- **Empty periods are real zeros.** The API lists every period, so a day without sales is a zero bar and a "Rp 0" row, and the chart's summary counts them ("6 dari 30 hari tanpa penjualan"). A range with no sale at all shows one sentence instead of empty charts.
+- **Loading, error, busy.** The first load is a skeleton in the report's shape. After that, `placeholderData: keepPreviousData` keeps the last report on screen, dimmed and `aria-busy`, while the next range loads, so the controls never jump away from the pointer. An error is `ErrorState` with "Coba lagi". One `role="status"` line says what is on screen ("1–30 Okt 2026, per hari. Tanggal menurut WIB.") or "Memuat laporan…".
+- **Accessibility.** A chart is not accessible by itself. Each svg is one image to a screen reader (`role="img"`), named like its heading plus the range, and described (`aria-describedby`) by the visible sentence under the heading, which states the peak and the empty periods. Recharts' keyboard layer stays on: Tab reaches a chart and the arrow keys move the tooltip, for sighted keyboard users. Every number is in **"Lihat data dalam tabel"**, a native `<details>` (a year by day is 366 rows, too long to sit open; `<details>` opens with Enter or Space and announces its state with no script), whose rows are headed by their period (`<th scope="row">`) and end with a total. The tiles are a `<dl>`, so each figure is read with its name. The top products are a table, not a chart: five names read faster as text, and each name links to its product. Products with the same revenue share a rank (the API's `rank`).
+- **Colours from the theme.** The bars, the grid and the axis text use the design tokens as CSS variables (`fill="var(--primary)"`, `var(--border)`, `var(--muted-foreground)`): an SVG presentation attribute is a CSS value, so the charts follow dark mode with the rest of the page, with no second palette. Checked: in dark mode the bars compute to `#4493f8` and the ticks to `#9198a1`. Animations follow `prefers-reduced-motion` (Recharts' `"auto"`).
+- **The size is CSS.** Recharts 3's `responsive` prop sizes the chart from its container (`className="h-64 w-full"`), without the `ResponsiveContainer` wrapper. At 375 px the page does not scroll sideways; the chart is 309 px wide.
+- **The overview tile** asks for the same query as `/laporan?rentang=7&kelompok=minggu` (its link), so following it shows the report from the cache. It imports no chart code: Recharts stays out of the main bundle.
+- **Where the endpoint function lives: `@goshop/shared`** (`getSalesReport` in `packages/shared/src/api/admin-reports.ts`), with the generated types `SalesReport`, `SalesReportPeriod`, `SalesReportTopProduct`, `SalesReportGroup` and `SalesReportQuery`.
+
+### Recharts and the CSP
+
+The dashboard's CSP has `style-src 'self'`, which refused Radix's injected `<style>` element (artikel 01). Recharts sets styles too, but differently: React writes the `style` prop through the CSSOM (`element.style.setProperty`), and Recharts measures text in a hidden `<span>` whose style it sets with `Object.assign(span.style, …)`. CSP's `style-src` governs `<style>` elements and `style="…"` in markup (and `setAttribute("style", …)`), not CSSOM property writes, so neither is refused. Checked in the browser, against the production build served with the Caddyfile's exact policy: every step of the report (presets, grouping, tooltip, cumulative, table, dark mode, 375 px) ran with **no** `securitypolicyviolation` event and no console error, while a control `div.setAttribute("style", "color: red")` in the same page was refused (`style-src-attr`), which proves the policy was enforced. No relaxation was needed; the Caddyfile is unchanged.
+
+### Bundle
+
+Recharts 3.10.1 (with `react-is`, its peer dependency) is pinned in the pnpm catalog. Production build, gzipped:
+
+| Chunk                                               | Before   | After    |
+| --------------------------------------------------- | -------- | -------- |
+| Loaded by every page (`index` + shared chunks)      | 176.6 kB | 179.3 kB |
+| `ReportsPage` (the page, Recharts and its children) | —        | 109.1 kB |
+
+The 2.7 kB the main bundle gained are the overview tile and the report's date helpers; the 109 kB are downloaded only when "Laporan" opens.
+
+### Where each idea lives
+
+Paths are relative to `apps/admin/src`.
+
+| Concept                                          | Where to read it                                                                                    |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| The endpoint and its types                       | `../../../packages/shared/src/api/admin-reports.ts`, `../../../packages/shared/src/api/types.ts`    |
+| Route (lazy)                                     | `app/routes.tsx`, `features/reports/lazy.ts`                                                        |
+| The URL as state, Jakarta dates, the range rules | `features/reports/report-params.ts`, `features/reports/hooks/useReportParams.ts`                    |
+| Query key and options, the hook                  | `features/reports/api/queries.ts`, `features/reports/hooks/useSalesReport.ts`                       |
+| Compact Rupiah, period labels, partial periods   | `features/reports/report-format.ts`                                                                 |
+| The chart's summary sentence                     | `features/reports/report-summary.ts`                                                                |
+| The page, its states                             | `features/reports/components/ReportsPage.tsx`                                                       |
+| Range presets, custom dates, grouping            | `features/reports/components/ReportControls.tsx`                                                    |
+| The charts (Recharts), the tooltip               | `features/reports/components/PeriodChart.tsx`, `features/reports/chart-rows.ts`                     |
+| Tiles, the data table, the top products          | `features/reports/components/SalesSummary.tsx`, `SalesDataTable.tsx`, `TopProductsTable.tsx`        |
+| The overview tile                                | `features/reports/components/RecentSalesTile.tsx`, `features/dashboard/components/OverviewPage.tsx` |
