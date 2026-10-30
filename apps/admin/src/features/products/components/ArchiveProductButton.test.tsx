@@ -1,8 +1,14 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { PRODUCT_ID, adminProduct } from "@/test/fixtures.ts";
+import {
+  PRODUCT_ID,
+  adminProduct,
+  user as account,
+  webSession,
+} from "@/test/fixtures.ts";
 import { deferred } from "@/test/deferred.ts";
+import { sessionResponse, webRefreshHandler } from "@/test/msw/auth.ts";
 import { errorResponse, recordRequests } from "@/test/msw/http.ts";
 import {
   archiveProductHandler,
@@ -111,7 +117,16 @@ describe("ArchiveProductButton", () => {
   ])(
     "keeps the dialog open with the reason after a %d",
     async (status, code, message) => {
-      server.use(archiveProductHandler(() => errorResponse(status, code)));
+      // A 403 makes the session ask once for a fresh role; the answer
+      // keeps the role, so the 403 stands. Other failures ask nothing.
+      let refreshes = 0;
+      server.use(
+        archiveProductHandler(() => errorResponse(status, code)),
+        webRefreshHandler(() => {
+          refreshes += 1;
+          return sessionResponse(webSession("token-2", account()));
+        }),
+      );
       const user = userEvent.setup();
       const { onArchived } = renderButton();
       const dialog = await open(user);
@@ -125,6 +140,7 @@ describe("ArchiveProductButton", () => {
       );
       expect(dialog).toHaveAttribute("open");
       expect(onArchived).not.toHaveBeenCalled();
+      expect(refreshes).toBe(status === 403 ? 1 : 0);
     },
   );
 

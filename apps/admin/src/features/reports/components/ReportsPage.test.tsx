@@ -2,8 +2,9 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { SalesReport } from "@goshop/shared";
-import { period, salesReport } from "@/test/fixtures.ts";
+import { period, salesReport, user, webSession } from "@/test/fixtures.ts";
 import { deferred } from "@/test/msw/answers.ts";
+import { sessionResponse, webRefreshHandler } from "@/test/msw/auth.ts";
 import { errorResponse, recordRequests } from "@/test/msw/http.ts";
 import { salesReportHandler, salesReportResponse } from "@/test/msw/reports.ts";
 import { server } from "@/test/msw/server.ts";
@@ -197,6 +198,11 @@ describe("ReportsPage", () => {
 
   it("explains a failure and loads again from Coba lagi", async () => {
     let calls = 0;
+    // The 403 makes the session ask for a fresh role; it keeps the role,
+    // so the first answer still stands.
+    server.use(
+      webRefreshHandler(() => sessionResponse(webSession("token-2", user()))),
+    );
     const userEvents = userEvent.setup();
     renderPage("/laporan", () => {
       calls += 1;

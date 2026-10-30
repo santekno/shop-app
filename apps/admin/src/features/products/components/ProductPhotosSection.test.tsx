@@ -9,8 +9,14 @@ import {
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { installFakeXhr } from "@/test/fake-xhr.ts";
-import { adminImage, adminProduct } from "@/test/fixtures.ts";
+import {
+  adminImage,
+  adminProduct,
+  user as account,
+  webSession,
+} from "@/test/fixtures.ts";
 import { deferred } from "@/test/deferred.ts";
+import { sessionResponse, webRefreshHandler } from "@/test/msw/auth.ts";
 import { errorResponse, recordRequests } from "@/test/msw/http.ts";
 import {
   STORAGE_URL,
@@ -109,7 +115,13 @@ describe("ProductPhotosSection", () => {
   });
 
   it("keeps the dialog open with the reason when the delete fails, and forgets it on the next ask", async () => {
-    server.use(deleteImageHandler(() => errorResponse(403, "FORBIDDEN")));
+    // The 403 makes the session ask for a fresh role; it keeps the role.
+    server.use(
+      deleteImageHandler(() => errorResponse(403, "FORBIDDEN")),
+      webRefreshHandler(() =>
+        sessionResponse(webSession("token-2", account())),
+      ),
+    );
     const user = userEvent.setup();
     renderSection(adminProduct({ images: [adminImage(1)] }));
 

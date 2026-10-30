@@ -3,21 +3,43 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup, configure } from "@testing-library/react";
 import { afterAll, afterEach, vi } from "vitest";
-import { server } from "@/test/msw/server.ts";
+import {
+  refuseAndRecordUnhandled,
+  server,
+  takeUnhandledRequests,
+} from "@/test/msw/server.ts";
 
-// MSW is the network (src/test/msw/): a request no handler of the test
-// answers fails the test instead of trying a real server. Started here,
-// at the top, not in beforeAll: lib/api.ts keeps the fetch it finds when
-// its module loads (createApiClient's default), which happens while the
-// test file is imported, before any beforeAll runs. Started first, MSW's
-// fetch is the one it keeps.
-server.listen({ onUnhandledFrame: "error" });
+// MSW is the network (src/test/msw/): a test answers the requests it
+// expects with handlers. A request no handler answers is refused (the
+// client sees a network error) AND recorded, and the afterEach below fails
+// the test that sent it. Refusing alone is not enough: MSW's "error"
+// strategy fails only the request, and a test whose code swallows that
+// error (a background refresh, say) would still pass. Started here, at the
+// top, not in beforeAll: lib/api.ts keeps the fetch it finds when its
+// module loads (createApiClient's default), which happens while the test
+// file is imported, before any beforeAll runs. Started first, MSW's fetch
+// is the one it keeps.
+server.listen({ onUnhandledFrame: refuseAndRecordUnhandled });
 afterEach(() => {
   server.resetHandlers();
   server.events.removeAllListeners();
+  const unhandled = takeUnhandledRequests();
+  if (unhandled.length > 0) {
+    throw new Error(
+      `No MSW handler answered ${unhandled.join(", ")}. Answer it in the test (server.use(...)).`,
+    );
+  }
 });
 afterAll(() => {
   server.close();
+  // A request sent after the file's last test (a refetch that outlived
+  // it) has no test left to fail: fail the file.
+  const unhandled = takeUnhandledRequests();
+  if (unhandled.length > 0) {
+    throw new Error(
+      `No MSW handler answered ${unhandled.join(", ")} (sent after the last test).`,
+    );
+  }
 });
 
 // findBy* and waitFor give up after 10 s instead of 1 s: make test-unit
