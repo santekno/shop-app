@@ -11,7 +11,8 @@ let localQueue: Promise<unknown> = Promise.resolve();
  * Runs `task` while no other call to withSessionLock runs, in this tab or
  * in any other tab of the dashboard, and returns what it returns.
  *
- * Why: every tab shares one `goshop_refresh` cookie, and the API rotates
+ * Why: every tab of the dashboard shares one `goshop_admin_refresh` cookie
+ * (the storefront's `goshop_refresh` is a separate one), and the API rotates
  * it on every refresh. A refresh token that is used a second time looks
  * stolen, and the API then revokes the whole session (Bab 4's reuse
  * detection). Two tabs reloaded together would both send the same cookie:

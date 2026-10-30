@@ -51,10 +51,10 @@ export const login = async (
 /*
  * The web session (Bab 10, ADR 0008). A browser must not keep a refresh
  * token where page scripts can read it, so the API hands it over in an
- * httpOnly cookie, `goshop_refresh`, scoped to /v1/auth/web: the browser
- * stores it, sends it back to these three endpoints by itself, and no
- * JavaScript (ours or an injected script) can read it. The access token
- * comes in the body, and the caller keeps it in memory only.
+ * httpOnly cookie, scoped to /v1/auth/web: the browser stores it, sends it
+ * back to these three endpoints by itself, and no JavaScript (ours or an
+ * injected script) can read it. The access token comes in the body, and
+ * the caller keeps it in memory only.
  *
  * Every call here, and nothing else in the client:
  *
@@ -62,17 +62,35 @@ export const login = async (
  *   cookie on a cross-origin request (the storefront and the API are on
  *   different ports or subdomains). Every other request keeps fetch's
  *   default, so no other endpoint ever sees a cookie;
- * - sends `X-GoShop-Client: web`. A custom header needs a CORS preflight,
- *   which the API answers only for its configured origins: a page on any
- *   other origin cannot make these calls with the buyer's cookie (CSRF).
+ * - sends `X-GoShop-Client` with the app's name. A custom header needs a
+ *   CORS preflight, which the API answers only for its configured origins:
+ *   a page on any other origin cannot make these calls with the user's
+ *   cookie (CSRF). The name also picks the cookie (Bab 12): `web` (the
+ *   storefront, the default) uses `goshop_refresh`, `admin` (the dashboard)
+ *   `goshop_admin_refresh`. Both apps talk to one API host, and a cookie
+ *   belongs to that host, so with one name a login to either app would
+ *   replace the other's session.
  *
  * The mobile app keeps login/refresh with the refresh token in the body.
  */
 
-/** The header every web session call carries, and its one accepted value. */
-export const WEB_CLIENT_HEADERS: Readonly<Record<string, string>> = {
-  "X-GoShop-Client": "web",
-};
+/** Which app a web session belongs to: the storefront or the dashboard. */
+export type WebClient = "web" | "admin";
+
+/** Options of the three web session calls: the signal, and the app. */
+export interface WebSessionOptions extends EndpointOptions {
+  /** The app asking; picks the session cookie. Default `"web"`. */
+  client?: WebClient;
+}
+
+/** The header a web session call of `client` carries. */
+export const webClientHeaders = (
+  client: WebClient = "web",
+): Readonly<Record<string, string>> => ({ "X-GoShop-Client": client });
+
+/** The storefront's header: `X-GoShop-Client: web`. */
+export const WEB_CLIENT_HEADERS: Readonly<Record<string, string>> =
+  webClientHeaders("web");
 
 /**
  * Longer than the API's own request timeout (15 s). A refresh rotates the
@@ -84,12 +102,13 @@ export const WEB_CLIENT_HEADERS: Readonly<Record<string, string>> = {
  */
 const WEB_SESSION_TIMEOUT_MS = 20_000;
 
-const webSessionRequest = {
-  method: "POST",
-  headers: WEB_CLIENT_HEADERS,
-  credentials: "include",
-  timeoutMs: WEB_SESSION_TIMEOUT_MS,
-} as const;
+const webSessionRequest = (client: WebClient = "web") =>
+  ({
+    method: "POST",
+    headers: webClientHeaders(client),
+    credentials: "include",
+    timeoutMs: WEB_SESSION_TIMEOUT_MS,
+  }) as const;
 
 /**
  * POST /v1/auth/web/login: the access token and the account in the body,
@@ -100,10 +119,10 @@ const webSessionRequest = {
 export const webLogin = async (
   api: ApiClient,
   body: LoginRequest,
-  { signal }: EndpointOptions = {},
+  { signal, client }: WebSessionOptions = {},
 ): Promise<WebSession> => {
   const response = await api.request<WebSessionDetail>("/v1/auth/web/login", {
-    ...webSessionRequest,
+    ...webSessionRequest(client),
     body,
     signal,
   });
@@ -119,15 +138,17 @@ export const webLogin = async (
  *
  * Never call it twice at once, in any tab: two refreshes with the same
  * cookie look like a stolen token being reused, and the API ends the
- * session. The storefront serialises it (apps/web, refresh-lock.ts).
+ * session. Each app serialises it (refresh-lock.ts in apps/web and
+ * apps/admin); the two apps' cookies are separate, so they need not wait
+ * for each other.
  */
 export const webRefresh = async (
   api: ApiClient,
-  { signal }: EndpointOptions = {},
+  { signal, client }: WebSessionOptions = {},
 ): Promise<WebSession | null> => {
   const response = await api.request<WebSessionDetail | undefined>(
     "/v1/auth/web/refresh",
-    { ...webSessionRequest, signal },
+    { ...webSessionRequest(client), signal },
   );
   return response?.data ?? null;
 };
@@ -140,10 +161,10 @@ export const webRefresh = async (
  */
 export const webLogout = async (
   api: ApiClient,
-  { signal }: EndpointOptions = {},
+  { signal, client }: WebSessionOptions = {},
 ): Promise<void> => {
   await api.request<undefined>("/v1/auth/web/logout", {
-    ...webSessionRequest,
+    ...webSessionRequest(client),
     signal,
   });
 };

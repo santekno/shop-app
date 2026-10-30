@@ -49,8 +49,10 @@ export {
   register,
   webLogin,
   webLogout,
+  webClientHeaders,
   webRefresh,
 } from "./api/auth.ts";
+export type { WebClient, WebSessionOptions } from "./api/auth.ts";
 
 export {
   EMAIL_MAX_LENGTH,

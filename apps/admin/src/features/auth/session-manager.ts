@@ -1,6 +1,7 @@
 // The storefront's session manager (Bab 10 artikel 12–14, apps/web/src/
 // features/auth/session-manager.ts) without its guest-cart hook (onStart):
-// the dashboard has no cart to merge. Why it is a copy, not an import from
+// the dashboard has no cart to merge, and every cookie call names the
+// dashboard (`ADMIN_CLIENT`). Why it is a copy, not an import from
 // @goshop/shared: apps/admin/README.md, artikel 01.
 import {
   ApiError,
@@ -9,7 +10,12 @@ import {
   webLogout,
   webRefresh,
 } from "@goshop/shared";
-import type { ApiClient, LoginRequest, WebSession } from "@goshop/shared";
+import type {
+  ApiClient,
+  LoginRequest,
+  WebSession,
+  WebSessionOptions,
+} from "@goshop/shared";
 import { withSessionLock } from "./refresh-lock.ts";
 import type { Session } from "./session-context.ts";
 
@@ -32,6 +38,15 @@ export interface SessionManagerOptions {
    */
   initialSession?: Session | null;
 }
+
+/**
+ * Sent as `X-GoShop-Client: admin` with login, refresh and logout: the API
+ * then keeps the dashboard's refresh token in its own cookie,
+ * `goshop_admin_refresh`, beside the storefront's `goshop_refresh` (ADR
+ * 0008, "Bab 12"). A seller who also shops on the same browser keeps two
+ * independent sessions.
+ */
+const ADMIN_CLIENT: WebSessionOptions = { client: "admin" };
 
 /**
  * How early before it expires an access token is replaced (artikel 14):
@@ -140,7 +155,7 @@ export const createSessionManager = ({
   const refresh = (): Promise<Session | null> => {
     refreshing ??= lock(async () => {
       try {
-        const web = await webRefresh(api);
+        const web = await webRefresh(api, ADMIN_CLIENT);
         if (web === null) {
           end();
           return null;
@@ -225,7 +240,7 @@ export const createSessionManager = ({
      * the visitor anonymous, and the cookie in place for the next reload.
      */
     restore: (): Promise<void> => {
-      restoring ??= lock(() => webRefresh(api))
+      restoring ??= lock(() => webRefresh(api, ADMIN_CLIENT))
         .then((web) => {
           if (web === null) publish(null);
           else start(web);
@@ -240,7 +255,7 @@ export const createSessionManager = ({
 
     /** Logs in through the web endpoint; the cookie is set by the answer. */
     login: async (credentials: LoginRequest): Promise<Session> => {
-      const web = await lock(() => webLogin(api, credentials));
+      const web = await lock(() => webLogin(api, credentials, ADMIN_CLIENT));
       return start(web);
     },
 
@@ -251,7 +266,7 @@ export const createSessionManager = ({
      * reload would bring the session back.
      */
     logout: async (): Promise<void> => {
-      await lock(() => webLogout(api));
+      await lock(() => webLogout(api, ADMIN_CLIENT));
       end();
     },
   };

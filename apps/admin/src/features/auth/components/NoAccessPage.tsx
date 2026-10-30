@@ -12,10 +12,9 @@ import { roleLabel } from "../roles.ts";
  * URL: who is logged in, why that is not enough, and the way out. Never
  * the dashboard, not even its empty frame.
  *
- * "Keluar" ends the session on the server. The refresh cookie belongs to
- * the API's origin, so it is the same cookie the storefront uses on this
- * browser: logging out here logs the buyer out of the storefront too. The
- * page says so before the button.
+ * "Keluar" ends the dashboard's session on the server. The dashboard has
+ * its own refresh cookie (`goshop_admin_refresh`, ADR 0008 "Bab 12"), so
+ * the buyer stays logged in to the storefront on this browser.
  */
 export function NoAccessPage({ user }: { user: User }) {
   useDocumentTitle("Tidak ada akses — GoShop Admin");
@@ -32,8 +31,7 @@ export function NoAccessPage({ user }: { user: User }) {
           penjual dan admin.
         </p>
         <p className="text-muted-foreground">
-          Keluar, lalu masuk dengan akun penjual atau admin. Keluar di sini juga
-          mengeluarkan Anda dari toko GoShop di browser ini.
+          Keluar, lalu masuk dengan akun penjual atau admin.
         </p>
         {logout.isError && (
           <p role="alert" className="text-destructive">
