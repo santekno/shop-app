@@ -5,6 +5,7 @@ import {
   rowSortingFeature,
   tableFeatures,
 } from "@tanstack/react-table";
+import { Link } from "react-router";
 import { formatRupiah } from "@goshop/shared";
 import type { AdminProductRow } from "@goshop/shared";
 import { Badge } from "@/components/ui/Badge.tsx";
@@ -72,7 +73,14 @@ export const productColumns = column.columns([
     sortDescFirst: false,
     cell: ({ row }) => (
       <div className="grid min-w-48 gap-0.5">
-        <span className="font-medium text-foreground">{row.original.name}</span>
+        {/* The name is the way to the product's page: a real link, so
+            it opens in a new tab and a screen reader lists it. */}
+        <Link
+          to={`/produk/${row.original.id}`}
+          className="font-medium text-foreground underline-offset-4 hover:underline"
+        >
+          {row.original.name}
+        </Link>
         <span className="text-xs text-muted-foreground">
           {row.original.category.name}
         </span>

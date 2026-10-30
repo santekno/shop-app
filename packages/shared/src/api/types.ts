@@ -104,6 +104,17 @@ export type ListAdminProductsQuery = NonNullable<
 export type AdminProductSort = NonNullable<ListAdminProductsQuery["sort"]>;
 /** A sort direction of GET /v1/admin/products. */
 export type SortOrder = NonNullable<ListAdminProductsQuery["order"]>;
+/** A product as the dashboard sees and edits it (Bab 12), in any status. */
+export type AdminProduct = Schemas["AdminProduct"];
+export type AdminProductDetail = Schemas["AdminProductDetail"];
+/** A sellable variant with its `version`, which a PUT sends back. */
+export type AdminVariant = Schemas["AdminVariant"];
+/** A product photo as the dashboard sees it, pending uploads included. */
+export type AdminProductImage = Schemas["AdminProductImage"];
+/** The body of POST and PUT /v1/admin/products: the whole product. */
+export type ProductWrite = Schemas["ProductWrite"];
+/** One variant of a ProductWrite: `id` and `version` only for an existing one. */
+export type VariantWrite = Schemas["VariantWrite"];
 /** The body of every API error: {"error":{"code","message","details"}}. */
 export type ErrorBody = Schemas["Error"];
 

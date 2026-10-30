@@ -83,7 +83,13 @@ export {
   previewCheckout,
 } from "./api/checkout.ts";
 
-export { listAdminProducts } from "./api/admin-products.ts";
+export {
+  archiveProduct,
+  createProduct,
+  getAdminProduct,
+  listAdminProducts,
+  updateProduct,
+} from "./api/admin-products.ts";
 
 export { getOrder, listOrders, payOrder, placeOrder } from "./api/orders.ts";
 export type { ListOrdersQuery, PlaceOrderOptions } from "./api/orders.ts";
@@ -129,15 +135,39 @@ export {
 } from "./schemas/address.ts";
 export type { AddressInput } from "./schemas/address.ts";
 
+export {
+  PRODUCT_DESCRIPTION_MAX_LENGTH,
+  PRODUCT_NAME_MAX_LENGTH,
+  PRODUCT_SLUG_MAX_LENGTH,
+  PRODUCT_SLUG_PATTERN,
+  PRODUCT_STATUSES,
+  PRODUCT_VARIANTS_MAX,
+  VARIANT_NAME_MAX_LENGTH,
+  VARIANT_PRICE_MAX,
+  VARIANT_PRICE_MIN,
+  VARIANT_SKU_MAX_LENGTH,
+  VARIANT_STOCK_MAX,
+  VARIANT_WEIGHT_MAX_GRAMS,
+  VARIANT_WEIGHT_MIN_GRAMS,
+  productSchema,
+  toProductSlug,
+  variantSchema,
+} from "./schemas/product.ts";
+export type { ProductInput, VariantInput } from "./schemas/product.ts";
+
 export type {
   Address,
   AddressCreate,
+  AdminProduct,
+  AdminProductDetail,
+  AdminProductImage,
   AdminProductRow,
   AdminProductSort,
   AdminProductStatus,
   AdminProductTable,
   AddressDetail,
   AddressList,
+  AdminVariant,
   AppliedVoucher,
   Cart,
   CartAddResult,
@@ -175,6 +205,7 @@ export type {
   ProductImage,
   ProductList,
   ProductVariant,
+  ProductWrite,
   RegisterRequest,
   ShippingQuote,
   ShippingQuotes,
@@ -184,6 +215,7 @@ export type {
   TokenPairDetail,
   User,
   UserDetail,
+  VariantWrite,
   WebSession,
   WebSessionDetail,
   components,

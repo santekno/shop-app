@@ -1,5 +1,9 @@
 import { keepPreviousData, queryOptions } from "@tanstack/react-query";
-import { listAdminProducts, listCategories } from "@goshop/shared";
+import {
+  getAdminProduct,
+  listAdminProducts,
+  listCategories,
+} from "@goshop/shared";
 import type { ApiClient, ListAdminProductsQuery } from "@goshop/shared";
 import { api } from "@/lib/api.ts";
 
@@ -11,13 +15,17 @@ import { api } from "@/lib/api.ts";
  *
  *   ["categories"]
  *   ["admin", "products"]
- *   ["admin", "products", "table", { q, status, …, page, per_page }]
+ *   ["admin", "products", "table"]                                  every page
+ *   ["admin", "products", "table", { q, status, …, page, per_page }] one page
+ *   ["admin", "products", "detail", id]                             one product
  */
 export const productKeys = {
   categories: ["categories"] as const,
   all: ["admin", "products"] as const,
+  tables: ["admin", "products", "table"] as const,
   table: (query: ListAdminProductsQuery) =>
-    [...productKeys.all, "table", query] as const,
+    [...productKeys.tables, query] as const,
+  detail: (id: string) => [...productKeys.all, "detail", id] as const,
 };
 
 /** Categories rarely change: fresh for five minutes, as in the storefront. */
@@ -60,4 +68,17 @@ export const productTableQuery = (
     queryKey: productKeys.table(query),
     queryFn: ({ signal }) => listAdminProducts(client, query, { signal }),
     placeholderData: keepPreviousData,
+  });
+
+/**
+ * GET /v1/admin/products/{id} as query options: the product the edit page
+ * loads into its form, as the logged-in user.
+ *
+ * `retry` stays off (the client already retries the network), and a
+ * NOT_FOUND is final: the page says so instead of retrying.
+ */
+export const adminProductQuery = (client: ApiClient, id: string) =>
+  queryOptions({
+    queryKey: productKeys.detail(id),
+    queryFn: ({ signal }) => getAdminProduct(client, id, { signal }),
   });

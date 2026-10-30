@@ -1,3 +1,5 @@
+import { Plus } from "lucide-react";
+import { Link } from "react-router";
 import { PageHeader } from "@/components/PageHeader.tsx";
 import { Button } from "@/components/ui/Button.tsx";
 import { Skeleton } from "@/components/ui/Skeleton.tsx";
@@ -31,6 +33,14 @@ export function ProductsPage() {
       <PageHeader
         title="Produk"
         description="Semua produk toko, termasuk draf dan yang diarsipkan."
+        actions={
+          <Button asChild>
+            <Link to="/produk/baru">
+              <Plus aria-hidden="true" />
+              Tambah produk
+            </Link>
+          </Button>
+        }
       />
       <ProductFilters params={params} onChange={update} />
 

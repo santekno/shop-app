@@ -1,0 +1,168 @@
+import { useEffect, useState } from "react";
+import { Link, useLocation, useNavigate, useParams } from "react-router";
+import { isApiError } from "@goshop/shared";
+import { MAIN_ID } from "@/app/useRouteFocus.ts";
+import { PageHeader } from "@/components/PageHeader.tsx";
+import { Button } from "@/components/ui/Button.tsx";
+import {
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from "@/components/ui/StatusMessage.tsx";
+import { useDocumentTitle } from "@/hooks/useDocumentTitle.ts";
+import { useAdminProduct } from "../hooks/useAdminProduct.ts";
+import { useUpdateProduct } from "../hooks/useProductMutations.ts";
+import { productToFormValues } from "../product-form.ts";
+import { ArchiveProductButton } from "./ArchiveProductButton.tsx";
+import { ProductForm } from "./ProductForm.tsx";
+import { ProductStatusBadge } from "./ProductStatusBadge.tsx";
+
+/** What another page may hand this one in the history entry's state. */
+export interface ProductPageState {
+  /** A sentence to announce on arrival ("Produk … tersimpan."). */
+  notice?: string;
+}
+
+const noticeIn = (state: unknown): string | undefined =>
+  typeof state === "object" &&
+  state !== null &&
+  "notice" in state &&
+  typeof state.notice === "string"
+    ? state.notice
+    : undefined;
+
+/** The page's <h1>, after its content changed under the focus. */
+const focusPageHeading = () => {
+  document
+    .getElementById(MAIN_ID)
+    ?.querySelector<HTMLElement>("h1")
+    ?.focus({ preventScroll: true });
+};
+
+/**
+ * /produk/:productId: one product, loaded with GET /v1/admin/products/{id}
+ * into the same three-step form, saved with PUT.
+ *
+ * The form takes the product once, when it mounts, and then belongs to the
+ * seller: a background refetch (the window regaining the focus) does not
+ * overwrite what is being typed. The form also keeps each variant's
+ * `version` from that load, which is what makes a stale save fail with 409
+ * instead of overwriting stock a buyer just took. Three things start the
+ * form over from the product as the server has it now, by changing its
+ * `key` (React mounts a new one): reloading after a 409, archiving, and
+ * nothing else. A save does not need it: the form resets itself to the
+ * saved product, new versions included.
+ *
+ * Photos come in artikel 04, in their own section under the form: a photo
+ * belongs to a product that exists, which is why they are not a step.
+ */
+export function ProductEditPage() {
+  const { productId = "" } = useParams();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const query = useAdminProduct(productId);
+  const update = useUpdateProduct(productId);
+  const product = query.data;
+  const [notice, setNotice] = useState(() => noticeIn(location.state));
+  const [formKey, setFormKey] = useState(0);
+  useDocumentTitle(
+    `${product === undefined ? "Ubah produk" : product.name} — GoShop Admin`,
+  );
+
+  // The notice from the create page is shown once: forget it in the
+  // history entry, or a reload would announce "tersimpan" again.
+  useEffect(() => {
+    if (noticeIn(location.state) === undefined) return;
+    void navigate(location.pathname, { replace: true, state: null });
+  }, [location.state, location.pathname, navigate]);
+
+  // After the form started over, the button that did it is gone; the
+  // focus goes to the page's heading instead of falling to <body>.
+  useEffect(() => {
+    if (formKey > 0) focusPageHeading();
+  }, [formKey]);
+
+  const reload = async () => {
+    const result = await query.refetch();
+    if (result.isSuccess) {
+      setNotice(
+        "Data terbaru dimuat. Ulangi perubahan Anda di formulir, lalu simpan.",
+      );
+      setFormKey((key) => key + 1);
+    } else {
+      setNotice("Data terbaru belum dapat dimuat. Coba lagi.");
+    }
+  };
+
+  return (
+    <>
+      <PageHeader
+        title="Ubah produk"
+        description={
+          product === undefined ? undefined : (
+            <span className="flex flex-wrap items-center gap-2">
+              <span className="break-all">{product.name}</span>
+              <ProductStatusBadge status={product.status} />
+            </span>
+          )
+        }
+        actions={
+          product === undefined || product.status === "archived" ? undefined : (
+            <ArchiveProductButton
+              product={product}
+              onArchived={() => {
+                setNotice(
+                  "Produk diarsipkan dan tidak tampil lagi di toko. Simpan dengan status Aktif atau Draf untuk memulihkannya.",
+                );
+                setFormKey((key) => key + 1);
+              }}
+            />
+          )
+        }
+      />
+
+      {/* role="status": announced politely, without taking the focus. */}
+      <p role="status" className="mb-4 empty:hidden">
+        {notice}
+      </p>
+
+      {query.isPending && <LoadingState>Memuat produk…</LoadingState>}
+
+      {query.isError &&
+        product === undefined &&
+        (isApiError(query.error, "NOT_FOUND") ? (
+          <div className="grid justify-items-start gap-2">
+            <EmptyState>
+              Produk ini tidak ditemukan. Mungkin alamatnya salah ketik.
+            </EmptyState>
+            <Button asChild variant="outline" size="sm">
+              <Link to="/produk">Kembali ke daftar produk</Link>
+            </Button>
+          </div>
+        ) : (
+          <ErrorState
+            error={query.error}
+            onRetry={() => {
+              void query.refetch();
+            }}
+          />
+        ))}
+
+      {product !== undefined && (
+        <ProductForm
+          key={`${product.id}:${formKey}`}
+          mode="edit"
+          defaultValues={productToFormValues(product)}
+          cancelTo="/produk"
+          onSave={(body) => update.mutateAsync(body)}
+          onSaved={(saved) => {
+            setNotice(`Perubahan pada “${saved.name}” tersimpan.`);
+          }}
+          onReload={() => void reload()}
+        />
+      )}
+
+      {/* Artikel 04: the product's photos, as their own section here. */}
+    </>
+  );
+}

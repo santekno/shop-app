@@ -1,6 +1,9 @@
 import { isApiError } from "@goshop/shared";
 import type { FieldPath, FieldValues, UseFormSetError } from "react-hook-form";
 
+/** "1000000000" → "1.000.000.000": the API's limits, as a reader writes them. */
+const formatNumber = (digits: string) => Number(digits).toLocaleString("id-ID");
+
 /**
  * Indonesian text for the API's field messages. The API writes `details`
  * in English (apps/api/internal/httpapi/validate.go and the auth policy);
@@ -52,6 +55,31 @@ const FIELD_MESSAGES: readonly [RegExp, (match: RegExpMatchArray) => string][] =
       /^must be valid UTF-8 text without NUL characters$/,
       () => "Berisi karakter yang tidak didukung.",
     ],
+    // Products (Bab 12 artikel 03): numbers, choices, slugs and SKUs.
+    [
+      /^must be between (\d+) and (\d+)$/,
+      ([, low = "", high = ""]) =>
+        `Harus antara ${formatNumber(low)} dan ${formatNumber(high)}.`,
+    ],
+    [
+      /^must be at least (\d+)$/,
+      ([, low = ""]) => `Minimal ${formatNumber(low)}.`,
+    ],
+    [
+      /^must be at most (\d+)$/,
+      ([, high = ""]) => `Paling besar ${formatNumber(high)}.`,
+    ],
+    [/^must be one of: /, () => "Pilih salah satu pilihan yang tersedia."],
+    [
+      /^must be lower-case letters and digits in words joined by single hyphens$/,
+      () =>
+        "Slug hanya berisi huruf kecil, angka dan tanda hubung di antara kata, misalnya kaos-polos-hitam.",
+    ],
+    [
+      /^is used by another variant in this request$/,
+      () => "SKU ini sudah dipakai varian lain di produk ini.",
+    ],
+    [/^is invalid$/, () => "Isinya tidak valid."],
   ];
 
 /** The Indonesian text for one of the API's field messages. */
