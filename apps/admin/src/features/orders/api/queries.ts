@@ -72,8 +72,9 @@ export const adminOrderQuery = (client: ApiClient, id: string) =>
  * another, so two queues changed); without one, every order query (artikel
  * 09 calls it so for each event, and after a reconnect).
  *
- * Resolves when the refetches on screen are done, so a caller can await
- * the fresh order before it says "data terbaru dimuat".
+ * Resolves when the refetches on screen are done (and any fetch that was
+ * already running, on screen or not), so a caller can await the fresh
+ * order before it says "data terbaru dimuat".
  */
 export const invalidateOrderQueries = async (
   queryClient: QueryClient,
@@ -91,7 +92,8 @@ export const invalidateOrderQueries = async (
 
 /**
  * invalidateQueries, except that a fetch already on its way is not
- * cancelled: it is allowed to finish, and then its query is refetched.
+ * cancelled: it is allowed to finish, and then its query is invalidated
+ * (and, when it is on screen, refetched) once more.
  *
  * By default TanStack Query cancels a running fetch and starts a refetch
  * (`cancelRefetch: true`). For an infinite query that loses work when the
@@ -103,6 +105,16 @@ export const invalidateOrderQueries = async (
  * next page refreshes only itself, so such a query is invalidated once
  * more when it is done: the pages before it are reloaded too, and the list
  * is again one list from one moment.
+ *
+ * "When it is done" means its own fetch, `query.promise`, not the first
+ * invalidateQueries. For a query on screen they end together (the
+ * invalidation joins the fetch). A query no longer on screen is not
+ * refetched, so the first invalidation returns at once; marking it again
+ * then would come before its fetch ends, and that fetch's success clears
+ * the mark. The detail page reopened within `staleTime` would show the
+ * order from before the event. Waiting for the fetch keeps the mark. A
+ * fetch that fails (or is cancelled) still counts as done: the query is
+ * stale either way.
  */
 const invalidateWithoutCancelling = async (
   queryClient: QueryClient,
@@ -110,14 +122,19 @@ const invalidateWithoutCancelling = async (
 ): Promise<void> => {
   const running = queryClient
     .getQueryCache()
-    .findAll({ queryKey, fetchStatus: "fetching" });
+    .findAll({ queryKey, fetchStatus: "fetching" })
+    .map((query) => ({
+      queryKey: query.queryKey,
+      done: query.promise?.catch(() => undefined),
+    }));
   await queryClient.invalidateQueries({ queryKey }, { cancelRefetch: false });
   await Promise.all(
-    running.map((query) =>
-      queryClient.invalidateQueries(
-        { queryKey: query.queryKey, exact: true },
+    running.map(async ({ queryKey: key, done }) => {
+      await done;
+      await queryClient.invalidateQueries(
+        { queryKey: key, exact: true },
         { cancelRefetch: false },
-      ),
-    ),
+      );
+    }),
   );
 };
