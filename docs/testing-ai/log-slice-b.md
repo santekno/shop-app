@@ -402,3 +402,8 @@ done`), plus a failing running fetch (`done` resolves, no refetch,
 
    3 tried, 3 killed by the first draft. The draft that found the bug
    was the right test all along; it only had to wait for the fix.
+
+## Errata (stage-4 review)
+
+- The artikel 03 `removeCachedImage` mutant was not run against a draft, so **336**, not 337, mutants were run against a first draft.
+- `<scratch>/…` paths point at the agent's working copies; the committed runner is `docs/testing-ai/mutate.py`.

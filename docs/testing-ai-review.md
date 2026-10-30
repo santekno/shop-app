@@ -8,7 +8,7 @@ Every unit test in this repository is written by the `test-engineer` agent (`.cl
 | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | ---------------------------------------- | -------------------------------------------------------- |
 | Go, Bab 12 backend (admin table, product version, stock adjustments, SSE, admin cookie, seed role)                   | a brief per pass, written by the orchestrator, plus a per-function list from backend-engineer's report | `apps/api/**/*_test.go` (coverage 97.7%) | mutation counts per pass (below)                         |
 | TypeScript slice A: dashboard shell, auth, orders, reports, realtime, plus the Vitest and MSW setup (artikel 10, 11) | [`testing-ai/prompt-slice-a.md`](testing-ai/prompt-slice-a.md), verbatim                               | 750 admin tests                          | [`testing-ai/log-slice-a.md`](testing-ai/log-slice-a.md) |
-| TypeScript slice B: the products feature (artikel 02–05) and the slice-A updates                                     | a follow-up message to the same agent; it split the work into four parallel runs, one per article      | 1,375 admin tests in all, 533 shared     | [`testing-ai/log-slice-b.md`](testing-ai/log-slice-b.md) |
+| TypeScript slice B: the products feature (artikel 02–05) and the slice-A updates                                     | a follow-up message to the same agent; it split the work into four parallel runs, one per article      | 1,377 admin tests in all, 533 shared     | [`testing-ai/log-slice-b.md`](testing-ai/log-slice-b.md) |
 
 The prompt is the AI box's first part ([ai-rules.md](ai-rules.md)). The raw output was not kept file by file: every test file was reworked by the agent itself after its own review. What the logs keep instead is the part that matters for this article, **every place the first draft was weak**, why, and what changed.
 
@@ -23,25 +23,27 @@ Coverage says a line ran; it does not say a test would notice if the line were w
 
 The runner is [`testing-ai/mutate.py`](testing-ai/mutate.py). It decides by the test run's exit code. Its first version looked for the word "failed" in the output, and a mutant that made a worker crash (an endless redirect) printed no such word, so it was counted as survived. Every earlier "survived" was run again after the fix. The tool used to review the tests had a bug of its own, which is the point of reviewing tools too.
 
-A surviving mutant has two possible meanings: the test is weak, or the mutant changes nothing anyone can observe (an **equivalent** mutant). Each survivor in the logs is labelled with one of the two, with the reason.
+A surviving mutant has two possible meanings: the test is weak, or the mutant changes nothing anyone can observe (an **equivalent** mutant). Each survivor in the TypeScript logs is labelled with one of the two, with the reason.
 
 ## The numbers
 
 |                            | Mutants tried | Killed by the first draft            | Killed after the fix | Equivalent / not observable |
 | -------------------------- | ------------- | ------------------------------------ | -------------------- | --------------------------- |
-| TS slice A                 | 225           | 208 (92%)                            | 218                  | 7                           |
-| TS slice B                 | 339           | 316 of 337 run against a draft (94%) | 333                  | 6                           |
+| TS slice A                 | 225           | 209 (93%)                            | 218                  | 7                           |
+| TS slice B                 | 339           | 316 of 336 run against a draft (94%) | 333                  | 6                           |
 | Go, pass 1 (B1–B7)         | 61            | not recorded per draft               | 59                   | 2                           |
 | Go, pass 2 (B8–B11)        | 42            | not recorded per draft               | 42                   | 0                           |
 | Go, pass 3 (stage-2 fixes) | 10            | not recorded per draft               | 10                   | 0                           |
 
-So roughly one guarded line in twelve to sixteen was not really tested by the AI's first draft, even though every draft passed and coverage was high. The Go passes recorded only the final result; the TypeScript runs were asked to log the draft separately, which is why only they can say how good a first draft is.
+A mutant that survives the draft is not always a miss: an equivalent mutant cannot be killed by any test. Leaving those out, slice A's drafts survived 16 mutants, 7 of them equivalent, so they **really missed 9 of the 218 killable ones**; slice B's drafts survived 20, at most 6 of them equivalent, so **at least 14 of about 330**. That is roughly one guarded line in 22 to 24 that the AI's first draft did not really test, although every draft passed and coverage was high. The Go numbers come from the test agent's report after each pass; no per-mutant log was kept for them, and they record only the final result. The TypeScript runs were asked to log the draft separately, which is why only they can say how good a first draft is.
+
+The counts above were corrected in the stage-4 review (the first version of this page said "one in twelve to sixteen", counting equivalent mutants as misses); the logs carry an errata note for the same corrections.
 
 ## Why the first drafts missed
 
 The misses fall into a few patterns, in this order of frequency:
 
-1. **Asserting something both branches produce** (the large majority). Examples from the logs:
+1. **Asserting something both branches produce** (most of them). Examples from the logs:
    - The SSE parser test split `\r` and `\n` across two chunks, but around a _blank_ line. Read as one line ending or as two, a blank line dispatches nothing, so both readings gave the same events. The fix puts the split between two `data:` lines of one event.
    - `retryNow()` with no wait running was checked with "no second fetch". Aborting the live stream (the mutant) also leads to no second fetch.
    - A toast's "Lihat pesanan" link was checked by the new URL only. In the test's harness the route change unmounted the toasts anyway, so a toast that was never dismissed vanished too.

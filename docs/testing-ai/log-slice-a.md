@@ -321,3 +321,10 @@ slice B) fails the same way (`update({q:"kaos"})` + `update({status:"active"})`
 → `?status=aktif`, the search lost), although its comment says "two
 updates in a row both count". No current control calls `update` twice
 per event, so nothing user-visible breaks today.
+
+## Errata (stage-4 review)
+
+- The bad `toTime < fromTime - 1` mutant in report-params.ts was replaced by one the draft killed and is "counted once, as killed", but the totals counted it as a draft miss: the draft killed **209**, not 208, of the 225.
+- Pattern 1 ("asserting something both branches produce") lists 6 examples, not 8.
+- The `asyncUtilTimeout` mentioned near the end was raised again later, to 10 s (commit "give async queries 10 s on a heavily loaded machine").
+- `<scratch>/…` paths point at the agent's working copies; the committed versions are `docs/testing-ai/prompt-slice-a.md` and `docs/testing-ai/mutate.py`.
