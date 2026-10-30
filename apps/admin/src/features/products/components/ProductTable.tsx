@@ -1,9 +1,10 @@
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import type { ReactNode } from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
-import { functionalUpdate, useTable } from "@tanstack/react-table";
+import { FlexRender, functionalUpdate, useTable } from "@tanstack/react-table";
 import type {
   PaginationState,
+  Row,
   SortDirection,
   SortingState,
   Updater,
@@ -179,23 +180,7 @@ export function ProductTable({
               </TableRow>
             ))}
           </TableHeader>
-          <TableBody>
-            {table.getRowModel().rows.map((row) => (
-              <TableRow key={row.id}>
-                {row.getAllCells().map((cell) => (
-                  <TableCell
-                    key={cell.id}
-                    className={cn(
-                      cell.column.columnDef.meta?.align === "end" &&
-                        "text-right",
-                    )}
-                  >
-                    <table.FlexRender cell={cell} />
-                  </TableCell>
-                ))}
-              </TableRow>
-            ))}
-          </TableBody>
+          <ProductTableBody rows={table.getRowModel().rows} />
         </Table>
       </TableContainer>
 
@@ -227,6 +212,47 @@ export function ProductTable({
     </div>
   );
 }
+
+type ProductRow = Row<typeof productTableFeatures, AdminProductRow>;
+
+/**
+ * The rows: the table's most expensive part (a page of 100 products is
+ * some 3,000 components), and the part that changes least. Memoised
+ * (artikel 14), because the profiler showed every sort, filter and
+ * search re-rendering the old page twice before the new one arrived:
+ * once for the control's own update, once when the URL arrived. Neither
+ * changes a row, and `memo` skips both: TanStack Table keeps the same
+ * `rows` array until `data` changes, so the body renders once per
+ * response, which is the one render that shows something new.
+ *
+ * The cells read nothing but their row and the response's
+ * `low_stock_threshold` (table meta), which arrives with the rows, so a
+ * new value always comes with a new `rows`.
+ */
+const ProductTableBody = memo(function ProductTableBody({
+  rows,
+}: {
+  rows: readonly ProductRow[];
+}) {
+  return (
+    <TableBody>
+      {rows.map((row) => (
+        <TableRow key={row.id}>
+          {row.getAllCells().map((cell) => (
+            <TableCell
+              key={cell.id}
+              className={cn(
+                cell.column.columnDef.meta?.align === "end" && "text-right",
+              )}
+            >
+              <FlexRender cell={cell} />
+            </TableCell>
+          ))}
+        </TableRow>
+      ))}
+    </TableBody>
+  );
+});
 
 interface SortButtonProps {
   sorted: false | SortDirection;

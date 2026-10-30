@@ -546,3 +546,94 @@ Paths are relative to `apps/admin/src`.
 | The toast stack and live region, the badge, the header indicator     | `features/realtime/components/OrderToasts.tsx`, `UnreadOrdersBadge.tsx`, `ConnectionStatus.tsx`                                                       |
 | The session's tokens for the stream                                  | `features/auth/session-context.ts` (`tokens`), `features/auth/SessionProvider.tsx`                                                                    |
 | The contract                                                         | `../../../api/openapi.yaml` (`GET /v1/admin/events`, `AdminOrderEvent`), `../../../docs/adr/0009-admin-live-events-sse.md`                            |
+
+## Performance profiling dan re-render yang tidak perlu (artikel 14)
+
+Measure first, fix only what the numbers show, measure again. Two components got `memo`, and nothing else changed: every other suspect was measured and left alone, with its number below.
+
+### The mental model
+
+| Idea                              | What it means                                                                                                                                                                            | Go comparison                                                           |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| **A render is not a DOM change**  | React calls a component again whenever its parent renders, its state changes or a context it reads changes; it then compares the result and touches the DOM only where something differs | Recomputing a value nobody reads: cheap once, measurable in a hot loop  |
+| **Commit**                        | One pass of React applying updates: every component it called, then one DOM update. A click that sets state, then a URL change, then a response is three commits                         | One transaction                                                         |
+| **actual vs base duration**       | `actual`: the time spent rendering what this commit rendered. `base`: what rendering the whole tree from scratch would cost. Actual close to base means nothing was skipped              | `pprof` time of the call vs. the cost of the whole handler              |
+| **`memo` skips, it does not fix** | A memoised component is skipped when its props are the same objects as last time. It only helps where the props really stay the same, and every prop must                                | A cache keyed on the inputs: worthless if the key changes on every call |
+
+### How it was measured
+
+- **The tool.** React DevTools' Profiler tab shows the same data by hand (record, act, stop; "Highlight updates when components render" in its settings flashes every re-render). For numbers that repeat, a Playwright script drove the dashboard and read each commit through `__REACT_DEVTOOLS_GLOBAL_HOOK__`, the hook DevTools itself uses: which components rendered (React's `PerformedWork` flag, walking only the subtrees that changed, as DevTools does), and the root's `actualDuration` and `treeBaseDuration`. The script and its mock API stay outside the repository; nothing in the app was changed to measure it. React's `<Profiler id="…" onRender={(id, phase, actual, base) => …}>` reports the same two durations for one subtree, if you prefer it in code.
+- **Realistic sizes, mocked API.** 250 products shown 100 per page (`?per_halaman=100`), a "Dibayar" queue of 50 orders (two "Muat lebih banyak"), the 30 → 90 day sales report per day, and a real `text/event-stream` pushing bursts of 5–10 order events.
+- **Two builds.** The dev server (`pnpm dev:admin`, StrictMode, unminified React with its checks) and a production build with React's profiling build of react-dom (`resolve.alias: react-dom/client → react-dom/profiling`, the only difference from `pnpm build`). Dev numbers are only good for comparing with each other; the production numbers are what a seller's browser does.
+- **Median of 7 runs** per scenario (5 for the event scenarios), each in a fresh browser context. Apple M2 Pro, macOS 26.3, Chromium 156, React 19.3, TanStack Table 9.3, Recharts 3.10.
+
+### What the numbers showed
+
+Each table interaction is three commits: the control's own update (artikel 02's `pending`, so the select and checkbox do not flicker), the URL arriving through React Router's transition, and the response. Only the third changes a row, yet all three re-rendered the whole page of 100 rows, some 3,100 components each. The second sort after a page load, per commit (dev, components / actual ms):
+
+| Commit                  | Before       | After        |
+| ----------------------- | ------------ | ------------ |
+| 1. the control's update | 3,143 / 17.1 | 74 / 1.6     |
+| 2. the URL arrives      | 3,182 / 18.3 | 213 / 4.8    |
+| 3. the response arrives | 3,140 / 96.9 | 3,141 / 99.4 |
+
+The report page had the same shape, made larger by Recharts: changing the range re-rendered both charts and the 90-row data table with the old report twice, and each time Recharts synchronised its internal store in three more commits: ten commits (two of them empty) and about 4,200 components before the new report arrived.
+
+**The fixes** (`memo` with a one-prop boundary, where the prop provably stays the same object):
+
+- `ProductTableBody` in `features/products/components/ProductTable.tsx`: the `<tbody>`, taking only `rows`. TanStack Table returns the same `rows` array until `data` changes (sorting and pagination are manual, so their state never rebuilds the row model), and the cells read nothing else but the response's `low_stock_threshold`, which arrives with the rows. Header, caption, `aria-sort`, pagination and the busy state still render on every commit; they are cheap.
+- `ReportBody` in `features/reports/components/ReportsPage.tsx`: tiles, both charts, the data table and the top 5, taking only `report`. Its own "Tampilkan kumulatif" state still re-renders it.
+
+### Before and after
+
+Production build with the profiling react-dom (what a seller gets):
+
+| Scenario                                    | Commits | Components rendered | Actual Σ (ms) | Base, largest (ms) |
+| ------------------------------------------- | ------- | ------------------- | ------------- | ------------------ |
+| Search "kaos polos" (10 keys, debounced)    | 13 → 13 | 7,955 → 1,948       | 21.2 → 9.6    | 19.0 → 19.0        |
+| Status filter "Aktif", 100 rows             | 3 → 3   | 8,944 → 2,937       | 20.1 → 12.0   | 13.7 → 16.7        |
+| Sort by "Harga mulai", 100 rows             | 3 → 3   | 9,438 → 3,431       | 20.4 → 13.1   | 12.4 → 15.9        |
+| A second sort ("Stok") on the same page     | 3 → 3   | 9,465 → 3,428       | 19.9 → 9.6    | 13.6 → 11.5        |
+| Report range 30 → 90 days (incl. animation) | 40 → 31 | 32,558 → 28,059     | 184.3 → 152.9 | 17.4 → 21.2        |
+
+Dev server, same scenarios:
+
+| Scenario                  | Commits | Components rendered | Actual Σ (ms) |
+| ------------------------- | ------- | ------------------- | ------------- |
+| Search "kaos polos"       | 13 → 13 | 7,955 → 1,948       | 180.2 → 83.7  |
+| Status filter "Aktif"     | 3 → 3   | 8,944 → 2,937       | 134.0 → 106.9 |
+| Sort by "Harga mulai"     | 3 → 3   | 9,438 → 3,431       | 138.1 → 108.5 |
+| A second sort             | 3 → 3   | 9,465 → 3,428       | 132.3 → 105.1 |
+| Report range 30 → 90 days | 39 → 30 | 32,216 → 27,073     | 510.0 → 426.7 |
+
+How to read them: the work React does per interaction fell to a third (components rendered), and the time in production to about half for the table. In dev, the first heavy render after an idle moment costs about 90 ms whichever commit it is (before, the control's update; after, the response), so dev totals fall less than the work does; the second sort shows the steady state. "Base" is the cost of the whole tree and does not move with `memo` (the differences are run-to-run noise). The report's remaining cost is Recharts drawing the new 90 bars and animating them (about 22 animation frames); `memo` cannot and should not remove that.
+
+### Measured and not worth fixing
+
+| Suspect                                                                                 | Measured (production; dev)                                                      | Why it stays                                                                                                                                                                                                                                                             |
+| --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| One key in the search box                                                               | 1 commit, 5 components, 0.1–0.2 ms; ≤ 0.8 ms                                    | The text is the field's own state (artikel 02), so a key renders the field and nothing else                                                                                                                                                                              |
+| An event burst re-rendering `DashboardLayout` (unread count, connection status, toasts) | 10 events on `/produk`: 1 commit, 27 components, 1.5 ms; 2.5 ms                 | It does not happen. `OrderEventsProvider` receives the frame as `children`, an element created by `DashboardLayout`, which does not re-render; a provider's state change re-renders only the context's readers (badge, status, toasts). Its value is already `useMemo`'d |
+| Splitting the order-events context                                                      | as above: `ConnectionStatus` re-renders for a toast, `OrderToasts` for a status | One component each, well under a millisecond. Three contexts would be more code to read for nothing measurable                                                                                                                                                           |
+| Toast auto-dismiss                                                                      | 1 commit, 5 components, 0.9 ms; 0.7–1.5 ms                                      | There is no tick: each toast has one timer (artikel 09), and a dismissal is one reducer update                                                                                                                                                                           |
+| 5 paid orders while the 50-order queue is open                                          | 2 commits, 375 components, 2.2 ms; 16–24 ms                                     | Every row is re-rendered because the list really changed (five new rows on top). Memoising rows would save under 2 ms in production                                                                                                                                      |
+| Column definitions and table features                                                   | not recreated                                                                   | Module-level constants since artikel 02 (`product-columns.tsx`), as TanStack Table's docs ask                                                                                                                                                                            |
+| `stock.toLocaleString("id-ID")` in 100 cells                                            | 100 calls ≈ 0.03 ms once warm (V8 caches the formatter)                         | Not visible in any commit                                                                                                                                                                                                                                                |
+| Recharts' entry animation                                                               | ~22 commits per new report                                                      | It is the chart's design, Recharts skips it for `prefers-reduced-motion` (`isAnimationActive: "auto"`), and each frame is a few milliseconds in production                                                                                                               |
+| Virtualising the 100-row table                                                          | the response's render: 7–9 ms in production                                     | A virtual list would cut that, at the cost of Ctrl+F, the browser's own scrolling and a much more complex table for screen readers. Worth it at thousands of rows, not at 100                                                                                            |
+
+### React Compiler
+
+React Compiler (`babel-plugin-react-compiler`) memoises components and values automatically at build time, which would have produced both fixes above, and more. It is **not** enabled here, on purpose: it changes how every component of the dashboard is compiled, which deserves its own change with its own tests, not a side effect of one article, and TanStack Table's docs warn that a compiler-memoised child can hide reads made through the table's builder methods (`row.getAllCells()`, `column.getIsSorted()`), which need a `table.Subscribe` boundary to stay live. If it is enabled later, the profiling scenarios above are the way to check it: the component counts should fall at least as far, and nothing on screen should stop updating.
+
+### Where each idea lives
+
+Paths are relative to `apps/admin/src`.
+
+| Concept                                   | Where to read it                                                                  |
+| ----------------------------------------- | --------------------------------------------------------------------------------- |
+| The memoised table body                   | `features/products/components/ProductTable.tsx` (`ProductTableBody`)              |
+| The memoised report body                  | `features/reports/components/ReportsPage.tsx` (`ReportBody`)                      |
+| Why the table commits three times         | `features/products/hooks/useProductTableParams.ts` (`pending`), artikel 02        |
+| Why an event does not re-render the frame | `app/DashboardLayout.tsx`, `features/realtime/components/OrderEventsProvider.tsx` |
+| Stable columns and features               | `features/products/components/product-columns.tsx`                                |

@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from "react";
+import { memo, useId, useMemo, useState } from "react";
 import type { SalesReport } from "@goshop/shared";
 import { PageHeader } from "@/components/PageHeader.tsx";
 import { Card } from "@/components/ui/Card.tsx";
@@ -84,8 +84,22 @@ export function ReportsPage() {
   );
 }
 
-/** The report with sales: tiles, two charts, the data table, the top 5. */
-function ReportBody({ report }: { report: SalesReport }) {
+/**
+ * The report with sales: tiles, two charts, the data table, the top 5.
+ *
+ * Memoised (artikel 14): it depends on `report` alone, and the profiler
+ * showed a range change re-rendering it, both charts and the data table
+ * twice with the old report (once for the control, once when the URL
+ * arrived), each time followed by Recharts' own store updates: ten
+ * commits and some 4,200 components that changed nothing on screen. With
+ * `memo` it renders when a new report arrives, and when its own
+ * "Tampilkan kumulatif" changes.
+ */
+const ReportBody = memo(function ReportBody({
+  report,
+}: {
+  report: SalesReport;
+}) {
   const ids = {
     revenue: useId(),
     revenueNote: useId(),
@@ -161,7 +175,7 @@ function ReportBody({ report }: { report: SalesReport }) {
       <TopProductsTable report={report} headingId={ids.top} />
     </>
   );
-}
+});
 
 /** The first load: grey blocks in the report's shape. */
 function ReportSkeleton() {
