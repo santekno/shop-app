@@ -1,7 +1,7 @@
 // Runs before every test file of the dashboard (vite.config.ts,
 // test.setupFiles).
 import "@testing-library/jest-dom/vitest";
-import { cleanup } from "@testing-library/react";
+import { cleanup, configure } from "@testing-library/react";
 import { afterAll, afterEach, vi } from "vitest";
 import { server } from "@/test/msw/server.ts";
 
@@ -19,6 +19,12 @@ afterEach(() => {
 afterAll(() => {
   server.close();
 });
+
+// findBy* and waitFor give up after 3 s instead of 1 s: make test-unit
+// runs every workspace's tests at once with coverage, and on a busy
+// machine a lazy route's chunk or a first render can take over a second.
+// A test that waits for something that never comes still fails, later.
+configure({ asyncUtilTimeout: 3_000 });
 
 // Testing Library unmounts what a test rendered only when `afterEach` is a
 // global; Vitest's globals are off, so unmount here. Every test starts
