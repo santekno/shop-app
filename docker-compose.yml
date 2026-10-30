@@ -247,6 +247,34 @@ services:
       timeout: 3s
       retries: 20
 
+  # GoShop admin dashboard (Bab 12): a Vite build served by Caddy, like the
+  # Bab 7–10 storefront. Only the browser talks to the API, at VITE_API_URL,
+  # baked in at build time: the API as the *host* sees it. The storage
+  # origins are read by Caddy at start-up for the CSP (apps/admin/Caddyfile):
+  # photos are shown from, and uploaded to, the storage as the host sees it
+  # (S3_PRESIGN_ENDPOINT above). Published on 5174, the same origin as
+  # `pnpm --filter @goshop/admin dev` and the one the API's CORS default
+  # allows: run one of the two at a time.
+  admin:
+    build:
+      context: .
+      dockerfile: apps/admin/Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8080}
+    environment:
+      PORT: "8080"
+      IMAGE_ORIGIN: ${IMAGE_ORIGIN:-${S3_PRESIGN_ENDPOINT:-http://localhost:8333}}
+      UPLOAD_ORIGIN: ${UPLOAD_ORIGIN:-${S3_PRESIGN_ENDPOINT:-http://localhost:8333}}
+    # No depends_on: static files need nothing to start, and a dashboard
+    # whose API is down says so on its own pages.
+    ports:
+      - "127.0.0.1:5174:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
 volumes:
   pgdata:
   storagedata:
