@@ -85,6 +85,11 @@ export function SessionProvider({
       getSession: manager.getSession,
       getAccessToken: manager.getAccessToken,
       authApi: createAuthClient(api, manager),
+      tokens: {
+        ensureFreshToken: manager.ensureFreshToken,
+        refreshAfterUnauthorized: manager.refreshAfterUnauthorized,
+        refreshAfterForbidden: manager.refreshAfterForbidden,
+      },
     }),
     [manager],
   );

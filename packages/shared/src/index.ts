@@ -283,3 +283,6 @@ export type {
   operations,
   paths,
 } from "./api/types.ts";
+
+// The admin dashboard's live order events (Bab 12 artikel 09).
+export type { AdminOrderEvent } from "./api/types.ts";

@@ -2,6 +2,7 @@ import { Menu, X } from "lucide-react";
 import { Link } from "react-router";
 import { Button } from "@/components/ui/Button.tsx";
 import { UserMenu } from "@/features/auth/components/UserMenu.tsx";
+import { ConnectionStatus } from "@/features/realtime/components/ConnectionStatus.tsx";
 import { SIDEBAR_ID } from "./Sidebar.tsx";
 
 interface AppHeaderProps {
@@ -40,7 +41,10 @@ export function AppHeader({ menuOpen, onToggleMenu }: AppHeaderProps) {
           <span className="font-normal text-muted-foreground">Admin</span>
         </Link>
       </div>
-      <UserMenu />
+      <div className="flex items-center gap-3">
+        <ConnectionStatus />
+        <UserMenu />
+      </div>
     </header>
   );
 }

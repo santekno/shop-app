@@ -1,10 +1,28 @@
 import { useState } from "react";
 import { Outlet } from "react-router";
+import { OrderEventsProvider } from "@/features/realtime/components/OrderEventsProvider.tsx";
+import { OrderToasts } from "@/features/realtime/components/OrderToasts.tsx";
 import { AppHeader } from "./AppHeader.tsx";
 import { Breadcrumbs } from "./Breadcrumbs.tsx";
 import { Sidebar } from "./Sidebar.tsx";
 import { SkipLink } from "./SkipLink.tsx";
 import { MAIN_ID } from "./useRouteFocus.ts";
+
+/**
+ * The dashboard: its frame, inside the live order events (artikel 09).
+ * Only a seller or an admin ever renders it (RequireStaff), so the event
+ * stream opens with it and closes with it, when the user logs out. The
+ * toasts come after the frame: after the page for Tab, over it for the
+ * eye (they are fixed in the corner).
+ */
+export function DashboardLayout() {
+  return (
+    <OrderEventsProvider>
+      <DashboardFrame />
+      <OrderToasts />
+    </OrderEventsProvider>
+  );
+}
 
 /**
  * The frame around every dashboard page, in reading order:
@@ -18,7 +36,7 @@ import { MAIN_ID } from "./useRouteFocus.ts";
  * Only a seller or an admin ever sees this layout: RequireStaff, its
  * parent route, renders the login or the "no access" page instead.
  */
-export function DashboardLayout() {
+function DashboardFrame() {
   // The phone menu. Local state: only this layout and its two children
   // (the button and the sidebar) need it, so it is lifted no higher.
   const [menuOpen, setMenuOpen] = useState(false);

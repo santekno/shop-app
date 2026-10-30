@@ -1,4 +1,6 @@
 import { NavLink } from "react-router";
+import { UnreadOrdersBadge } from "@/features/realtime/components/UnreadOrdersBadge.tsx";
+import { ORDERS_PATH } from "@/features/realtime/order-events-context.ts";
 import { cn } from "@/lib/utils.ts";
 import { NAV_ITEMS } from "./navigation.ts";
 
@@ -49,6 +51,7 @@ export function Sidebar({ open, onNavigate }: SidebarProps) {
             >
               <Icon aria-hidden="true" className="size-4 shrink-0" />
               {label}
+              {to === ORDERS_PATH && <UnreadOrdersBadge />}
             </NavLink>
           </li>
         ))}

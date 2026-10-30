@@ -169,3 +169,9 @@ export type ErrorBody = Schemas["Error"];
 export type ListProductsQuery = NonNullable<
   operations["listProducts"]["parameters"]["query"]
 >;
+
+/**
+ * The `data` of an `order` event on GET /v1/admin/events (Bab 12,
+ * ADR 0009): which order changed, its new status and total. No buyer data.
+ */
+export type AdminOrderEvent = Schemas["AdminOrderEvent"];

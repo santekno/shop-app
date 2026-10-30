@@ -1,5 +1,6 @@
 import { createContext, useContext } from "react";
 import type { ApiClient, LoginRequest, User } from "@goshop/shared";
+import type { TokenSource } from "./auth-client.ts";
 
 /** Who is logged in, kept in memory only. */
 export interface Session {
@@ -63,6 +64,14 @@ export interface SessionActions {
   authApi: ApiClient;
   /** The access token as it is right now, for code outside a render. */
   getAccessToken: () => string | null;
+  /**
+   * The token for a connection authClient cannot carry (artikel 09: the
+   * event stream is read with its own fetch): `ensureFreshToken` before
+   * connecting, `refreshAfterUnauthorized` after a 401 or when the stream
+   * ends because its token expired. Both go through the session's refresh,
+   * so they share its cross-tab lock and a refresh already on its way.
+   */
+  tokens: TokenSource;
 }
 
 /** null outside <SessionProvider>: useSession turns that into an error. */
