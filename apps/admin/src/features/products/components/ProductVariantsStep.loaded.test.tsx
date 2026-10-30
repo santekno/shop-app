@@ -1,6 +1,7 @@
 import type { ProductInput } from "@goshop/shared";
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useFormContext } from "react-hook-form";
 import { describe, expect, it } from "vitest";
 import { adminVariant } from "@/test/fixtures.ts";
 import { ProductFormHarness } from "@/test/products-form-conflict.tsx";
@@ -190,5 +191,115 @@ describe("ProductVariantsStep with loaded variants", () => {
     expect(
       screen.getByText(/diarsipkan saat disimpan: riwayat pesanan tetap utuh/),
     ).toBeInTheDocument();
+  });
+
+  describe("a stock above 1.000.000", () => {
+    const OVER_MAX =
+      'Stok paling banyak 1.000.000. Stok di server melewatinya karena pesanan yang dibatalkan mengembalikan unitnya. Tulis stok yang benar di sini, atau kurangi lewat "Ubah stok" di bagian Stok.';
+    const RANGE = "Stok antara 0 dan 1.000.000.";
+
+    /** What "Lanjut" does: the form's schema checks every field. */
+    function Check() {
+      const { trigger } = useFormContext<ProductInput>();
+      return (
+        <button type="button" onClick={() => void trigger()}>
+          Periksa
+        </button>
+      );
+    }
+
+    /** The step with one existing variant whose stock loaded as `stock`. */
+    const renderLoaded = (stock: number) => {
+      const values = formValues({
+        variants: [adminVariant(1, { name: "M", sku: "KAOS-M", stock })],
+      });
+      renderRoute(
+        <ProductFormHarness values={values}>
+          <ProductVariantsStep mode="edit" loaded={values.variants} />
+          <Check />
+        </ProductFormHarness>,
+      );
+      return userEvent.setup();
+    };
+
+    const stockOf = (n: number) => within(fieldset(n)).getByLabelText("Stok");
+    const check = (user: ReturnType<typeof userEvent.setup>) =>
+      user.click(screen.getByRole("button", { name: "Periksa" }));
+    const retype = async (
+      user: ReturnType<typeof userEvent.setup>,
+      n: number,
+      value: string,
+    ) => {
+      await user.clear(stockOf(n));
+      await user.type(stockOf(n), value);
+    };
+
+    it("says why a loaded stock above it fails, and what to do", async () => {
+      const user = renderLoaded(1_000_005);
+      // Nothing before the form is checked, like any other field.
+      expect(stockOf(1)).toHaveAccessibleDescription("Saat dibuka: 1.000.005.");
+
+      await check(user);
+
+      expect(stockOf(1)).toHaveAccessibleDescription(
+        `Saat dibuka: 1.000.005. ${OVER_MAX}`,
+      );
+      expect(stockOf(1)).toHaveAttribute("aria-invalid", "true");
+    });
+
+    it("says the same when the seller types a number still above it", async () => {
+      const user = renderLoaded(1_000_005);
+
+      await retype(user, 1, "2000000");
+      await check(user);
+
+      expect(within(fieldset(1)).getByText(OVER_MAX)).toBeInTheDocument();
+    });
+
+    it("has nothing to say once the seller writes a stock within it", async () => {
+      const user = renderLoaded(1_000_005);
+
+      await retype(user, 1, "999");
+      await check(user);
+
+      expect(stockOf(1)).toHaveAccessibleDescription("Saat dibuka: 1.000.005.");
+      expect(stockOf(1)).not.toHaveAttribute("aria-invalid");
+    });
+
+    it("keeps the schema's own message for a stock that is not a number", async () => {
+      const user = renderLoaded(1_000_005);
+
+      await retype(user, 1, "abc");
+      await check(user);
+
+      expect(
+        within(fieldset(1)).getByText(
+          "Tulis stok sebagai bilangan bulat, misalnya 12.",
+        ),
+      ).toBeInTheDocument();
+      expect(within(fieldset(1)).queryByText(OVER_MAX)).toBeNull();
+    });
+
+    it("keeps the plain range for a stock typed above it that loaded within it", async () => {
+      const user = renderLoaded(12);
+
+      await retype(user, 1, "2000000");
+      await check(user);
+
+      expect(within(fieldset(1)).getByText(RANGE)).toBeInTheDocument();
+      expect(within(fieldset(1)).queryByText(OVER_MAX)).toBeNull();
+    });
+
+    it("keeps the plain range for a new variant typed above it", async () => {
+      const user = renderLoaded(1_000_005);
+      await retype(user, 1, "10");
+      await user.click(screen.getByRole("button", { name: "Tambah varian" }));
+      await user.type(within(fieldset(2)).getByLabelText("Stok"), "2000000");
+
+      await check(user);
+
+      expect(within(fieldset(2)).getByText(RANGE)).toBeInTheDocument();
+      expect(screen.queryByText(OVER_MAX)).toBeNull();
+    });
   });
 });

@@ -3,6 +3,7 @@ import type { AdminProduct, ProductWrite } from "@goshop/shared";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { useEffect, useState } from "react";
 import userEvent from "@testing-library/user-event";
+import { delay } from "msw";
 import { describe, expect, it, vi } from "vitest";
 import { api } from "@/lib/api.ts";
 import {
@@ -318,9 +319,44 @@ describe("ProductForm, artikel 05", () => {
     await reviewHeading();
     expect(
       screen.getByText(
-        /varian yang masih ada di formulir Anda diarsipkan di server/,
+        /Formulir Anda masih memuat varian yang di server sudah diarsipkan/,
       ),
     ).toBeInTheDocument();
+    expect(screen.queryByText(/menimpa perubahan itu/)).toBeNull();
+  });
+
+  it("keeps the focus on the review's heading when the latest product arrives late", async () => {
+    // A real refetch takes time: the review opens while loading, and the
+    // product arrives under the same heading.
+    server.use(
+      updateProductHandler(() =>
+        errorResponse(409, "VERSION_CONFLICT", {
+          details: { product_id: PRODUCT_ID },
+        }),
+      ),
+      productDetailHandler(async () => {
+        await delay(100);
+        return productResponse({
+          ...loadedProduct,
+          version: 5,
+          description: "Dari server.",
+        });
+      }),
+    );
+    const { user } = renderForm();
+
+    await editNameAndSave(user);
+    expect(await reviewHeading()).toHaveFocus();
+    expect(
+      screen.getByText("Memuat data terbaru dari server…"),
+    ).toBeInTheDocument();
+
+    expect(await screen.findByText(/admin lain menyimpan/)).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", {
+        name: "Produk ini berubah sejak Anda membukanya",
+      }),
+    ).toHaveFocus();
   });
 
   it("offers to fetch the latest product again when that fails", async () => {

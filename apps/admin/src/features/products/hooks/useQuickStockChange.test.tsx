@@ -2,6 +2,7 @@ import type { AdminProduct } from "@goshop/shared";
 import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { createQueryClient } from "@/lib/query-client.ts";
+import { deferred } from "@/test/deferred.ts";
 import { PRODUCT_ID, adminProduct, adminVariant } from "@/test/fixtures.ts";
 import { errorResponse, recordRequests } from "@/test/msw/http.ts";
 import {
@@ -179,5 +180,93 @@ describe("useQuickStockChange", () => {
     expect(
       queryClient.getQueryData(productKeys.detail(PRODUCT_ID)),
     ).toBeUndefined();
+  });
+
+  describe("with a detail refetch on its way", () => {
+    /**
+     * The cache as seeded, a detail fetch that read the product before
+     * the change (the photo poll, the window regaining the focus), and
+     * the hook.
+     */
+    const inFlight = (answer: Parameters<typeof stockAdjustmentHandler>[0]) => {
+      server.use(stockAdjustmentHandler(answer));
+      const queryClient = seeded();
+      const older = deferred<AdminProduct>();
+      const refetch = queryClient
+        .query({
+          queryKey: productKeys.detail(PRODUCT_ID),
+          queryFn: () => older.promise,
+          // The cache's copy is fresh; a poll or a focus refetch fetches
+          // anyway.
+          staleTime: 0,
+        })
+        .catch(() => undefined);
+      expect(
+        queryClient.isFetching({ queryKey: productKeys.detail(PRODUCT_ID) }),
+      ).toBe(1);
+      const { result } = renderRouteHook(
+        () => useQuickStockChange(PRODUCT_ID),
+        { queryClient },
+      );
+      const variants = () =>
+        queryClient
+          .getQueryData<AdminProduct>(productKeys.detail(PRODUCT_ID))
+          ?.variants.map((v) => [v.stock, v.version]);
+      return { queryClient, older, refetch, result, variants };
+    };
+
+    it("keeps the saved stock and version when the older copy arrives", async () => {
+      const { older, refetch, result, variants } = inFlight(() =>
+        variantResponse(adminVariant(1, { stock: 17, version: 2 })),
+      );
+
+      await act(() =>
+        result.current.mutateAsync({ mode: "add", variantId: V1, amount: 5 }),
+      );
+      expect(variants()?.[0]).toEqual([17, 2]);
+
+      older.resolve(
+        adminProduct({
+          variants: [
+            adminVariant(1, { stock: 12, version: 1 }),
+            adminVariant(2, { stock: 4 }),
+          ],
+        }),
+      );
+      await act(() => refetch);
+
+      expect(variants()?.[0]).toEqual([17, 2]);
+    });
+
+    it("lets the refetch land after a result that is not a save, and marks the product stale", async () => {
+      const { queryClient, older, refetch, result, variants } = inFlight(() =>
+        errorResponse(409, "STOCK_CHANGED", { details: { stock: 9 } }),
+      );
+
+      await act(() =>
+        result.current.mutateAsync({
+          mode: "set",
+          variantId: V1,
+          value: 20,
+          expected: 12,
+        }),
+      );
+      expect(
+        queryClient.getQueryState(productKeys.detail(PRODUCT_ID))
+          ?.isInvalidated,
+      ).toBe(true);
+
+      older.resolve(
+        adminProduct({
+          variants: [
+            adminVariant(1, { stock: 9, version: 3 }),
+            adminVariant(2, { stock: 4 }),
+          ],
+        }),
+      );
+      await act(() => refetch);
+
+      expect(variants()?.[0]).toEqual([9, 3]);
+    });
   });
 });

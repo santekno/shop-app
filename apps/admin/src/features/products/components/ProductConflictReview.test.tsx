@@ -1,7 +1,8 @@
 import { ApiError } from "@goshop/shared";
 import type { ProductInput } from "@goshop/shared";
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { CATEGORY_ID, adminVariant, category } from "@/test/fixtures.ts";
 import { categoriesHandler } from "@/test/msw/products.ts";
@@ -108,17 +109,136 @@ describe("ProductConflictReview", () => {
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
+  const OVERWRITE =
+    "Menyimpan formulir Anda apa adanya akan menimpa perubahan itu, jadi server menolaknya.";
+
   it.each([
     ["product", "admin lain menyimpan atau mengarsipkan produk ini"],
     ["variant", "stok varian di bawah berubah di server"],
-    ["archived", "varian yang masih ada di formulir Anda diarsipkan di server"],
-  ] as const)("explains a '%s' conflict in its own words", (kind, text) => {
-    renderReview(ready(same, same), { kind });
+  ] as const)(
+    "explains a '%s' conflict in its own words, as a change it would overwrite",
+    (kind, text) => {
+      renderReview(ready(same, same), { kind });
+
+      expect(heading()).toHaveFocus();
+      const cause = screen.getByText(
+        /Belum ada yang tersimpan\./,
+      ).parentElement;
+      expect(cause).toHaveTextContent(text);
+      expect(cause).toHaveTextContent(OVERWRITE);
+    },
+  );
+
+  it("explains an 'archived' conflict as a form still holding an archived variant, not a race", () => {
+    renderReview(ready(same, same), { kind: "archived" });
 
     expect(heading()).toHaveFocus();
-    expect(
-      screen.getByText(/Belum ada yang tersimpan\./).parentElement,
-    ).toHaveTextContent(text);
+    const cause = screen.getByText(/Belum ada yang tersimpan\./).parentElement;
+    expect(cause).toHaveTextContent(
+      "Formulir Anda masih memuat varian yang di server sudah diarsipkan. Varian yang diarsipkan tidak dapat disimpan lagi, jadi server menolak penyimpanan ini.",
+    );
+    expect(cause).not.toHaveTextContent("menimpa perubahan itu");
+    expect(cause).not.toHaveTextContent("Sementara Anda mengubah");
+  });
+
+  describe("from loading to its next state", () => {
+    /**
+     * The review as ProductForm holds it: the state changes under the
+     * same element as the refetch goes on.
+     */
+    const renderChanging = (initial: ConflictReviewState) => {
+      let change: (next: ConflictReviewState) => void = () => undefined;
+      function Changing() {
+        const [state, setState] = useState(initial);
+        change = setState;
+        return (
+          <ProductConflictReview
+            state={state}
+            cause={{ kind: "product" }}
+            onRetry={vi.fn()}
+            onKeepMine={vi.fn()}
+            onDiscard={vi.fn()}
+          />
+        );
+      }
+      server.use(categoriesHandler([category(CATEGORY_ID, "Kaos")]));
+      renderRoute(<Changing />);
+      return {
+        user: userEvent.setup(),
+        moveTo: (next: ConflictReviewState) => {
+          act(() => {
+            change(next);
+          });
+        },
+      };
+    };
+
+    const onlyHeading = () => {
+      const headings = screen.getAllByRole("heading", { level: 2 });
+      expect(headings).toHaveLength(1);
+      return headings[0];
+    };
+
+    it("keeps the focus on the same heading when the product arrives", () => {
+      const { moveTo } = renderChanging({ status: "loading" });
+      const first = onlyHeading();
+      expect(first).toHaveFocus();
+
+      moveTo(ready(same, (v) => ({ ...v, name: "Baru" })));
+
+      expect(
+        screen.getByText(/Belum ada yang tersimpan\./),
+      ).toBeInTheDocument();
+      expect(onlyHeading()).toBe(first);
+      expect(first).toHaveFocus();
+      expect(
+        screen.getByRole("region", {
+          name: "Produk ini berubah sejak Anda membukanya",
+        }),
+      ).toContainElement(first ?? null);
+    });
+
+    it("keeps the focus on the same heading when the fetch fails", () => {
+      const { moveTo } = renderChanging({ status: "loading" });
+      const first = onlyHeading();
+
+      moveTo({
+        status: "error",
+        error: new ApiError({
+          status: 500,
+          code: "INTERNAL_ERROR",
+          message: "x",
+        }),
+      });
+
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+      expect(onlyHeading()).toBe(first);
+      expect(first).toHaveFocus();
+    });
+
+    it("starts with no choice after loading again", async () => {
+      const conflicted = ready(
+        (v) => ({ ...v, name: "Kaos A" }),
+        (v) => ({ ...v, name: "Kaos B" }),
+      );
+      const { user, moveTo } = renderChanging(conflicted);
+      await user.click(
+        screen.getByRole("radio", { name: "Dari server: Kaos B" }),
+      );
+      expect(
+        screen.getByRole("radio", { name: "Dari server: Kaos B" }),
+      ).toBeChecked();
+
+      moveTo({ status: "loading" });
+      moveTo(conflicted);
+
+      expect(
+        screen.getByRole("radio", { name: "Dari server: Kaos B" }),
+      ).not.toBeChecked();
+      expect(
+        screen.getByRole("radio", { name: "Milik Anda: Kaos A" }),
+      ).not.toBeChecked();
+    });
   });
 
   it("says only the version changed when no value did", () => {
