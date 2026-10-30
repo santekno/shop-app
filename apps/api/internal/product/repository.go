@@ -322,12 +322,27 @@ func updateVariant(ctx context.Context, q *sqlc.Queries, productID string, posit
 	}
 	_, err = q.GetVariantVersion(ctx, sqlc.GetVariantVersionParams{ID: v.ID, ProductID: productID})
 	if errors.Is(err, sql.ErrNoRows) {
-		return ErrUnknownVariant
+		return notSellable(ctx, q, productID, v.ID)
 	}
 	if err != nil {
 		return fmt.Errorf("query variant version: %w", err)
 	}
 	return &VersionConflictError{VariantID: v.ID}
+}
+
+// notSellable tells why variantID is not a sellable variant of productID:
+// a *VariantArchivedError when it is an archived one (archived by another
+// save since the form loaded it), ErrUnknownVariant when it is none of the
+// product's variants.
+func notSellable(ctx context.Context, q *sqlc.Queries, productID, variantID string) error {
+	archived, err := q.IsVariantArchived(ctx, sqlc.IsVariantArchivedParams{ID: variantID, ProductID: productID})
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("query archived variant: %w", err)
+	}
+	if archived {
+		return &VariantArchivedError{VariantID: variantID}
+	}
+	return ErrUnknownVariant
 }
 
 // updateProduct writes the product's fields and recomputes price_from. It is

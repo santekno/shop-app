@@ -19,6 +19,7 @@ const (
 	CodeSlugTaken       = "SLUG_TAKEN"
 	CodeSKUTaken        = "SKU_TAKEN"
 	CodeVersionConflict = "VERSION_CONFLICT"
+	CodeVariantArchived = "VARIANT_ARCHIVED"
 )
 
 // slugPattern is the contract's slug pattern for products and categories.
@@ -130,6 +131,7 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 func toHTTPError(err error) error {
 	var versionErr *VersionConflictError
 	var productVersionErr *StaleProductError
+	var archivedErr *VariantArchivedError
 	switch {
 	case errors.Is(err, ErrNotFound):
 		return httpapi.NotFoundError("product not found")
@@ -155,6 +157,10 @@ func toHTTPError(err error) error {
 		return errx.New(CodeUnknownCategory, "category not found").
 			WithHTTPStatus(http.StatusBadRequest).
 			WithDetails(map[string]any{"category_id": "names no category"})
+	case errors.As(err, &archivedErr):
+		return errx.New(CodeVariantArchived, "a variant was archived since you loaded it and can no longer be saved; reload the product").
+			WithHTTPStatus(http.StatusConflict).
+			WithDetails(map[string]any{"variant_id": archivedErr.VariantID})
 	case errors.Is(err, ErrUnknownVariant):
 		return httpapi.ValidationError("invalid request", map[string]any{
 			"variants": "an id must name a sellable variant of this product; leave it out for a new variant",

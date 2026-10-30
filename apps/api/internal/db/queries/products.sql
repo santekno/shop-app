@@ -200,6 +200,15 @@ WHERE id = @id AND product_id = @product_id AND archived_at IS NULL
 SELECT version FROM product_variants
 WHERE id = @id AND product_id = @product_id AND archived_at IS NULL;
 
+-- name: IsVariantArchived :one
+-- After GetVariantVersion found no sellable variant: whether the id names
+-- an archived variant of the product (409 VARIANT_ARCHIVED, Bab 12)
+-- rather than no variant of it at all (400).
+SELECT EXISTS (
+    SELECT 1 FROM product_variants
+    WHERE id = @id AND product_id = @product_id AND archived_at IS NOT NULL
+) AS archived;
+
 -- Soft delete: products and variants are archived, never deleted, because
 -- order items (Bab 5) point to them. updated_at is set by every UPDATE in
 -- this file, not by a trigger, so each write shows it.

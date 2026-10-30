@@ -308,6 +308,28 @@ func (q *Queries) InsertVariant(ctx context.Context, arg InsertVariantParams) er
 	return err
 }
 
+const isVariantArchived = `-- name: IsVariantArchived :one
+SELECT EXISTS (
+    SELECT 1 FROM product_variants
+    WHERE id = $1 AND product_id = $2 AND archived_at IS NOT NULL
+) AS archived
+`
+
+type IsVariantArchivedParams struct {
+	ID        string
+	ProductID string
+}
+
+// After GetVariantVersion found no sellable variant: whether the id names
+// an archived variant of the product (409 VARIANT_ARCHIVED, Bab 12)
+// rather than no variant of it at all (400).
+func (q *Queries) IsVariantArchived(ctx context.Context, arg IsVariantArchivedParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, isVariantArchived, arg.ID, arg.ProductID)
+	var archived bool
+	err := row.Scan(&archived)
+	return archived, err
+}
+
 const listAdminProducts = `-- name: ListAdminProducts :many
 SELECT p.id, p.slug, p.name, p.status, p.price_from, p.created_at, p.updated_at,
        c.id AS category_id, c.name AS category_name,

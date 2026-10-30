@@ -138,9 +138,13 @@ var (
 	ErrSKUTaken = errors.New("sku already taken")
 	// ErrUnknownCategory: the category ID names no category.
 	ErrUnknownCategory = errors.New("unknown category")
-	// ErrUnknownVariant: a variant ID is not a sellable variant of the
-	// product being saved.
+	// ErrUnknownVariant: a variant ID is not a variant of the product
+	// being saved.
 	ErrUnknownVariant = errors.New("unknown variant")
+	// ErrVariantArchived: a variant ID names a variant of the product that
+	// is archived, which can no longer be written. See VariantArchivedError
+	// for which one.
+	ErrVariantArchived = errors.New("variant archived")
 	// ErrVersionConflict: a variant changed since the admin loaded it (a
 	// sale, or another admin's save); reload and save again. See
 	// VersionConflictError for which one.
@@ -149,6 +153,16 @@ var (
 	// that the handler's checks let through.
 	ErrInvalidText = errors.New("invalid text")
 )
+
+// VariantArchivedError is ErrVariantArchived for one variant.
+type VariantArchivedError struct {
+	VariantID string
+}
+
+func (e *VariantArchivedError) Error() string { return "variant " + e.VariantID + ": archived" }
+
+// Unwrap makes errors.Is(err, ErrVariantArchived) true.
+func (e *VariantArchivedError) Unwrap() error { return ErrVariantArchived }
 
 // StaleProductError is ErrVersionConflict for the product
 // itself: another save or an archive changed its fields or its variants

@@ -2276,7 +2276,7 @@ export interface components {
             };
         };
         /**
-         * @description Another product already has the slug (`SLUG_TAKEN`), a variant anywhere in the store, archived ones included, already has one of the SKUs (`SKU_TAKEN`), or (on `PUT`) the product changed since its `version` was read (`VERSION_CONFLICT`, `details.product_id`) or a variant did (`VERSION_CONFLICT`, `details.variant_id`, the first stale one); reload and save again.
+         * @description Another product already has the slug (`SLUG_TAKEN`), a variant anywhere in the store, archived ones included, already has one of the SKUs (`SKU_TAKEN`), or (on `PUT`) the product changed since its `version` was read (`VERSION_CONFLICT`, `details.product_id`) or a variant did (`VERSION_CONFLICT`, `details.variant_id`, the first stale one); reload and save again. A variant `id` that names an archived variant of this product (archived by another save since the form loaded it) is `VARIANT_ARCHIVED` with `details.variant_id`: it can no longer be written, so reload and leave it out. An `id` that is not a variant of this product at all stays 400 `VALIDATION_FAILED`.
          *
          *     Known Bab 3 limitation: within one save, each variant's SKU is checked when that variant is written, so swapping the SKUs of two variants, or giving one variant the SKU another variant of the same product has right now, answers 409 `SKU_TAKEN`. Save twice instead, through a temporary SKU.
          */
