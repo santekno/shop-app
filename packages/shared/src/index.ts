@@ -81,6 +81,8 @@ export {
   previewCheckout,
 } from "./api/checkout.ts";
 
+export { listAdminProducts } from "./api/admin-products.ts";
+
 export { getOrder, listOrders, payOrder, placeOrder } from "./api/orders.ts";
 export type { ListOrdersQuery, PlaceOrderOptions } from "./api/orders.ts";
 
@@ -128,6 +130,10 @@ export type { AddressInput } from "./schemas/address.ts";
 export type {
   Address,
   AddressCreate,
+  AdminProductRow,
+  AdminProductSort,
+  AdminProductStatus,
+  AdminProductTable,
   AddressDetail,
   AddressList,
   AppliedVoucher,
@@ -145,9 +151,11 @@ export type {
   CheckoutProblem,
   CheckoutRequest,
   ErrorBody,
+  ListAdminProductsQuery,
   ListProductsQuery,
   LoginRequest,
   Money,
+  OffsetPageInfo,
   Order,
   OrderDetail,
   OrderItem,
@@ -169,6 +177,7 @@ export type {
   ShippingQuote,
   ShippingQuotes,
   ShippingQuotesDetail,
+  SortOrder,
   TokenPair,
   TokenPairDetail,
   User,

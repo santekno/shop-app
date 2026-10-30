@@ -88,6 +88,22 @@ export type PaymentStatus = OrderLatestPayment["status"];
 /** A Midtrans Snap transaction for an order (Bab 6, ADR 0007). */
 export type PaymentSession = Schemas["PaymentSession"];
 export type PaymentSessionDetail = Schemas["PaymentSessionDetail"];
+/** One product of the dashboard's product table (Bab 12), in any status. */
+export type AdminProductRow = Schemas["AdminProductRow"];
+/** One numbered page of the dashboard's product table, with its total. */
+export type AdminProductTable = Schemas["AdminProductTable"];
+/** Where an offset page sits in the whole list: page, per_page, total, total_pages. */
+export type OffsetPageInfo = Schemas["OffsetPageInfo"];
+/** A product's status: only `active` products are in the catalog. */
+export type AdminProductStatus = AdminProductRow["status"];
+/** The query of GET /v1/admin/products, every parameter optional. */
+export type ListAdminProductsQuery = NonNullable<
+  operations["listAdminProducts"]["parameters"]["query"]
+>;
+/** The columns GET /v1/admin/products can sort by. */
+export type AdminProductSort = NonNullable<ListAdminProductsQuery["sort"]>;
+/** A sort direction of GET /v1/admin/products. */
+export type SortOrder = NonNullable<ListAdminProductsQuery["order"]>;
 /** The body of every API error: {"error":{"code","message","details"}}. */
 export type ErrorBody = Schemas["Error"];
 
