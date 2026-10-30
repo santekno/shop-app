@@ -60,7 +60,12 @@ func TestPostgresRepository_ListTable(t *testing.T) {
 	assertSame(t, db.names(), []string{"CountAdminProducts", "ListAdminProducts", "ListProductImages"})
 
 	count, _ := db.call("CountAdminProducts")
-	assertSame(t, count.args, []driver.Value{int64(LowStockThreshold), "active", catIDForTable, "%kaos%", true})
+	assertSame(t, count.args, []driver.Value{"active", catIDForTable, "%kaos%", true, int64(LowStockThreshold)})
+	// Both queries filter low stock with the same EXISTS on a sellable
+	// variant at or below the threshold, not the totals' aggregate.
+	const lowStock = "EXISTS (SELECT 1 FROM product_variants lv WHERE lv.product_id = p.id AND lv.archived_at IS NULL AND lv.stock <= "
+	assertSQL(t, db, "CountAdminProducts", lowStock+"$5::int)")
+	assertSQL(t, db, "ListAdminProducts", lowStock+"$1::int)")
 	list, _ := db.call("ListAdminProducts")
 	assertSame(t, list.args, []driver.Value{
 		int64(LowStockThreshold), "active", catIDForTable, "%kaos%", true, "price_from", true, int64(20), int64(20),
@@ -109,7 +114,7 @@ func TestPostgresRepository_ListTableWithoutFilters(t *testing.T) {
 	testx.AssertEqual(t, total, int64(1))
 	testx.AssertEqual(t, len(got), 1)
 	count, _ := db.call("CountAdminProducts")
-	assertSame(t, count.args, []driver.Value{int64(LowStockThreshold), nil, nil, nil, false})
+	assertSame(t, count.args, []driver.Value{nil, nil, nil, false, int64(LowStockThreshold)})
 	list, _ := db.call("ListAdminProducts")
 	assertSame(t, list.args, []driver.Value{
 		int64(LowStockThreshold), nil, nil, nil, false, "updated_at", false, int64(0), int64(20),
