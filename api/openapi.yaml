@@ -63,7 +63,8 @@ tags:
     description: |
       Product and order management for the admin dashboard. Every operation needs an
       access token whose role is `seller` or `admin` (Bab 4): no token is
-      401 `UNAUTHORIZED`, a `buyer` is 403 `FORBIDDEN`.
+      401 `UNAUTHORIZED`, a `buyer` is 403 `FORBIDDEN`. Cancelling an order
+      needs `admin` (Bab 12): a `seller` gets 403 `FORBIDDEN` there.
   - name: Cart
     description: |
       The shopping cart (Bab 5, ADR 0006). With an access token every
@@ -2167,11 +2168,13 @@ paths:
     post:
       tags: [Admin]
       operationId: cancelOrder
-      summary: Cancel an order before it ships
+      summary: Cancel an order before it ships (admin only)
       description: |
         pending_payment, paid or processing → cancelled (`seller_cancelled`).
         The stock (its variants locked in id order) and the voucher use go
         back in the same transaction. Refunding a paid order is Bab 6's.
+        From Bab 12 only an `admin` may cancel: admins own cancellations
+        and refunds, while sellers keep every other order operation.
       security:
         - bearerAuth: []
       responses:
@@ -2184,7 +2187,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/Forbidden"
+          $ref: "#/components/responses/AdminOnly"
         "404":
           $ref: "#/components/responses/OrderNotFound"
         "409":
@@ -4123,6 +4126,17 @@ components:
 
     Forbidden:
       description: The caller is logged in, but their role may not do this. Admin endpoints need `seller` or `admin`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: FORBIDDEN
+              message: your role is not allowed to do this
+
+    AdminOnly:
+      description: The caller is logged in but is not an `admin`. A `seller` gets this too; the role is checked before the order is looked up.
       content:
         application/json:
           schema:

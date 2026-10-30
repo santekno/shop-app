@@ -1233,10 +1233,12 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Cancel an order before it ships
+         * Cancel an order before it ships (admin only)
          * @description pending_payment, paid or processing → cancelled (`seller_cancelled`).
          *     The stock (its variants locked in id order) and the voucher use go
          *     back in the same transaction. Refunding a paid order is Bab 6's.
+         *     From Bab 12 only an `admin` may cancel: admins own cancellations
+         *     and refunds, while sellers keep every other order operation.
          */
         post: operations["cancelOrder"];
         delete?: never;
@@ -2302,6 +2304,23 @@ export interface components {
         };
         /** @description The caller is logged in, but their role may not do this. Admin endpoints need `seller` or `admin`. */
         Forbidden: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "error": {
+                 *         "code": "FORBIDDEN",
+                 *         "message": "your role is not allowed to do this"
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description The caller is logged in but is not an `admin`. A `seller` gets this too; the role is checked before the order is looked up. */
+        AdminOnly: {
             headers: {
                 [name: string]: unknown;
             };
@@ -4711,7 +4730,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
+            403: components["responses"]["AdminOnly"];
             404: components["responses"]["OrderNotFound"];
             409: components["responses"]["InvalidTransition"];
             500: components["responses"]["InternalError"];

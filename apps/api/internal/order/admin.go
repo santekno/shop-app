@@ -23,7 +23,8 @@ type Staff interface {
 }
 
 // AdminRoutes registers the seller and admin order routes on r (mounted
-// under /v1/admin, behind the seller-or-admin role).
+// under /v1/admin, behind the seller-or-admin role). Cancelling is not one
+// of them: see AdminOnlyRoutes.
 func (h *Handler) AdminRoutes(r chi.Router) {
 	r.Get("/orders", h.Queue)
 	r.Get("/orders/{id}", h.GetForStaff)
@@ -34,6 +35,14 @@ func (h *Handler) AdminRoutes(r chi.Router) {
 	r.Post("/orders/{id}/complete", h.staffMove(func(ctx context.Context, id string) error {
 		return h.staff.Complete(ctx, "", id)
 	}))
+}
+
+// AdminOnlyRoutes registers the order routes only an admin may use, on r
+// (mounted under /v1/admin, behind the admin role): cancelling an order,
+// because admins own cancellations and refunds (docs/prd.md). A seller
+// gets 403 from the role check before this handler runs. The order's
+// cancel_reason stays seller_cancelled, the store's side of the sale.
+func (h *Handler) AdminOnlyRoutes(r chi.Router) {
 	r.Post("/orders/{id}/cancel", h.staffMove(func(ctx context.Context, id string) error {
 		return h.staff.CancelBySeller(ctx, id)
 	}))

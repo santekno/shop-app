@@ -212,13 +212,19 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 				orderHandler.Routes(r)
 				paymentHandler.ProtectedRoutes(r)
 				authHandler.ProtectedRoutes(r)
-				// Store staff only: sellers manage the catalog, and admins
-				// can do everything a seller can (docs/prd.md).
+				// Store staff only: sellers manage the catalog and the
+				// orders, and admins can do everything a seller can
+				// (docs/prd.md).
 				r.With(auth.RequireRole(user.RoleSeller, user.RoleAdmin)).
 					Route("/admin", func(r chi.Router) {
 						productHandler.AdminRoutes(r)
 						orderHandler.AdminRoutes(r)
 						reportHandler.AdminRoutes(r)
+						// Admins only: cancelling an order (Bab 12).
+						r.Group(func(r chi.Router) {
+							r.Use(auth.RequireRole(user.RoleAdmin))
+							orderHandler.AdminOnlyRoutes(r)
+						})
 					})
 			})
 		})
