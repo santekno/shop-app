@@ -134,7 +134,7 @@ func TestAdminVersion_VariantArchived(t *testing.T) {
 	p := sh.product(t, "kaos-varian-arsip", variant("VA-M", "M", 50000, 10), variant("VA-L", "L", 60000, 10))
 	form := sh.adminForm(t, p.ID)
 	// Another admin's save without VA-L archives it.
-	var keepM adminProductOut = form
+	keepM := form
 	keepM.Variants = slices.DeleteFunc(slices.Clone(form.Variants), func(v adminVariantOut) bool { return v.SKU == "VA-L" })
 	latest := assertAdminProduct(t, sh.staffCall(t, http.MethodPut, "/v1/admin/products/"+p.ID, formBody(t, keepM, "active")).Body)
 

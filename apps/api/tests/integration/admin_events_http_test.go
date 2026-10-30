@@ -30,7 +30,9 @@ type sseEvent struct {
 type eventStream struct {
 	resp   *http.Response
 	events chan sseEvent
-	cancel context.CancelFunc
+	// close cancels the request and closes the body; the test's cleanup
+	// calls it too, so a stream the test leaves open is still closed.
+	close func()
 }
 
 // openEvents opens the stream with token. The response is checked by the
@@ -52,8 +54,12 @@ func (s *server) openEvents(t *testing.T, token string) *eventStream {
 		cancel()
 		t.Fatalf("GET /v1/admin/events: %v", err)
 	}
-	es := &eventStream{resp: resp, events: make(chan sseEvent, 64), cancel: cancel}
-	t.Cleanup(es.close)
+	closeStream := func() {
+		cancel()
+		_ = resp.Body.Close()
+	}
+	t.Cleanup(closeStream)
+	es := &eventStream{resp: resp, events: make(chan sseEvent, 64), close: closeStream}
 	if resp.StatusCode != http.StatusOK {
 		close(es.events)
 		return es
@@ -84,11 +90,6 @@ func (s *server) openEvents(t *testing.T, token string) *eventStream {
 		}
 	}()
 	return es
-}
-
-func (es *eventStream) close() {
-	es.cancel()
-	_ = es.resp.Body.Close()
 }
 
 // next is the next event, failing the test after wait.
