@@ -335,6 +335,45 @@ describe("usePhotoUploads", () => {
     expect(xhrs.last().url).toBe(`${STORAGE_URL}/products/2`);
   });
 
+  it("asks for a new ticket on retry when the storage refused the upload, discarding the old photo", async () => {
+    // A valid ticket, refused for another reason (a signature mismatch):
+    // the same signed PUT would be refused again.
+    api();
+    const { add, xhrs, xhrCount, calls, result } = setup();
+    add(jpegFile());
+    await waitFor(() => {
+      expect(xhrCount()).toBe(1);
+    });
+    act(() => {
+      xhrs
+        .last()
+        .respond(
+          403,
+          s3Error(
+            "SignatureDoesNotMatch",
+            "The request signature we calculated does not match",
+          ),
+        );
+    });
+    await waitFor(() => {
+      expect(result.current.tiles.at(-1)?.upload?.failedStep).toBe("start");
+    });
+
+    act(() => {
+      result.current.retry(result.current.tiles.at(-1)?.upload?.key ?? "");
+    });
+
+    await waitFor(() => {
+      expect(xhrCount()).toBe(2);
+    });
+    expect(calls()).toEqual([
+      "POST /images/uploads",
+      `DELETE /images/${id(1)}`,
+      "POST /images/uploads",
+    ]);
+    expect(xhrs.last().url).toBe(`${STORAGE_URL}/products/2`);
+  });
+
   it("asks for a new ticket on retry when the clock says the old one ran out", async () => {
     api({ ticketExpiresAt: "2000-01-01T00:00:00Z" });
     const { add, xhrs, xhrCount, calls, result } = setup();

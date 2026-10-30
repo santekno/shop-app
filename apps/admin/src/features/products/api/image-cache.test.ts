@@ -1,6 +1,7 @@
 import type { AdminProduct } from "@goshop/shared";
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
+import { deferred } from "@/test/deferred.ts";
 import { PRODUCT_ID, adminImage, adminProduct } from "@/test/fixtures.ts";
 import { removeCachedImage, upsertCachedImage } from "./image-cache.ts";
 import { productKeys } from "./queries.ts";
@@ -73,5 +74,59 @@ describe("removeCachedImage", () => {
     removeCachedImage(client, PRODUCT_ID, "unknown");
 
     expect(images(client)).toHaveLength(2);
+  });
+});
+
+describe("a detail refetch on its way when a photo's answer arrives", () => {
+  /**
+   * Starts a detail fetch that read the product before the photo changed
+   * (the processing poll, the window regaining the focus), and returns
+   * its answer to give and its settled promise.
+   */
+  const refetchInFlight = (client: QueryClient) => {
+    const answer = deferred<AdminProduct>();
+    const settled = client
+      .query({
+        queryKey: productKeys.detail(PRODUCT_ID),
+        queryFn: () => answer.promise,
+      })
+      .catch(() => undefined);
+    return { answer, settled };
+  };
+
+  it.each([
+    [
+      "an added photo",
+      (client: QueryClient) => {
+        upsertCachedImage(client, PRODUCT_ID, adminImage(3));
+      },
+      [adminImage(1).id, adminImage(2).id, adminImage(3).id],
+    ],
+    [
+      "a removed photo",
+      (client: QueryClient) => {
+        removeCachedImage(client, PRODUCT_ID, adminImage(1).id);
+      },
+      [adminImage(2).id],
+    ],
+  ])("keeps %s when the older copy arrives", async (_name, write, ids) => {
+    const client = seeded();
+    const { answer, settled } = refetchInFlight(client);
+    expect(
+      client.isFetching({ queryKey: productKeys.detail(PRODUCT_ID) }),
+    ).toBe(1);
+
+    write(client);
+    // Synchronous: the change is in the cache before anything is awaited.
+    expect(images(client)?.map((i) => i.id)).toEqual(ids);
+    expect(tableInvalidated(client)).toBe(true);
+
+    answer.resolve(adminProduct({ images: [adminImage(1), adminImage(2)] }));
+    await settled;
+
+    expect(images(client)?.map((i) => i.id)).toEqual(ids);
+    expect(
+      client.isFetching({ queryKey: productKeys.detail(PRODUCT_ID) }),
+    ).toBe(0);
   });
 });

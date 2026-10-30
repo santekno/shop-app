@@ -269,17 +269,33 @@ describe("uploadFailure", () => {
     });
   });
 
-  it("names the storage's status and code for a refusal", () => {
+  it("names the storage's status and code for a refusal, and restarts it with a new URL", () => {
+    // The same signed request would be refused the same way.
     expect(
-      failureOf(new StorageUploadError("rejected", 403, "AccessDenied"))
-        .message,
-    ).toBe(
-      "Penyimpanan menolak berkas ini (HTTP 403, AccessDenied). Coba lagi.",
-    );
-    expect(failureOf(new StorageUploadError("rejected", 400))).toMatchObject({
-      step: "upload",
-      message: "Penyimpanan menolak berkas ini (HTTP 400). Coba lagi.",
+      failureOf(new StorageUploadError("rejected", 403, "AccessDenied")),
+    ).toEqual({
+      step: "start",
+      message:
+        "Penyimpanan menolak berkas ini (HTTP 403, AccessDenied). Coba lagi untuk meminta tautan baru.",
       retryable: true,
+      forgetImage: false,
+    });
+    expect(failureOf(new StorageUploadError("rejected", 400))).toMatchObject({
+      step: "start",
+      message:
+        "Penyimpanan menolak berkas ini (HTTP 400). Coba lagi untuk meminta tautan baru.",
+      retryable: true,
+    });
+  });
+
+  it.each([
+    ["a 5xx", new StorageUploadError("unavailable", 503)],
+    ["a dropped connection", new StorageUploadError("network")],
+  ])("sends the file again with the same URL after %s", (_name, error) => {
+    expect(failureOf(error)).toMatchObject({
+      step: "upload",
+      retryable: true,
+      forgetImage: false,
     });
   });
 
