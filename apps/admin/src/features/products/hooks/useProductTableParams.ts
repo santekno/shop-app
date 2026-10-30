@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import {
   nextProductTableParams,
@@ -26,28 +26,52 @@ interface UpdateOptions {
  *   did (each filter, sort or page is a history entry);
  * - a reload keeps the table as it was.
  *
- * The URL is the single source: `params` is read from it on every render
- * (memoised on the query string), and `update` writes a new query string,
- * which React Router turns into a new render. Nothing is copied into
- * state, so the two can never disagree.
+ * The URL is the source: `params` is read from it (memoised on the query
+ * string), and `update` writes a new query string, which React Router
+ * turns into a new render.
+ *
+ * With one short-lived exception, the change on its way. React Router
+ * navigates inside a transition (React's startTransition), so the new URL
+ * reaches the page a moment after the click, as a non-urgent render. A
+ * controlled checkbox or select whose value came only from the URL would
+ * meanwhile be put back to the old value by React (the click's own render
+ * still sees the old URL), and then flip again: a visible flicker, and a
+ * test's `check()` that sees the box unchecked. So `update` also sets
+ * `pending`, an urgent state the controls show at once, and every new URL
+ * replaces it ("storing information from previous renders", React's
+ * documented alternative to an effect). `pending` never outlives the next
+ * URL, so the URL stays the truth: Back, a link or a reload win.
  *
  * `update(change)` merges the change into the current state with
  * nextProductTableParams (any change but the page goes back to page 1).
  */
 export const useProductTableParams = () => {
   const [searchParams, setSearchParams] = useSearchParams();
-  const params = useMemo(
+  const fromUrl = useMemo(
     () => readProductTableParams(searchParams),
     [searchParams],
   );
+
+  // The change on its way to the URL (null when the URL is current), and
+  // the URL's state it was made against.
+  const [pending, setPending] = useState<ProductTableParams | null>(null);
+  const [seen, setSeen] = useState(fromUrl);
+  if (fromUrl !== seen) {
+    // A new URL arrived (ours, or Back, or a link): it wins.
+    setSeen(fromUrl);
+    setPending(null);
+  }
 
   const update = useCallback(
     (
       change: Partial<ProductTableParams>,
       { replace = false }: UpdateOptions = {},
     ) => {
-      // The functional form reads the query string as it is now, not as
-      // it was at this render: two updates in a row both count.
+      // Both functional forms read the state as it is now, not as it was
+      // at this render: two updates in a row both count.
+      setPending((current) =>
+        nextProductTableParams(current ?? fromUrl, change),
+      );
       setSearchParams(
         (current) =>
           productTableSearchParams(
@@ -56,8 +80,8 @@ export const useProductTableParams = () => {
         { replace },
       );
     },
-    [setSearchParams],
+    [fromUrl, setSearchParams],
   );
 
-  return { params, update };
+  return { params: pending ?? fromUrl, update };
 };
