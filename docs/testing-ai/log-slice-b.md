@@ -371,7 +371,7 @@ storefront's async queries 3 s; no assertion changed. Two consecutive
 
 ## Bugs found in slice B (kept out of the commits)
 
-1. **`invalidateOrderQueries` leaves an inactive query that was fetching
+1. **FIXED by ec11b315.** **`invalidateOrderQueries` left an inactive query that was fetching
    un-invalidated** — apps/admin/src/features/orders/api/queries.ts:104-122
    (`invalidateWithoutCancelling`). For an active query the first
    `invalidateQueries(…, { cancelRefetch: false })` joins the running
@@ -387,3 +387,18 @@ storefront's async queries 3 s; no assertion changed. Two consecutive
    refetch. Likely fix: for each running query, wait for its fetch
    (`query.promise`) before the second invalidation. Owner:
    frontend-engineer.
+
+   **After the fix (ec11b315):** the repro is now a committed test
+   (`calls` stays 1, `isInvalidated` true after `await running; await
+done`), plus a failing running fetch (`done` resolves, no refetch,
+   still invalidated) and "does not settle before the inactive query's
+   fetch is answered". Mutants on the new `query.promise` wait:
+
+   | Mutation                                              | Result |
+   | ----------------------------------------------------- | ------ |
+   | `await done` removed (the wait on the running fetch)  | KILLED |
+   | `done: undefined` (the promise not captured)          | KILLED |
+   | `done: query.promise` (a failure no longer swallowed) | KILLED |
+
+   3 tried, 3 killed by the first draft. The draft that found the bug
+   was the right test all along; it only had to wait for the fix.
