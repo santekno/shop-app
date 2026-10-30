@@ -5,7 +5,7 @@
 # in the integration gate a skip means "nothing was tested" and must not pass
 # as green.
 #
-# usage: scripts/no-skips.sh go test -tags=integration -count=1 -json ./...
+# usage: scripts/no-skips.sh go test -tags=integration -count=1 -timeout 30m -json ./...
 #        scripts/no-skips.sh --self-test   (pass, skip, fail, build failure,
 #                                           unwritable log and missing -json,
 #                                           with jq and without)

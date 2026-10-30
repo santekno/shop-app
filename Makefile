@@ -141,14 +141,18 @@ ifneq ($(HAS_PNPM),)
 endif
 	@echo "test-unit: ok"
 
+# The integration package runs for 10 to 13 minutes on a loaded machine, past
+# go test's default -timeout of 10m, which would kill it mid-run; 30m leaves
+# headroom without letting a hung test block the gate forever. The e2e specs
+# drive both browser apps, so both containers start.
 test-integration: $(if $(HAS_PNPM),$(PNPM_INSTALLED)) ## Integration and e2e tests against the Compose stack; fails on any skipped test
 	./scripts/no-skips.sh --self-test
 ifneq ($(HAS_API),)
 	$(COMPOSE) up -d --wait --build postgres redis storage api worker
-	cd $(API) && $(IT_ENV) ../../scripts/no-skips.sh go test -tags=integration -count=1 -json ./...
+	cd $(API) && $(IT_ENV) ../../scripts/no-skips.sh go test -tags=integration -count=1 -timeout 30m -json ./...
 endif
 ifneq ($(HAS_PNPM),)
-	$(COMPOSE) up -d --wait --build web
+	$(COMPOSE) up -d --wait --build web admin
 	$(if $(HAS_API),$(MAKE) --no-print-directory seed)
 	GOSHOP_COMPOSE='$(COMPOSE)' pnpm -r --if-present run test:e2e
 endif
