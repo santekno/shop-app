@@ -152,15 +152,20 @@ test("a guest cart is merged into the buyer's cart at login", async ({
     .getByRole("button", { name: "Tambah ke keranjang" })
     .click();
   await expect(cartLink).toHaveAccessibleName("Keranjang 1 barang");
-  const guestToken = await page.evaluate(
-    () =>
-      (
-        JSON.parse(window.localStorage.getItem("goshop:cart") ?? "{}") as {
-          state?: { token?: string };
-        }
-      ).state?.token,
-  );
-  expect(guestToken).toBeTruthy();
+  // The badge can count the line a moment before the store has written
+  // the new cart's token to localStorage: wait for the token, which is
+  // what the merge below needs.
+  const storedToken = () =>
+    page.evaluate(
+      () =>
+        (
+          JSON.parse(window.localStorage.getItem("goshop:cart") ?? "{}") as {
+            state?: { token?: string };
+          }
+        ).state?.token,
+    );
+  await expect.poll(storedToken).toBeTruthy();
+  const guestToken = await storedToken();
 
   await page.goto("/masuk");
   await page.getByLabel("Email").fill(account.email);
