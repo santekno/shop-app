@@ -87,13 +87,19 @@ help: ## List targets
 doctor: ## Check that the required tools are installed
 	./scripts/check-tools.sh
 
+# The browser apps bake the API's public URL in at build time: the
+# storefront (Next.js, NEXT_PUBLIC_API_URL) and, from Bab 12, the admin
+# dashboard (Vite, VITE_API_URL), whose build refuses to run without one.
+# Both default to the local API.
 build: $(if $(HAS_PNPM),$(PNPM_INSTALLED)) ## Compile and type-check every app present
 ifneq ($(HAS_API),)
 	cd $(API) && go build -o bin/ ./...
 endif
 ifneq ($(HAS_PNPM),)
 	pnpm -r --if-present run typecheck
-	NEXT_PUBLIC_API_URL=$${NEXT_PUBLIC_API_URL:-http://localhost:8080} pnpm -r --if-present run build
+	NEXT_PUBLIC_API_URL=$${NEXT_PUBLIC_API_URL:-http://localhost:8080} \
+		VITE_API_URL=$${VITE_API_URL:-http://localhost:8080} \
+		pnpm -r --if-present run build
 endif
 	@echo "build: ok"
 
@@ -159,6 +165,8 @@ docs-api: ## Render api/openapi.yaml to static HTML in dist/api-docs/
 	$(REDOCLY) build-docs api/openapi.yaml --output $(API_DOCS) --title "GoShop API"
 	@echo "docs-api: open $(API_DOCS)"
 
+# The compose file passes each browser app its build argument (web:
+# NEXT_PUBLIC_API_URL, admin: VITE_API_URL), with the local API as default.
 docker-build: ## Build every service image the compose file defines
 	$(COMPOSE) build
 	@echo "docker-build: ok"

@@ -78,6 +78,18 @@ A variable that a chapter does not use yet may stay empty. When a chapter starts
 
 When `POSTGRES_DSN` or `REDIS_ADDR` is missing, testx skips the test, and the gate fails on any skipped test.
 
+### Admin dashboard (Bab 12)
+
+The admin dashboard (`apps/admin`, the `admin` service of `make up` on `http://localhost:5174`) is static files served by Caddy, so it reads none of the API's variables. Its own settings:
+
+| Variable | Kind | Description | Default under `make up` |
+|---|---|---|---|
+| `VITE_API_URL` | build argument (`apps/admin/Dockerfile`) | The API's public URL, as the browser reaches it. Vite writes it into the JavaScript bundle and the Dockerfile writes its origin into the CSP's `connect-src`, so the two always name the same API. Public, never a secret; another API means another image. The build fails without it. `make build` defaults it to `http://localhost:8080`, and `pnpm dev` uses that URL when it is unset. | `http://localhost:8080` |
+| `IMAGE_ORIGIN` | run time (Caddy) | Origin(s) the product photos load from, for the CSP's `img-src`: the origin of `S3_PRESIGN_ENDPOINT` (or of `S3_PUBLIC_URL`). The same variable as the storefront's. Empty blocks the photos, nothing else. | `S3_PRESIGN_ENDPOINT`, else `http://localhost:8333` |
+| `UPLOAD_ORIGIN` | run time (Caddy) | Origin(s) the browser uploads photos to with presigned `PUT`s, for the CSP's `connect-src`: the origin of `S3_PRESIGN_ENDPOINT`. Empty blocks uploads, nothing else. | `S3_PRESIGN_ENDPOINT`, else `http://localhost:8333` |
+
+`PORT` (default `8080`) is where Caddy listens, as for every service. The dashboard's origin must also be in the API's `APP_CORS_ALLOWED_ORIGINS`.
+
 ## Development, staging and production
 
 | | Development | Staging | Production |
