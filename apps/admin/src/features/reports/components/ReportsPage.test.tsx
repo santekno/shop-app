@@ -11,6 +11,7 @@ import { server } from "@/test/msw/server.ts";
 import { renderRoute } from "@/test/render.tsx";
 import { stubSizedResizeObserver } from "@/test/resize-observer.ts";
 import { plain } from "@/test/text.ts";
+import { reportKeys } from "../api/queries.ts";
 import { addDays, jakartaToday } from "../report-params.ts";
 import { chartSummary } from "../report-summary.ts";
 import { ReportsPage } from "./ReportsPage.tsx";
@@ -220,6 +221,97 @@ describe("ReportsPage", () => {
     );
 
     expect(await loaded()).toBeInTheDocument();
+  });
+
+  describe("when a refetch fails with a report on screen", () => {
+    const STALE = "Laporan tidak bisa diperbarui";
+    const staleLine = () =>
+      screen
+        .queryAllByRole("status")
+        .find((status) => status.textContent.includes(STALE));
+    const theStaleLine = () => {
+      const line = staleLine();
+      if (line === undefined) throw new Error("no stale line");
+      return line;
+    };
+
+    /** The page loaded, then a refetch in the background (an order event). */
+    const loadedThenFailed = async (answers: (() => Response)[]) => {
+      let calls = 0;
+      const view = renderPage("/laporan", () => {
+        const answer = answers[calls] ?? answers[answers.length - 1];
+        calls += 1;
+        if (answer === undefined) throw new Error("no answer");
+        return answer();
+      });
+      await loaded();
+      await act(() =>
+        view.queryClient.refetchQueries({ queryKey: reportKeys.all }),
+      );
+      await waitFor(() => {
+        expect(calls).toBe(2);
+        expect(screen.getByRole("button", { name: "Coba lagi" })).toBeEnabled();
+      });
+      return { ...view, calls: () => calls };
+    };
+
+    it("keeps the report, with a line saying it may be behind instead of the error card", async () => {
+      await loadedThenFailed([
+        () => salesReportResponse(salesReport()),
+        () => errorResponse(500, "INTERNAL_ERROR"),
+      ]);
+
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(
+        screen.getByRole("region", { name: "Pendapatan per hari" }),
+      ).toBeInTheDocument();
+      expect(plain(staleLine()?.textContent)).toBe(
+        "Laporan tidak bisa diperbarui; yang tampil adalah laporan terakhir yang berhasil dimuat. Terjadi kesalahan saat memuat data. Coba lagi.Coba lagi",
+      );
+    });
+
+    it("loads again from the line's Coba lagi, and drops the line once it works", async () => {
+      const userEvents = userEvent.setup();
+      const { calls } = await loadedThenFailed([
+        () => salesReportResponse(salesReport()),
+        () => errorResponse(500, "INTERNAL_ERROR"),
+        () =>
+          salesReportResponse(
+            salesReport({ series: [period("2026-10-30", 7)] }),
+          ),
+      ]);
+      await userEvents.click(
+        within(theStaleLine()).getByRole("button", { name: "Coba lagi" }),
+      );
+
+      await waitFor(() => {
+        expect(staleLine()).toBeUndefined();
+      });
+      expect(calls()).toBe(3);
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+
+    it("shows the error card for a new range that fails, with no report for it", async () => {
+      const userEvents = userEvent.setup();
+      let calls = 0;
+      renderPage("/laporan", () => {
+        calls += 1;
+        return calls === 1
+          ? salesReportResponse(salesReport())
+          : errorResponse(500, "INTERNAL_ERROR");
+      });
+      await loaded();
+
+      await userEvents.click(screen.getByRole("radio", { name: "7 hari" }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        "Terjadi kesalahan saat memuat data. Coba lagi.",
+      );
+      expect(staleLine()).toBeUndefined();
+      expect(
+        screen.queryByRole("region", { name: "Pendapatan per hari" }),
+      ).toBeNull();
+    });
   });
 
   describe("the controls", () => {
