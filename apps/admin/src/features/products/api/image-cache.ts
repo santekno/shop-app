@@ -6,7 +6,8 @@ import { productKeys } from "./queries.ts";
  * The product's photos live in its detail query (`images` of GET
  * /v1/admin/products/{id}), the one the edit page already has. Every photo
  * request answers the photo it changed, so the cache is updated from that
- * answer instead of refetching the whole product. The table's thumbnail
+ * answer instead of refetching the whole product, after cancelling a
+ * detail refetch that may be on its way. The table's thumbnail
  * comes from the first ready photo, so every change also marks the table
  * stale (it refetches the next time it is on screen).
  */
@@ -16,6 +17,14 @@ const changeImages = (
   productId: string,
   change: (images: AdminProductImage[]) => AdminProductImage[],
 ) => {
+  // A refetch on its way (the processing poll, the window regaining the
+  // focus) may have read the product before this answer: cancelled
+  // first, or its older copy would land over this change. Not awaited:
+  // the cancel takes effect at once (the fetch's answer is dropped and the
+  // query is put back as it was before that fetch), and a write by hand
+  // also becomes what a cancel puts back, so setQueryData can follow
+  // straight away and the callers stay synchronous.
+  void queryClient.cancelQueries({ queryKey: productKeys.detail(productId) });
   queryClient.setQueryData<AdminProduct>(
     productKeys.detail(productId),
     (product) =>

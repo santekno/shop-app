@@ -257,10 +257,10 @@ const BROKEN_FILE_REASONS: Readonly<Record<string, string>> = {
  * Why step `step` failed, in Indonesian, and what a retry should do.
  *
  * The storage's failures (StorageUploadError) and the API's (ApiError)
- * meet here. Most of them are worth a retry: an expired URL gets a new one
- * (`step: "start"`; the hook deletes the old pending photo first), a
- * dropped connection sends the file again with the same URL while it is
- * valid. A file the API decoded and found broken is not: the same bytes
+ * meet here. Most of them are worth a retry: an expired URL, or one the
+ * storage refused (a 4xx), gets a new one (`step: "start"`; the hook
+ * deletes the old pending photo first), a dropped connection or a 5xx
+ * sends the file again with the same URL while it is valid. A file the API decoded and found broken is not: the same bytes
  * would fail again.
  */
 export const uploadFailure = (
@@ -285,8 +285,13 @@ export const uploadFailure = (
           "start",
         );
       case "rejected":
+        // A 4xx that is not expiry (a signature mismatch, a bucket
+        // policy): the same signed request would be refused the same way,
+        // so a retry starts over with a new URL, like an expired one.
         return failure(
-          `Penyimpanan menolak berkas ini (HTTP ${error.status}${error.storageCode === undefined ? "" : `, ${error.storageCode}`}). Coba lagi.`,
+          `Penyimpanan menolak berkas ini (HTTP ${error.status}${error.storageCode === undefined ? "" : `, ${error.storageCode}`}). Coba lagi untuk meminta tautan baru.`,
+          true,
+          "start",
         );
       case "unavailable":
         return failure(
