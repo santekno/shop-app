@@ -14,7 +14,9 @@ import (
 )
 
 // fakeRedis is a tiny in-process server that speaks enough RESP2 for the
-// adapters: PING, GET, SET (with PX/EX/NX), DEL, INCR, EXPIRE and PTTL.
+// adapters: PING, GET, SET (with PX/EX/NX), DEL, INCR, EXPIRE and PTTL,
+// plus SUBSCRIBE (confirmed, nothing is ever delivered) and PUBLISH
+// (recorded, nobody listening) for the admin feed.
 // It listens on loopback so go-redis talks to it exactly as to Redis, but
 // no Redis is needed. Everything else (HELLO, CLIENT ...) answers like an
 // old Redis would, so go-redis falls back to RESP2.
@@ -103,7 +105,9 @@ func (f *fakeRedis) reply(args []string) string {
 	switch cmd {
 	case "HELLO":
 		return "-ERR unknown command 'HELLO'\r\n"
-	case "PING", "GET", "SET", "DEL", "INCR", "EXPIRE", "PTTL", "SETNX":
+	case "SUBSCRIBE":
+		return "*3\r\n" + bulk("subscribe") + bulk(args[1]) + ":1\r\n"
+	case "PING", "GET", "SET", "DEL", "INCR", "EXPIRE", "PTTL", "SETNX", "PUBLISH":
 	default:
 		return "+OK\r\n" // CLIENT SETINFO and friends
 	}
@@ -117,6 +121,8 @@ func (f *fakeRedis) reply(args []string) string {
 	switch cmd {
 	case "PING":
 		return "+PONG\r\n"
+	case "PUBLISH":
+		return ":0\r\n"
 	case "GET":
 		v, ok := f.values[args[1]]
 		if !ok {
