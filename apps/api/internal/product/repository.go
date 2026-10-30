@@ -175,6 +175,7 @@ func (r *PostgresRepository) GetAdmin(ctx context.Context, id string) (AdminProd
 		Name:        row.Name,
 		Description: row.Description,
 		Status:      row.Status,
+		Version:     row.Version,
 		CreatedAt:   row.CreatedAt,
 		UpdatedAt:   row.UpdatedAt,
 		Variants:    make([]AdminVariant, 0, len(variants)),
@@ -220,18 +221,27 @@ func (r *PostgresRepository) Create(ctx context.Context, in Input) (string, erro
 	return id, nil
 }
 
-// Update saves the product with id and its variants in one transaction: a
-// variant with an ID is updated if its Version is still current, one
-// without is added, and a sellable variant missing from in.Variants is
-// archived. It returns ErrNotFound for an unknown product,
-// ErrUnknownVariant for a variant ID that is not a sellable variant of it,
-// and a *VersionConflictError when a variant changed since it was read.
+// Update saves the product with id and its variants in one transaction,
+// if in.Version is still the product's version: a variant with an ID is
+// updated if its Version is still current, one without is added, and a
+// sellable variant missing from in.Variants is archived. It returns
+// ErrNotFound for an unknown product, a *StaleProductError when
+// the product changed since it was read (checked first, before anything
+// is written, so a variant another admin added is never archived),
+// ErrUnknownVariant for a variant ID that is not a sellable variant of
+// it, and a *VersionConflictError when a variant changed since it was
+// read.
 func (r *PostgresRepository) Update(ctx context.Context, id string, in Input) error {
 	return database.WithTx(ctx, r.db, func(q *sqlc.Queries) error {
-		if _, err := q.LockProduct(ctx, id); errors.Is(err, sql.ErrNoRows) {
+		version, err := q.LockProduct(ctx, id)
+		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound
-		} else if err != nil {
+		}
+		if err != nil {
 			return fmt.Errorf("lock product: %w", err)
+		}
+		if version != in.Version {
+			return &StaleProductError{ProductID: id}
 		}
 		// Then all its variants, in id order, before writing any of them
 		// in the form's order (ADR 0006, "Lock order").

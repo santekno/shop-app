@@ -168,13 +168,26 @@ export interface paths {
          *     history, never deleted; its SKU stays taken). Everything runs in one
          *     transaction that also recomputes `price_from`.
          *
-         *     **Optimistic locking (Bab 5, ADR 0006):** every existing variant
-         *     must carry the `version` it was loaded with (`GET
-         *     /v1/admin/products/{id}`). If anything changed the variant since (a
-         *     checkout took stock, another admin saved), nothing is saved and the
-         *     answer is 409 `VERSION_CONFLICT` naming the variant: reload and save
-         *     again. Without the check, a form that stayed open would overwrite
-         *     the stock buyers had just taken.
+         *     **Optimistic locking (Bab 5 and 12, ADR 0006):** the body must carry
+         *     the product's `version`, and every existing variant the `version` it
+         *     was loaded with (`GET /v1/admin/products/{id}`). Nothing is saved,
+         *     and the answer is 409 `VERSION_CONFLICT`, when:
+         *
+         *     - the product changed since (another admin's save, which may also
+         *       have added or archived variants, or an archive):
+         *       `details.product_id`. Checked first, before any variant is
+         *       written, so a variant another admin added is never archived by a
+         *       form that never saw it;
+         *     - a variant changed since (a checkout or a cancel moved its stock,
+         *       a stock adjustment, another save): `details.variant_id`, the
+         *       first stale variant in the body's order (there may be more).
+         *
+         *     Reload and save again. Without the checks, a form that stayed open
+         *     would overwrite the stock buyers had just taken, or another admin's
+         *     name, price or variants. Stock changes never move the product's
+         *     `version`, only the variant's.
+         *
+         *     A body without `version` is 400 `VALIDATION_FAILED` (`version`).
          */
         put: operations["updateProduct"];
         post?: never;
@@ -184,7 +197,9 @@ export interface paths {
          *     takes the product off the storefront. Nothing is deleted: orders
          *     keep pointing at the product and its variants, and saving it again
          *     with another status restores it. Archiving an archived product
-         *     answers 204 as well.
+         *     answers 204 as well. Every archive bumps the product's `version`, so
+         *     a form still open on it gets 409 on its next save instead of
+         *     putting the product back on sale.
          */
         delete: operations["archiveProduct"];
         options?: never;
@@ -1471,6 +1486,8 @@ export interface components {
         };
         /** @description A product as the admin writes it. */
         ProductWrite: {
+            /** @description Required by `PUT`, ignored by `POST`. The product's `version` as the form loaded it (`AdminProduct.version`); a stale one is 409 `VERSION_CONFLICT` with `details.product_id`. */
+            version?: number;
             /** Format: uuid */
             category_id: string;
             /** @example kaos-polos-hitam */
@@ -1534,6 +1551,8 @@ export interface components {
             status: "draft" | "active" | "archived";
             /** @description Price of the cheapest sellable variant, or `null` when the product has none. */
             price_from: components["schemas"]["Money"] | null;
+            /** @description The product's own version (Bab 12). Changes with every admin save of the product (its fields, adding or archiving variants) and every archive; never with stock or photos, which move only a variant's `version` or nothing. Send it back with `PUT`. */
+            version: number;
             /** @description The sellable (non-archived) variants, cheapest first. */
             variants: components["schemas"]["AdminVariant"][];
             /** @description Every photo in order, pending uploads included (at most 10). */
@@ -2257,7 +2276,7 @@ export interface components {
             };
         };
         /**
-         * @description Another product already has the slug (`SLUG_TAKEN`), a variant anywhere in the store, archived ones included, already has one of the SKUs (`SKU_TAKEN`), or (on `PUT`) a variant changed since its `version` was read (`VERSION_CONFLICT`, `details.variant_id`; reload and save again).
+         * @description Another product already has the slug (`SLUG_TAKEN`), a variant anywhere in the store, archived ones included, already has one of the SKUs (`SKU_TAKEN`), or (on `PUT`) the product changed since its `version` was read (`VERSION_CONFLICT`, `details.product_id`) or a variant did (`VERSION_CONFLICT`, `details.variant_id`, the first stale one); reload and save again.
          *
          *     Known Bab 3 limitation: within one save, each variant's SKU is checked when that variant is written, so swapping the SKUs of two variants, or giving one variant the SKU another variant of the same product has right now, answers 409 `SKU_TAKEN`. Save twice instead, through a temporary SKU.
          */

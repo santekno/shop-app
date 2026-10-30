@@ -129,6 +129,7 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 // Anything it does not know stays as it is and becomes a 500.
 func toHTTPError(err error) error {
 	var versionErr *VersionConflictError
+	var productVersionErr *StaleProductError
 	switch {
 	case errors.Is(err, ErrNotFound):
 		return httpapi.NotFoundError("product not found")
@@ -140,6 +141,12 @@ func toHTTPError(err error) error {
 		return conflict(CodeSlugTaken, "another product already uses this slug", "slug")
 	case errors.Is(err, ErrSKUTaken):
 		return conflict(CodeSKUTaken, "a variant with one of these SKUs already exists", "variants")
+	case errors.As(err, &productVersionErr):
+		// details names the product, where a variant's conflict names the
+		// variant: the client tells the two apart by the key.
+		return errx.New(CodeVersionConflict, "the product changed since you loaded it (another save or an archive); reload it and save again").
+			WithHTTPStatus(http.StatusConflict).
+			WithDetails(map[string]any{"product_id": productVersionErr.ProductID})
 	case errors.As(err, &versionErr):
 		return errx.New(CodeVersionConflict, "a variant changed since you loaded it (a sale or another save); reload the product and save again").
 			WithHTTPStatus(http.StatusConflict).

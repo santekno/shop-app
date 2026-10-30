@@ -105,15 +105,19 @@ ORDER BY v.price, v.position, v.id;
 -- Admin reads and writes (sellers and admins only, from Bab 4).
 
 -- name: GetProduct :one
--- Any product, whatever its status.
-SELECT id, category_id, slug, name, description, status, price_from, created_at, updated_at
+-- Any product, whatever its status, with the version a save must send
+-- back.
+SELECT id, category_id, slug, name, description, status, price_from, version, created_at, updated_at
 FROM products
 WHERE id = @id;
 
 -- name: LockProduct :one
 -- Locks the product row for the rest of the transaction, so two admin saves
--- of the same product run one after the other and price_from stays right.
-SELECT id
+-- of the same product run one after the other and price_from stays right,
+-- and returns its version: the save compares it with the one its form
+-- loaded before it writes anything (Bab 12). Locked, it cannot change
+-- before the save's UpdateProduct bumps it.
+SELECT version
 FROM products
 WHERE id = @id
 FOR UPDATE;
@@ -152,7 +156,9 @@ VALUES (@id, @category_id, @slug, @name, @description, 'draft', NULL);
 -- name: UpdateProduct :execrows
 -- Writes the product's fields and recomputes price_from from its sellable
 -- variants in the same statement, so the price_from CHECK sees the final
--- status and price together. Every product write ends with this query.
+-- status and price together. Every product write ends with this query,
+-- and bumps the product's version: its fields or its variant set may have
+-- changed (a new product ends at version 1).
 UPDATE products
 SET category_id = @category_id,
     slug        = @slug,
@@ -161,6 +167,7 @@ SET category_id = @category_id,
     status      = @status,
     price_from  = (SELECT min(v.price) FROM product_variants v
                    WHERE v.product_id = products.id AND v.archived_at IS NULL),
+    version     = version + 1,
     updated_at  = now()
 WHERE products.id = @id;
 
@@ -198,10 +205,12 @@ WHERE id = @id AND product_id = @product_id AND archived_at IS NULL;
 -- this file, not by a trigger, so each write shows it.
 
 -- name: ArchiveProduct :execrows
--- Takes the product off the storefront. Archiving it again changes nothing
--- but updated_at. Zero rows: there is no such product.
+-- Takes the product off the storefront and bumps its version, so a form
+-- still open on it cannot save it back to active by accident. Archiving
+-- it again changes nothing but updated_at and the version. Zero rows:
+-- there is no such product.
 UPDATE products
-SET status = 'archived', updated_at = now()
+SET status = 'archived', version = version + 1, updated_at = now()
 WHERE id = @id;
 
 -- name: ArchiveVariantsNotIn :exec

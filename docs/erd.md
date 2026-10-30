@@ -28,6 +28,7 @@ Every column is `NOT NULL` unless the diagram says `nullable`.
 | Bab 6 | `000018_index_refresh_tokens_expires_at` | `refresh_tokens_expires_at_idx`, for the expired-token cleanup. Not `CONCURRENTLY` as ADR 0005 asked: it deadlocks with a second `api migrate` waiting on golang-migrate's advisory lock (the migration says how to build it by hand on a big table) |
 | Bab 6 | `000019_create_event_deliveries` | `event_deliveries (event_id, consumer)`: which consumer handled which outbox event; `outbox_events_published_idx` (partial) for deleting published events after 7 days |
 | Bab 6 | `000020_index_orders_paid_at` | `orders_paid_at_idx (paid_at) INCLUDE (id, total) WHERE status IN ('paid', 'processing', 'shipped', 'completed')`, for the sales report |
+| Bab 12 | `000021_add_products_version` | `products.version` (`integer NOT NULL DEFAULT 0`, `products_version_check >= 0`): the product's own optimistic lock, bumped by every admin save and archive, never by stock. Existing products get 0 from the default |
 
 Two choices made while building it:
 
@@ -103,6 +104,7 @@ erDiagram
         text description "default empty"
         text status "draft, active, archived"
         bigint price_from "nullable, cheapest sellable variant"
+        integer version "optimistic lock of the product, Bab 12"
         tsvector search "generated, full-text"
         timestamptz created_at
         timestamptz updated_at
@@ -400,6 +402,7 @@ Bab 5 teaches both techniques; the columns above make them possible.
   Bab 5 locks them `FOR NO KEY UPDATE OF v`, which does not block the `FOR KEY SHARE` that another buyer's new cart line takes on the same variant. **Every** path that locks several variants takes them in id order: checkout, cancel, expiry, account deletion, and the admin product save, which locks the product and then all its variants in id order before it writes them in the form's order ([ADR 0006](adr/0006-cart-checkout-orders.md), "Lock order").
   `FOR UPDATE OF v` locks the variant rows only, not the product row, so the product can still change status while the checkout runs; Bab 5 decides how checkout handles that.
 - **Optimistic locking.** The admin dashboard updates stock with `UPDATE product_variants SET stock = $new, version = version + 1 WHERE id = $id AND version = $v`; zero rows means someone else changed it first, and the seller reloads (409 `VERSION_CONFLICT`).
+- **The product has a version too (Bab 12).** `products.version` guards what no variant's version covers: the product's own fields and its set of sellable variants. A save locks the product (`LockProduct` returns its version), compares it with the one the form loaded before it writes anything, and ends with `UpdateProduct`, which bumps it; an archive bumps it as well. Stock never moves it (checkouts, cancels and stock adjustments bump the variant's version only), so a sale does not invalidate every open form on the product, only the ones that would write that variant.
 - **Which path uses which** ([ADR 0006](adr/0006-cart-checkout-orders.md)): checkout and cancel take row locks (a short queue, then the true stock); an admin form, open for minutes, uses the version check.
 - **`FOR NO KEY UPDATE OF v` and the product's status.** Checkout does not lock the product row (an admin save locks the product first and the variants second; locking both from checkout could deadlock with it). The guarded decrement re-reads `p.status = 'active'` when it runs, so an archive committed before it makes the line unavailable; an archive that commits after it does not undo an order that was already valid.
 - **Idempotent stock restore.** Cancelling first runs a guarded transition and restores stock only when it returns a row:
