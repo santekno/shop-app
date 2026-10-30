@@ -60,17 +60,21 @@ const FIELD_LABELS: Record<MergeField["field"], string> = {
 const DESCRIPTION_PREVIEW = 120;
 
 /**
- * What happened on the server, by the 409's cause. The API checks the
- * product's version first, so a conflict on one variant means only its
- * stock moved: any admin save would have moved the product's version.
+ * What happened on the server, by the 409's cause, and why that refused
+ * the save. The API checks the product's version first, so a conflict on
+ * one variant means only its stock moved: any admin save would have moved
+ * the product's version. VARIANT_ARCHIVED is not a race (an archive by
+ * another admin moves the product's version, so it is a product
+ * conflict): the form sent a variant that was already archived, from a
+ * copy of the variants older than the product's version it sent.
  */
 const CAUSE_TEXT: Record<ConflictCause["kind"], string> = {
   product:
-    "Sementara Anda mengubah formulir, admin lain menyimpan atau mengarsipkan produk ini: isiannya, harganya, atau daftar variannya (varian ditambah atau diarsipkan).",
+    "Sementara Anda mengubah formulir, admin lain menyimpan atau mengarsipkan produk ini: isiannya, harganya, atau daftar variannya (varian ditambah atau diarsipkan). Menyimpan formulir Anda apa adanya akan menimpa perubahan itu, jadi server menolaknya.",
   variant:
-    "Sementara Anda mengubah formulir, stok varian di bawah berubah di server: pembelian menguranginya, pesanan yang dibatalkan mengembalikannya, atau stok diubah lewat panel Stok.",
+    "Sementara Anda mengubah formulir, stok varian di bawah berubah di server: pembelian menguranginya, pesanan yang dibatalkan mengembalikannya, atau stok diubah lewat panel Stok. Menyimpan formulir Anda apa adanya akan menimpa perubahan itu, jadi server menolaknya.",
   archived:
-    "Sementara Anda mengubah formulir, varian yang masih ada di formulir Anda diarsipkan di server, jadi tidak dapat disimpan lagi.",
+    "Formulir Anda masih memuat varian yang di server sudah diarsipkan. Varian yang diarsipkan tidak dapat disimpan lagi, jadi server menolak penyimpanan ini.",
 };
 
 /**
@@ -105,9 +109,6 @@ export function ProductConflictReview({
 }: ProductConflictReviewProps) {
   const headingId = useId();
   const headingRef = useRef<HTMLHeadingElement>(null);
-  const alertRef = useRef<HTMLParagraphElement>(null);
-  const [choices, setChoices] = useState<Record<string, MergeChoice>>({});
-  const [missing, setMissing] = useState<string[]>([]);
   const categories = useCategoryOptions();
 
   useEffect(() => {
@@ -150,22 +151,54 @@ export function ProductConflictReview({
     }
   };
 
-  if (state.status !== "ready") {
-    return (
-      <div className="grid gap-4">
-        <h2 ref={headingRef} id={headingId} tabIndex={-1}>
-          Produk ini berubah sejak Anda membukanya
-        </h2>
-        {state.status === "loading" ? (
-          <LoadingState>Memuat data terbaru dari server…</LoadingState>
-        ) : (
-          <ErrorState error={state.error} onRetry={onRetry} />
-        )}
-      </div>
-    );
-  }
+  return (
+    <section aria-labelledby={headingId} className="grid gap-6">
+      {/*
+        One heading, in one place, for every state: it takes the focus when
+        the review opens (while it loads), and only what is under it
+        changes. A second heading for "ready" would be a new element, and
+        the focus would fall to <body>.
+      */}
+      <h2 ref={headingRef} id={headingId} tabIndex={-1}>
+        Produk ini berubah sejak Anda membukanya
+      </h2>
+      {state.status === "loading" ? (
+        <LoadingState>Memuat data terbaru dari server…</LoadingState>
+      ) : state.status === "error" ? (
+        <ErrorState error={state.error} onRetry={onRetry} />
+      ) : (
+        <ConflictReviewBody
+          merge={state.merge}
+          cause={cause}
+          display={display}
+          onKeepMine={onKeepMine}
+          onDiscard={onDiscard}
+        />
+      )}
+    </section>
+  );
+}
 
-  const { merge } = state;
+interface ConflictReviewBodyProps {
+  merge: ProductMerge;
+  cause: ConflictCause;
+  display: (field: MergeField["field"], value: string) => string;
+  onKeepMine: (choices: Record<string, MergeChoice>) => void;
+  onDiscard: () => void;
+}
+
+/** The ready review: what changed, the choices, and the two ways on. */
+function ConflictReviewBody({
+  merge,
+  cause,
+  display,
+  onKeepMine,
+  onDiscard,
+}: ConflictReviewBodyProps) {
+  const alertRef = useRef<HTMLParagraphElement>(null);
+  const [choices, setChoices] = useState<Record<string, MergeChoice>>({});
+  const [missing, setMissing] = useState<string[]>([]);
+
   const changes = serverChangeCount(merge);
   const conflictCount = [
     ...merge.info,
@@ -204,15 +237,10 @@ export function ProductConflictReview({
   };
 
   return (
-    <section aria-labelledby={headingId} className="grid gap-6">
+    <>
       <div className="grid gap-2">
-        <h2 ref={headingRef} id={headingId} tabIndex={-1}>
-          Produk ini berubah sejak Anda membukanya
-        </h2>
         <p>
-          <strong>Belum ada yang tersimpan.</strong> {CAUSE_TEXT[cause.kind]}{" "}
-          Menyimpan formulir Anda apa adanya akan menimpa perubahan itu, jadi
-          server menolaknya.
+          <strong>Belum ada yang tersimpan.</strong> {CAUSE_TEXT[cause.kind]}
         </p>
         <p className="text-sm text-muted-foreground">
           {changes === 0
@@ -288,7 +316,7 @@ export function ProductConflictReview({
           yang terjual, selalu ikut diperbarui.
         </p>
       </div>
-    </section>
+    </>
   );
 }
 

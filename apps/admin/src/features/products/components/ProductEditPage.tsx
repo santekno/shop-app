@@ -45,15 +45,15 @@ const focusPageHeading = () => {
  * /produk/:productId: one product, loaded with GET /v1/admin/products/{id}
  * into the same three-step form, saved with PUT.
  *
- * The form takes the product once, when it mounts, and then belongs to the
- * seller: a background refetch (the window regaining the focus) does not
- * overwrite what is being typed. The form also keeps each variant's
- * `version` from that load, which is what makes a stale save fail with 409
- * instead of overwriting stock a buyer just took. After a 409 the form
- * fetches the product again (`loadLatest`) and shows what changed next
- * to the seller's changes (artikel 05). A form with no changes follows
- * the query (`latest`), so a quick stock change above it does not make
- * its next save fail. Archiving starts the form over from the product as
+ * The form starts from the product the query has, and keeps the
+ * product's and each variant's `version` from it, which is what makes a
+ * stale save fail with 409 instead of overwriting stock a buyer just
+ * took. A form with no changes follows the query (`latest`, artikel 05),
+ * so a quick stock change above it, or a background refetch after another
+ * admin's save, does not make its next save fail. A form with changes
+ * belongs to the seller: a refetch never overwrites what is being typed.
+ * After a 409 the form fetches the product again (`loadLatest`) and shows
+ * what changed next to the seller's changes. Archiving starts the form over from the product as
  * the server has it now, by changing its `key` (React mounts a new one).
  * A save does not need it: the form resets itself to the saved product,
  * new versions included.

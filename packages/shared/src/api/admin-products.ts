@@ -138,8 +138,10 @@ export const updateProduct = async (
  *
  * - `{ delta }`: added to the stock as it is when the change runs, so a
  *   sale in between is kept. Throws STOCK_OUT_OF_RANGE (409,
- *   `details.stock`, `min`, `max`) when the result would leave 0 to
- *   1,000,000.
+ *   `details.stock`, `min`, `max`) when the result would go below 0, or
+ *   when an increase would take it above 1,000,000. A decrease is never
+ *   capped: a cancellation can restore stock above the maximum, and
+ *   lowering it from there must still work.
  * - `{ set, expected }`: a count, written only while the stock is still
  *   `expected`. Throws STOCK_CHANGED (409, `details.stock`, the stock now)
  *   otherwise.

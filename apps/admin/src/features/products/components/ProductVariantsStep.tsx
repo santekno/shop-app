@@ -1,7 +1,11 @@
 import { useRef, useState } from "react";
 import { Plus, Trash2, Undo2 } from "lucide-react";
 import { useFieldArray, useFormContext, useWatch } from "react-hook-form";
-import { PRODUCT_VARIANTS_MAX, stockLevel } from "@goshop/shared";
+import {
+  PRODUCT_VARIANTS_MAX,
+  VARIANT_STOCK_MAX,
+  stockLevel,
+} from "@goshop/shared";
 import type { ProductInput, ProductWrite, VariantInput } from "@goshop/shared";
 import { Button } from "@/components/ui/Button.tsx";
 import { TextField } from "@/components/ui/TextField.tsx";
@@ -33,7 +37,11 @@ const typedStock = (value: unknown): number | undefined => {
  * ("Stok habis", "Stok menipis") for the number being typed, and an
  * existing variant's stock field says what it was when the form loaded:
  * a checkout may take units before the seller saves, and a save that
- * would write over them is refused (409) and shown side by side.
+ * would write over them is refused (409) and shown side by side. A
+ * cancellation can give units back past the form's 1,000,000; such a
+ * stock fails the schema, and the field then says why and what to do
+ * (write the right number, or lower it with "Ubah stok", which may lower
+ * a stock from any height).
  *
  * Removing an existing variant archives it on save, which cannot be
  * undone through the API: its SKU stays taken and an archived variant
@@ -229,6 +237,17 @@ function VariantFieldset({
       : typedStock(loaded.find((variant) => variant.id === id)?.stock);
   const fieldErrors = errors.variants?.[index];
   const label = `Varian ${index + 1}`;
+  // A cancelled order gives its units back without a cap, so a variant
+  // can load with more than the form may send. The schema's "Stok antara
+  // 0 dan 1.000.000." would not say why, or what to do.
+  const stockError =
+    fieldErrors?.stock?.message !== undefined &&
+    stock !== undefined &&
+    stock > VARIANT_STOCK_MAX &&
+    loadedStock !== undefined &&
+    loadedStock > VARIANT_STOCK_MAX
+      ? `Stok paling banyak ${VARIANT_STOCK_MAX.toLocaleString("id-ID")}. Stok di server melewatinya karena pesanan yang dibatalkan mengembalikan unitnya. Tulis stok yang benar di sini, atau kurangi lewat "Ubah stok" di bagian Stok.`
+      : fieldErrors?.stock?.message;
 
   return (
     <fieldset className="grid gap-3 rounded-lg border border-border p-4 sm:grid-cols-2 lg:grid-cols-6">
@@ -280,7 +299,7 @@ function VariantFieldset({
               ? undefined
               : `Saat dibuka: ${loadedStock.toLocaleString("id-ID")}.`
           }
-          error={fieldErrors?.stock?.message}
+          error={stockError}
           {...field(`variants.${index}.stock`)}
         />
       </div>

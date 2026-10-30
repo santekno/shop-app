@@ -25,7 +25,9 @@ import type { StockChange, StockChangeResult } from "../stock.ts";
  * is thrown, for the caller's message.
  *
  * After a save the answered variant replaces its copy in the product's
- * cache: its new stock and its new `version`. The product's `version`
+ * cache: its new stock and its new `version` (a detail refetch still on
+ * its way is cancelled first, so it cannot answer the older product over
+ * it). The product's `version`
  * does not move, so the edit form below the panel, if the seller has not
  * changed it, follows the new variant (ProductForm's `latest`) and its
  * next save is not refused for nothing. After any other result the
@@ -50,8 +52,15 @@ export const useQuickStockChange = (productId: string) => {
         return result;
       }
     },
-    onSuccess: (result) => {
+    onSuccess: async (result) => {
       if (result.kind === "saved") {
+        // A refetch already on its way (the photo poll, the window
+        // regaining the focus) may have read the product before this
+        // change: cancelled first, or its answer would put the old stock
+        // and the old `version` back over this one.
+        await queryClient.cancelQueries({
+          queryKey: productKeys.detail(productId),
+        });
         queryClient.setQueryData<AdminProduct>(
           productKeys.detail(productId),
           (product) =>
