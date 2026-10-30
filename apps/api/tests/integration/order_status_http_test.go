@@ -113,9 +113,11 @@ func TestOrderStatus_Refusals(t *testing.T) {
 	assertNoErrorLog(t, sh.server)
 }
 
-// TestOrderStatus_StaffCancel: a seller cancels before shipping, from
+// TestOrderStatus_StaffCancel: the store cancels before shipping, from
 // every status that allows it (seller_cancelled), and each cancel gives the
-// stock and the voucher use back once.
+// stock and the voucher use back once. Since Bab 12 only an admin may
+// cancel: a seller, who may still process the order, gets 403 and changes
+// nothing.
 func TestOrderStatus_StaffCancel(t *testing.T) {
 	sh := newShop(t, nil)
 	p := sh.product(t, "kaos-batal", variant("BL-M", "M", 50000, 30))
@@ -136,9 +138,14 @@ func TestOrderStatus_StaffCancel(t *testing.T) {
 				assertOrderDetail(t, sh.call(t, http.MethodPost, "/v1/admin/orders/"+o.ID+"/process", nil, seller), http.StatusOK, "process")
 			}
 			stock, used := sh.stock(t, m), sh.usedCount(t, vid)
-			got := assertOrderDetail(t, sh.call(t, http.MethodPost, "/v1/admin/orders/"+o.ID+"/cancel", nil, seller), http.StatusOK, "seller cancel")
+			events := len(sh.events(t, o.ID))
+			assertError(t, sh.call(t, http.MethodPost, "/v1/admin/orders/"+o.ID+"/cancel", nil, seller), http.StatusForbidden, "FORBIDDEN")
+			if sh.orderStatus(t, o.ID) != from || sh.stock(t, m) != stock || sh.usedCount(t, vid) != used || len(sh.events(t, o.ID)) != events {
+				t.Errorf("the seller's refused cancel changed the order, the stock, the voucher or the outbox")
+			}
+			got := assertOrderDetail(t, sh.staffCall(t, http.MethodPost, "/v1/admin/orders/"+o.ID+"/cancel", nil), http.StatusOK, "admin cancel")
 			if got.Status != "cancelled" || got.CancelReason == nil || *got.CancelReason != "seller_cancelled" || got.CancelledAt == nil {
-				t.Errorf("after the seller's cancel: %+v", got)
+				t.Errorf("after the admin's cancel: %+v", got)
 			}
 			if sh.stock(t, m) != stock+2 || sh.usedCount(t, vid) != used-1 {
 				t.Errorf("stock %d → %d, used_count %d → %d; want +2 and -1", stock, sh.stock(t, m), used, sh.usedCount(t, vid))
