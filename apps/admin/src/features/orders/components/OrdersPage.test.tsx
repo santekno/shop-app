@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { orderSummary } from "@/test/fixtures.ts";
@@ -8,6 +8,7 @@ import { orderListResponse, orderQueueHandler } from "@/test/msw/orders.ts";
 import { server } from "@/test/msw/server.ts";
 import { renderRoute } from "@/test/render.tsx";
 import { formatDateTime } from "@/lib/format-date.ts";
+import { invalidateOrderQueries } from "../api/queries.ts";
 import { OrdersPage } from "./OrdersPage.tsx";
 
 const renderPage = (url = "/pesanan") =>
@@ -136,6 +137,49 @@ describe("OrdersPage", () => {
   });
 
   describe("loading more", () => {
+    it("waits while an event refetches the queue: 'Memuat…', no next page, the focus kept", async () => {
+      const refetch = deferred<Response>();
+      let firstPages = 0;
+      const sent = recordRequests();
+      server.use(
+        pages({
+          "": () => {
+            firstPages += 1;
+            return firstPages === 1
+              ? orderListResponse([orderSummary(1)], "c2")
+              : refetch.promise;
+          },
+          c2: () => orderListResponse([orderSummary(2)], null),
+        }),
+      );
+      const userEvents = userEvent.setup();
+      const { queryClient } = renderPage();
+      const button = await screen.findByRole("button", {
+        name: "Muat lebih banyak",
+      });
+      act(() => {
+        button.focus();
+      });
+
+      act(() => {
+        void invalidateOrderQueries(queryClient);
+      });
+      const waiting = await screen.findByRole("button", { name: "Memuat…" });
+      expect(waiting).toHaveAttribute("aria-disabled", "true");
+      expect(waiting).toHaveFocus();
+      await userEvents.click(waiting);
+
+      refetch.resolve(orderListResponse([orderSummary(1)], "c2"));
+      const again = await screen.findByRole("button", {
+        name: "Muat lebih banyak",
+      });
+      expect(again).toHaveFocus();
+      expect(
+        sent.filter((r) => r.url.searchParams.get("cursor") === "c2"),
+      ).toEqual([]);
+      expect(screen.getAllByRole("link", { name: /^GS-/ })).toHaveLength(1);
+    });
+
     it("says how many are shown and that more follow", async () => {
       server.use(
         pages({ "": () => orderListResponse([orderSummary(1)], "c2") }),

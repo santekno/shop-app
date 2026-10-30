@@ -1,6 +1,6 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { SalesReport } from "@goshop/shared";
 import { period, salesReport } from "@/test/fixtures.ts";
 import { deferred } from "@/test/msw/answers.ts";
@@ -11,7 +11,15 @@ import { renderRoute } from "@/test/render.tsx";
 import { stubSizedResizeObserver } from "@/test/resize-observer.ts";
 import { plain } from "@/test/text.ts";
 import { addDays, jakartaToday } from "../report-params.ts";
+import { chartSummary } from "../report-summary.ts";
 import { ReportsPage } from "./ReportsPage.tsx";
+
+// chartSummary runs on every render of the report's body (both charts'
+// notes): counting its calls counts those renders (artikel 14's memo).
+vi.mock("../report-summary.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../report-summary.ts")>();
+  return { ...actual, chartSummary: vi.fn(actual.chartSummary) };
+});
 
 const renderPage = (
   url = "/laporan",
@@ -209,6 +217,39 @@ describe("ReportsPage", () => {
   });
 
   describe("the controls", () => {
+    it("does not render the report again while the next one loads with the old one on screen", async () => {
+      const next = deferred<Response>();
+      let calls = 0;
+      const userEvents = userEvent.setup();
+      renderPage("/laporan", () => {
+        calls += 1;
+        return calls === 1 ? salesReportResponse(salesReport()) : next.promise;
+      });
+      await loaded();
+      const rendersBefore = vi.mocked(chartSummary).mock.calls.length;
+      expect(rendersBefore).toBeGreaterThan(0);
+
+      await userEvents.click(screen.getByRole("radio", { name: "7 hari" }));
+      await waitFor(() => {
+        expect(screen.getByRole("status")).toHaveTextContent("Memuat laporan…");
+      });
+      expect(vi.mocked(chartSummary).mock.calls).toHaveLength(rendersBefore);
+
+      next.resolve(
+        salesReportResponse(salesReport({ series: [period("2026-10-30", 1)] })),
+      );
+      await waitFor(() => {
+        expect(vi.mocked(chartSummary).mock.calls.length).toBeGreaterThan(
+          rendersBefore,
+        );
+      });
+      expect(
+        plain(
+          screen.getByRole("region", { name: "Pesanan per hari" }).textContent,
+        ),
+      ).toContain("Terbanyak 1 pesanan");
+    });
+
     it("asks for 7 days from the preset, in the URL, and keeps the old report dimmed meanwhile", async () => {
       const sent = recordRequests();
       const next = deferred<Response>();

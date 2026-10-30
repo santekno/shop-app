@@ -7,11 +7,14 @@ import { networkError } from "@/test/msw/answers.ts";
 import {
   eventStreamResponse,
   eventsHandler,
+  fetchStream,
   openStream,
   orderEventFrame,
 } from "@/test/msw/events.ts";
 import { errorResponse, recordRequests } from "@/test/msw/http.ts";
 import { server } from "@/test/msw/server.ts";
+import { orderKeys } from "@/features/orders/api/queries.ts";
+import { reportKeys } from "@/features/reports/api/queries.ts";
 import { renderRouteHook } from "@/test/render.tsx";
 import type { TestSession } from "@/test/render.tsx";
 import { INVALIDATE_DELAY_MS, useOrderEvents } from "./useOrderEvents.ts";
@@ -53,6 +56,15 @@ const setup = (who: TestSession = session()) => {
   return { ...view, onOrderEvent, invalidate };
 };
 
+const ORDERS = JSON.stringify(orderKeys.all);
+const REPORTS = JSON.stringify(reportKeys.all);
+
+/** The keys invalidated so far, in order, as JSON. */
+const invalidatedKeys = (invalidate: { mock: { calls: unknown[][] } }) =>
+  invalidate.mock.calls.map(([filters]) =>
+    JSON.stringify((filters as { queryKey: unknown }).queryKey),
+  );
+
 describe("useOrderEvents", () => {
   it("opens no stream without a session", async () => {
     const sent = recordRequests();
@@ -76,16 +88,16 @@ describe("useOrderEvents", () => {
     expect(sent[0]?.headers.get("Authorization")).toBe("Bearer tok-9");
   });
 
-  it("refetches the order queries once after connecting", async () => {
+  it("refetches the orders and the reports once after connecting", async () => {
     liveStreams();
     const { invalidate } = setup();
 
     await waitFor(() => {
-      expect(invalidate).toHaveBeenCalledExactlyOnceWith({
-        queryKey: ["admin", "orders"],
-      });
+      expect(invalidatedKeys(invalidate)).toEqual([ORDERS, REPORTS]);
     });
     expect(INVALIDATE_DELAY_MS).toBe(250);
+    // A running fetch is not cancelled (invalidateOrderQueries).
+    expect(invalidate.mock.calls[0]?.[1]).toEqual({ cancelRefetch: false });
   });
 
   it("hands over each order event once, dropping repeats and unknown shapes", async () => {
@@ -128,14 +140,14 @@ describe("useOrderEvents", () => {
     expect(onOrderEvent.mock.calls.map(([, id]) => id)).toEqual(["", ""]);
   });
 
-  it("gathers a burst of events into one refetch", async () => {
+  it("gathers a burst of events into one refetch of the orders, and of the reports when revenue moved", async () => {
     const streams = liveStreams();
     const { result, onOrderEvent, invalidate } = setup();
     await waitFor(() => {
       expect(result.current.status).toBe("live");
     });
     await waitFor(() => {
-      expect(invalidate).toHaveBeenCalledTimes(1);
+      expect(invalidatedKeys(invalidate)).toHaveLength(2);
     });
 
     streams[0]?.push(
@@ -148,11 +160,47 @@ describe("useOrderEvents", () => {
       expect(onOrderEvent).toHaveBeenCalledTimes(3);
     });
     await waitFor(() => {
-      expect(invalidate).toHaveBeenCalledTimes(2);
+      expect(invalidatedKeys(invalidate)).toEqual([
+        ORDERS,
+        REPORTS,
+        ORDERS,
+        REPORTS,
+      ]);
     });
-    expect(invalidate).toHaveBeenLastCalledWith({
-      queryKey: ["admin", "orders"],
+  });
+
+  it("leaves the reports alone for a burst that cannot change revenue, and forgets an earlier one", async () => {
+    const streams = liveStreams();
+    const { result, onOrderEvent, invalidate } = setup();
+    await waitFor(() => {
+      expect(result.current.status).toBe("live");
     });
+    await waitFor(() => {
+      expect(invalidatedKeys(invalidate)).toHaveLength(2);
+    });
+
+    streams[0]?.push(orderEventFrame("e-1", event("order.cancelled", "GS-1")));
+    await waitFor(() => {
+      expect(invalidatedKeys(invalidate)).toHaveLength(4);
+    });
+    streams[0]?.push(
+      orderEventFrame("e-2", event("order.created", "GS-2")) +
+        orderEventFrame("e-3", event("order.completed", "GS-3")),
+    );
+    await waitFor(() => {
+      expect(onOrderEvent).toHaveBeenCalledTimes(3);
+    });
+    await waitFor(() => {
+      expect(invalidatedKeys(invalidate)).toHaveLength(5);
+    });
+
+    expect(invalidatedKeys(invalidate)).toEqual([
+      ORDERS,
+      REPORTS,
+      ORDERS,
+      REPORTS,
+      ORDERS,
+    ]);
   });
 
   it("stops with 'forbidden' when the API refuses the stream", async () => {
@@ -234,5 +282,59 @@ describe("useOrderEvents", () => {
     await act(() => Promise.resolve());
 
     expect(sent).toHaveLength(1);
+  });
+
+  // The gathering delay on a fake clock: MSW 3 does not mix with fake
+  // timers, so these hand the connection a fetch of their own.
+  describe("on a fake clock", () => {
+    const setupWithClock = () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const stream = openStream();
+      stream.push(": connected\n\n");
+      vi.stubGlobal("fetch", fetchStream(stream));
+      return { stream, ...setup() };
+    };
+    const elapse = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms));
+
+    it("refetches only after the gathering delay", async () => {
+      const { invalidate } = setupWithClock();
+
+      await elapse(INVALIDATE_DELAY_MS - 1);
+      expect(invalidate).not.toHaveBeenCalled();
+      await elapse(1);
+
+      expect(invalidatedKeys(invalidate)).toEqual([ORDERS, REPORTS]);
+    });
+
+    it("gathers events over the delay into one refetch", async () => {
+      const { stream, invalidate } = setupWithClock();
+      await elapse(INVALIDATE_DELAY_MS);
+
+      stream.push(orderEventFrame("e-1", event("order.processing", "GS-1")));
+      await elapse(200);
+      stream.push(orderEventFrame("e-2", event("order.paid", "GS-2")));
+      await elapse(49);
+      expect(invalidatedKeys(invalidate)).toHaveLength(2);
+      await elapse(1);
+
+      expect(invalidatedKeys(invalidate)).toEqual([
+        ORDERS,
+        REPORTS,
+        ORDERS,
+        REPORTS,
+      ]);
+    });
+
+    it("refetches nothing after unmounting with a refetch still waiting", async () => {
+      const { stream, invalidate, unmount } = setupWithClock();
+      await elapse(INVALIDATE_DELAY_MS);
+      stream.push(orderEventFrame("e-1", event("order.paid", "GS-1")));
+      await elapse(100);
+
+      unmount();
+      await elapse(10 * INVALIDATE_DELAY_MS);
+
+      expect(invalidatedKeys(invalidate)).toEqual([ORDERS, REPORTS]);
+    });
   });
 });

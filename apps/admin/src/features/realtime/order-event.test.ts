@@ -2,6 +2,7 @@ import type { AdminOrderEvent } from "@goshop/shared";
 import { describe, expect, it } from "vitest";
 import { plain } from "@/test/text.ts";
 import {
+  changesSalesReport,
   isNewPaidOrder,
   newOrderMessage,
   parseOrderEvent,
@@ -68,5 +69,18 @@ describe("newOrderMessage", () => {
     expect(plain(newOrderMessage(paid))).toBe(
       "Pesanan baru GS-20261023-ABC123 · Rp 117.000",
     );
+  });
+});
+
+describe("changesSalesReport", () => {
+  it.each([
+    ["order.paid", true],
+    ["order.cancelled", true],
+    ["order.created", false],
+    ["order.processing", false],
+    ["order.shipped", false],
+    ["order.completed", false],
+  ] as const)("%s moves the report: %s", (type, moves) => {
+    expect(changesSalesReport({ ...paid, type })).toBe(moves);
   });
 });
