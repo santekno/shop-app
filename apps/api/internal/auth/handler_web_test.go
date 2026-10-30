@@ -763,3 +763,18 @@ func TestHandler_AdminWebLogout(t *testing.T) {
 	testx.AssertEqual(t, strings.Join(got, ","), "admin-session", "the storefront's session is not revoked")
 	assertSetCookie(t, rec, wantAdminClearedCookie)
 }
+
+// The storefront's logout, with the dashboard's cookie also present,
+// revokes and clears only its own.
+func TestHandler_WebLogoutLeavesTheAdminSession(t *testing.T) {
+	env := newWebEnv(WebSession{AllowedOrigins: []string{webOrigin}})
+	var got []string
+	env.svc.logout = func(token string) error { got = append(got, token); return nil }
+	rec := sendWeb(env, webRequest(context.Background(), "/v1/auth/web/logout", "", func(r *http.Request) {
+		r.Header.Set("Cookie", WebCookieName+"=web-session; "+AdminCookieName+"=admin-session")
+	}))
+
+	testx.AssertEqual(t, rec.Code, http.StatusNoContent, "body %s", rec.Body.String())
+	testx.AssertEqual(t, strings.Join(got, ","), "web-session", "the dashboard's session is not revoked")
+	assertSetCookie(t, rec, wantClearedCookie)
+}
