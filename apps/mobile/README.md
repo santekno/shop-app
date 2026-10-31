@@ -12,11 +12,11 @@ pnpm --filter @goshop/mobile android     # build a development app, install it o
 
 Artikel 02 below explains what each of these does and what to install first.
 
-| Setting               | Kind  | Where                                                            | Meaning                                                                                                                                                                                                                                                               |
-| --------------------- | ----- | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `EXPO_PUBLIC_API_URL` | build | `apps/mobile/.env.local`, the shell, an EAS environment variable | The API as the **device** reaches it. Baked into the JavaScript bundle, so it is public. Unset means this machine: `http://10.0.2.2:8080` on the Android emulator, `http://localhost:8080` on the iOS simulator. A `production` EAS build refuses to start without it |
-| `EAS_BUILD_PROFILE`   | build | set by EAS                                                       | Which `eas.json` profile is being built; `app.config.ts` reads it (cleartext `http://` and iOS's local-network exception outside `production`, artikel 06)                                                                                                            |
-| `APP_VARIANT`         | build | the shell                                                        | Names a profile for a command run by hand when EAS is not involved, such as `APP_VARIANT=production npx expo prebuild`; `EAS_BUILD_PROFILE` wins when both are set, and neither means `development`                                                                   |
+| Setting               | Kind  | Where                                                            | Meaning                                                                                                                                                                                                                                                                                         |
+| --------------------- | ----- | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `EXPO_PUBLIC_API_URL` | build | `apps/mobile/.env.local`, the shell, an EAS environment variable | The API as the **device** reaches it. Baked into the JavaScript bundle, so it is public. Unset means this machine: `http://10.0.2.2:8080` on the Android emulator, `http://localhost:8080` on the iOS simulator. A `production` EAS build refuses to start without it, or with an `http://` URL |
+| `EAS_BUILD_PROFILE`   | build | set by EAS                                                       | Which `eas.json` profile is being built; `app.config.ts` reads it (cleartext `http://` and iOS's local-network exception outside `production`, artikel 06)                                                                                                                                      |
+| `APP_VARIANT`         | build | the shell                                                        | Names a profile for a command run by hand when EAS is not involved, such as `APP_VARIANT=production npx expo prebuild`; `EAS_BUILD_PROFILE` wins when both are set, and neither means `development`                                                                                             |
 
 # Bab 13: fondasi React Native & Expo
 
@@ -88,7 +88,7 @@ The storefront and the dashboard are React apps that render to the **DOM**: `<di
 - **ESLint like the dashboard, without `eslint-config-expo`.** The repository is on ESLint 10; `eslint-config-expo` depends on `eslint-plugin-react` and `eslint-plugin-import`, whose peer ranges stop at ESLint 9. The app uses the same type-aware `typescript-eslint` presets and React Hooks rules as `apps/admin`, and Prettier from the catalog. The config is `eslint.config.mjs` because this package is CommonJS (Metro loads `metro.config.js` with `require`).
 - **`pnpm build` is `expo export`.** `make build` runs every workspace's `build`. For this app that is the JavaScript bundle for Android and iOS (`dist/`, gitignored, about 15 seconds): it resolves every import the way the phone will, catches a module Metro cannot find, which `tsc` does not, and needs no Android SDK, Xcode or Expo account. The native binaries are not part of `make build`: they need platform SDKs and signing, and come from EAS.
 - **`expo-dev-client` from the start**, because `eas.json`'s `development` profile builds a development client. With it installed, `pnpm start` targets a development build; `pnpm start:go` opens the same project in Expo Go.
-- **No unit tests yet.** `test:unit` only says so, which keeps `make test-unit` green; the test setup belongs to the test stage.
+- **No unit tests in this article.** `test:unit` only said so at first, which kept `make test-unit` green; the test setup belongs to the test stage. Since the chapter's test stage it runs Jest with the `jest-expo` preset (`jest.config.js`), and `make test-unit` adds coverage.
 
 ### Installing what you need
 
@@ -114,7 +114,7 @@ The API listens on port 8080 of your computer. Who "localhost" is depends on whe
 | Android emulator             | `http://10.0.2.2:8080` (the default)                                      | The emulator is a virtual device with its own network; `10.0.2.2` is its alias for the host |
 | iOS simulator                | `http://localhost:8080` (the default)                                     | The simulator shares the Mac's network                                                      |
 | A phone (Expo Go or a build) | `http://<your computer's LAN address>:8080`, set in `EXPO_PUBLIC_API_URL` | The phone is another machine on the Wi-Fi                                                   |
-| A store build                | The public HTTPS API, set as an EAS environment variable                  | The `production` profile refuses to build without one                                       |
+| A store build                | The public HTTPS API, set as an EAS environment variable                  | The `production` profile refuses to build without one, or with an `http://` one             |
 
 Set it in `apps/mobile/.env.local` (copy `.env.example`); Expo reads `.env` files when Metro starts, so restart `pnpm start` after a change. A value is baked into the bundle: never put a secret in an `EXPO_PUBLIC_` variable. The API's CORS list does not matter here, because CORS is enforced by browsers, not by native apps.
 
@@ -124,13 +124,15 @@ One limit to know before the first API call: Android blocks plain `http://` in r
 
 `eas.json` has one profile per audience. Each builds both platforms, from the same `app.config.ts`:
 
-| Profile       | Android                  | iOS                         | For                                                                                         |
-| ------------- | ------------------------ | --------------------------- | ------------------------------------------------------------------------------------------- |
-| `development` | development client (APK) | development client (device) | The developer: your own native half with the dev launcher, JavaScript from Metro            |
-| `preview`     | `.apk`                   | simulator build (`.app`)    | Testers and this course: installs directly on an emulator, a phone or a simulator, no store |
-| `production`  | `.aab` (App Bundle)      | archive (`.ipa`)            | The stores: Google Play only accepts App Bundles; the App Store an archive signed for it    |
+| Profile       | Android                  | iOS                                   | For                                                                                         |
+| ------------- | ------------------------ | ------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `development` | development client (APK) | development client (simulator `.app`) | The developer: your own native half with the dev launcher, JavaScript from Metro            |
+| `preview`     | `.apk`                   | simulator build (`.app`)              | Testers and this course: installs directly on an emulator, a phone or a simulator, no store |
+| `production`  | `.aab` (App Bundle)      | archive (`.ipa`)                      | The stores: Google Play only accepts App Bundles; the App Store an archive signed for it    |
 
-`appVersionSource: "remote"` lets EAS keep the build numbers (`versionCode`, `buildNumber`), and `autoIncrement` raises them on every production build, because both stores reject a second upload with the same number. EAS needs an Expo account and a project: `eas login`, then `eas init` once, which writes the project's ID into the config.
+`appVersionSource: "remote"` lets EAS keep the build numbers (`versionCode`, `buildNumber`), and `autoIncrement` raises them on every production build, because both stores reject a second upload with the same number. EAS needs an Expo account and a project: `eas login`, then `eas init` once. `eas init` creates the project on expo.dev, but it cannot edit a dynamic `app.config.ts` (it is code, not JSON): it prints the project's ID and asks you to add it by hand, as `extra: { eas: { projectId: "…" } }` in the config (and `owner`, if the project belongs to an organisation rather than to the account you logged in with). Until that field is there, `eas build` stops and asks for it.
+
+`development` and `preview` build iOS for the simulator, because a simulator `.app` is not signed for a device and so needs no paid Apple Developer Program membership. A development client for a physical iPhone needs a profile of its own without `simulator`, an Apple developer account, and the device registered with `eas device:create`; this course does not use one. Only `production` builds a signed device archive, for the App Store.
 
 ### Where each idea lives
 
@@ -401,7 +403,7 @@ A development build talks to `http://10.0.2.2:8080` because Expo's template allo
 | `preview`                   | `true`: the APK reaches `http://10.0.2.2:8080` or a laptop's LAN address             | the same: the simulator build reaches `http://localhost:8080`              |
 | `production`                | `false`, written out: with `minSdk` 24, Android 7 and 8 would allow it if left unset | `NSAllowsArbitraryLoads` `false` **and** `NSAllowsLocalNetworking` `false` |
 
-Production is HTTPS only on both platforms, and it already refuses to build without `EXPO_PUBLIC_API_URL`. iOS needed no addition for development and preview: Expo's template sets `NSAllowsLocalNetworking`, which covers `localhost`, unqualified host names and `.local` names, in every build; production is where it is turned off. Proved with `npx expo prebuild --platform all --clean` for each profile (the generated folders inspected, then deleted):
+Production is HTTPS only on both platforms, and it refuses to build without `EXPO_PUBLIC_API_URL` or with an `http://` one (that one would build, then fail every request). iOS needed no addition for development and preview: Expo's template sets `NSAllowsLocalNetworking`, which covers `localhost`, unqualified host names and `.local` names, in every build; production is where it is turned off. Proved with `npx expo prebuild --platform all --clean` for each profile (the generated folders inspected, then deleted):
 
 ```text
 EAS_BUILD_PROFILE=preview    → android/app/src/main/AndroidManifest.xml  <application … android:usesCleartextTraffic="true">

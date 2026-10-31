@@ -26,11 +26,21 @@ const isProduction = buildProfile === "production";
 
 // The API URL itself is read in one place, src/config/env.ts. Here we only
 // refuse to build a store release that would quietly talk to a developer's
-// machine (the fallback in env.ts).
-if (isProduction && !process.env.EXPO_PUBLIC_API_URL) {
-  throw new Error(
-    "EXPO_PUBLIC_API_URL must be set for a production build (an EAS environment variable or eas.json's env)",
-  );
+// machine (the fallback in env.ts), or over plain http://, which a
+// production build refuses below (no cleartext on Android, no ATS
+// exception on iOS): it would build, then fail every request.
+if (isProduction) {
+  const apiUrl = process.env.EXPO_PUBLIC_API_URL;
+  if (!apiUrl) {
+    throw new Error(
+      "EXPO_PUBLIC_API_URL must be set for a production build (an EAS environment variable or eas.json's env)",
+    );
+  }
+  if (!apiUrl.startsWith("https://")) {
+    throw new Error(
+      `EXPO_PUBLIC_API_URL must be an https:// URL for a production build, not ${apiUrl}`,
+    );
+  }
 }
 
 const config: ExpoConfig = {
