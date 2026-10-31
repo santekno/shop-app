@@ -44,6 +44,11 @@ const config: ExpoConfig = {
     supportsTablet: false,
   },
   plugins: ["expo-router", "expo-status-bar"],
+  experiments: {
+    // `expo start` writes .expo/types/router.d.ts from the files in app/,
+    // so an href or a route parameter that does not exist fails tsc.
+    typedRoutes: true,
+  },
 };
 
 export default config;

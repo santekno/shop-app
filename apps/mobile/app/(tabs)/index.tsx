@@ -1,14 +1,19 @@
-// The first screen, at the route "/" (goshop:// as a deep link). Until the
-// catalog comes from the API (artikel 06), it shows sample products.
-import { Alert, ScrollView } from "react-native";
+// Beranda, at the route "/" (goshop:// as a deep link): the (tabs) group
+// adds no segment. Until the catalog comes from the API (artikel 06), it
+// shows sample products.
+import { router } from "expo-router";
+import { ScrollView } from "react-native";
 import type { Product } from "@goshop/shared";
 import { ProductGrid } from "@/features/catalog/components/ProductGrid";
 import { SAMPLE_PRODUCTS } from "@/features/catalog/fixtures";
 
-// The product screen arrives with Expo Router's dynamic routes (artikel 08);
-// until then a tap only proves the card reports it.
+// A typed href: with typed routes on, a pathname that is not a route, or a
+// missing slug, is a compile error.
 const openProduct = (product: Product) => {
-  Alert.alert(product.name, "Halaman produk segera hadir.");
+  router.push({
+    pathname: "/produk/[slug]",
+    params: { slug: product.slug },
+  });
 };
 
 export default function HomeScreen() {

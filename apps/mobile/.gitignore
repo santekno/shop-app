@@ -11,7 +11,7 @@
 # `expo export` (pnpm build): the JavaScript bundles and assets.
 /dist
 # Written by `expo start`; src/expo-types.d.ts is the committed equivalent.
-/expo-env.d.ts
+expo-env.d.ts
 # Metro's health check file.
 .metro-health-check*
 # Native signing material, should one ever be created locally.

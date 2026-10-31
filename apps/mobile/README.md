@@ -324,3 +324,80 @@ Paths are relative to `apps/mobile`.
 | The CSS imported once; the navigation's colours per scheme          | `app/_layout.tsx`, `src/theme/navigation.ts`                                           |
 | The card, photo and screen with `className`                         | `src/features/catalog/components/ProductCard.tsx`, `ProductPhoto.tsx`, `app/index.tsx` |
 | The one `StyleSheet` kept beside NativeWind                         | `src/features/catalog/components/ProductGrid.tsx`                                      |
+
+## Expo Router: routing berbasis file (artikel 08)
+
+The app's screens are files in `app/`. Expo Router reads that folder when Metro bundles the app and builds the navigation from it: a file is a screen, a `_layout.tsx` is the navigator around the files next to it, and the file's path is the screen's URL. It is the same idea as Next's App Router in `apps/web/src/app/`, applied to native navigators instead of HTML pages.
+
+### The mental model
+
+| Idea                                 | What it means                                                                                                                                                                                                                                          | Go comparison                                                                             |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
+| **Every screen has a URL**           | `app/produk/[slug].tsx` is `/produk/:slug` inside the app, whether it is reached by a tap, `router.push`, or a link from outside (`goshop://produk/kaos-polos-hitam`). Navigation state can be written down and shared, as on the web                  | A route in a `http.ServeMux` pattern (`GET /produk/{slug}`): the path decides the handler |
+| **A layout is a navigator**          | `_layout.tsx` decides _how_ its children are shown: a `Stack` (screens slide over each other), `Tabs` (a tab bar), or `Slot` (no chrome). Layouts nest, so the tab bar lives inside one screen of the root stack                                       | Middleware wrapping a sub-router: `mux.Handle("/admin/", adminMux)`                       |
+| **Groups organise, they add no URL** | A folder in parentheses, `(tabs)`, gives its files a shared layout without a path segment: `app/(tabs)/index.tsx` is `/`, not `/(tabs)`                                                                                                                | A sub-router mounted at the same prefix, only to share middleware                         |
+| **Brackets are parameters**          | `[slug]` matches one segment and passes it to the screen as a string through `useLocalSearchParams`. Like a path value from a request, it is outside input: the API decides whether it names a product                                                 | `r.PathValue("slug")`                                                                     |
+| **Typed routes**                     | With `experiments.typedRoutes`, Expo generates `.expo/types/router.d.ts` from the files in `app/`. `<Link href>`, `router.push` and `useLocalSearchParams` are then checked against the real routes: a renamed file breaks the build, not a user's tap | `sqlc` generating typed queries from the schema: the compiler knows what exists           |
+
+### The routes
+
+| File                     | Route (and deep link)                                 | Navigator                            | Shows                                                      |
+| ------------------------ | ----------------------------------------------------- | ------------------------------------ | ---------------------------------------------------------- |
+| `app/_layout.tsx`        | (none: a layout)                                      | root `Stack`                         | Every screen below, and the status bar                     |
+| `app/(tabs)/_layout.tsx` | (none: a layout; the group adds no segment)           | `Tabs`, one screen of the root stack | The tab bar                                                |
+| `app/(tabs)/index.tsx`   | `/` (`goshop://`)                                     | tab "Beranda"                        | The home screen; the catalog from artikel 06               |
+| `app/produk/[slug].tsx`  | `/produk/<slug>` (`goshop://produk/kaos-polos-hitam`) | root stack, pushed above the tabs    | Product detail (placeholder: shows the slug in its header) |
+| `app/+not-found.tsx`     | any path that matches nothing (`goshop://produkk/x`)  | root stack                           | "Halaman tidak ditemukan" and a link back to Beranda       |
+
+```text
+app/
+├── _layout.tsx          root Stack
+├── (tabs)/
+│   ├── _layout.tsx      Tabs
+│   └── index.tsx        /            Beranda
+├── produk/
+│   └── [slug].tsx       /produk/:slug
+└── +not-found.tsx       anything else
+```
+
+Files whose name starts with `+` or `_` are special (`+not-found`, `_layout`), not routes of their own. In development Expo Router also serves `/_sitemap`, a list of every route, handy for checking what the folder turned into.
+
+### Deep links
+
+`app.config.ts` sets `scheme: "goshop"`, which registers `goshop://` with the operating system in a native build (an intent filter in Android's manifest, `CFBundleURLTypes` in iOS's `Info.plist`, both written by prebuild). Expo Router turns the rest of the link into a route, so `goshop://produk/kaos-polos-hitam` opens the detail screen on top of the tabs, with a back button to Beranda. There is no link table to maintain: the files are the table.
+
+To try one, with the app installed on the emulator or simulator:
+
+```bash
+# either platform, through Expo's helper (it runs adb or xcrun for you)
+npx uri-scheme open "goshop://produk/kaos-polos-hitam" --android
+npx uri-scheme open "goshop://produk/kaos-polos-hitam" --ios
+
+# the same thing by hand
+adb shell am start -W -a android.intent.action.VIEW \
+  -d "goshop://produk/kaos-polos-hitam" com.santekno.goshop
+xcrun simctl openurl booted "goshop://produk/kaos-polos-hitam"
+```
+
+Expo Go is a different app with its own scheme, so `goshop://` does not reach it. There the same route is `exp://<metro address>:8081/--/produk/kaos-polos-hitam` (the `--/` separates Metro's address from the route); `npx uri-scheme open` accepts that URL too. The `goshop://` scheme works in a development build or a preview build.
+
+### Decisions
+
+- **Routes are Indonesian, like the storefront's.** `/produk/<slug>` is the same path as `apps/web` uses, so a product link reads the same on the web and in the app, and a later universal link (`https://…/produk/<slug>` opening the app) maps one to one.
+- **Tabs in a group, the detail outside it.** `produk/[slug]` lives next to `(tabs)`, not inside it, so it is a screen of the root stack and covers the tab bar when it opens, the usual shape of a shop app. Artikel 09 builds the rest of this tree.
+- **`Tabs` from `expo-router/js-tabs`.** Expo Router 58 deprecates importing `Tabs` from `expo-router`: it now offers two tab bars, the JavaScript one (React Navigation's bottom tabs, `expo-router/js-tabs`) and the platform's own (`expo-router/native-tabs`). The JavaScript one draws the same tab bar on both platforms and takes any React element as an icon (artikel 09).
+- **Typed routes are checked by `pnpm typecheck`, on a fresh clone too.** Expo writes the route types when `expo start` runs. A clone that never started Metro has none, and then every href is a plain string. So `typecheck` first runs `expo customize tsconfig.json`, the CLI command that runs the same type generation without starting a server (about two seconds), then `tsc`. `tsconfig.json` already lists everything Expo wants in `include` (`.expo/types/**/*.ts`, `expo-env.d.ts`), and `.gitignore` lists `expo-env.d.ts` in the exact form the CLI looks for; otherwise every `expo start` would rewrite `tsconfig.json` without its comments and append a block to `.gitignore`.
+- **The screen reads the parameter, the header shows it.** `[slug].tsx` sets its own title with `<Stack.Screen options={…} />` while it renders. The real screen fetches `GET /v1/products/{slug}` and shows the product's name; a slug the API does not know is a "not found" state of that screen, not `+not-found` (which is for paths that match no route at all).
+
+### Where each idea lives
+
+Paths are relative to `apps/mobile`.
+
+| Concept                                   | Where to read it                                 |
+| ----------------------------------------- | ------------------------------------------------ |
+| The scheme and typed routes               | `app.config.ts` (`scheme`, `experiments`)        |
+| The root stack and its screens            | `app/_layout.tsx`                                |
+| The tab group                             | `app/(tabs)/_layout.tsx`, `app/(tabs)/index.tsx` |
+| A dynamic route and its parameter         | `app/produk/[slug].tsx`                          |
+| Paths that match nothing                  | `app/+not-found.tsx`                             |
+| Route type generation in `pnpm typecheck` | `package.json` (`typecheck`), `tsconfig.json`    |

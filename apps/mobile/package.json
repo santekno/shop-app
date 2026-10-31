@@ -9,7 +9,7 @@
     "start:go": "expo start --go",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "expo customize tsconfig.json && tsc --noEmit",
     "lint": "eslint --max-warnings=0 . && prettier --check .",
     "format": "prettier --write . && eslint --fix .",
     "build": "expo export --platform all --output-dir dist",
