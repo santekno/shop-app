@@ -18,6 +18,17 @@ export interface ApiClientConfig {
   retryDelayMs: number;
   /** The fetch to call; tests pass a fake. Default: the global fetch. */
   fetch: typeof fetch;
+  /**
+   * The cookie policy of every request this client sends, unless a request
+   * names its own (the web session calls in auth.ts ask for "include").
+   * Default `undefined`: leave it to fetch. In a browser that means
+   * "same-origin", so a cross-origin API never sees a cookie; the web apps
+   * rely on that and set nothing. Expo's fetch (the global fetch in the
+   * mobile app since SDK 52) defaults to "include" and keeps a native cookie
+   * jar instead, so the mobile app, which sends a bearer token and never a
+   * cookie, sets "omit" here (Bab 13 artikel 12).
+   */
+  credentials: RequestCredentials | undefined;
 }
 
 /**
@@ -35,7 +46,9 @@ export type ApiClientOptions = Pick<ApiClientConfig, "baseUrl"> &
  * `DEFAULTS.timeoutMs` is a type error, but nothing stops it at run time.
  * Nothing outside this file can reach the object anyway; it is not exported.
  */
-const DEFAULTS: Readonly<Omit<ApiClientConfig, "baseUrl" | "fetch">> = {
+const DEFAULTS: Readonly<
+  Omit<ApiClientConfig, "baseUrl" | "fetch" | "credentials">
+> = {
   timeoutMs: 10_000,
   retries: 0,
   retryDelayMs: 300,
@@ -58,9 +71,10 @@ export interface RequestOptions extends Partial<
   signal?: AbortSignal;
   /**
    * Whether the browser sends and stores cookies for this request. Leave it
-   * out (fetch's default, "same-origin": never for a cross-origin API) on
-   * every call except the web session's (auth.ts), which need "include"
-   * for the httpOnly refresh cookie.
+   * out (the client's `credentials`, or else fetch's default: in a browser
+   * "same-origin", never for a cross-origin API) on every call except the
+   * web session's (auth.ts), which need "include" for the httpOnly refresh
+   * cookie.
    */
   credentials?: RequestCredentials;
 }
@@ -132,6 +146,7 @@ export const createApiClient = (options: ApiClientOptions) => {
     // Called as a plain function below, never as `options.fetch(…)`: the
     // browser's fetch throws "Illegal invocation" when `this` is not window.
     fetch: fetchFn = globalThis.fetch,
+    credentials: defaultCredentials,
   } = options;
   const urlFor = createUrlBuilder(baseUrl);
 
@@ -222,7 +237,7 @@ export const createApiClient = (options: ApiClientOptions) => {
       body,
       headers,
       signal,
-      credentials,
+      credentials = defaultCredentials,
       timeoutMs = defaultTimeoutMs,
       retries = defaultRetries,
     }: RequestOptions = {},

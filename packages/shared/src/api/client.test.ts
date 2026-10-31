@@ -227,6 +227,61 @@ describe("request: the outgoing call", () => {
     },
   );
 
+  describe("the client's own credentials (the mobile app's omit)", () => {
+    it.each(["GET", "POST", "DELETE"] as const)(
+      "sends the client's credentials on a %s that names none",
+      async (method) => {
+        const { api, fetchMock } = setup({ credentials: "omit" });
+        fetchMock.mockResolvedValue(json(200, {}));
+
+        await api.request("/v1/products", { method });
+
+        expect(callOf(fetchMock).init.credentials).toBe("omit");
+      },
+    );
+
+    it("keeps it on the retried attempt too", async () => {
+      const { api, fetchMock } = setup({
+        credentials: "omit",
+        retries: 1,
+        retryDelayMs: 0,
+      });
+      fetchMock
+        .mockResolvedValueOnce(json(503, errorBody("UNAVAILABLE")))
+        .mockResolvedValueOnce(json(200, {}));
+
+      const pending = api.request("/v1/products");
+      await vi.runAllTimersAsync();
+      await pending;
+
+      expect(callOf(fetchMock, 1).init.credentials).toBe("omit");
+    });
+
+    it.each(["include", "same-origin"] as const)(
+      "lets a request's own %s win over the client's",
+      async (credentials) => {
+        const { api, fetchMock } = setup({ credentials: "omit" });
+        fetchMock.mockResolvedValue(json(200, {}));
+
+        await api.request("/v1/auth/web/refresh", {
+          method: "POST",
+          credentials,
+        });
+
+        expect(callOf(fetchMock).init.credentials).toBe(credentials);
+      },
+    );
+
+    it("leaves credentials out when neither the client nor the request names one", async () => {
+      const { api, fetchMock } = setup({ credentials: undefined });
+      fetchMock.mockResolvedValue(json(200, {}));
+
+      await api.request("/v1/products");
+
+      expect("credentials" in callOf(fetchMock).init).toBe(false);
+    });
+  });
+
   it("accepts only the HTTP methods the API uses", async () => {
     const { api, fetchMock } = setup();
     fetchMock.mockResolvedValue(json(200, {}));

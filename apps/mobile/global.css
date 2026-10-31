@@ -1,0 +1,8 @@
+/* The stylesheet NativeWind compiles: Tailwind's three layers, nothing
+   else. metro.config.js names it as NativeWind's input and app/_layout.tsx
+   imports it once. On a phone there is no CSS engine: at build time
+   NativeWind turns the classes Tailwind generates from this file into
+   React Native style objects that ship inside the JavaScript bundle. */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

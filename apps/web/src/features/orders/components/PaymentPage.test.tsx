@@ -291,7 +291,13 @@ describe("PaymentPage", () => {
   });
 
   it("pays again from the page, replacing its own history entry", async () => {
+    // Real timers for userEvent, but the clock stays at NOW: the order
+    // fixture's payment deadline (2026-10-31T00:00Z) must still be ahead
+    // whatever day the suite runs. With the real clock these two tests
+    // failed from 2026-10-31 on: the page showed the order as expired.
     vi.useRealTimers();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
     const location = stubLocation();
     const replaces = vi.spyOn(window.history, "replaceState");
     serveOrder([{ latest_payment: latestPayment("expired") }]);
@@ -313,7 +319,13 @@ describe("PaymentPage", () => {
   });
 
   it("says why paying again failed", async () => {
+    // Real timers for userEvent, but the clock stays at NOW: the order
+    // fixture's payment deadline (2026-10-31T00:00Z) must still be ahead
+    // whatever day the suite runs. With the real clock these two tests
+    // failed from 2026-10-31 on: the page showed the order as expired.
     vi.useRealTimers();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
     serveOrder([{ latest_payment: latestPayment("failed") }], () =>
       errorResponse(409, "INVALID_TRANSITION"),
     );
