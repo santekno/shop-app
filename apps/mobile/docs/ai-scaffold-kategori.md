@@ -365,7 +365,7 @@ Nothing in `packages/shared` changed: `listCategories`, `Category`, `buildCatego
 ### What the AI got right
 
 - **The endpoint and the shape**, exactly as given: `GET /v1/categories`, `{ data: [...] }`, `parent_id: null` for the top level. No invented endpoint, no invented field, no invented library: it used only React Native and Expo Router.
-- **The navigation.** `router.navigate({ pathname: '/', params: { kategori: slug } })` is the call the final screen makes: `navigate` rather than `push`, because `/` is a tab and pushing would not switch to it, and the object form passes the typed-routes check unchanged.
+- **The navigation.** `router.navigate({ pathname: '/', params: { kategori: slug } })` is the call the adapted screen first made (the chapter's native check later replaced it with a `navigate` that merges the parameters, so the buyer's search and sort survive; README, artikel 14): `navigate` rather than `push`, because `/` is a tab and pushing would not switch to it, and the object form passes the typed-routes check unchanged.
 - **The edge cases of the tree**: a category whose parent is missing is shown at the top level instead of disappearing, the same rule `buildCategoryTree` follows.
 - **Cancellation and races**: it aborted the request on unmount and ignored an answer that arrived after a newer request started. TanStack Query now does that, but the hand-written version was correct.
 - **The states existed**: loading, error with "Coba lagi", empty ("Belum ada kategori."), pull-to-refresh, and keeping the old list with a note when a refresh fails. The final screen has the same states; only how they are built and worded changed.
