@@ -23,7 +23,13 @@ export default function FilterScreen() {
   // the home indicator (iOS) or the navigation bar (Android, drawn over
   // the app edge to edge) sits. The last row must stay above it.
   const insets = useSafeAreaInsets();
-  const { urut } = useLocalSearchParams<{ urut?: string }>();
+  // The catalog's other filters ride along, so picking an order keeps the
+  // category and the search (Beranda passes them in, artikel 06).
+  const { kategori, q, urut } = useLocalSearchParams<{
+    kategori?: string;
+    q?: string;
+    urut?: string;
+  }>();
   const current = sortFromParam(urut);
 
   return (
@@ -71,7 +77,7 @@ export default function FilterScreen() {
                 // of pushing a second Beranda on top.
                 router.dismissTo({
                   pathname: "/",
-                  params: { urut: option.param },
+                  params: { kategori, q, urut: option.param },
                 });
               }}
               style={({ pressed }) => [

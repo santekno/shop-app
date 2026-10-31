@@ -8,12 +8,25 @@
 // react-native-safe-area-context), so any screen can ask for the insets.
 // NativeWind's compiled styles, once for the whole app (artikel 05).
 import "../global.css";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { Stack, ThemeProvider } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useColorScheme } from "react-native";
+import { queryClient } from "@/lib/query-client";
 import { navigationTheme } from "@/theme/navigation";
 
+// TanStack Query's cache around every screen (artikel 06): one client for
+// the app's whole life, made once in src/lib/query-client.ts, which also
+// tells it when the app is in front and when the phone is online.
 export default function RootLayout() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <ThemedNavigation />
+    </QueryClientProvider>
+  );
+}
+
+function ThemedNavigation() {
   // Light or dark, as the device is set (app.config.ts allows both), re-read
   // when the user switches it.
   const scheme = useColorScheme() === "dark" ? "dark" : "light";

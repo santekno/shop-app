@@ -4,7 +4,7 @@
 // not once per keystroke.
 import { useTheme } from "expo-router";
 import { useState } from "react";
-import { Platform, StyleSheet, TextInput, View } from "react-native";
+import { TextInput, View } from "react-native";
 
 import { Icon } from "@/components/Icon";
 
@@ -19,11 +19,14 @@ interface SearchBarProps {
 }
 
 export function SearchBar({ initialQuery, onSubmit }: SearchBarProps) {
+  // Colours that are props rather than styles (the icon's, the text
+  // cursor's) come from the navigation theme: the same roles as the
+  // classes (src/theme/navigation.ts).
   const { colors } = useTheme();
   const [text, setText] = useState(initialQuery);
 
   return (
-    <View style={[styles.field, { borderColor: colors.border }]}>
+    <View className="min-h-11 flex-row items-center gap-2 rounded-[10px] border-hairline border-border px-3 dark:border-border-dark">
       <Icon name="cari" color={colors.text} size={18} />
       <TextInput
         value={text}
@@ -32,7 +35,6 @@ export function SearchBar({ initialQuery, onSubmit }: SearchBarProps) {
           onSubmit(text.trim());
         }}
         placeholder="Cari produk"
-        placeholderTextColor={PLACEHOLDER_COLOR}
         accessibilityLabel="Cari produk"
         maxLength={MAX_QUERY_LENGTH}
         // The keyboard shows "search" on its action key; submitting also
@@ -45,36 +47,14 @@ export function SearchBar({ initialQuery, onSubmit }: SearchBarProps) {
         // there the user deletes the text, as in other Android apps.
         clearButtonMode="while-editing"
         selectionColor={colors.primary}
-        style={[
-          styles.input,
-          { color: colors.text },
-          // Android adds its own vertical padding inside a TextInput.
-          Platform.OS === "android" && styles.inputAndroid,
-        ]}
+        // placeholder: is NativeWind's variant for the placeholder's colour:
+        // it moves the class's `color` to the placeholderTextColor prop.
+        // Android adds its own vertical padding inside a TextInput, hence
+        // the smaller android: padding. text-[16px] rather than text-base,
+        // which also sets a line height: in a TextInput that shifts the
+        // text off centre on iOS.
+        className="flex-1 py-2.5 text-[16px] text-foreground placeholder:text-muted-foreground android:py-1.5 dark:text-foreground-dark dark:placeholder:text-muted-foreground-dark"
       />
     </View>
   );
 }
-
-// Readable on the light and the dark theme alike (iOS's secondary label).
-const PLACEHOLDER_COLOR = "#8e8e93";
-
-const styles = StyleSheet.create({
-  field: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    minHeight: 44,
-  },
-  input: {
-    flex: 1,
-    fontSize: 16,
-    paddingVertical: 10,
-  },
-  inputAndroid: {
-    paddingVertical: 6,
-  },
-});

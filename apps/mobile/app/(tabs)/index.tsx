@@ -1,47 +1,55 @@
 // Beranda, at the route "/" (goshop:// as a deep link): the (tabs) group
-// adds no segment. Until the catalog comes from the API (artikel 06), it
-// shows sample products; it already carries the catalog's search and sort
-// order as route parameters (/?q=kaos&urut=termurah), set by the search
-// field and the sort sheet (app/filter.tsx).
+// adds no segment. The catalog from the API, narrowed and sorted by the
+// route's parameters (/?kategori=kaos&q=polos&urut=termurah), which the
+// Kategori tab, the search field and the sort sheet (app/filter.tsx) set.
 //
 // This tab has no navigation header (app/(tabs)/_layout.tsx): its own top
 // bar holds the search field, so it keeps clear of the status bar and the
 // notch itself, with the safe-area insets.
+import { useQueryClient } from "@tanstack/react-query";
 import { Link, router, useLocalSearchParams, useTheme } from "expo-router";
 import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
-  ScrollView,
-  StyleSheet,
   Text,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { Product } from "@goshop/shared";
+import type { Category } from "@goshop/shared";
 
 import { Icon } from "@/components/Icon";
-import { ProductGrid } from "@/features/catalog/components/ProductGrid";
+import { catalogKeys } from "@/features/catalog/api/queries";
+import { readCatalogFilters } from "@/features/catalog/catalog-filters";
+import { ProductList } from "@/features/catalog/components/ProductList";
 import { SearchBar } from "@/features/catalog/components/SearchBar";
-import { SAMPLE_PRODUCTS } from "@/features/catalog/fixtures";
 import { sortFromParam } from "@/features/catalog/sort-options";
-
-// A typed href: with typed routes on, a pathname that is not a route, or a
-// missing slug, is a compile error. The detail screen is pushed on the root
-// stack, above the tab bar.
-const openProduct = (product: Product) => {
-  router.push({
-    pathname: "/produk/[slug]",
-    params: { slug: product.slug },
-  });
-};
 
 export default function HomeScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const { q, urut } = useLocalSearchParams<{ q?: string; urut?: string }>();
-  const query = typeof q === "string" ? q : "";
+  const queryClient = useQueryClient();
+  const { kategori, q, urut } = useLocalSearchParams<{
+    kategori?: string;
+    q?: string;
+    urut?: string;
+  }>();
+  // The route is the state, as the query string is on the web: a deep
+  // link, the Kategori tab, the sort sheet and the search field all change
+  // it, and the list follows. The filters are checked here, not trusted.
+  const filters = readCatalogFilters({ kategori, q, urut });
   const sort = sortFromParam(urut);
+  const query = filters.q ?? "";
+  // The category's name, if the Kategori tab has loaded the categories
+  // (the ["categories"] query); the slug otherwise, as from a deep link.
+  // A read of the cache, not a request: the name is a nicety, and the
+  // list itself needs only the slug.
+  const categoryName =
+    filters.category === undefined
+      ? undefined
+      : (queryClient
+          .getQueryData<Category[]>(catalogKeys.categories)
+          ?.find((c) => c.slug === filters.category)?.name ?? filters.category);
 
   return (
     // The keyboard is drawn over the app. On iOS the window keeps its size,
@@ -51,29 +59,27 @@ export default function HomeScreen() {
     // extra behaviour is needed there.
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : undefined}
-      style={[styles.screen, { backgroundColor: colors.background }]}
+      className="flex-1 bg-background dark:bg-background-dark"
     >
       <View
-        style={[
-          styles.topBar,
-          {
-            // Below the status bar or the notch, whichever is taller.
-            paddingTop: insets.top + 8,
-            paddingLeft: insets.left + 16,
-            paddingRight: insets.right + 16,
-            backgroundColor: colors.card,
-            borderBottomColor: colors.border,
-          },
-        ]}
+        // The insets are numbers measured on this device while the app
+        // runs, so they go in `style`; everything known in advance is a
+        // class. Below the status bar or the notch, whichever is taller.
+        style={{
+          paddingTop: insets.top + 8,
+          paddingLeft: insets.left + 16,
+          paddingRight: insets.right + 16,
+        }}
+        className="gap-2 border-b-hairline border-border bg-card pb-3 dark:border-border-dark dark:bg-card-dark"
       >
         <Text
           accessibilityRole="header"
-          style={[styles.brand, { color: colors.text }]}
+          className="text-[22px] font-bold text-foreground dark:text-foreground-dark"
         >
           GoShop
         </Text>
-        <View style={styles.searchRow}>
-          <View style={styles.searchField}>
+        <View className="flex-row items-center gap-3">
+          <View className="flex-1">
             {/* A new key when the route's search changes (a deep link,
                 for one) starts the field again from it. */}
             <SearchBar
@@ -90,7 +96,17 @@ export default function HomeScreen() {
               asChild hands the link's press to the Pressable, which can
               take a larger touch area than its 24-point icon. */}
           <Link
-            href={{ pathname: "/filter", params: { urut: sort.param } }}
+            // The sheet gets every filter, not only the order, and hands
+            // them back with the new order: returning to "/" replaces the
+            // route's parameters, and the category and search must stay.
+            href={{
+              pathname: "/filter",
+              params: {
+                kategori: filters.category,
+                q: filters.q,
+                urut: sort.param,
+              },
+            }}
             asChild
           >
             <Pressable
@@ -103,60 +119,24 @@ export default function HomeScreen() {
           </Link>
         </View>
       </View>
-      {/* A View does not scroll: content taller than the screen is simply
-          cut off. ScrollView scrolls, and renders every child at once,
-          which is fine for six cards (artikel 06 and 07 compare it with
-          FlatList). */}
-      <ScrollView
-        style={styles.list}
-        // Dragging the list puts the keyboard away. iOS can follow the
-        // finger ("interactive"); Android only knows "on-drag".
-        keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
-        // A tap on a card works at the first touch; a tap on empty space
-        // closes the keyboard.
-        keyboardShouldPersistTaps="handled"
-      >
-        {/* The samples are neither searched nor sorted: artikel 06 sends
-            q and urut to the API. */}
-        <Text style={[styles.caption, { color: colors.text }]}>
-          {query === ""
-            ? "Contoh produk"
-            : `Contoh produk, bukan hasil "${query}"`}
-          {` · Urutan: ${sort.label}`}
-        </Text>
-        <ProductGrid products={SAMPLE_PRODUCTS} onPressProduct={openProduct} />
-      </ScrollView>
+      <ProductList
+        filters={filters}
+        category={
+          categoryName === undefined
+            ? undefined
+            : {
+                name: categoryName,
+                onClear: () => {
+                  router.setParams({ kategori: undefined });
+                },
+              }
+        }
+        caption={
+          query === ""
+            ? `Semua produk · ${sort.label}`
+            : `Hasil pencarian "${query}" · ${sort.label}`
+        }
+      />
     </KeyboardAvoidingView>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-  },
-  topBar: {
-    gap: 8,
-    paddingBottom: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  brand: {
-    fontSize: 22,
-    fontWeight: "700",
-  },
-  searchRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  searchField: {
-    flex: 1,
-  },
-  list: {
-    flex: 1,
-  },
-  caption: {
-    fontSize: 14,
-    paddingHorizontal: 16,
-    paddingTop: 16,
-  },
-});
