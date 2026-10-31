@@ -11,7 +11,12 @@ type AppStateListener = (state: string) => void;
  * added. The managers are module singletons: a copy per test keeps one
  * test's offline state out of the next.
  */
-const load = (initial?: NetworkState) => {
+const load = (
+  initial?: NetworkState,
+  // Runs on the fresh expo-network mock before query-client.ts loads, to
+  // change how getNetworkStateAsync answers.
+  prepare?: (network: typeof NetworkMock) => void,
+) => {
   let loaded:
     | {
         module: typeof import("./query-client");
@@ -23,6 +28,7 @@ const load = (initial?: NetworkState) => {
   jest.isolateModules(() => {
     const network = jest.requireMock<typeof NetworkMock>("expo-network");
     if (initial !== undefined) network.setInitialNetworkState(initial);
+    prepare?.(network);
     const { AppState } =
       jest.requireActual<typeof import("react-native")>("react-native");
     // React Native's Jest preset makes addEventListener a mock; the spy
@@ -138,6 +144,63 @@ describe("online: the phone's connection", () => {
     network.emitNetworkState({ isConnected: true });
     expect(tanstack.onlineManager.isOnline()).toBe(true);
   });
+
+  it("stays online when the start-up question fails, with no unhandled rejection", async () => {
+    // Node reports a rejection nobody handled on this event; Jest itself
+    // would not fail the test for it.
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => {
+      unhandled.push(reason);
+    };
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const { tanstack, network } = load(undefined, (mock) => {
+        mock.getNetworkStateAsync.mockRejectedValueOnce(
+          new Error("no network module"),
+        );
+      });
+      await settle();
+      // Node decides a rejection is unhandled after the microtasks run
+      // out; one more macrotask lets the event fire.
+      await settle();
+
+      expect(network.getNetworkStateAsync).toHaveBeenCalledTimes(1);
+      expect(tanstack.onlineManager.isOnline()).toBe(true);
+      expect(unhandled).toEqual([]);
+
+      // The listener still works after the failed question.
+      network.emitNetworkState({ isConnected: false });
+      expect(tanstack.onlineManager.isOnline()).toBe(false);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
+  it.each([
+    ["a late offline answer after the phone came online", true],
+    ["a late online answer after the phone went offline", false],
+  ])(
+    "lets a change win over the start-up answer: %s",
+    async (_name, online) => {
+      let answer: (state: NetworkState) => void = () => undefined;
+      const { tanstack, network } = load(undefined, (mock) => {
+        mock.getNetworkStateAsync.mockImplementationOnce(
+          () =>
+            new Promise<NetworkState>((resolve) => {
+              answer = resolve;
+            }),
+        );
+      });
+
+      // The listener reports a change while the start-up question is still
+      // out; then the (older) answer arrives, saying the opposite.
+      network.emitNetworkState({ isConnected: online });
+      answer({ isConnected: !online });
+      await settle();
+
+      expect(tanstack.onlineManager.isOnline()).toBe(online);
+    },
+  );
 
   it("removes its listeners when another one replaces them", () => {
     const { tanstack, network } = load();

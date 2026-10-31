@@ -427,6 +427,11 @@ describe("ProductList: the next page", () => {
     await screen.findByText("P1");
     expect(cursors()).toEqual([null]);
 
+    // One screen's height before the end (the threshold is in visible
+    // lengths), so the page usually arrives before the buyer gets there.
+    // Jest has no scrolling to measure: the value is pinned here, and
+    // endReached is fired by hand.
+    expect(scrollView()).toHaveProp("onEndReachedThreshold", 1);
     answerPage(["Q"], null);
     await fireEvent(scrollView(), "endReached");
 
@@ -453,16 +458,16 @@ describe("ProductList: the next page", () => {
     await fireEvent(scrollView(), "endReached");
 
     expect(cursors()).toEqual([null, null]);
+    // The one-row list the refetch brings ends on screen, so once the
+    // refetch is over its next page is asked for, and answered.
+    answerPage(["R2"], null);
     await act(async () => {
       refetch.resolve(json(productPage([product("R1")], "c1")));
       await Promise.resolve();
     });
     expect(await screen.findByText("R1")).toBeOnTheScreen();
-    // The one-row list now ends on screen; its next page is asked for.
-    expect(fakeApi.unhandled()).toEqual([
-      "GET /v1/products?limit=20&sort=newest&cursor=c1",
-    ]);
-    fakeApi.reset();
+    expect(await screen.findByText("R2")).toBeOnTheScreen();
+    expect(cursors()).toEqual([null, null, "c1"]);
   });
 
   it("does not retry a failed next page by itself; the footer's Coba lagi does", async () => {
@@ -536,7 +541,7 @@ describe("ProductList: one list per filter", () => {
 });
 
 describe("ProductList: the keyboard", () => {
-  it("follows the finger on iOS and closes on drag on Android", async () => {
+  it("follows the finger on iOS", async () => {
     answerPage(["Kaos"]);
     await renderList();
     await screen.findByText("Kaos");

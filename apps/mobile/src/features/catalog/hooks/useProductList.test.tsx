@@ -132,8 +132,10 @@ describe("useProductList", () => {
       refetching = result.current.refetch();
       await Promise.resolve();
     });
+    // The hook hands over isFetching, not isRefetching: with data on
+    // screen the two are the same here.
     await waitFor(() => {
-      expect(result.current.isRefetching).toBe(true);
+      expect(result.current.isFetching).toBe(true);
     });
     expect(result.current.isRefreshing).toBe(false);
 
@@ -141,6 +143,17 @@ describe("useProductList", () => {
       first.resolve(json(productPage([product("A")], "c1")));
       await refetching;
     });
+  });
+
+  it("keeps the same products array across a render with no new page", async () => {
+    const hook = await loadTwoPages();
+    const before = hook.result.current.products;
+
+    // A render for any other reason (the screen's own state, a parent):
+    // the list gets the same array, so it has nothing to redo.
+    await hook.rerender(undefined);
+    expect(hook.result.current.products).toBe(before);
+    expect(names(hook.result.current.products)).toEqual(["A", "B", "C"]);
   });
 
   it("refresh before any data just fetches the first page", async () => {

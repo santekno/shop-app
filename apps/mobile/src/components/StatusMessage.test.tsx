@@ -1,6 +1,7 @@
-import { describe, expect, it, jest } from "@jest/globals";
+import { afterEach, describe, expect, it, jest } from "@jest/globals";
 import { render, screen, userEvent } from "@testing-library/react-native";
 import { ApiError } from "@goshop/shared";
+import { AccessibilityInfo } from "react-native";
 
 import { EmptyState, ErrorState, LoadingState } from "./StatusMessage";
 
@@ -23,6 +24,10 @@ describe("EmptyState", () => {
 });
 
 describe("ErrorState", () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   const withId = new ApiError({
     status: 500,
     code: "INTERNAL",
@@ -40,12 +45,28 @@ describe("ErrorState", () => {
       "Terjadi kesalahan saat memuat data. Coba lagi.",
     );
     expect(message.parent).toHaveProp("accessibilityRole", "alert");
+    // TalkBack reads a live region when it appears: the role alone
+    // announces nothing.
+    expect(message.parent).toHaveProp("accessibilityLiveRegion", "polite");
     expect(message.parent).toHaveTextContent(
       "Terjadi kesalahan saat memuat data. Coba lagi.Kode permintaan: req-42",
     );
     expect(screen.getByText("Kode permintaan: req-42")).toHaveProp(
       "selectable",
       true,
+    );
+  });
+
+  it("hands its sentence to VoiceOver once when it appears (jest-expo runs as iOS)", async () => {
+    // React Native's Jest setup already mocks it; clear earlier calls.
+    const announce = jest
+      .spyOn(AccessibilityInfo, "announceForAccessibility")
+      .mockClear();
+    await render(<ErrorState error={withId} />);
+
+    expect(announce).toHaveBeenCalledTimes(1);
+    expect(announce).toHaveBeenCalledWith(
+      "Terjadi kesalahan saat memuat data. Coba lagi.",
     );
   });
 
