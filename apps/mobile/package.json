@@ -13,7 +13,7 @@
     "lint": "eslint --max-warnings=0 . && prettier --check .",
     "format": "prettier --write . && eslint --fix .",
     "build": "expo export --platform all --output-dir dist",
-    "test:unit": "sh -c 'echo \"@goshop/mobile: no unit tests yet\"'"
+    "test:unit": "jest"
   },
   "dependencies": {
     "@expo/log-box": "58.0.13",
@@ -46,15 +46,22 @@
   "devDependencies": {
     "@babel/plugin-transform-react-jsx": "7.29.7",
     "@eslint/js": "catalog:",
+    "@jest/globals": "30.5.2",
+    "@react-native/jest-preset": "0.88.1",
+    "@testing-library/react-native": "14.1.0",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "babel-preset-expo": "58.0.22",
     "eslint": "catalog:",
     "eslint-config-prettier": "catalog:",
     "eslint-plugin-react-hooks": "catalog:",
+    "expect": "30.5.2",
     "globals": "catalog:",
+    "jest": "30.5.2",
+    "jest-expo": "58.0.13",
     "prettier": "catalog:",
     "tailwindcss": "3.4.19",
+    "test-renderer": "1.3.0",
     "typescript": "catalog:",
     "typescript-eslint": "catalog:"
   },
