@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, jest } from "@jest/globals";
 import { render, screen, userEvent } from "@testing-library/react-native";
-import type { Product } from "@goshop/shared";
+import type { Product, ProductImage } from "@goshop/shared";
 
 import { product } from "@/test/fixtures";
 import { ProductCard } from "./ProductCard";
@@ -136,8 +136,61 @@ describe("ProductCard", () => {
   });
 
   it("draws the first photo, or the placeholder without one", async () => {
-    await render(<ProductCard product={product("Kaos")} onPress={noop} />);
+    const photo = (name: string): ProductImage => ({
+      id: `00000000-0000-4000-8000-0000000000${name === "depan" ? "a1" : "a2"}`,
+      url: `https://cdn.goshop.test/p/${name}-800.jpg`,
+      alt: "",
+      width: 800,
+      height: 800,
+      variants: [
+        {
+          url: `https://cdn.goshop.test/p/${name}-400.jpg`,
+          width: 400,
+          height: 400,
+        },
+        {
+          url: `https://cdn.goshop.test/p/${name}-800.jpg`,
+          width: 800,
+          height: 800,
+        },
+      ],
+    });
+    // Every element that hands a source to the native image view.
+    const sources = () =>
+      screen.container
+        .queryAll((element) => element.props.source !== undefined)
+        .map((element) => element.props.source as unknown);
+
+    await render(
+      <ProductCard
+        product={product("Kaos", {
+          images: [photo("depan"), photo("belakang")],
+        })}
+        onPress={noop}
+      />,
+    );
+    // The first photo's sizes, not the second's, and no placeholder.
+    expect(sources()).toEqual([
+      [
+        {
+          uri: "https://cdn.goshop.test/p/depan-400.jpg",
+          width: 400,
+          height: 400,
+        },
+        {
+          uri: "https://cdn.goshop.test/p/depan-800.jpg",
+          width: 800,
+          height: 800,
+        },
+      ],
+    ]);
+    expect(screen.queryByText("Belum ada foto")).not.toBeOnTheScreen();
+
+    await screen.rerender(
+      <ProductCard product={product("Kaos")} onPress={noop} />,
+    );
     expect(screen.getByText("Belum ada foto")).toBeOnTheScreen();
+    expect(sources()).toEqual([]);
   });
 
   it("skips rendering again when the product and onPress are the same (memo)", async () => {
