@@ -1,0 +1,31 @@
+{
+  // Expo's base config (module "preserve", bundler resolution, the
+  // react-native export condition): Metro resolves and bundles, tsc only
+  // checks. The strictness options are the same as apps/admin's.
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    // app.config.ts runs in Node (process.env at build time). The app's own
+    // process.env.EXPO_PUBLIC_* types come from expo/types
+    // (src/expo-types.d.ts).
+    "types": ["node"],
+
+    // "@/config/env" instead of "../../src/config/env". Metro reads the
+    // same paths from this file, so no bundler setting is needed.
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+
+    // packages/shared names its imports with the .ts extension (Node runs
+    // it by stripping types); tsc must accept that when it follows
+    // @goshop/shared into its source.
+    "allowImportingTsExtensions": true,
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true
+  },
+  "include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.ts"]
+}
