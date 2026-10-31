@@ -21,6 +21,12 @@ export default function RootLayout() {
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         {/* The title is replaced by the screen once it knows the product. */}
         <Stack.Screen name="produk/[slug]" options={{ title: "Produk" }} />
+        {/* Over everything, tab bar included: a card that slides up on
+            iOS, a full screen on Android. */}
+        <Stack.Screen
+          name="filter"
+          options={{ presentation: "modal", title: "Urutkan" }}
+        />
         <Stack.Screen
           name="+not-found"
           options={{ title: "Tidak ditemukan" }}

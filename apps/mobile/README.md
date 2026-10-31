@@ -401,3 +401,64 @@ Paths are relative to `apps/mobile`.
 | A dynamic route and its parameter         | `app/produk/[slug].tsx`                          |
 | Paths that match nothing                  | `app/+not-found.tsx`                             |
 | Route type generation in `pnpm typecheck` | `package.json` (`typecheck`), `tsconfig.json`    |
+
+## Navigasi tab, stack dan modal (artikel 09)
+
+A web app has one kind of navigation: the page changes and the back button goes to the previous URL. A phone app mixes three, and the user expects each to behave the way every other app on their phone does: **tabs** for the app's main sections, a **stack** for going deeper into one thing and back out, and a **modal** for a short task that interrupts and is then closed. Artikel 08 gave every screen a URL; this article decides how each one is presented.
+
+### The mental model
+
+| Navigator | What the user sees                                                                                                                                    | When to use it                                                                | In this app                                    |
+| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ---------------------------------------------- |
+| **Tabs**  | A bar of sections at the bottom. Switching keeps each tab's own state (its scroll position, its own pushed screens): tabs are parallel, not a history | The few top-level sections a user moves between all the time                  | Beranda, Kategori, Keranjang, Akun             |
+| **Stack** | Each screen enters over the previous one with the platform's own transition, with a back button, the iOS edge swipe and Android's back gesture        | Going deeper: a list, then one item. Back means "one level up"                | The root stack: the tabs, then a product above |
+| **Modal** | A screen over everything, tab bar included. iOS slides up a card the user swipes down; Android shows a full screen closed with back                   | A self-contained task that ends with "done" or "cancel": sort, filter, a form | The sort sheet, `/filter`                      |
+
+The navigators nest. The root stack holds the tab navigator as its first screen; a product or the sort sheet is pushed on the root stack, so it covers the tab bar. Had `produk/[slug]` lived inside `(tabs)`, the detail would open inside the Beranda tab with the tab bar still showing, which is a valid design too (each tab its own stack) but needs a stack per tab.
+
+### The navigation tree
+
+```text
+Root Stack                       app/_layout.tsx
+├── (tabs)  header hidden        app/(tabs)/_layout.tsx  (Tabs)
+│   ├── Beranda     /            app/(tabs)/index.tsx
+│   ├── Kategori    /kategori    app/(tabs)/kategori.tsx
+│   ├── Keranjang   /keranjang   app/(tabs)/keranjang.tsx
+│   └── Akun        /akun        app/(tabs)/akun.tsx
+├── Produk          /produk/:slug  pushed            app/produk/[slug].tsx
+├── Urutkan         /filter        modal             app/filter.tsx
+└── Tidak ditemukan (any other path)                 app/+not-found.tsx
+```
+
+| Route           | Presented as               | Header                                          | Reached from                                    |
+| --------------- | -------------------------- | ----------------------------------------------- | ----------------------------------------------- |
+| `/` and tabs    | tab, under the tab bar     | the tab's own (one per tab), not the stack's    | launch, `goshop://`, the tab bar                |
+| `/produk/:slug` | stack push, above the tabs | the stack's, with back; title set by the screen | a product link, `goshop://produk/<slug>`        |
+| `/filter`       | modal                      | the stack's, title "Urutkan"; "Tutup" on iOS    | "Urutkan" on Beranda (`/filter?urut=<current>`) |
+
+### How the sort sheet talks back
+
+The modal does not call a function on Beranda or share a store with it. Beranda opens `/filter?urut=terbaru`, so the sheet knows what to tick; picking an option calls `router.dismissTo({ pathname: "/", params: { urut: "termurah" } })`, which closes the modal and returns to the Beranda already underneath with the new parameter. Beranda reads `urut` with `useLocalSearchParams` and turns it into a sort order with `sortFromParam`. The words are the storefront's (`?urut=termurah`), so `goshop://?urut=termurah` and the web's `/?urut=termurah` mean the same thing. A parameter is outside input, so an unknown word falls back to "Terbaru" rather than reaching the API.
+
+### Decisions
+
+- **JavaScript tabs, not native tabs, for now.** `expo-router/js-tabs` draws the tab bar in React and looks the same on both platforms; `expo-router/native-tabs` uses `UITabBarController` and Material's bottom navigation, which look native (including iOS 26's glass tab bar) but take SF Symbols and Android drawables instead of any React element. With one icon component (below), switching later is a change to one layout file.
+- **One icon component.** Screens use `<Icon name="keranjang" />` from `src/components/Icon.tsx`, a name that says what the icon means, mapped to an Ionicons glyph in one table. Tabs show the filled glyph when selected and the outline otherwise, in the tint colour the tab bar passes. Artikel 11 may change the icon set; nothing outside that file needs to know.
+- **`@expo/vector-icons` 15.1.1 and `expo-font` 58.0.11.** Ionicons is an icon font: a `.ttf` (about 390 KB, bundled by `expo export`) that `expo-font` loads at run time. `expo-font` is a peer dependency of `@expo/vector-icons` and a native module, so it is listed in `package.json` itself (`expo-doctor` fails without it): a development or preview build must contain it. Expo Go already does.
+- **The close button exists on iOS only.** An iOS modal is a card with no back button; users swipe it down, and a "Tutup" button in the header is the visible way out. Android's modal has the header's back arrow and the system back gesture, so the screen adds no second close.
+- **`dismissTo`, not `push`, to go back with a result.** Pushing `/` would put a second Beranda on top of the stack, with the modal still underneath it.
+- **Placeholders are real routes.** Kategori, Keranjang and Akun render `ScreenPlaceholder`; the tab bar, deep links (`goshop://keranjang`) and route types already include them, and each later chapter replaces one file.
+
+### Where each idea lives
+
+Paths are relative to `apps/mobile`.
+
+| Concept                                   | Where to read it                                                    |
+| ----------------------------------------- | ------------------------------------------------------------------- |
+| The root stack: tabs, push, modal         | `app/_layout.tsx`                                                   |
+| The tab bar and its icons                 | `app/(tabs)/_layout.tsx`                                            |
+| The four tabs                             | `app/(tabs)/index.tsx`, `kategori.tsx`, `keranjang.tsx`, `akun.tsx` |
+| The modal and how it returns a choice     | `app/filter.tsx`                                                    |
+| Sort orders and reading them from a route | `src/features/catalog/sort-options.ts`                              |
+| Icons                                     | `src/components/Icon.tsx`                                           |
+| A screen whose feature comes later        | `src/components/ScreenPlaceholder.tsx`                              |
