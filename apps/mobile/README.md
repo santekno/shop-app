@@ -143,3 +143,39 @@ Paths are relative to `apps/mobile`.
 | The routes: the root stack and the first screen | `app/_layout.tsx`, `app/index.tsx`                                             |
 | Bundler, types, lint                            | `metro.config.js`, `tsconfig.json`, `src/expo-types.d.ts`, `eslint.config.mjs` |
 | What is generated and never committed           | `.gitignore` (`android/`, `ios/`, `.expo/`, `dist/`)                           |
+
+## Komponen inti: View, Text, Image dan Pressable (artikel 03)
+
+The home screen shows product cards: `ProductCard`, the phone's version of `apps/web`'s card (photo, name, price, "Stok habis"), built from React Native's four core components. The products are six samples in the exact shape `GET /v1/products` returns, until artikel 06 fetches the real catalog.
+
+### The mental model
+
+| Web                                  | React Native                                                   | What changes                                                                                                                                                                                                                                                         |
+| ------------------------------------ | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `<div>`                              | `View`                                                         | A box that lays out its children and draws a background or a border. It cannot hold a string                                                                                                                                                                         |
+| `<p>`, `<span>`, `<h3>`, a text node | `Text`                                                         | The only component a string may sit in: `<View>Rp 89.000</View>` is a runtime error, not an anonymous text node. Nested `Text` inherits the outer one's style, the one place anything is inherited                                                                   |
+| `<img src srcset alt>`               | `Image` with `source`                                          | A remote image has **no intrinsic size**: React Native does not download it to measure it, so without a width and a height in its style it is drawn 0 × 0. `source` can be a list of sizes, and the native side picks the smallest that fills the box (the `srcset`) |
+| `<button onClick>`, `:active`        | `Pressable` with `onPress` and `style={({ pressed }) …}`       | No click and no built-in look: `Pressable` reports the touch and whether a finger is down; the app draws the feedback                                                                                                                                                |
+| `aria-label`, the button's role      | `accessibilityRole`, `accessibilityLabel`, `accessibilityHint` | Read by TalkBack (Android) and VoiceOver (iOS). A `Pressable` with a label is **one** element: the screen reader announces the label, not each `Text` inside                                                                                                         |
+| `line-clamp-2`                       | `<Text numberOfLines={2}>`                                     | A property of the text, not a style                                                                                                                                                                                                                                  |
+
+### Decisions
+
+- **The card takes the API's `Product`, from `@goshop/shared`.** The catalog response (`ProductList.data`) is a list of full `Product`s; the contract has no separate summary type. The app now depends on `@goshop/shared` (`workspace:*`, like the web apps) and imports the `Product` type and `formatRupiah`; artikel 12 covers what else is shared and why. `formatRupiah` uses `Intl.NumberFormat("id-ID")`, which Hermes provides on both platforms.
+- **One price, or "Mulai".** As on the web, `price_from` is the cheapest variant; the card says "Mulai Rp 89.000" when another variant costs more.
+- **The photo uses every variant.** `ProductPhoto` passes the API's `variants` (400 and 800 pixels) as a list of `{ uri, width, height }`; once the box is laid out, the platform picks the smallest that is sharp enough at the screen's density, the job `srcset` + `sizes` do in `apps/web`. A product without a photo gets the same "Belum ada foto" placeholder as the storefront.
+- **The accessible label is built, not read off the screen.** `"Kopi Arabika Gayo 250 g, mulai Rp 89.000"`, plus `"stok habis"` when nothing is in stock, and the hint "Membuka halaman produk". The photo carries no label of its own, so it is not read twice.
+- **`onPress` is a prop, the card does not navigate.** The screen decides what a tap does: for now an `Alert`, because the product route arrives in artikel 08. Like the web card, it is wrapped in `memo`.
+- **Sample photos from picsum.photos.** The API's image storage (`http://localhost:8333`) is neither running without `make up` nor reachable from a phone at that address, so the samples point at a public placeholder service with the same two widths the worker writes. `fixtures.ts` goes when artikel 06 loads the catalog.
+- **A `ScrollView` for now.** Six cards taller than the screen must scroll, and a `View` does not. A `ScrollView` renders all of its children at once, fine for six; artikel 06 and 07 move to a list that renders only what is on screen.
+
+### Where each idea lives
+
+Paths are relative to `apps/mobile`.
+
+| Concept                                                 | Where to read it                                   |
+| ------------------------------------------------------- | -------------------------------------------------- |
+| The card: core components, pressed state, accessibility | `src/features/catalog/components/ProductCard.tsx`  |
+| The photo: variants as a source list, the placeholder   | `src/features/catalog/components/ProductPhoto.tsx` |
+| The sample products, in the API's shape                 | `src/features/catalog/fixtures.ts`                 |
+| The screen that lists them and decides what a tap does  | `app/index.tsx`                                    |
