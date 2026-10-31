@@ -58,6 +58,13 @@ describe("the root stack", () => {
       "filter",
     ]);
     expect(headerTitles()).toEqual(["Urutkan"]);
+    // react-native-screens draws each screen as a host with its
+    // stackPresentation: the tabs as a card, the sheet as a modal
+    // (RNSModalScreen). "card" here would push the sheet like a page.
+    const presentations = screen.container
+      .queryAll((i) => i.props.stackPresentation !== undefined)
+      .map((i) => [i.type, i.props.stackPresentation] as const);
+    expect(presentations).toContainEqual(["RNSModalScreen", "modal"]);
   });
 
   it("titles an unknown link Tidak ditemukan", async () => {

@@ -189,8 +189,9 @@ describe("Beranda: the search field", () => {
   });
 });
 
-// Link asChild gives the Pressable role="link", which React Native ranks
-// above its accessibilityRole="button": a screen reader says "link".
+// Link asChild gives the Pressable role="link", and React Native ranks
+// `role` above accessibilityRole. The Pressable's own role="button" wins
+// over the link's, so a screen reader says "button": it opens a sheet.
 describe("Beranda: the sort button", () => {
   it("opens the sort sheet with every filter, labelled with the current order", async () => {
     answerProducts("Kaos");
@@ -198,7 +199,9 @@ describe("Beranda: the sort button", () => {
     await screen.findByText("Kaos");
 
     await userEvent.press(
-      screen.getByRole("link", { name: "Urutkan, saat ini Harga tertinggi" }),
+      screen.getByRole("button", {
+        name: "Urutkan, saat ini Harga tertinggi",
+      }),
     );
 
     expect(app.getPathname()).toBe("/filter");
@@ -215,10 +218,23 @@ describe("Beranda: the sort button", () => {
     await screen.findByText("Kaos");
 
     await userEvent.press(
-      screen.getByRole("link", { name: "Urutkan, saat ini Terbaru" }),
+      screen.getByRole("button", { name: "Urutkan, saat ini Terbaru" }),
     );
 
     expect(app.getSearchParams()).toEqual({ urut: "terbaru" });
+  });
+
+  it("is a button, never a link, with a 48 dp touch target", async () => {
+    answerProducts("Kaos");
+    await renderApp("/");
+    await screen.findByText("Kaos");
+
+    const button = screen.getByRole("button", {
+      name: "Urutkan, saat ini Terbaru",
+    });
+    expect(screen.queryByRole("link", { name: /Urutkan/ })).toBeNull();
+    // 24 dp icon + 2 × 12 = 48 dp, Android's smallest touch target.
+    expect(button).toHaveProp("hitSlop", 12);
   });
 });
 

@@ -19,7 +19,7 @@ const openSheetFrom = async (url: string) => {
   const app = await renderApp(url);
   await screen.findByText("Kaos");
   await userEvent.press(
-    screen.getByRole("link", { name: /^Urutkan, saat ini/ }),
+    screen.getByRole("button", { name: /^Urutkan, saat ini/ }),
   );
   return app;
 };
