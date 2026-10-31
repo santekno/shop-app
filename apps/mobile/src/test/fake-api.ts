@@ -18,7 +18,11 @@
 //   when the code under test handled the rejection and showed an error;
 // - a reply can be held back (`deferred`), so a test can look at the
 //   screen between the request and the answer instead of relying on a
-//   mock faster than any real network.
+//   mock faster than any real network;
+// - a held answer must be released: a request whose `deferred` answer the
+//   test never resolved or rejected (and the app did not abort) fails the
+//   test too, since whatever the test asserted ran against a request that
+//   was still in flight when it ended.
 
 /** One request as the fake fetch received it. */
 export interface FakeRequest {
@@ -43,12 +47,22 @@ interface FakeApiState {
   routes: Route[];
   received: FakeRequest[];
   unhandled: string[];
+  /** Requests waiting on a deferred answer, until it is released. */
+  held: Set<FakeRequest>;
 }
 const holder = globalThis as typeof globalThis & {
   __goshopFakeApi?: FakeApiState;
 };
-holder.__goshopFakeApi ??= { routes: [], received: [], unhandled: [] };
-const { routes, received, unhandled } = holder.__goshopFakeApi;
+holder.__goshopFakeApi ??= {
+  routes: [],
+  received: [],
+  unhandled: [],
+  held: new Set(),
+};
+const { routes, received, unhandled, held } = holder.__goshopFakeApi;
+
+const describeRequest = ({ method, url }: FakeRequest) =>
+  `${method} ${url.pathname}${url.search}`;
 
 // The signal's reason, as the real fetch rejects with it. The shared
 // client sets an Error (a DOMException) as the reason of every abort.
@@ -79,7 +93,7 @@ export const fakeFetch: typeof fetch = (input, init = {}) => {
   );
   const route = index === -1 ? undefined : routes[index];
   if (route === undefined) {
-    unhandled.push(`${method} ${url.pathname}${url.search}`);
+    unhandled.push(describeRequest(request));
     return Promise.reject(new TypeError("Network request failed"));
   }
   if (route.once) routes.splice(index, 1);
@@ -125,10 +139,19 @@ export const fakeApi = {
     ),
   /** Requests no handler answered since the last reset. */
   unhandled: (): readonly string[] => [...unhandled],
+  /**
+   * Requests still waiting on a `deferred` answer the test never released.
+   * One the app aborted (a cancelled query) is not waiting any more.
+   */
+  held: (): readonly string[] =>
+    [...held]
+      .filter((request) => request.init.signal?.aborted !== true)
+      .map(describeRequest),
   reset() {
     routes.length = 0;
     received.length = 0;
     unhandled.length = 0;
+    held.clear();
   },
 };
 
@@ -159,7 +182,11 @@ export const apiError = (
 export const networkDown = (): Promise<Response> =>
   Promise.reject(new TypeError("Network request failed"));
 
-/** An answer the test releases itself, to look at the screen meanwhile. */
+/**
+ * An answer the test releases itself, to look at the screen meanwhile.
+ * Every request it holds counts as held (fakeApi.held) until `resolve` or
+ * `reject` is called.
+ */
 export const deferred = () => {
   let release: (response: Response) => void = () => undefined;
   let fail: (error: unknown) => void = () => undefined;
@@ -167,12 +194,28 @@ export const deferred = () => {
     release = resolve;
     fail = reject;
   });
+  const waiting = new Set<FakeRequest>();
+  const settle = () => {
+    for (const request of waiting) held.delete(request);
+    waiting.clear();
+  };
+  let settled = false;
   return {
-    handler: (): Promise<Response> => promise,
+    handler: (request: FakeRequest): Promise<Response> => {
+      if (!settled) {
+        waiting.add(request);
+        held.add(request);
+      }
+      return promise;
+    },
     resolve: (response: Response) => {
+      settled = true;
+      settle();
       release(response);
     },
     reject: (error: unknown) => {
+      settled = true;
+      settle();
       fail(error);
     },
   };

@@ -98,6 +98,43 @@ describe("the production guard", () => {
     expect(loadConfig(env).slug).toBe("goshop");
   });
 
+  it.each([
+    ["EAS_BUILD_PROFILE", { EAS_BUILD_PROFILE: "production" }],
+    ["APP_VARIANT", { APP_VARIANT: "production" }],
+  ])(
+    "refuses a production build (%s) over plain http://, naming the URL",
+    (_name, env) => {
+      // A production build refuses cleartext (below): it would build,
+      // then fail every request.
+      expect(() =>
+        loadConfig({ ...env, EXPO_PUBLIC_API_URL: "http://api.goshop.test" }),
+      ).toThrow(
+        "EXPO_PUBLIC_API_URL must be an https:// URL for a production build, not http://api.goshop.test",
+      );
+      // The scheme must lead: "https://" elsewhere in the value is not it.
+      expect(() =>
+        loadConfig({
+          ...env,
+          EXPO_PUBLIC_API_URL: "http://proxy.test/?to=https://api.goshop.test",
+        }),
+      ).toThrow("must be an https:// URL");
+    },
+  );
+
+  it.each([
+    ["preview", { EAS_BUILD_PROFILE: "preview" }],
+    ["development", { EAS_BUILD_PROFILE: "development" }],
+    ["no profile (expo start)", {}],
+  ])(
+    "lets %s build against a plain http:// API (a laptop on the LAN)",
+    (_name, env) => {
+      expect(
+        loadConfig({ ...env, EXPO_PUBLIC_API_URL: "http://192.168.1.10:8080" })
+          .slug,
+      ).toBe("goshop");
+    },
+  );
+
   it("EAS_BUILD_PROFILE wins over APP_VARIANT", () => {
     // EAS sets the profile; a stray APP_VARIANT=production in the shell
     // must not make a preview build demand the production URL.
@@ -201,5 +238,54 @@ describe("the app's identity", () => {
     expect(config().plugins).toEqual(
       expect.arrayContaining(["expo-router", "expo-status-bar"]),
     );
+  });
+});
+
+// eas.json is read by EAS, not by the app, so nothing else would notice a
+// profile that builds the wrong kind of binary until a build came back.
+describe("the EAS build profiles (eas.json)", () => {
+  interface Profile {
+    developmentClient?: boolean;
+    distribution?: string;
+    autoIncrement?: boolean;
+    android?: { buildType?: string };
+    ios?: { simulator?: boolean };
+  }
+  const { build } = jest.requireActual<{
+    build: Record<string, Profile>;
+  }>("./eas.json");
+
+  it("has exactly the three profiles app.config.ts knows", () => {
+    expect(Object.keys(build).sort()).toEqual([
+      "development",
+      "preview",
+      "production",
+    ]);
+  });
+
+  it("development is an internal dev client that runs in the iOS simulator", () => {
+    expect(build.development).toMatchObject({
+      developmentClient: true,
+      distribution: "internal",
+      ios: { simulator: true },
+    });
+  });
+
+  it("preview is an internal APK on Android and a simulator build on iOS", () => {
+    expect(build.preview).toMatchObject({
+      distribution: "internal",
+      android: { buildType: "apk" },
+      ios: { simulator: true },
+    });
+    expect(build.preview?.developmentClient).toBeUndefined();
+  });
+
+  it("production is an app bundle for the store, numbered by EAS, for a real iPhone", () => {
+    expect(build.production).toMatchObject({
+      autoIncrement: true,
+      android: { buildType: "app-bundle" },
+    });
+    expect(build.production?.ios?.simulator).toBeUndefined();
+    expect(build.production?.distribution).toBeUndefined();
   });
 });

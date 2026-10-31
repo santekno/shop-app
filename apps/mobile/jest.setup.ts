@@ -18,13 +18,22 @@ jest.mock("expo-network", () => jest.requireActual("./src/test/expo-network"));
 // code under test caught the network error and showed a message: that is
 // the lesson of Bab 12 (docs/testing-ai-review.md), where three tests
 // passed while relying on a request nobody answered.
+//
+// A request held by a deferred answer the test never released fails it
+// as well: the test ended with that request still in flight.
 afterEach(() => {
   const missed = fakeApi.unhandled();
+  const held = fakeApi.held();
   fakeApi.reset();
   resetNetworkMock();
   if (missed.length > 0) {
     throw new Error(
       `request(s) no test handler answered: ${missed.join(", ")}`,
+    );
+  }
+  if (held.length > 0) {
+    throw new Error(
+      `request(s) held by a deferred answer the test never released: ${held.join(", ")}`,
     );
   }
 });
