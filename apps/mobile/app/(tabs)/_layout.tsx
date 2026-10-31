@@ -27,9 +27,10 @@ export default function TabsLayout() {
   return (
     <Tabs
       screenOptions={{
-        // Android shrinks the window when the keyboard opens, which would
-        // lift the tab bar onto the keyboard. Hide it while typing (on iOS
-        // the keyboard simply covers it).
+        // Hide the tab bar while typing. The keyboard covers it on iOS and
+        // on Android drawn edge to edge (the window does not resize there,
+        // as the chapter's native check found); where a window does resize,
+        // the bar would ride on top of the keyboard.
         tabBarHideOnKeyboard: true,
       }}
     >

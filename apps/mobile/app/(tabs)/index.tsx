@@ -8,13 +8,7 @@
 // notch itself, with the safe-area insets.
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, router, useLocalSearchParams } from "expo-router";
-import {
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  Text,
-  View,
-} from "react-native";
+import { KeyboardAvoidingView, Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Icon } from "@/components/Icon";
@@ -50,13 +44,15 @@ export default function HomeScreen() {
           ?.find((c) => c.slug === filters.category)?.name ?? filters.category);
 
   return (
-    // The keyboard is drawn over the app. On iOS the window keeps its size,
-    // so "padding" shrinks this screen by the part the keyboard covers and
-    // the end of the list stays reachable. Android resizes the window
-    // itself (softwareKeyboardLayoutMode "resize", Expo's default), so no
-    // extra behaviour is needed there.
+    // The keyboard is drawn over the app, and the window keeps its size on
+    // both platforms: iOS never resizes it, and Android does not either
+    // once the app is drawn edge to edge (always, in Expo SDK 58), even
+    // with softwareKeyboardLayoutMode "resize". "padding" shrinks this
+    // screen by the part the keyboard covers, so the list and its messages
+    // end above it. (Measured on the Android emulator: no behaviour and
+    // "height" both left the end of the list under the keyboard.)
     <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      behavior="padding"
       className="flex-1 bg-background dark:bg-background-dark"
     >
       <View
