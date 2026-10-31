@@ -35,7 +35,9 @@ export default function HomeScreen() {
   // The category's name, if the Kategori tab has loaded the categories
   // (the ["categories"] query); the slug otherwise, as from a deep link.
   // A read of the cache, not a request: the name is a nicety, and the
-  // list itself needs only the slug.
+  // list itself needs only the slug. A snapshot, too: getQueryData does
+  // not subscribe, so a name that arrives later shows on Beranda's next
+  // render (any change of its route does one), not the moment it lands.
   const categoryName =
     filters.category === undefined
       ? undefined

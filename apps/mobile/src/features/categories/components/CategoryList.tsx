@@ -3,6 +3,7 @@ import { memo } from "react";
 import { FlatList, Pressable, RefreshControl, Text, View } from "react-native";
 
 import { Icon } from "@/components/Icon";
+import { useAnnounceOnIos } from "@/lib/announce";
 import type { CategoryRow } from "../hooks/useCategoryRows";
 
 /** Indentation per level of the tree, in dp, on top of the row's own 16. */
@@ -40,17 +41,7 @@ export function CategoryList({
   const { colors } = useTheme();
 
   // React Native 0.88's types take a header element or undefined, not null.
-  const refreshFailedNote = refreshFailed ? (
-    <View
-      accessibilityRole="alert"
-      accessibilityLiveRegion="polite"
-      className="m-4 rounded-lg border border-destructive p-3 dark:border-destructive-dark"
-    >
-      <Text className="font-sans text-sm text-destructive dark:text-destructive-dark">
-        Gagal memperbarui kategori. Daftar di bawah mungkin belum yang terbaru.
-      </Text>
-    </View>
-  ) : undefined;
+  const refreshFailedNote = refreshFailed ? <RefreshFailedNote /> : undefined;
 
   return (
     <FlatList
@@ -85,6 +76,29 @@ export function CategoryList({
         </View>
       }
     />
+  );
+}
+
+const REFRESH_FAILED =
+  "Gagal memperbarui kategori. Daftar di bawah mungkin belum yang terbaru.";
+
+/**
+ * Above the old list when a refresh failed. Screen readers announce it
+ * when it appears, as ErrorState (src/components/StatusMessage.tsx) does:
+ * TalkBack through the live region, VoiceOver through useAnnounceOnIos.
+ */
+function RefreshFailedNote() {
+  useAnnounceOnIos(REFRESH_FAILED);
+  return (
+    <View
+      accessibilityRole="alert"
+      accessibilityLiveRegion="polite"
+      className="m-4 rounded-lg border border-destructive p-3 dark:border-destructive-dark"
+    >
+      <Text className="font-sans text-sm text-destructive dark:text-destructive-dark">
+        {REFRESH_FAILED}
+      </Text>
+    </View>
   );
 }
 
