@@ -331,3 +331,44 @@ describe("the web session calls for the dashboard (client: admin)", () => {
     },
   );
 });
+
+describe("the web session calls on a client that omits cookies", () => {
+  // The mobile app's client says credentials: "omit" for everything. The
+  // three cookie calls still ask for "include" themselves, so a client
+  // built that way cannot silently break a web session that uses it.
+  const omitting = (response: () => Response) => {
+    const fetchMock = vi.fn<typeof fetch>(() => Promise.resolve(response()));
+    const api = createApiClient({
+      baseUrl: "http://api.test",
+      fetch: fetchMock,
+      credentials: "omit",
+    });
+    return { api, init: () => fetchMock.mock.calls[0]?.[1] };
+  };
+
+  it("webLogin still sends the cookie", async () => {
+    const { api, init } = omitting(() => Response.json({ data: webSession }));
+    await webLogin(api, { email: "b@example.com", password: "x" });
+    expect(init()?.credentials).toBe("include");
+  });
+
+  it("webRefresh still sends the cookie", async () => {
+    const { api, init } = omitting(() => Response.json({ data: webSession }));
+    await webRefresh(api);
+    expect(init()?.credentials).toBe("include");
+  });
+
+  it("webLogout still sends the cookie", async () => {
+    const { api, init } = omitting(() => new Response(null, { status: 204 }));
+    await webLogout(api);
+    expect(init()?.credentials).toBe("include");
+  });
+
+  it("login, with the refresh token in the body, keeps the client's omit", async () => {
+    const { api, init } = omitting(() =>
+      Response.json({ data: tokens }, { status: 200 }),
+    );
+    await login(api, { email: "b@example.com", password: "x" });
+    expect(init()?.credentials).toBe("omit");
+  });
+});
