@@ -433,21 +433,88 @@ The checks in this commit are `tsc`, ESLint and Prettier, `expo export` for both
 
 Paths are relative to `apps/mobile`.
 
-| Concept                                                                                             | Where to read it                                                                  |
-| --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| The `QueryClient`, its defaults, `AppState` → focus, `expo-network` → online                        | `src/lib/query-client.ts`                                                         |
-| The provider around every screen                                                                    | `app/_layout.tsx` (`QueryClientProvider`)                                         |
-| Route parameters → API filters (`kategori` → `category`, `q`, `urut` → `sort`)                      | `src/features/catalog/catalog-filters.ts`, `src/features/catalog/sort-options.ts` |
-| Query keys, the categories query (shared with Kategori), the infinite query over `fetchProductPage` | `src/features/catalog/api/queries.ts`, `src/features/catalog/api/products.ts`     |
-| Flattened pages, pull-to-refresh of the first page, `isRefreshing`                                  | `src/features/catalog/hooks/useProductList.ts`                                    |
-| The `FlatList`: columns, header, empty, footer, end reached, refresh, keyboard                      | `src/features/catalog/components/ProductList.tsx`                                 |
-| The footer states                                                                                   | `src/features/catalog/components/ProductListFooter.tsx`                           |
-| Loading, empty and error with retry                                                                 | `src/components/StatusMessage.tsx`, `src/lib/error-message.ts`                    |
-| The category chip and the unknown-category state                                                    | `src/features/catalog/components/ProductList.tsx`, `app/(tabs)/index.tsx`         |
-| The sort sheet handing the other filters back                                                       | `app/filter.tsx`                                                                  |
-| The screen and its top bar in `className`                                                           | `app/(tabs)/index.tsx`                                                            |
-| The search field in `className`, the `placeholder:` variant                                         | `src/features/catalog/components/SearchBar.tsx`                                   |
-| Cleartext and App Transport Security per profile                                                    | `app.config.ts` (`buildProfile`, `expo-build-properties`, `infoPlist`)            |
+| Concept                                                                                                   | Where to read it                                                                  |
+| --------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| The `QueryClient`, its defaults, `AppState` → focus, `expo-network` → online                              | `src/lib/query-client.ts`                                                         |
+| The provider around every screen                                                                          | `app/_layout.tsx` (`QueryClientProvider`)                                         |
+| Route parameters → API filters (`kategori` → `category`, `q`, `urut` → `sort`)                            | `src/features/catalog/catalog-filters.ts`, `src/features/catalog/sort-options.ts` |
+| Query keys, the categories query (shared with Kategori), the infinite query over `fetchProductPage`       | `src/features/catalog/api/queries.ts`, `src/features/catalog/api/products.ts`     |
+| Flattened pages, pull-to-refresh of the first page, `isRefreshing`                                        | `src/features/catalog/hooks/useProductList.ts`                                    |
+| The list (a `FlashList` since artikel 07): columns, header, empty, footer, end reached, refresh, keyboard | `src/features/catalog/components/ProductList.tsx`                                 |
+| The footer states                                                                                         | `src/features/catalog/components/ProductListFooter.tsx`                           |
+| Loading, empty and error with retry                                                                       | `src/components/StatusMessage.tsx`, `src/lib/error-message.ts`                    |
+| The category chip and the unknown-category state                                                          | `src/features/catalog/components/ProductList.tsx`, `app/(tabs)/index.tsx`         |
+| The sort sheet handing the other filters back                                                             | `app/filter.tsx`                                                                  |
+| The screen and its top bar in `className`                                                                 | `app/(tabs)/index.tsx`                                                            |
+| The search field in `className`, the `placeholder:` variant                                               | `src/features/catalog/components/SearchBar.tsx`                                   |
+| Cleartext and App Transport Security per profile                                                          | `app.config.ts` (`buildProfile`, `expo-build-properties`, `infoPlist`)            |
+
+## ScrollView vs FlatList vs FlashList (artikel 07)
+
+Three ways to put many products on a phone screen, measured with the same card on the same device, and a decision from the numbers: Beranda's catalog is a `FlashList` from `@shopify/flash-list` 2.3.2 (the version `npx expo install` picks for SDK 58) instead of the `FlatList` of artikel 06.
+
+### The mental model
+
+| List                                   | What it does with 500 products                                                                                                                                                                                                                                  | Cost                                                                                                           |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `ScrollView` with `products.map(…)`    | Mounts all 500 cards before the first frame and keeps them, each a native view with a decoded photo. The web's `<ul>` habit                                                                                                                                     | Time to the first frame and memory grow with the list; fine for a dozen rows (the sort sheet's three options)  |
+| `FlatList` (React Native, artikel 06)  | A `VirtualizedList`: mounts the rows near the screen (`windowSize` 21, about ten screens above and below), unmounts the rest and leaves blank space of their measured height                                                                                    | Mounting and unmounting while the buyer scrolls; about fifty to a hundred cards alive                          |
+| `FlashList` (Shopify, JavaScript only) | Mounts about a screen of cells plus `drawDistance` (250 dp) and **recycles** them: a cell that leaves the top is re-rendered with the product arriving at the bottom, without unmounting. Built for the New Architecture, where it measures cells synchronously | A dependency, and a rule: no state inside a cell, because a recycled cell keeps its state for the next product |
+
+### How it was measured
+
+- **Device**: the Android emulator, AVD `Pixel_2_API_33` (Android 13, arm64-v8a, 1080 × 1920 at 420 dpi) on an Apple M2 Pro. An emulator draws with the host's GPU and shares its CPU, so the numbers are **relative**: they compare the three lists with each other, they do not predict a real phone.
+- **Build**: a release APK (`preview` profile, Hermes, the New Architecture), not a development build, whose extra checks make every list slower.
+- **Data**: the API seeded with `make seed-large` (the example catalog plus 10,000 generated products) and a photo uploaded the admin's way (presigned `PUT`, confirm, the worker's 400/600 px variants) for the first 1,000 products, so cards draw real photos; past 1,000 they draw the placeholder.
+- **Harness**: a temporary screen, not committed, at `goshop://bench?daftar=scrollview|flatlist|flashlist&n=500`. It fetches `n` products first (pages of 100, through `fetchProductPage`), then renders the same `ProductCard` in a two-column list of the chosen kind, so the network is not part of any number. It logs to logcat: the time from handing the list its data to its first `onContentSizeChange` (first content laid out), JavaScript frames per second from a `requestAnimationFrame` loop, and how many cards are mounted (a counter in each card's mount effect). A script cold-starts the app through the deep link, waits six seconds for the photos, reads `dumpsys meminfo` (total PSS), resets `dumpsys gfxinfo`, flings twelve times (`adb shell input swipe 540 1500 540 300 60`, 350 ms apart), then reads `gfxinfo` and PSS again.
+- **Runs**: five per list and size, the three kinds interleaved so a slow moment of the emulator hits all of them; the table shows medians. `ScrollView` with 2,000 products ran once: it took two seconds to show anything and dropped every frame of the flings.
+
+| 500 products                            | `ScrollView` | `FlatList` | `FlashList` |
+| --------------------------------------- | -----------: | ---------: | ----------: |
+| First content laid out                  |       603 ms |      52 ms |       22 ms |
+| Cards mounted after load / after flings |    500 / 500 |   54 / 122 |     10 / 12 |
+| Memory (PSS) after load                 |       285 MB |     110 MB |      104 MB |
+| Memory (PSS) after the flings           |       280 MB |     214 MB |      173 MB |
+| Janky frames during the flings          |         31 % |      7.7 % |       3.1 % |
+| Frame time p90 / p99                    |   48 / 61 ms | 36 / 48 ms |  27 / 38 ms |
+| JavaScript FPS while scrolling          |         44.4 |       56.1 |        58.6 |
+
+| 2,000 products                          | `ScrollView` (1 run) | `FlatList` | `FlashList` |
+| --------------------------------------- | -------------------: | ---------: | ----------: |
+| First content laid out                  |              2107 ms |      37 ms |       27 ms |
+| Cards mounted after load / after flings |          2000 / 2000 |   54 / 122 |     10 / 12 |
+| Memory (PSS) after load                 |               609 MB |     118 MB |      111 MB |
+| Memory (PSS) after the flings           |               607 MB |     221 MB |      182 MB |
+| Janky frames during the flings          |                100 % |      6.6 % |      10.5 % |
+| Frame time p90 / p99                    |         350 / 650 ms | 34 / 44 ms |  38 / 46 ms |
+| JavaScript FPS while scrolling          |                 20.8 |       56.0 |        55.0 |
+
+What the numbers say, and what they do not:
+
+- **`ScrollView` is out** for the catalog. Everything it mounts, it keeps: 500 cards cost 285 MB and six tenths of a second before the first frame, 2,000 cost 609 MB and two seconds, and the flings dropped frames throughout.
+- **Smoothness does not separate `FlatList` from `FlashList` on this emulator.** Janky frames ranged from 0 to 33 % across the five runs of _either_ list, and the medians swap places between 500 and 2,000 products. A real low-end phone is where that comparison would mean something; this measurement cannot settle it, and the README does not claim it.
+- **Memory and mounted views do separate them, every run.** FlashList kept 10 to 12 cards alive against FlatList's 54 to 122, and after the same flings used 173 MB against 214 MB (182 against 221 with 2,000): the highest FlashList run was below the lowest FlatList run in both sizes. The first content arrived sooner too (22 against 52 ms), a gap a buyer will not see on this hardware.
+
+### Decisions
+
+- **The catalog uses `FlashList`.** The measured win is memory, about 40 MB (a fifth) after a long scroll, and a tenth of the views mounted; the API pages twenty products at a time, so a buyer who scrolls far builds exactly this kind of list. It costs one JavaScript-only dependency (no native code, so no new development build; it is in Expo Go) and the recycling rule below. The props are FlatList's: `data`, `renderItem`, `keyExtractor`, `numColumns`, the header, footer and empty components, `onEndReached` with its threshold, `refreshControl`, the keyboard props. Everything artikel 06 built around the list (`useProductList`, the footer, the states) is unchanged.
+- **No `estimatedItemSize`.** FlashList 1 asked for it; version 2 measures each cell before it paints (the New Architecture's synchronous layout), and the prop is gone.
+- **The cell has no width class.** `FlatList` lays out each row as a `View` with `flexDirection: "row"`, so a cell needed `w-1/2`. FlashList positions each cell itself at half the list's width, and gives the two cells of a row the height of the taller one, so the cell is `grow p-1.5` and the card (`grow`, artikel 06) fills it.
+- **No state in a card.** A recycled cell is re-rendered with another product, not mounted again. `ProductCard` keeps no `useState`; one that did (a "liked" heart, an image-loaded flag) would carry it to the next product, and would need to reset it from the product's `id`. `memo(ProductCard)` still skips a card whose product did not change.
+- **`contentContainerStyle` as numbers.** NativeWind turns `className` props into styles on React Native's own components; FlashList is not one, so `contentContainerClassName="grow px-2.5 pb-4"` became `{ flexGrow: 1, paddingHorizontal: 10, paddingBottom: 16 }` in a constant, the same exception as the safe-area insets.
+- **`maintainVisibleContentPosition` is off.** FlashList 2 turns it on by default: when the data changes, it keeps the first visible row where it was, which is what a chat that loads older messages above needs. The catalog only grows at the end. With it on, on the emulator, picking a sort in the sheet returned to a list that went from the loading state to its rows and opened scrolled to the end.
+- **One list per filter.** The list has `key={JSON.stringify(filters)}`, as the cache has one entry per filter: a new search, sort or category starts at the top. Without it a list kept its scroll offset, and a result already in the cache (no loading state in between) opened wherever the previous one was scrolled to.
+- **The harness is not committed.** It needs a route in `app/`, and every route ships in the app; this section describes it closely enough to rebuild. The measurement is a snapshot of this device and these versions, not a test that guards anything.
+
+### Where each idea lives
+
+Paths are relative to `apps/mobile`.
+
+| Concept                                                                                 | Where to read it                                  |
+| --------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| The `FlashList`: cells, content style, filter key, `maintainVisibleContentPosition` off | `src/features/catalog/components/ProductList.tsx` |
+| The card that grows into its cell and keeps no state                                    | `src/features/catalog/components/ProductCard.tsx` |
+| The version, chosen by `npx expo install`                                               | `package.json` (`@shopify/flash-list`)            |
 
 ## Expo Router: routing berbasis file (artikel 08)
 

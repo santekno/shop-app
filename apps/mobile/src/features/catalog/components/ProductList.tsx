@@ -1,13 +1,7 @@
+import { FlashList } from "@shopify/flash-list";
+import type { ListRenderItem } from "@shopify/flash-list";
 import { router, useTheme } from "expo-router";
-import {
-  FlatList,
-  Platform,
-  Pressable,
-  RefreshControl,
-  Text,
-  View,
-} from "react-native";
-import type { ListRenderItem } from "react-native";
+import { Platform, Pressable, RefreshControl, Text, View } from "react-native";
 import { isApiError } from "@goshop/shared";
 import type { Product } from "@goshop/shared";
 
@@ -32,22 +26,34 @@ const openProduct = (product: Product) => {
   router.push({ pathname: "/produk/[slug]", params: { slug: product.slug } });
 };
 
-// One cell: half the row's width, with 6 dp of padding all round. Two
-// cells side by side put 12 dp between their cards, and the list's own
-// 10 dp of side padding makes 16 dp at the screen's edges. A wrapping row
-// with `gap` (ProductGrid before this article) has no place here: FlatList
-// builds each row itself, a View with flexDirection "row" per row.
+// One cell, with 6 dp of padding all round. FlashList gives each cell its
+// column's width itself (half the list with numColumns 2), so the cell has
+// no width class; FlatList needed w-1/2 (artikel 06). Two cells side by
+// side put 12 dp between their cards, and the list's own 10 dp of side
+// padding makes 16 dp at the screen's edges. `grow` lets the cell, and the
+// card in it, fill the row when the other card of the row is taller.
 //
-// A function outside the component, like openProduct: FlatList re-renders
-// a row when renderItem changes, and memo(ProductCard) skips a card only
+// A function outside the component, like openProduct: the list re-renders
+// a cell when renderItem changes, and memo(ProductCard) skips a card only
 // when its props are the same functions as before.
+//
+// No state inside a card: FlashList recycles cells, so a card scrolled
+// off the top is re-rendered with another product instead of unmounted.
+// State kept in it (useState) would travel to the next product.
 const renderProduct: ListRenderItem<Product> = ({ item }) => (
-  <View className="w-1/2 p-1.5">
+  <View className="grow p-1.5">
     <ProductCard product={item} onPress={openProduct} />
   </View>
 );
 
 const productKey = (product: Product) => product.id;
+
+/** grow px-2.5 pb-4, as numbers (see the list's contentContainerStyle). */
+const CONTENT_STYLE = {
+  flexGrow: 1,
+  paddingHorizontal: 10,
+  paddingBottom: 16,
+} as const;
 
 interface ProductListProps {
   filters: ProductListFilters;
@@ -64,13 +70,16 @@ interface ProductListProps {
  * The catalog: GET /v1/products for `filters`, two cards per row, the next
  * page loaded as the buyer nears the end, pulled down to refresh.
  *
- * A FlatList, not a ScrollView with every card in it. A ScrollView mounts
- * all its children at once and keeps them: fine for six sample cards,
- * not for a catalog that grows by twenty per page, where each card is a
- * real native view with an image in memory. FlatList (a VirtualizedList)
- * renders the rows near the screen (`windowSize`: about ten screens'
- * worth) and replaces the rest with empty space of the measured height,
- * so the memory used stays the same however far the buyer scrolls.
+ * A FlashList, not a ScrollView with every card in it, and since artikel
+ * 07 not a FlatList either. A ScrollView mounts all its children at once
+ * and keeps them. FlatList (artikel 06) mounts the rows near the screen
+ * (`windowSize`: about ten screens' worth) and unmounts the rest. FlashList
+ * keeps only a screen and a bit (`drawDistance`) of cells and recycles
+ * them: a cell scrolled off one end is re-rendered with the product
+ * coming in at the other. Measured on the emulator with the same cards
+ * (README, artikel 07): about a tenth of FlatList's mounted cards, less
+ * memory after a long scroll, the first rows sooner. Same props for the
+ * rest: header, footer, empty state, onEndReached, the refresh control.
  */
 export function ProductList({ filters, caption, category }: ProductListProps) {
   const { colors } = useTheme();
@@ -146,14 +155,26 @@ export function ProductList({ filters, caption, category }: ProductListProps) {
     );
 
   return (
-    <FlatList
+    <FlashList
+      // One list per search, sort and category, like the cache (one entry
+      // per query key): a new filter starts at the top. Without the key the
+      // list kept its scroll offset, and a cached result (no loading state
+      // in between) opened scrolled to wherever the last one was.
+      key={JSON.stringify(filters)}
       data={products}
       renderItem={renderProduct}
       keyExtractor={productKey}
       numColumns={COLUMNS}
-      // grow: the content is at least as tall as the list, so the empty
-      // state can centre itself in the free space.
-      contentContainerClassName="grow px-2.5 pb-4"
+      // flexGrow: the content is at least as tall as the list, so the
+      // empty state can centre itself in the free space. A style, not
+      // contentContainerClassName: NativeWind maps className props on
+      // React Native's own components; FlashList is not one of them.
+      contentContainerStyle={CONTENT_STYLE}
+      // FlashList 2 keeps the first visible row in place when the data
+      // changes, which suits a chat that grows at the top. The catalog only
+      // grows at the end; with it on, a list that went from the loading
+      // state to its rows opened scrolled to the end.
+      maintainVisibleContentPosition={{ disabled: true }}
       ListHeaderComponent={
         <View className="gap-2 px-1.5 pb-1.5 pt-4">
           {/* The active category as a chip; a press clears it, like the

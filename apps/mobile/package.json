@@ -19,6 +19,7 @@
     "@expo/log-box": "58.0.13",
     "@expo/metro-runtime": "58.0.15",
     "@goshop/shared": "workspace:*",
+    "@shopify/flash-list": "2.3.2",
     "@tanstack/react-query": "catalog:",
     "expo": "58.0.21",
     "expo-build-properties": "58.0.11",
