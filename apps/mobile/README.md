@@ -15,7 +15,8 @@ Artikel 02 below explains what each of these does and what to install first.
 | Setting               | Kind  | Where                                                            | Meaning                                                                                                                                                                                                                                                               |
 | --------------------- | ----- | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `EXPO_PUBLIC_API_URL` | build | `apps/mobile/.env.local`, the shell, an EAS environment variable | The API as the **device** reaches it. Baked into the JavaScript bundle, so it is public. Unset means this machine: `http://10.0.2.2:8080` on the Android emulator, `http://localhost:8080` on the iOS simulator. A `production` EAS build refuses to start without it |
-| `EAS_BUILD_PROFILE`   | build | set by EAS                                                       | Which `eas.json` profile is being built; `app.config.ts` reads it                                                                                                                                                                                                     |
+| `EAS_BUILD_PROFILE`   | build | set by EAS                                                       | Which `eas.json` profile is being built; `app.config.ts` reads it (cleartext `http://` and iOS's local-network exception outside `production`, artikel 06)                                                                                                            |
+| `APP_VARIANT`         | build | the shell                                                        | Names a profile for a command run by hand when EAS is not involved, such as `APP_VARIANT=production npx expo prebuild`; `EAS_BUILD_PROFILE` wins when both are set, and neither means `development`                                                                   |
 
 # Bab 13: fondasi React Native & Expo
 
@@ -173,12 +174,12 @@ The home screen shows product cards: `ProductCard`, the phone's version of `apps
 
 Paths are relative to `apps/mobile`.
 
-| Concept                                                 | Where to read it                                   |
-| ------------------------------------------------------- | -------------------------------------------------- |
-| The card: core components, pressed state, accessibility | `src/features/catalog/components/ProductCard.tsx`  |
-| The photo: variants as a source list, the placeholder   | `src/features/catalog/components/ProductPhoto.tsx` |
-| The sample products, in the API's shape                 | `src/features/catalog/fixtures.ts`                 |
-| The screen that lists them and decides what a tap does  | `app/(tabs)/index.tsx`                             |
+| Concept                                                 | Where to read it                                                                                                       |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| The card: core components, pressed state, accessibility | `src/features/catalog/components/ProductCard.tsx`                                                                      |
+| The photo: variants as a source list, the placeholder   | `src/features/catalog/components/ProductPhoto.tsx`                                                                     |
+| The sample products, in the API's shape                 | replaced by the API in artikel 06; the last version: `git show d2daf2c3:apps/mobile/src/features/catalog/fixtures.ts`  |
+| The screen that lists them and decides what a tap does  | `app/(tabs)/index.tsx`; since artikel 06 the list and the tap are in `src/features/catalog/components/ProductList.tsx` |
 
 ## Styling dengan StyleSheet dan flexbox (artikel 04)
 
@@ -251,12 +252,12 @@ const styles = StyleSheet.create({
 
 Paths are relative to `apps/mobile`.
 
-| Concept                                                              | Where to read it                                   |
-| -------------------------------------------------------------------- | -------------------------------------------------- |
-| The grid: a wrapping row, `gap`, cell widths from the screen's width | `src/features/catalog/components/ProductGrid.tsx`  |
-| The card's panel, text styles, pressed style, badge                  | `src/features/catalog/components/ProductCard.tsx`  |
-| The square photo: `width: "100%"`, `aspectRatio`, `resizeMode`       | `src/features/catalog/components/ProductPhoto.tsx` |
-| The screen's background and scrolling                                | `app/(tabs)/index.tsx`                             |
+| Concept                                                              | Where to read it                                                                                                                                  |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The grid: a wrapping row, `gap`, cell widths from the screen's width | replaced by `FlatList`'s columns in artikel 06; the last version: `git show d2daf2c3:apps/mobile/src/features/catalog/components/ProductGrid.tsx` |
+| The card's panel, text styles, pressed style, badge                  | `src/features/catalog/components/ProductCard.tsx`                                                                                                 |
+| The square photo: `width: "100%"`, `aspectRatio`, `resizeMode`       | `src/features/catalog/components/ProductPhoto.tsx`                                                                                                |
+| The screen's background and scrolling                                | `app/(tabs)/index.tsx`; the scrolling list since artikel 06: `src/features/catalog/components/ProductList.tsx`                                    |
 
 ## NativeWind: Tailwind di React Native (artikel 05)
 
@@ -294,7 +295,7 @@ NativeWind 5 (Tailwind v4, the same major as the web apps) is only a release can
 - **Colours are the storefront's roles, with an explicit `dark:` twin.** `src/theme/colors.js` holds each role from `apps/web/src/index.css` (`background`, `card`, `primary`, `muted-foreground`, `destructive`, `border` …) with its light (`DEFAULT`) and dark value, so `bg-card` and `dark:bg-card-dark` are both generated. The web swaps CSS variables on `:root`, so its components never write `dark:`; here every colour class carries its `dark:` partner, which is longer to write but readable in place and needs nothing beyond the documented `darkMode: "media"`.
 - **One colour file for classes and for code.** `src/theme/colors.js` is plain CommonJS because `tailwind.config.js` runs in Node and requires it; TypeScript reads it too (`allowJs` in Expo's base config). The navigation theme (`src/theme/navigation.ts`) uses it: Expo Router paints the header and the screen behind the content itself, in a light theme unless given one, so `app/_layout.tsx` wraps the stack in `<ThemeProvider>` with GoShop's colours for the current scheme.
 - **`expo-system-ui`**, because `app.config.ts`'s `userInterfaceStyle: "automatic"` is only applied on Android with it installed (`expo prebuild` warned until it was), and it keeps the window behind the app in the right colour.
-- **Restyled, not duplicated.** There is one `ProductCard`, now with `className`; the `StyleSheet` version stays in the artikel 04 section of this README, and the two side by side are below. `ProductGrid` stays a `StyleSheet` on purpose: its cell width is a number computed during render, which no class can express, and mixing `style` and `className` is normal.
+- **Restyled, not duplicated.** There is one `ProductCard`, now with `className`; the `StyleSheet` version stays in the artikel 04 section of this README, and the two side by side are below. `ProductGrid` stays a `StyleSheet` on purpose: its cell width is a number computed during render, which no class can express, and mixing `style` and `className` is normal. (Artikel 06 replaced the grid with `FlatList`'s columns, whose cells are `w-1/2` classes.)
 - **Class names are written out in full.** Tailwind scans the files as text (`content`) and generates only the class names it finds. `"bg-" + role` is never generated; `ProductPhoto` keeps its shared classes in one constant string instead. Words in comments that happen to be class names (`grid`, `filter`) get generated too; they are unused and harmless.
 - **No `prettier-plugin-tailwindcss`.** NativeWind's guide suggests it to sort class names; no other app in the repository sorts them, so neither does this one.
 
@@ -316,14 +317,134 @@ Both end as the same style object on the native view. `StyleSheet` needs nothing
 
 Paths are relative to `apps/mobile`.
 
-| Concept                                                             | Where to read it                                                                              |
-| ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| Tailwind's configuration: files scanned, preset, colours, dark mode | `tailwind.config.js`                                                                          |
-| GoShop's colour roles, light and dark                               | `src/theme/colors.js`                                                                         |
-| NativeWind in the build: Metro, Babel, the input CSS, the types     | `metro.config.js`, `babel.config.js`, `global.css`, `nativewind-env.d.ts`                     |
-| The CSS imported once; the navigation's colours per scheme          | `app/_layout.tsx`, `src/theme/navigation.ts`                                                  |
-| The card, photo and screen with `className`                         | `src/features/catalog/components/ProductCard.tsx`, `ProductPhoto.tsx`, `app/(tabs)/index.tsx` |
-| The one `StyleSheet` kept beside NativeWind                         | `src/features/catalog/components/ProductGrid.tsx`                                             |
+| Concept                                                             | Where to read it                                                                                                                   |
+| ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Tailwind's configuration: files scanned, preset, colours, dark mode | `tailwind.config.js`                                                                                                               |
+| GoShop's colour roles, light and dark                               | `src/theme/colors.js`                                                                                                              |
+| NativeWind in the build: Metro, Babel, the input CSS, the types     | `metro.config.js`, `babel.config.js`, `global.css`, `nativewind-env.d.ts`                                                          |
+| The CSS imported once; the navigation's colours per scheme          | `app/_layout.tsx`, `src/theme/navigation.ts`                                                                                       |
+| The card, photo and screen with `className`                         | `src/features/catalog/components/ProductCard.tsx`, `src/features/catalog/components/ProductPhoto.tsx`, `app/(tabs)/index.tsx`      |
+| The one `StyleSheet` kept beside NativeWind                         | `ProductGrid`, until artikel 06; the last version: `git show d2daf2c3:apps/mobile/src/features/catalog/components/ProductGrid.tsx` |
+
+## FlatList untuk daftar produk (artikel 06)
+
+Beranda now shows the real catalog: `GET /v1/products` through the shared API client, twenty products per page, two cards per row, the next page loaded as the buyer nears the end, pull-to-refresh, and a loading, empty and error state for each moment. The search field and the sort sheet put `q` and `urut` in the route (artikel 09 and 10), and the Kategori tab (artikel 14) puts a category slug in `kategori`; the list reads all three and asks the API with them. The six sample products are gone.
+
+### The mental model
+
+| Idea                                  | What it means on the phone                                                                                                                                                                                                                                                                                                                             | On the web (`apps/web`)                                                                   |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
+| **A list renders a window**           | `ScrollView` mounts every child at once and keeps it; each card is a real native view with a decoded photo in memory. `FlatList` (a `VirtualizedList`) mounts the rows near the screen (`windowSize`, about ten screens' worth) and stands in for the rest with blank space of the measured height, so memory stays flat however far the buyer scrolls | The browser keeps every `<li>`; thousands are fine                                        |
+| **`numColumns` makes the grid**       | `FlatList` groups the items into rows of two, one `View` with `flexDirection: "row"` per row. Each cell is `w-1/2 p-1.5`; the list's `px-2.5` adds up to 16 dp at the edges and 12 dp between cards                                                                                                                                                    | `grid grid-cols-2 gap-3`                                                                  |
+| **`onEndReached` is the sentinel**    | `FlatList` calls it when the end of the content is `onEndReachedThreshold` screen-heights away (here one). It can fire more than once, so the screen checks `hasNextPage && !isFetching && !isFetchNextPageError` before `fetchNextPage()`                                                                                                             | An `IntersectionObserver` on a div after the grid (`useOnVisible` in `ProductListFooter`) |
+| **The header, the footer, the empty** | `ListHeaderComponent` scrolls with the rows (the caption), `ListFooterComponent` sits after the last row (next-page spinner, retry, "Semua produk sudah ditampilkan."), `ListEmptyComponent` replaces the rows while there are none (first load, offline, error, no match)                                                                             | Elements before and after the `<ul>`                                                      |
+| **Pull-to-refresh is native**         | `refreshControl={<RefreshControl …/>}`: Android's circle drops from the top, iOS's spinner opens above the list. It takes colours as props, not a style                                                                                                                                                                                                | Nothing: a page reload                                                                    |
+| **Server state lives in the cache**   | TanStack Query 5.104.5, the version in the workspace catalog that `apps/web` and `apps/admin` use. `useInfiniteQuery` keeps every page per query key (`["products", "list", { category, q, sort }]`); the screen holds no list state of its own                                                                                                        | The same `infiniteQueryOptions` shape (`features/catalog/api/queries.ts`)                 |
+| **Focus and online must be wired**    | A browser tells TanStack Query about `visibilitychange` and `online`/`offline` by itself. React Native has neither event, so `src/lib/query-client.ts` connects `AppState` to `focusManager` (back to the app → stale queries refetch) and `expo-network` to `onlineManager` (no network → queries pause, then run when it returns)                    | Built in                                                                                  |
+
+### From the route to the request
+
+| Route (`/?q=…&urut=…`)                       | `readCatalogFilters` (`src/features/catalog/catalog-filters.ts`) | `GET /v1/products?…`                       |
+| -------------------------------------------- | ---------------------------------------------------------------- | ------------------------------------------ |
+| `/`                                          | `{ sort: "newest" }`                                             | `limit=20&sort=newest`                     |
+| `/?urut=termurah`                            | `{ sort: "price_asc" }`                                          | `limit=20&sort=price_asc`                  |
+| `/?q=%20kaos%20&urut=termahal`               | `{ q: "kaos", sort: "price_desc" }`                              | `limit=20&q=kaos&sort=price_desc`          |
+| `/?kategori=kaos&urut=termurah`              | `{ category: "kaos", sort: "price_asc" }`                        | `limit=20&category=kaos&sort=price_asc`    |
+| `/?kategori=Kaos%20Polos` (not a slug)       | `{ sort: "newest" }`                                             | `limit=20&sort=newest`                     |
+| `/?urut=apa-saja`, `/?q=` (unknown or empty) | `{ sort: "newest" }`                                             | `limit=20&sort=newest`                     |
+| next page                                    | the same filters                                                 | the same, plus `cursor=<page.next_cursor>` |
+
+The words are the storefront's (`terbaru`, `termurah`, `termahal` → `newest`, `price_asc`, `price_desc`, from `sort-options.ts`), and the checks are the web's `readCatalogFilters`: `q` trimmed and cut to 100 code points, an unknown sort word falls back to newest instead of reaching the API as a 400, and `kategori` is sent as `category` only when it matches the contract's slug pattern (`^[a-z0-9]+(-[a-z0-9]+)*$`, at most 100 characters). A well-formed slug that names no category still reaches the API, which answers `400 UNKNOWN_CATEGORY`; the list then says "Kategori ini tidak ada." with a "Lihat semua produk" button, rather than a retry that would fail the same way.
+
+The active category shows as a chip above the caption, by its name when the Kategori tab has already loaded the categories (a read of the `["categories"]` cache entry through `categoriesQuery().queryKey`, the query the Kategori tab fetches with; no request of its own) and by its slug otherwise, as after a deep link. Pressing the chip clears it (`router.setParams({ kategori: undefined })`).
+
+### Which state the list shows
+
+| Situation                                             | What the buyer sees                                                               | Decided by                                   |
+| ----------------------------------------------------- | --------------------------------------------------------------------------------- | -------------------------------------------- |
+| First page loading                                    | "Memuat produk…" with the platform spinner, centred                               | `data === undefined`, not failed, not paused |
+| No network before the first page                      | "Tidak ada koneksi internet. Produk dimuat begitu koneksi kembali."               | `fetchStatus === "paused"` (`onlineManager`) |
+| First page failed                                     | The error in Indonesian, the request ID (selectable, to quote), "Coba lagi"       | `status === "error"` with no data            |
+| Loaded, nothing                                       | "Belum ada produk." or, with a search, "Tidak ada produk yang cocok."             | `data` present, `products.length === 0`      |
+| Next page loading / failed                            | A spinner, or the error and "Coba lagi", below the last row; the rows above stay  | `isFetchingNextPage`, `isFetchNextPageError` |
+| End of the list                                       | "Semua produk sudah ditampilkan."                                                 | `!hasNextPage` with products                 |
+| A category slug the API does not know                 | "Kategori ini tidak ada." and "Lihat semua produk"                                | `isApiError(error, "UNKNOWN_CATEGORY")`      |
+| A pull or a background refetch failed, rows on screen | The rows stay; the error with "Coba lagi" above them says they may be out of date | `isRefetchError`                             |
+
+### Decisions
+
+- **One list function.** The request is `fetchProductPage` from `src/features/catalog/api/products.ts` (artikel 12). `src/features/catalog/api/queries.ts` only adds the query key and the paging (`initialPageParam: null`, `getNextPageParam` from `page.next_cursor`, with the web's guard against a cursor that repeats). The filters are the key, so a cursor never crosses from one search to another, and a list nobody shows any more is aborted through the `signal`.
+- **`QueryClientProvider` sits in `app/_layout.tsx`, around every screen,** not around Beranda: the Kategori tab (artikel 14) and later the cart and the account read the same cache.
+- **The sort sheet carries the other filters.** Returning to `/` with `router.dismissTo({ pathname: "/", params })` gives Beranda those params, not the old ones plus the new: React Navigation replaces a route's params unless told to merge. With only `urut` in them, picking an order dropped the search (since artikel 09) and would now drop the category too. Beranda opens `/filter` with `kategori`, `q` and `urut`, and the sheet hands `kategori` and `q` back with the new `urut`; Expo Router leaves out a parameter whose value is `undefined`, so an absent filter stays absent.
+- **The web's cache defaults.** `retry: false`, because the API client already retries a GET once where retrying helps (TanStack's three retries on top would make up to eight requests before the error shows), and `staleTime: 30_000`. One `QueryClient` for the app's lifetime, created at module level: unlike the web there is no server render that could share it between buyers.
+- **`expo-network`, not `@react-native-community/netinfo`, for `onlineManager`.** Both are in Expo SDK 58's list of supported versions (`expo-network` 58.0.4, netinfo 12.0.1), and TanStack Query's React Native guide shows both. `expo-network` is Expo's own module, released with each SDK (installed by `npx expo install`, nothing to align by hand), included in Expo Go, and its `addNetworkStateListener` is all `onlineManager` needs. NetInfo's extras (Wi-Fi details, its own reachability pings to a Google URL) are not used. The app reads `isConnected`, not `isInternetReachable`: on Android "reachable" needs a validated internet connection, and an API on the local network (`10.0.2.2`, a laptop on the same Wi-Fi) works without one. `expo-network` adds `ACCESS_NETWORK_STATE` and `ACCESS_WIFI_STATE` to the Android manifest through its library manifest (merged by Gradle); iOS needs no permission. It is a native module, so a development build made before this article must be rebuilt.
+- **Focus is `AppState === "active"`.** "inactive" (iOS app switcher, an incoming call banner) and "background" both count as unfocused; coming back refetches stale queries, the phone's `refetchOnWindowFocus`.
+- **Pull-to-refresh refetches the first page only.** `refetch()` on an infinite query refetches every page loaded so far, one after the other, before anything changes on screen: ten requests for a buyer who scrolled ten pages. The buyer is at the top when they pull, so `useProductList().refresh` trims the cached pages to the first and refetches that; later pages load fresh as the buyer scrolls.
+- **The refresh spinner shows the pull, not every refetch.** `refreshing={isRefetching}` would drop the spinner from the top every time the buyer returns to the app (a background refetch). `refresh` keeps its own `isRefreshing`, true from the pull until its request ends.
+- **The next page waits for the buyer after an error.** `onEndReached` fires again as soon as the list moves; retrying from there would loop against an API that is down. The footer's "Coba lagi" retries that page.
+- **`renderItem` and `keyExtractor` live outside the component**, like `openProduct`. A new `renderItem` each render re-renders every visible row, and `memo(ProductCard)` skips a card only when its `product` and `onPress` are the same as before. Unchanged products keep their identity between pages (TanStack Query shares unchanged data structurally).
+- **Two columns, fixed.** `numColumns` cannot change on a mounted list without a new `key`, and the app is phone-only (`supportsTablet: false`). The cell is `w-1/2` with padding instead of a `gap`, so the last card of an odd page keeps half the width instead of stretching across the row.
+- **NativeWind is the app's styling from here on.** The screen, its top bar and `SearchBar` are written with `className`, every colour from a role in `src/theme/colors.js` with its `dark:` twin. Only numbers measured at run time stay in `style` (the safe-area insets), and colours that a native component takes as props come from the navigation theme (`useTheme()`, the same roles): the text cursor (`selectionColor`) and `RefreshControl`. The icons took theme colours too until artikel 11 gave `Icon` a `className`; they now take classes. `ActivityIndicator` takes a class (`text-primary`), which NativeWind hands to its `color` prop. The search field's grey `PLACEHOLDER_COLOR` became `placeholder:text-muted-foreground dark:placeholder:text-muted-foreground-dark`: NativeWind's `placeholder:` variant moves the colour to `placeholderTextColor`, so the placeholder now follows the theme. Android's own `TextInput` padding is handled with `android:py-1.5`, and the font size is `text-[16px]` rather than `text-base`, which would add a line height that pushes the text off centre on iOS.
+- **`ProductGrid` is deleted**, and so is `fixtures.ts`. `FlatList` with `numColumns` lays out the rows now, so the wrapping row with computed cell widths (artikel 04) has no user; its idea, an exact cell width because `gap` is added on top of `"50%"`, is what `w-1/2` with padding avoids here. The artikel 04 and 05 tables above point at its last version in the history of this branch (`git show d2daf2c3:apps/mobile/src/features/catalog/components/ProductGrid.tsx`). The samples were only there until the API was called (artikel 03 said they would go).
+- **The error sentences are the storefront's.** `src/lib/error-message.ts` is a copy of `apps/web/src/lib/error-message.ts`, so the same failure reads the same on both. It is plain TypeScript with no host, the kind of code that could move to `packages/shared`; that is the web's package to change, so it is a copy for now.
+
+### Plain `http://` per build profile
+
+A development build talks to `http://10.0.2.2:8080` because Expo's template allows cleartext in the Android **debug** manifest. A `preview` APK is a **release** build: Android 9 and later block `http://` there, so the catalog would fail with `NETWORK_ERROR` against a local API. `app.config.ts` now decides per profile, from `EAS_BUILD_PROFILE` (set by EAS on every build, cloud or `--local`) or `APP_VARIANT` (for a command run by hand, `APP_VARIANT=production npx expo prebuild`); neither set means a developer's machine:
+
+| Profile                     | Android `usesCleartextTraffic` (main manifest, via `expo-build-properties` 58.0.11)  | iOS `NSAppTransportSecurity`                                               |
+| --------------------------- | ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------- |
+| `development` (or none set) | `true` (debug builds already allowed it)                                             | Expo's template: no arbitrary loads, `NSAllowsLocalNetworking` `true`      |
+| `preview`                   | `true`: the APK reaches `http://10.0.2.2:8080` or a laptop's LAN address             | the same: the simulator build reaches `http://localhost:8080`              |
+| `production`                | `false`, written out: with `minSdk` 24, Android 7 and 8 would allow it if left unset | `NSAllowsArbitraryLoads` `false` **and** `NSAllowsLocalNetworking` `false` |
+
+Production is HTTPS only on both platforms, and it already refuses to build without `EXPO_PUBLIC_API_URL`. iOS needed no addition for development and preview: Expo's template sets `NSAllowsLocalNetworking`, which covers `localhost`, unqualified host names and `.local` names, in every build; production is where it is turned off. Proved with `npx expo prebuild --platform all --clean` for each profile (the generated folders inspected, then deleted):
+
+```text
+EAS_BUILD_PROFILE=preview    → android/app/src/main/AndroidManifest.xml  <application … android:usesCleartextTraffic="true">
+                               ios/GoShop/Info.plist                     NSAllowsArbitraryLoads false, NSAllowsLocalNetworking true
+EAS_BUILD_PROFILE=production → android/app/src/main/AndroidManifest.xml  <application … android:usesCleartextTraffic="false">
+  (EXPO_PUBLIC_API_URL set)    ios/GoShop/Info.plist                     NSAllowsArbitraryLoads false, NSAllowsLocalNetworking false
+```
+
+Cleartext in a preview build is a convenience for testers against a local or staging API, not a security boundary: anything sent over `http://` can be read on the network, so a preview build pointed at a shared server should use its HTTPS URL. A phone on Wi-Fi still needs `EXPO_PUBLIC_API_URL` set to the computer's LAN address (artikel 02); cleartext only stops Android from refusing the connection.
+
+### What to check on the devices
+
+The checks in this commit are `tsc`, ESLint and Prettier, `expo export` for both platforms (and the unminified bundle, which holds the compiled classes `w-1/2`, `border-b-hairline`, `android:py-1.5`, `placeholder:text-muted-foreground` → `placeholderTextColor`), `expo prebuild` per profile and `expo-doctor`. On the Android emulator and the iOS simulator, against `make up` with seeded products:
+
+1. The first page arrives: two cards per row, photos from the API's variants, prices in rupiah, "Stok habis" on sold-out products, the caption "Semua produk · Terbaru".
+2. Scrolling near the end loads the next page once (one `cursor=` request per page in the API log or DevTools' network panel), a spinner shows below the last row, and the end shows "Semua produk sudah ditampilkan."
+3. A search (`kaos` + the keyboard's search key) and each sort in the sheet change the request (`q=`, `sort=price_asc`/`price_desc`) and start from the top; a search with no match says "Tidak ada produk yang cocok."; `goshop://?q=kaos&urut=termurah` opens that list.
+4. A category from the Kategori tab (or `goshop://?kategori=kaos`): `category=kaos` in the request, the chip with the category's name (its slug after a cold deep link), the chip's press back to every product; a sort picked in the sheet keeps the category and the search; `goshop://?kategori=tidak-ada` shows "Kategori ini tidak ada." and "Lihat semua produk" works.
+5. Pull-to-refresh after scrolling several pages: the spinner shows, **one** request (no `cursor`), the list keeps working when scrolled again.
+6. Leave the app for more than 30 s and come back: one refetch, **no** pull-to-refresh spinner.
+7. Stop the API before opening the app: the error, a request ID when the API answered, "Coba lagi" recovers once the API is back. Stop it while scrolled: the next page fails in the footer, the rows stay.
+8. Airplane mode before the first load: the "Tidak ada koneksi internet" message; turning it off loads the list without a tap.
+9. Dark mode: top bar, search field (placeholder colour), captions, spinners, error and empty text, refresh spinner.
+10. The keyboard: dragging the list closes it (interactive on iOS), a tap on a card while it is open opens the product at the first touch.
+11. A `preview` APK (`eas build --local --platform android --profile preview`, or Gradle `assembleRelease` after `EAS_BUILD_PROFILE=preview npx expo prebuild`) installed on the emulator reaches `http://10.0.2.2:8080` and shows the catalog; `aapt dump xmltree <apk> AndroidManifest.xml` shows `usesCleartextTraffic` true. A production build's manifest shows it false.
+12. iOS preview (simulator) build reaches `http://localhost:8080`.
+
+### Where each idea lives
+
+Paths are relative to `apps/mobile`.
+
+| Concept                                                                                             | Where to read it                                                                  |
+| --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| The `QueryClient`, its defaults, `AppState` → focus, `expo-network` → online                        | `src/lib/query-client.ts`                                                         |
+| The provider around every screen                                                                    | `app/_layout.tsx` (`QueryClientProvider`)                                         |
+| Route parameters → API filters (`kategori` → `category`, `q`, `urut` → `sort`)                      | `src/features/catalog/catalog-filters.ts`, `src/features/catalog/sort-options.ts` |
+| Query keys, the categories query (shared with Kategori), the infinite query over `fetchProductPage` | `src/features/catalog/api/queries.ts`, `src/features/catalog/api/products.ts`     |
+| Flattened pages, pull-to-refresh of the first page, `isRefreshing`                                  | `src/features/catalog/hooks/useProductList.ts`                                    |
+| The `FlatList`: columns, header, empty, footer, end reached, refresh, keyboard                      | `src/features/catalog/components/ProductList.tsx`                                 |
+| The footer states                                                                                   | `src/features/catalog/components/ProductListFooter.tsx`                           |
+| Loading, empty and error with retry                                                                 | `src/components/StatusMessage.tsx`, `src/lib/error-message.ts`                    |
+| The category chip and the unknown-category state                                                    | `src/features/catalog/components/ProductList.tsx`, `app/(tabs)/index.tsx`         |
+| The sort sheet handing the other filters back                                                       | `app/filter.tsx`                                                                  |
+| The screen and its top bar in `className`                                                           | `app/(tabs)/index.tsx`                                                            |
+| The search field in `className`, the `placeholder:` variant                                         | `src/features/catalog/components/SearchBar.tsx`                                   |
+| Cleartext and App Transport Security per profile                                                    | `app.config.ts` (`buildProfile`, `expo-build-properties`, `infoPlist`)            |
 
 ## Expo Router: routing berbasis file (artikel 08)
 
@@ -387,20 +508,22 @@ Expo Go is a different app with its own scheme, so `goshop://` does not reach it
 - **Tabs in a group, the detail outside it.** `produk/[slug]` lives next to `(tabs)`, not inside it, so it is a screen of the root stack and covers the tab bar when it opens, the usual shape of a shop app. Artikel 09 builds the rest of this tree.
 - **`Tabs` from `expo-router/js-tabs`.** Expo Router 58 deprecates importing `Tabs` from `expo-router`: it now offers two tab bars, the JavaScript one (React Navigation's bottom tabs, `expo-router/js-tabs`) and the platform's own (`expo-router/native-tabs`). The JavaScript one draws the same tab bar on both platforms and takes any React element as an icon (artikel 09).
 - **Typed routes are checked by `pnpm typecheck`, on a fresh clone too.** Expo writes the route types when `expo start` runs. A clone that never started Metro has none, and then every href is a plain string. So `typecheck` first runs `expo customize tsconfig.json`, the CLI command that runs the same type generation without starting a server (about two seconds), then `tsc`. `tsconfig.json` already lists everything Expo wants in `include` (`.expo/types/**/*.ts`, `expo-env.d.ts`), and `.gitignore` lists `expo-env.d.ts` in the exact form the CLI looks for; otherwise every `expo start` would rewrite `tsconfig.json` without its comments and append a block to `.gitignore`.
+- **A card opens its product.** The card's `onPress` (artikel 03) stops showing an `Alert`: Beranda's `openProduct` calls `router.push({ pathname: "/produk/[slug]", params: { slug: product.slug } })`, the object form of a typed href, so a wrong pathname or a missing `slug` fails `tsc`. `push` puts the detail on the root stack above the tabs, with a back button to the list. Since artikel 06 `openProduct` lives in `ProductList.tsx`, beside the `FlatList` that renders the cards.
 - **The screen reads the parameter, the header shows it.** `[slug].tsx` sets its own title with `<Stack.Screen options={…} />` while it renders. The real screen fetches `GET /v1/products/{slug}` and shows the product's name; a slug the API does not know is a "not found" state of that screen, not `+not-found` (which is for paths that match no route at all).
 
 ### Where each idea lives
 
 Paths are relative to `apps/mobile`.
 
-| Concept                                   | Where to read it                                 |
-| ----------------------------------------- | ------------------------------------------------ |
-| The scheme and typed routes               | `app.config.ts` (`scheme`, `experiments`)        |
-| The root stack and its screens            | `app/_layout.tsx`                                |
-| The tab group                             | `app/(tabs)/_layout.tsx`, `app/(tabs)/index.tsx` |
-| A dynamic route and its parameter         | `app/produk/[slug].tsx`                          |
-| Paths that match nothing                  | `app/+not-found.tsx`                             |
-| Route type generation in `pnpm typecheck` | `package.json` (`typecheck`), `tsconfig.json`    |
+| Concept                                            | Where to read it                                                  |
+| -------------------------------------------------- | ----------------------------------------------------------------- |
+| The scheme and typed routes                        | `app.config.ts` (`scheme`, `experiments`)                         |
+| The root stack and its screens                     | `app/_layout.tsx`                                                 |
+| The tab group                                      | `app/(tabs)/_layout.tsx`, `app/(tabs)/index.tsx`                  |
+| A dynamic route and its parameter                  | `app/produk/[slug].tsx`                                           |
+| A card's press → `router.push` to `/produk/[slug]` | `src/features/catalog/components/ProductList.tsx` (`openProduct`) |
+| Paths that match nothing                           | `app/+not-found.tsx`                                              |
+| Route type generation in `pnpm typecheck`          | `package.json` (`typecheck`), `tsconfig.json`                     |
 
 ## Navigasi tab, stack dan modal (artikel 09)
 
@@ -453,15 +576,15 @@ The modal does not call a function on Beranda or share a store with it. Beranda 
 
 Paths are relative to `apps/mobile`.
 
-| Concept                                   | Where to read it                                                    |
-| ----------------------------------------- | ------------------------------------------------------------------- |
-| The root stack: tabs, push, modal         | `app/_layout.tsx`                                                   |
-| The tab bar and its icons                 | `app/(tabs)/_layout.tsx`                                            |
-| The four tabs                             | `app/(tabs)/index.tsx`, `kategori.tsx`, `keranjang.tsx`, `akun.tsx` |
-| The modal and how it returns a choice     | `app/filter.tsx`                                                    |
-| Sort orders and reading them from a route | `src/features/catalog/sort-options.ts`                              |
-| Icons                                     | `src/components/Icon.tsx`                                           |
-| A screen whose feature comes later        | `src/components/ScreenPlaceholder.tsx`                              |
+| Concept                                   | Where to read it                                                                                     |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| The root stack: tabs, push, modal         | `app/_layout.tsx`                                                                                    |
+| The tab bar and its icons                 | `app/(tabs)/_layout.tsx`                                                                             |
+| The four tabs                             | `app/(tabs)/index.tsx`, `app/(tabs)/kategori.tsx`, `app/(tabs)/keranjang.tsx`, `app/(tabs)/akun.tsx` |
+| The modal and how it returns a choice     | `app/filter.tsx`                                                                                     |
+| Sort orders and reading them from a route | `src/features/catalog/sort-options.ts`                                                               |
+| Icons                                     | `src/components/Icon.tsx`                                                                            |
+| A screen whose feature comes later        | `src/components/ScreenPlaceholder.tsx`                                                               |
 
 ## Safe area, status bar dan keyboard (artikel 10)
 
@@ -716,6 +839,8 @@ Before adding anything to the package, ask whether it runs unchanged in a browse
 
 ### Where each idea lives
 
+Paths are relative to `apps/mobile`; those starting with `packages/` or `apps/` are from the repository root.
+
 | Concept                                         | Where to read it                                                          |
 | ----------------------------------------------- | ------------------------------------------------------------------------- |
 | The workspace dependency                        | `package.json` (`"@goshop/shared": "workspace:*"`)                        |
@@ -725,126 +850,6 @@ Before adding anything to the package, ask whether it runs unchanged in a browse
 | The web session that stays web-only             | `packages/shared/src/api/auth.ts` (`webLogin`, `webRefresh`, `webLogout`) |
 | The globals Expo installs on the phone          | `node_modules/expo/src/winter/runtime.native.ts`                          |
 | The web's token decorator the seam will mirror  | `apps/web/src/features/auth/auth-client.ts`                               |
-
-## FlatList untuk daftar produk (artikel 06)
-
-Beranda now shows the real catalog: `GET /v1/products` through the shared API client, twenty products per page, two cards per row, the next page loaded as the buyer nears the end, pull-to-refresh, and a loading, empty and error state for each moment. The search field and the sort sheet already put `q` and `urut` in the route (artikel 09 and 10), and the Kategori tab (artikel 14) puts a category slug in `kategori`; the list reads all three and asks the API with them. The six sample products are gone.
-
-### The mental model
-
-| Idea                                  | What it means on the phone                                                                                                                                                                                                                                                                                                                             | On the web (`apps/web`)                                                                   |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
-| **A list renders a window**           | `ScrollView` mounts every child at once and keeps it; each card is a real native view with a decoded photo in memory. `FlatList` (a `VirtualizedList`) mounts the rows near the screen (`windowSize`, about ten screens' worth) and stands in for the rest with blank space of the measured height, so memory stays flat however far the buyer scrolls | The browser keeps every `<li>`; thousands are fine                                        |
-| **`numColumns` makes the grid**       | `FlatList` groups the items into rows of two, one `View` with `flexDirection: "row"` per row. Each cell is `w-1/2 p-1.5`; the list's `px-2.5` adds up to 16 dp at the edges and 12 dp between cards                                                                                                                                                    | `grid grid-cols-2 gap-3`                                                                  |
-| **`onEndReached` is the sentinel**    | `FlatList` calls it when the end of the content is `onEndReachedThreshold` screen-heights away (here one). It can fire more than once, so the screen checks `hasNextPage && !isFetching && !isFetchNextPageError` before `fetchNextPage()`                                                                                                             | An `IntersectionObserver` on a div after the grid (`useOnVisible` in `ProductListFooter`) |
-| **The header, the footer, the empty** | `ListHeaderComponent` scrolls with the rows (the caption), `ListFooterComponent` sits after the last row (next-page spinner, retry, "Semua produk sudah ditampilkan."), `ListEmptyComponent` replaces the rows while there are none (first load, offline, error, no match)                                                                             | Elements before and after the `<ul>`                                                      |
-| **Pull-to-refresh is native**         | `refreshControl={<RefreshControl …/>}`: Android's circle drops from the top, iOS's spinner opens above the list. It takes colours as props, not a style                                                                                                                                                                                                | Nothing: a page reload                                                                    |
-| **Server state lives in the cache**   | TanStack Query 5.104.5, the version in the workspace catalog that `apps/web` and `apps/admin` use. `useInfiniteQuery` keeps every page per query key (`["products", "list", { category, q, sort }]`); the screen holds no list state of its own                                                                                                        | The same `infiniteQueryOptions` shape (`features/catalog/api/queries.ts`)                 |
-| **Focus and online must be wired**    | A browser tells TanStack Query about `visibilitychange` and `online`/`offline` by itself. React Native has neither event, so `src/lib/query-client.ts` connects `AppState` to `focusManager` (back to the app → stale queries refetch) and `expo-network` to `onlineManager` (no network → queries pause, then run when it returns)                    | Built in                                                                                  |
-
-### From the route to the request
-
-| Route (`/?q=…&urut=…`)                       | `readCatalogFilters` (`src/features/catalog/catalog-filters.ts`) | `GET /v1/products?…`                       |
-| -------------------------------------------- | ---------------------------------------------------------------- | ------------------------------------------ |
-| `/`                                          | `{ sort: "newest" }`                                             | `limit=20&sort=newest`                     |
-| `/?urut=termurah`                            | `{ sort: "price_asc" }`                                          | `limit=20&sort=price_asc`                  |
-| `/?q=%20kaos%20&urut=termahal`               | `{ q: "kaos", sort: "price_desc" }`                              | `limit=20&q=kaos&sort=price_desc`          |
-| `/?kategori=kaos&urut=termurah`              | `{ category: "kaos", sort: "price_asc" }`                        | `limit=20&category=kaos&sort=price_asc`    |
-| `/?kategori=Kaos%20Polos` (not a slug)       | `{ sort: "newest" }`                                             | `limit=20&sort=newest`                     |
-| `/?urut=apa-saja`, `/?q=` (unknown or empty) | `{ sort: "newest" }`                                             | `limit=20&sort=newest`                     |
-| next page                                    | the same filters                                                 | the same, plus `cursor=<page.next_cursor>` |
-
-The words are the storefront's (`terbaru`, `termurah`, `termahal` → `newest`, `price_asc`, `price_desc`, from `sort-options.ts`), and the checks are the web's `readCatalogFilters`: `q` trimmed and cut to 100 code points, an unknown sort word falls back to newest instead of reaching the API as a 400, and `kategori` is sent as `category` only when it matches the contract's slug pattern (`^[a-z0-9]+(-[a-z0-9]+)*$`, at most 100 characters). A well-formed slug that names no category still reaches the API, which answers `400 UNKNOWN_CATEGORY`; the list then says "Kategori ini tidak ada." with a "Lihat semua produk" button, rather than a retry that would fail the same way.
-
-The active category shows as a chip above the caption, by its name when the Kategori tab has already loaded the categories (a read of the `["categories"]` cache entry, `catalogKeys.categories`; no request of its own) and by its slug otherwise, as after a deep link. Pressing the chip clears it (`router.setParams({ kategori: undefined })`).
-
-### Which state the list shows
-
-| Situation                                             | What the buyer sees                                                               | Decided by                                   |
-| ----------------------------------------------------- | --------------------------------------------------------------------------------- | -------------------------------------------- |
-| First page loading                                    | "Memuat produk…" with the platform spinner, centred                               | `data === undefined`, not failed, not paused |
-| No network before the first page                      | "Tidak ada koneksi internet. Produk dimuat begitu koneksi kembali."               | `fetchStatus === "paused"` (`onlineManager`) |
-| First page failed                                     | The error in Indonesian, the request ID (selectable, to quote), "Coba lagi"       | `status === "error"` with no data            |
-| Loaded, nothing                                       | "Belum ada produk." or, with a search, "Tidak ada produk yang cocok."             | `data` present, `products.length === 0`      |
-| Next page loading / failed                            | A spinner, or the error and "Coba lagi", below the last row; the rows above stay  | `isFetchingNextPage`, `isFetchNextPageError` |
-| End of the list                                       | "Semua produk sudah ditampilkan."                                                 | `!hasNextPage` with products                 |
-| A category slug the API does not know                 | "Kategori ini tidak ada." and "Lihat semua produk"                                | `isApiError(error, "UNKNOWN_CATEGORY")`      |
-| A pull or a background refetch failed, rows on screen | The rows stay; the error with "Coba lagi" above them says they may be out of date | `isRefetchError`                             |
-
-### Decisions
-
-- **One list function.** The request is `fetchProductPage` from `src/features/catalog/api/products.ts` (artikel 12). `src/features/catalog/api/queries.ts` only adds the query key and the paging (`initialPageParam: null`, `getNextPageParam` from `page.next_cursor`, with the web's guard against a cursor that repeats). The filters are the key, so a cursor never crosses from one search to another, and a list nobody shows any more is aborted through the `signal`.
-- **`QueryClientProvider` sits in `app/_layout.tsx`, around every screen,** not around Beranda: the Kategori tab (artikel 14) and later the cart and the account read the same cache.
-- **The sort sheet carries the other filters.** Returning to `/` with `router.dismissTo({ pathname: "/", params })` gives Beranda those params, not the old ones plus the new: React Navigation replaces a route's params unless told to merge. With only `urut` in them, picking an order dropped the search (since artikel 09) and would now drop the category too. Beranda opens `/filter` with `kategori`, `q` and `urut`, and the sheet hands `kategori` and `q` back with the new `urut`; Expo Router leaves out a parameter whose value is `undefined`, so an absent filter stays absent.
-- **The web's cache defaults.** `retry: false`, because the API client already retries a GET once where retrying helps (TanStack's three retries on top would make up to eight requests before the error shows), and `staleTime: 30_000`. One `QueryClient` for the app's lifetime, created at module level: unlike the web there is no server render that could share it between buyers.
-- **`expo-network`, not `@react-native-community/netinfo`, for `onlineManager`.** Both are in Expo SDK 58's list of supported versions (`expo-network` 58.0.4, netinfo 12.0.1), and TanStack Query's React Native guide shows both. `expo-network` is Expo's own module, released with each SDK (installed by `npx expo install`, nothing to align by hand), included in Expo Go, and its `addNetworkStateListener` is all `onlineManager` needs. NetInfo's extras (Wi-Fi details, its own reachability pings to a Google URL) are not used. The app reads `isConnected`, not `isInternetReachable`: on Android "reachable" needs a validated internet connection, and an API on the local network (`10.0.2.2`, a laptop on the same Wi-Fi) works without one. `expo-network` adds `ACCESS_NETWORK_STATE` and `ACCESS_WIFI_STATE` to the Android manifest through its library manifest (merged by Gradle); iOS needs no permission. It is a native module, so a development build made before this article must be rebuilt.
-- **Focus is `AppState === "active"`.** "inactive" (iOS app switcher, an incoming call banner) and "background" both count as unfocused; coming back refetches stale queries, the phone's `refetchOnWindowFocus`.
-- **Pull-to-refresh refetches the first page only.** `refetch()` on an infinite query refetches every page loaded so far, one after the other, before anything changes on screen: ten requests for a buyer who scrolled ten pages. The buyer is at the top when they pull, so `useProductList().refresh` trims the cached pages to the first and refetches that; later pages load fresh as the buyer scrolls.
-- **The refresh spinner shows the pull, not every refetch.** `refreshing={isRefetching}` would drop the spinner from the top every time the buyer returns to the app (a background refetch). `refresh` keeps its own `isRefreshing`, true from the pull until its request ends.
-- **The next page waits for the buyer after an error.** `onEndReached` fires again as soon as the list moves; retrying from there would loop against an API that is down. The footer's "Coba lagi" retries that page.
-- **`renderItem` and `keyExtractor` live outside the component**, like `openProduct`. A new `renderItem` each render re-renders every visible row, and `memo(ProductCard)` skips a card only when its `product` and `onPress` are the same as before. Unchanged products keep their identity between pages (TanStack Query shares unchanged data structurally).
-- **Two columns, fixed.** `numColumns` cannot change on a mounted list without a new `key`, and the app is phone-only (`supportsTablet: false`). The cell is `w-1/2` with padding instead of a `gap`, so the last card of an odd page keeps half the width instead of stretching across the row.
-- **NativeWind is the app's styling from here on.** The screen, its top bar and `SearchBar` are written with `className`, every colour from a role in `src/theme/colors.js` with its `dark:` twin. Only numbers measured at run time stay in `style` (the safe-area insets), and colours that a native component takes as props come from the navigation theme (`useTheme()`, the same roles): the text cursor (`selectionColor`) and `RefreshControl`. The icons took theme colours too until artikel 11 gave `Icon` a `className`; they now take classes. `ActivityIndicator` takes a class (`text-primary`), which NativeWind hands to its `color` prop. The search field's grey `PLACEHOLDER_COLOR` became `placeholder:text-muted-foreground dark:placeholder:text-muted-foreground-dark`: NativeWind's `placeholder:` variant moves the colour to `placeholderTextColor`, so the placeholder now follows the theme. Android's own `TextInput` padding is handled with `android:py-1.5`, and the font size is `text-[16px]` rather than `text-base`, which would add a line height that pushes the text off centre on iOS.
-- **`ProductGrid` is deleted**, and so is `fixtures.ts`. `FlatList` with `numColumns` lays out the rows now, so the wrapping row with computed cell widths (artikel 04) has no user; its idea, an exact cell width because `gap` is added on top of `"50%"`, is what `w-1/2` with padding avoids here. The artikel 04 and 05 tables above still name `ProductGrid.tsx` as the place to read that code; it is in the history of this branch (`git show d2daf2c3:apps/mobile/src/features/catalog/components/ProductGrid.tsx`). The samples were only there until the API was called (artikel 03 said they would go).
-- **The error sentences are the storefront's.** `src/lib/error-message.ts` is a copy of `apps/web/src/lib/error-message.ts`, so the same failure reads the same on both. It is plain TypeScript with no host, the kind of code that could move to `packages/shared`; that is the web's package to change, so it is a copy for now.
-
-### Plain `http://` per build profile
-
-A development build talks to `http://10.0.2.2:8080` because Expo's template allows cleartext in the Android **debug** manifest. A `preview` APK is a **release** build: Android 9 and later block `http://` there, so the catalog would fail with `NETWORK_ERROR` against a local API. `app.config.ts` now decides per profile, from `EAS_BUILD_PROFILE` (set by EAS on every build, cloud or `--local`) or `APP_VARIANT` (for a command run by hand, `APP_VARIANT=production npx expo prebuild`); neither set means a developer's machine:
-
-| Profile                     | Android `usesCleartextTraffic` (main manifest, via `expo-build-properties` 58.0.11)  | iOS `NSAppTransportSecurity`                                               |
-| --------------------------- | ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------- |
-| `development` (or none set) | `true` (debug builds already allowed it)                                             | Expo's template: no arbitrary loads, `NSAllowsLocalNetworking` `true`      |
-| `preview`                   | `true`: the APK reaches `http://10.0.2.2:8080` or a laptop's LAN address             | the same: the simulator build reaches `http://localhost:8080`              |
-| `production`                | `false`, written out: with `minSdk` 24, Android 7 and 8 would allow it if left unset | `NSAllowsArbitraryLoads` `false` **and** `NSAllowsLocalNetworking` `false` |
-
-Production is HTTPS only on both platforms, and it already refuses to build without `EXPO_PUBLIC_API_URL`. iOS needed no addition for development and preview: Expo's template sets `NSAllowsLocalNetworking`, which covers `localhost`, unqualified host names and `.local` names, in every build; production is where it is turned off. Proved with `npx expo prebuild --platform all --clean` for each profile (the generated folders inspected, then deleted):
-
-```text
-EAS_BUILD_PROFILE=preview    → android/app/src/main/AndroidManifest.xml  <application … android:usesCleartextTraffic="true">
-                               ios/GoShop/Info.plist                     NSAllowsArbitraryLoads false, NSAllowsLocalNetworking true
-EAS_BUILD_PROFILE=production → android/app/src/main/AndroidManifest.xml  <application … android:usesCleartextTraffic="false">
-  (EXPO_PUBLIC_API_URL set)    ios/GoShop/Info.plist                     NSAllowsArbitraryLoads false, NSAllowsLocalNetworking false
-```
-
-Cleartext in a preview build is a convenience for testers against a local or staging API, not a security boundary: anything sent over `http://` can be read on the network, so a preview build pointed at a shared server should use its HTTPS URL. A phone on Wi-Fi still needs `EXPO_PUBLIC_API_URL` set to the computer's LAN address (artikel 02); cleartext only stops Android from refusing the connection.
-
-### What to check on the devices
-
-The checks in this commit are `tsc`, ESLint and Prettier, `expo export` for both platforms (and the unminified bundle, which holds the compiled classes `w-1/2`, `border-b-hairline`, `android:py-1.5`, `placeholder:text-muted-foreground` → `placeholderTextColor`), `expo prebuild` per profile and `expo-doctor`. On the Android emulator and the iOS simulator, against `make up` with seeded products:
-
-1. The first page arrives: two cards per row, photos from the API's variants, prices in rupiah, "Stok habis" on sold-out products, the caption "Semua produk · Terbaru".
-2. Scrolling near the end loads the next page once (one `cursor=` request per page in the API log or DevTools' network panel), a spinner shows below the last row, and the end shows "Semua produk sudah ditampilkan."
-3. A search (`kaos` + the keyboard's search key) and each sort in the sheet change the request (`q=`, `sort=price_asc`/`price_desc`) and start from the top; a search with no match says "Tidak ada produk yang cocok."; `goshop://?q=kaos&urut=termurah` opens that list.
-4. A category from the Kategori tab (or `goshop://?kategori=kaos`): `category=kaos` in the request, the chip with the category's name (its slug after a cold deep link), the chip's press back to every product; a sort picked in the sheet keeps the category and the search; `goshop://?kategori=tidak-ada` shows "Kategori ini tidak ada." and "Lihat semua produk" works.
-5. Pull-to-refresh after scrolling several pages: the spinner shows, **one** request (no `cursor`), the list keeps working when scrolled again.
-6. Leave the app for more than 30 s and come back: one refetch, **no** pull-to-refresh spinner.
-7. Stop the API before opening the app: the error, a request ID when the API answered, "Coba lagi" recovers once the API is back. Stop it while scrolled: the next page fails in the footer, the rows stay.
-8. Airplane mode before the first load: the "Tidak ada koneksi internet" message; turning it off loads the list without a tap.
-9. Dark mode: top bar, search field (placeholder colour), captions, spinners, error and empty text, refresh spinner.
-10. The keyboard: dragging the list closes it (interactive on iOS), a tap on a card while it is open opens the product at the first touch.
-11. A `preview` APK (`eas build --local --platform android --profile preview`, or Gradle `assembleRelease` after `EAS_BUILD_PROFILE=preview npx expo prebuild`) installed on the emulator reaches `http://10.0.2.2:8080` and shows the catalog; `aapt dump xmltree <apk> AndroidManifest.xml` shows `usesCleartextTraffic` true. A production build's manifest shows it false.
-12. iOS preview (simulator) build reaches `http://localhost:8080`.
-
-### Where each idea lives
-
-Paths are relative to `apps/mobile`.
-
-| Concept                                                                        | Where to read it                                                          |
-| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------- |
-| The `QueryClient`, its defaults, `AppState` → focus, `expo-network` → online   | `src/lib/query-client.ts`                                                 |
-| The provider around every screen                                               | `app/_layout.tsx` (`QueryClientProvider`)                                 |
-| Route parameters → API filters (`kategori` → `category`, `q`, `urut` → `sort`) | `src/features/catalog/catalog-filters.ts`, `sort-options.ts`              |
-| Query keys and the infinite query over `fetchProductPage`                      | `src/features/catalog/api/queries.ts`, `api/products.ts`                  |
-| Flattened pages, pull-to-refresh of the first page, `isRefreshing`             | `src/features/catalog/hooks/useProductList.ts`                            |
-| The `FlatList`: columns, header, empty, footer, end reached, refresh, keyboard | `src/features/catalog/components/ProductList.tsx`                         |
-| The footer states                                                              | `src/features/catalog/components/ProductListFooter.tsx`                   |
-| Loading, empty and error with retry                                            | `src/components/StatusMessage.tsx`, `src/lib/error-message.ts`            |
-| The category chip and the unknown-category state                               | `src/features/catalog/components/ProductList.tsx`, `app/(tabs)/index.tsx` |
-| The sort sheet handing the other filters back                                  | `app/filter.tsx`                                                          |
-| The screen and its top bar in `className`                                      | `app/(tabs)/index.tsx`                                                    |
-| The search field in `className`, the `placeholder:` variant                    | `src/features/catalog/components/SearchBar.tsx`                           |
-| Cleartext and App Transport Security per profile                               | `app.config.ts` (`buildProfile`, `expo-build-properties`, `infoPlist`)    |
 
 ## Scaffold layar dengan AI lalu sesuaikan dengan pola proyek (artikel 14)
 
