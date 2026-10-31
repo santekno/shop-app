@@ -179,3 +179,81 @@ Paths are relative to `apps/mobile`.
 | The photo: variants as a source list, the placeholder   | `src/features/catalog/components/ProductPhoto.tsx` |
 | The sample products, in the API's shape                 | `src/features/catalog/fixtures.ts`                 |
 | The screen that lists them and decides what a tap does  | `app/index.tsx`                                    |
+
+## Styling dengan StyleSheet dan flexbox (artikel 04)
+
+The cards now look like the storefront's: a bordered panel with a square photo, laid out two per row. Everything is styled with `StyleSheet.create` and flexbox, React Native's own styling, before NativeWind brings class names back in artikel 05.
+
+### The mental model
+
+A style in React Native is a JavaScript object passed to one component's `style` prop. It looks like CSS written in camelCase, but most of what makes CSS _CSS_ is missing:
+
+| CSS on the web (`apps/web`)                                              | `StyleSheet` in React Native                                                                                                                                                            |
+| ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Selectors and the cascade: a rule matches many elements, later rules win | No selectors. A style applies to the component it is passed to, nothing else. Composition is an array: `style={[styles.card, pressed && styles.cardPressed]}`, the last entry wins      |
+| Inheritance: `color` and `font-*` flow down to every descendant          | None, except `Text` nested in `Text`. Each `Text` sets its own colour and size; a `View` has no font at all                                                                             |
+| Units: `px`, `rem`, `%`, `vw`, `calc()`                                  | Unitless numbers in density-independent pixels (dp on Android, points on iOS), and percentages. No `rem` (nothing scales with a parent's font size), no `calc()`: compute in JavaScript |
+| `display: block`, inline flow, floats, CSS Grid                          | Flexbox only (Yoga), on every `View`. No grid: a wrapping row is the grid                                                                                                               |
+| `flex-direction: row` by default                                         | `flexDirection: "column"` by default: children stack top to bottom, so `justifyContent` is vertical and `alignItems` horizontal                                                         |
+| `flex: 1` is shorthand for `1 1 0%`                                      | `flex: 1` means "take the free space along the main axis"; negative or shorthand forms do not exist                                                                                     |
+| `aspect-ratio: 1`, `object-fit: cover`                                   | `aspectRatio: 1` on the box, `resizeMode="cover"` on the `Image`                                                                                                                        |
+| `:hover`, `:active`, `@media (prefers-color-scheme: dark)`               | No pseudo-classes and no media queries: the pressed state comes from `Pressable` (`({ pressed }) => …`), the screen size from `useWindowDimensions`, the theme from `useColorScheme`    |
+
+`StyleSheet.create` itself is an identity function today: it type-checks the object (a typo in a property name fails `tsc`) and keeps all of a component's styles at the bottom of its file, under names that say what they style.
+
+### Decisions
+
+- **The grid is a wrapping row with exact widths.** `ProductGrid` is `flexDirection: "row"`, `flexWrap: "wrap"` and `gap: 12`, with 16 dp of padding. Each cell's width is computed from `useWindowDimensions()`: `(screen − 2 × padding − gaps) / columns`. `width: "50%"` does not work, because the gap is added on top of the two halves and the second card wraps. Two columns on a phone; a screen with room for more cards of at least 160 dp gets more. The cell owns the width, so `ProductCard` does not know how many columns there are.
+- **Cards in a row are the same height.** A wrapping row stretches each item to the tallest in its line (`alignItems: "stretch"`, the default), and the card has `flex: 1` to fill its cell, the job `flex` on the web grid's `<li>` does.
+- **The photo is `width: "100%"` and `aspectRatio: 1`**: as wide as the card, as tall as it is wide, cropped with `resizeMode="cover"`, with the muted colour drawn underneath while it downloads.
+- **Colours are the storefront's tokens, light only.** The values come from `apps/web/src/index.css` (`--card`, `--border`, `--muted-foreground`, `--destructive` …) and sit in one `colors` object above the styles. A `StyleSheet` cannot read a CSS variable or a media query, so dark mode would mean a second set picked with `useColorScheme()` in every component; artikel 05 does it with NativeWind instead.
+- **The width depends on the screen, so it is an inline style.** `StyleSheet.create` runs once, when the module loads; a value computed during render (`{ width: cellWidth }`) goes straight into `style`.
+
+The card's styles, for comparison with the `className` version in artikel 05:
+
+```tsx
+const styles = StyleSheet.create({
+  card: {
+    flex: 1,
+    gap: 4,
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+  },
+  cardPressed: { backgroundColor: colors.cardPressed },
+  name: {
+    marginTop: 4,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "600",
+    color: colors.foreground,
+  },
+  price: { fontSize: 16, fontWeight: "600", color: colors.foreground },
+  priceFrom: { fontWeight: "400", color: colors.mutedForeground },
+  soldOut: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+    backgroundColor: colors.destructive,
+  },
+  soldOutText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: colors.destructiveForeground,
+  },
+});
+```
+
+### Where each idea lives
+
+Paths are relative to `apps/mobile`.
+
+| Concept                                                              | Where to read it                                   |
+| -------------------------------------------------------------------- | -------------------------------------------------- |
+| The grid: a wrapping row, `gap`, cell widths from the screen's width | `src/features/catalog/components/ProductGrid.tsx`  |
+| The card's panel, text styles, pressed style, badge                  | `src/features/catalog/components/ProductCard.tsx`  |
+| The square photo: `width: "100%"`, `aspectRatio`, `resizeMode`       | `src/features/catalog/components/ProductPhoto.tsx` |
+| The screen's background and scrolling                                | `app/index.tsx`                                    |

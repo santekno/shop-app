@@ -67,7 +67,8 @@ export const ProductCard = memo(function ProductCard({
       </Text>
       <Text style={styles.price}>
         {/* Text inside Text is the one place styles are inherited: the
-            inner Text keeps the outer's size and changes the weight. */}
+            inner Text keeps the outer's size and changes the weight and
+            colour. */}
         {hasPriceRange && <Text style={styles.priceFrom}>Mulai </Text>}
         {price}
       </Text>
@@ -80,28 +81,73 @@ export const ProductCard = memo(function ProductCard({
   );
 });
 
+// GoShop's colours, the light values of apps/web/src/index.css's tokens
+// (the same roles: card, border, muted-foreground …). A StyleSheet cannot
+// read a CSS variable or a media query, so dark mode would need these in
+// two sets chosen with useColorScheme(); artikel 05 does it with NativeWind.
+const colors = {
+  card: "#ffffff",
+  cardPressed: "#eef1f4", // --accent
+  foreground: "#1f2328",
+  mutedForeground: "#59636e",
+  border: "#d1d9e0",
+  destructive: "#b42318",
+  destructiveForeground: "#ffffff",
+};
+
+// Every number is in density-independent pixels (dp on Android, points on
+// iOS): 16 is the same physical size on a 1× and a 3× screen. There are no
+// units to write, and no rem: a size never follows a parent's font size.
+//
+// Nothing cascades either. A style applies to the one component it is
+// given to; the Text below does not inherit `card`'s colour, so each Text
+// sets its own. (Text inside Text is the exception: `priceFrom` inherits
+// `price`'s size and changes only the weight and the colour.)
 const styles = StyleSheet.create({
   card: {
-    width: 160,
+    // Fill the grid cell (ProductGrid sets its width) and, because every
+    // cell in a row is stretched to the tallest, its height too.
+    flex: 1,
+    // flexDirection is "column" by default in React Native (the web's is
+    // "row"): photo, name, price and badge stack top to bottom.
     gap: 4,
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
   },
   cardPressed: {
-    opacity: 0.6,
+    backgroundColor: colors.cardPressed,
   },
   name: {
+    marginTop: 4,
+    fontSize: 14,
+    lineHeight: 20,
     fontWeight: "600",
+    color: colors.foreground,
   },
   price: {
+    fontSize: 16,
     fontWeight: "600",
+    color: colors.foreground,
   },
   priceFrom: {
     fontWeight: "400",
+    color: colors.mutedForeground,
   },
   soldOut: {
+    // A column stretches its children across its width (alignItems:
+    // "stretch"); this one keeps the badge as wide as its text.
     alignSelf: "flex-start",
-    backgroundColor: "#b42318",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+    backgroundColor: colors.destructive,
   },
   soldOutText: {
-    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "600",
+    color: colors.destructiveForeground,
   },
 });

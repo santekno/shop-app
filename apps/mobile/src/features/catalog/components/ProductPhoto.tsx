@@ -29,8 +29,8 @@ const sourcesOf = (image: ProductImage): ImageURISource[] =>
  *
  * Unlike an `<img>`, a remote `Image` has no size of its own: React Native
  * does not download the file to measure it, so a photo without a width and
- * a height in its style is drawn 0 × 0 (an invisible card). The size comes
- * from `styles.photo`.
+ * a height in its style is drawn 0 × 0 (an invisible card). Here the width
+ * is the card's and `aspectRatio` derives the height (below).
  *
  * No `alt` here: the card around it is one accessible element whose label
  * already names the product, so the photo would only be read twice.
@@ -56,15 +56,23 @@ export function ProductPhoto({ image }: ProductPhotoProps) {
 
 const styles = StyleSheet.create({
   photo: {
-    width: 160,
-    height: 160,
-  },
-  placeholder: {
-    alignItems: "center",
-    justifyContent: "center",
+    // The full width of the card, and as tall as it is wide: the web's
+    // aspect-square. A percentage is of the parent's width, like CSS.
+    width: "100%",
+    aspectRatio: 1,
+    // An Image clips its own corners; no overflow: "hidden" needed.
+    borderRadius: 6,
+    // Drawn while the photo downloads, so the card never flashes empty.
     backgroundColor: "#eef1f4",
   },
+  placeholder: {
+    // Centre the label in the square: the main axis is vertical (column),
+    // so justifyContent centres up-down and alignItems left-right.
+    alignItems: "center",
+    justifyContent: "center",
+  },
   placeholderText: {
+    fontSize: 14,
     color: "#59636e",
   },
 });
