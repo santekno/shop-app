@@ -1,6 +1,7 @@
-import { describe, expect, it, jest } from "@jest/globals";
+import { afterEach, describe, expect, it, jest } from "@jest/globals";
 import { fireEvent, screen, userEvent } from "@testing-library/react-native";
 import type { CategoryNode } from "@goshop/shared";
+import { AccessibilityInfo } from "react-native";
 
 import { category } from "@/test/fixtures";
 import { isRefreshingShown, refreshControl } from "@/test/list";
@@ -23,6 +24,13 @@ const ROWS = flattenCategoryTree([
   ]),
   node("topi", "Topi"),
 ]);
+
+const REFRESH_FAILED =
+  "Gagal memperbarui kategori. Daftar di bawah mungkin belum yang terbaru.";
+
+afterEach(() => {
+  jest.restoreAllMocks();
+});
 
 const renderList = (props: Partial<Parameters<typeof CategoryList>[0]> = {}) =>
   renderWithProviders(
@@ -94,21 +102,32 @@ describe("CategoryList", () => {
     expect(onPressCategory.mock.calls).toEqual([["kaos-polos"], ["pakaian"]]);
   });
 
-  it("notes a failed refresh above the old list", async () => {
+  it("notes a failed refresh above the old list, read out on both platforms", async () => {
+    // React Native's Jest setup already mocks it; clear earlier calls.
+    const announce = jest
+      .spyOn(AccessibilityInfo, "announceForAccessibility")
+      .mockClear();
     await renderList({ refreshFailed: true });
 
-    const note = screen.getByText(
-      "Gagal memperbarui kategori. Daftar di bawah mungkin belum yang terbaru.",
-    );
+    const note = screen.getByText(REFRESH_FAILED);
     expect(note.parent).toHaveProp("accessibilityRole", "alert");
+    // TalkBack: the live region. VoiceOver (jest-expo runs as iOS): the
+    // announcement, once.
+    expect(note.parent).toHaveProp("accessibilityLiveRegion", "polite");
+    expect(announce).toHaveBeenCalledTimes(1);
+    expect(announce).toHaveBeenCalledWith(REFRESH_FAILED);
     expect(row("Pakaian")).toBeOnTheScreen();
   });
 
-  it("has no note while the list is current", async () => {
+  it("has no note, and announces nothing, while the list is current", async () => {
+    const announce = jest
+      .spyOn(AccessibilityInfo, "announceForAccessibility")
+      .mockClear();
     await renderList();
     expect(
       screen.queryByText(/Gagal memperbarui kategori/),
     ).not.toBeOnTheScreen();
+    expect(announce).not.toHaveBeenCalled();
   });
 
   it("shows the refresh spinner only while told, and pulls through onRefresh", async () => {

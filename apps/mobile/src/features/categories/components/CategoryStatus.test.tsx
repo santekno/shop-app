@@ -1,6 +1,7 @@
-import { describe, expect, it, jest } from "@jest/globals";
+import { afterEach, describe, expect, it, jest } from "@jest/globals";
 import { render, screen, userEvent } from "@testing-library/react-native";
 import { ApiError } from "@goshop/shared";
+import { AccessibilityInfo } from "react-native";
 
 import {
   CategoryError,
@@ -11,12 +12,19 @@ import {
 const apiError = (code: string, requestId?: string) =>
   new ApiError({ status: 500, code, message: "x", requestId });
 
+const GENERAL = "Terjadi kesalahan saat memuat data. Coba lagi.";
+
+afterEach(() => {
+  jest.restoreAllMocks();
+});
+
 describe("CategoryLoading", () => {
-  it("is a busy element a screen reader announces", async () => {
+  it("is the app's progress bar, named for the categories", async () => {
     await render(<CategoryLoading />);
 
-    const loading = screen.getByLabelText("Memuat kategori");
-    expect(loading).toBeBusy();
+    expect(
+      screen.getByRole("progressbar", { name: "Memuat kategori…" }),
+    ).toBeOnTheScreen();
     expect(screen.getByText("Memuat kategori…")).toBeOnTheScreen();
   });
 });
@@ -52,7 +60,9 @@ describe("CategoryError", () => {
       "RATE_LIMITED",
       "Terlalu banyak permintaan. Tunggu sebentar, lalu coba lagi.",
     ],
-    ["INTERNAL", "Terjadi kesalahan saat memuat kategori. Coba lagi."],
+    // The app's general sentence (src/lib/error-message.ts), the same
+    // words Beranda uses for the same failure.
+    ["INTERNAL", GENERAL],
   ])("says what %s means", async (code, message) => {
     await render(
       <CategoryError error={apiError(code)} onRetry={() => undefined} />,
@@ -64,9 +74,7 @@ describe("CategoryError", () => {
     await render(
       <CategoryError error={new Error("x")} onRetry={() => undefined} />,
     );
-    expect(
-      screen.getByText("Terjadi kesalahan saat memuat kategori. Coba lagi."),
-    ).toBeOnTheScreen();
+    expect(screen.getByText(GENERAL)).toBeOnTheScreen();
   });
 
   it("is an alert, with the request ID to quote", async () => {
@@ -81,6 +89,27 @@ describe("CategoryError", () => {
     expect(id).toHaveProp("selectable", true);
     expect(id.parent).toHaveProp("accessibilityRole", "alert");
     expect(id.parent).toHaveProp("accessibilityLiveRegion", "polite");
+    expect(id.parent).toHaveTextContent(
+      `${GENERAL}Kode permintaan: req-77Coba lagi`,
+    );
+  });
+
+  it("is read out by VoiceOver when it appears (jest-expo runs as iOS)", async () => {
+    // React Native's Jest setup already mocks it; clear earlier calls.
+    const announce = jest
+      .spyOn(AccessibilityInfo, "announceForAccessibility")
+      .mockClear();
+    await render(
+      <CategoryError
+        error={apiError("RATE_LIMITED")}
+        onRetry={() => undefined}
+      />,
+    );
+
+    expect(announce).toHaveBeenCalledTimes(1);
+    expect(announce).toHaveBeenCalledWith(
+      "Terlalu banyak permintaan. Tunggu sebentar, lalu coba lagi.",
+    );
   });
 
   it("has no request ID line without an ID, or for an error that is not the API's", async () => {

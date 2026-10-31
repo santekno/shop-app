@@ -47,7 +47,9 @@ describe("Kategori: before the first list", () => {
     fakeApi.once("GET", "/v1/categories", answer.handler);
     await openKategori();
 
-    expect(screen.getByLabelText("Memuat kategori")).toBeBusy();
+    expect(
+      screen.getByRole("progressbar", { name: "Memuat kategori…" }),
+    ).toBeOnTheScreen();
     await act(() => {
       answer.resolve(json({ data: CATEGORIES }));
     });
@@ -72,7 +74,9 @@ describe("Kategori: before the first list", () => {
         "Tidak ada koneksi internet. Kategori dimuat begitu koneksi kembali.",
       ),
     ).toBeOnTheScreen();
-    expect(screen.queryByLabelText("Memuat kategori")).not.toBeOnTheScreen();
+    expect(
+      screen.queryByRole("progressbar", { name: "Memuat kategori…" }),
+    ).not.toBeOnTheScreen();
     expect(categoryRequests()).toHaveLength(0);
 
     await act(() => {
@@ -91,7 +95,7 @@ describe("Kategori: before the first list", () => {
 
     expect(await screen.findByText("Kode permintaan: req-3")).toBeOnTheScreen();
     expect(
-      screen.getByText("Terjadi kesalahan saat memuat kategori. Coba lagi."),
+      screen.getByText("Terjadi kesalahan saat memuat data. Coba lagi."),
     ).toBeOnTheScreen();
 
     const retry = deferred();
@@ -99,7 +103,9 @@ describe("Kategori: before the first list", () => {
     await userEvent.press(screen.getByRole("button", { name: "Coba lagi" }));
 
     // The retry shows the spinner, not the old error.
-    expect(await screen.findByLabelText("Memuat kategori")).toBeOnTheScreen();
+    expect(
+      await screen.findByRole("progressbar", { name: "Memuat kategori…" }),
+    ).toBeOnTheScreen();
     expect(screen.queryByText("Kode permintaan: req-3")).not.toBeOnTheScreen();
 
     await act(() => {
