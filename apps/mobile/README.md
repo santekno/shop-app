@@ -841,3 +841,49 @@ Paths are relative to `apps/mobile`.
 | The screen and its top bar in `className`                                      | `app/(tabs)/index.tsx`                                                    |
 | The search field in `className`, the `placeholder:` variant                    | `src/features/catalog/components/SearchBar.tsx`                           |
 | Cleartext and App Transport Security per profile                               | `app.config.ts` (`buildProfile`, `expo-build-properties`, `infoPlist`)    |
+
+## Scaffold layar dengan AI lalu sesuaikan dengan pola proyek (artikel 14)
+
+The Kategori tab replaces its placeholder with the real screen: every category from `GET /v1/categories` as a tree, top-level categories with their sub-categories indented under them, each row opening the catalog filtered by that category (`/?kategori=<slug>`, the storefront's word). The screen was scaffolded by an AI assistant and then adapted by hand, and the whole run is recorded in [`docs/ai-scaffold-kategori.md`](docs/ai-scaffold-kategori.md): the exact prompt, the raw output unedited, what the checks said about it, and every change with its reason, as `docs/ai-rules.md` requires.
+
+### The method
+
+1. **Prompt like a developer would.** The stack, the file, the endpoint with a sample response, where the result should lead. No repository conventions, on purpose: that is what a chat assistant usually gets, and it makes the gap visible.
+2. **Keep the raw output.** Saved before anything is touched, so the article can show what the machine wrote and what the human changed.
+3. **Run the project's checks on it first.** `tsc`, ESLint and Prettier on the raw file, unchanged: they find the mechanical problems (here 1 type error, 5 lint errors, formatting) before any reading starts.
+4. **Read it against the project, not against "does it work".** For each piece ask: does the project already have this (client, types, tree builder)? Does it follow the project's patterns (TanStack Query, the feature folder, NativeWind roles, `Icon`)? Are the states, accessibility and navigation what the rest of the app does?
+5. **Write down every change with its reason**, and what the AI got right. A change without a reason is taste; a reason without a change is a missed fix.
+
+### The mental model
+
+| Idea                                          | What it means                                                                                                                                                                                                                                                                   | Go comparison                                                                    |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| **Works is not the same as fits**             | The raw screen fetched, built the tree, navigated and had loading, error and empty states. It still bypassed the app's API client (cookies, timeout, retry, error codes), copied a function the shared package already has, and ignored dark mode. None of that shows in a demo | A handler that returns 200 but opens its own `sql.DB` instead of taking the pool |
+| **The model only knows what the prompt says** | It wrote its own `fetch`, types and tree builder because nothing said `@goshop/shared` exists. Most of the changes trace back to context the prompt did not carry, not to wrong code                                                                                            | Code review of a contributor who has never seen the repository                   |
+| **The checks come before the reading**        | The type checker and the linter are cheap and find the mechanical issues; human review is for what tools cannot judge (does this duplicate something, is it the right behaviour)                                                                                                | `go vet` and `golangci-lint` before asking a reviewer                            |
+| **The prompt is part of the result**          | "Tapping a sub-category opens the catalog" made the model leave top-level categories without a link: it followed the prompt exactly. A prompt is a spec, and its gaps become the code's gaps                                                                                    | A ticket's acceptance criteria                                                   |
+
+### Decisions
+
+- **TanStack Query, with the web's key and stale time.** `categoriesQuery()` is `queryOptions` over `listCategories(api)`, keyed `["categories"]` and fresh for five minutes, like `apps/web/src/features/catalog/api/queries.ts`. `@tanstack/react-query` comes from the workspace catalog (`"catalog:"`, 5.104.5), the same version as the web and the dashboard, rather than whatever `npx expo install` would pick: it has no native code, so Expo's SDK pinning has nothing to add, and one version across the repository keeps the query patterns identical. The `QueryClientProvider` at the root arrives with the catalog's product list (artikel 06).
+- **Every category is a link, not only the leaves.** Filtering by a parent includes its sub-categories' products (the API's rule); the website links every node of its tree too. Otherwise a top-level category without children could not be opened at all.
+- **Flat rows with a depth, not nested lists.** `flattenCategoryTree` turns the tree from `buildCategoryTree` into one row per category, so the FlatList recycles rows of one kind and a parent with many children is not one huge item. Depth becomes indentation, the one inline style (a number from the data, which no class can express).
+- **`navigate`, not `push`.** `/` is a tab: `navigate` switches to Beranda with `kategori` as its route parameter; `push` would not switch tabs.
+- **A spinner only for the buyer's pull.** `refreshing` is a local flag set by the pull and cleared when `refetch()` settles, so a refetch TanStack Query starts on its own does not drag the list down. A refresh that fails keeps the old list and shows a note above it.
+- **Errors worded by code, with the request ID.** The same sentences as `apps/web/src/lib/error-message.ts`, kept inside the feature for now; when a second screen needs them they move to `src/lib`.
+- **No chevron on the rows yet.** Icons go through `Icon`, which has no chevron glyph; the glyph belongs in `src/components/Icon.tsx`, which artikel 11 owns.
+
+### Where each idea lives
+
+Paths are relative to `apps/mobile`.
+
+| Concept                                                  | Where to read it                                                                                        |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| The AI box: prompt, raw output, changes and why          | `docs/ai-scaffold-kategori.md`                                                                          |
+| The route: which state to show, where a tap leads        | `app/(tabs)/kategori.tsx`                                                                               |
+| `GET /v1/categories` as query options                    | `src/features/categories/api/categories.ts`                                                             |
+| The tree as list rows (`buildCategoryTree` + flattening) | `src/features/categories/hooks/useCategoryRows.ts`                                                      |
+| The rows, pull-to-refresh, the empty state               | `src/features/categories/components/CategoryList.tsx`                                                   |
+| Loading and error with "Coba lagi"                       | `src/features/categories/components/CategoryStatus.tsx`                                                 |
+| The shared pieces it uses                                | `packages/shared/src/api/catalog.ts` (`listCategories`), `packages/shared/src/catalog/category-tree.ts` |
+| The rules the AI box follows                             | `docs/ai-rules.md` (repository root)                                                                    |
