@@ -3,22 +3,14 @@
 // included, and is closed rather than "gone back" from. Beranda opens it
 // with the current order (/filter?urut=…); picking one returns to Beranda
 // with the new order as its route parameter, which the catalog reads.
-import { router, Stack, useLocalSearchParams, useTheme } from "expo-router";
-import {
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { router, Stack, useLocalSearchParams } from "expo-router";
+import { Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Icon } from "@/components/Icon";
 import { SORT_OPTIONS, sortFromParam } from "@/features/catalog/sort-options";
 
 export default function FilterScreen() {
-  const { colors } = useTheme();
   // The header covers the top edge; nothing covers the bottom one, where
   // the home indicator (iOS) or the navigation bar (Android, drawn over
   // the app edge to edge) sits. The last row must stay above it.
@@ -34,10 +26,11 @@ export default function FilterScreen() {
 
   return (
     <ScrollView
-      contentContainerStyle={[
-        styles.content,
-        { paddingBottom: insets.bottom + 16 },
-      ]}
+      // The fixed padding as classes; the bottom one is a number measured
+      // on this device, which no class can be, so it stays a style. The
+      // two are merged.
+      contentContainerClassName="px-4 pt-2"
+      contentContainerStyle={{ paddingBottom: insets.bottom + 16 }}
     >
       {/* iOS shows a modal as a card with no back button: the user swipes
           it down or taps a close button in its header. Android shows it
@@ -55,7 +48,7 @@ export default function FilterScreen() {
                       router.back();
                     }}
                   >
-                    <Text style={[styles.close, { color: colors.primary }]}>
+                    <Text className="font-sans text-base text-primary dark:text-primary-dark">
                       Tutup
                     </Text>
                   </Pressable>
@@ -80,17 +73,20 @@ export default function FilterScreen() {
                   params: { kategori, q, urut: option.param },
                 });
               }}
-              style={({ pressed }) => [
-                styles.row,
-                { borderBottomColor: colors.border },
-                pressed && styles.pressed,
-              ]}
+              // border-b-hairline is StyleSheet.hairlineWidth (the thinnest
+              // line the screen can draw), from tailwind.config.js.
+              // active: is the pressed state.
+              className="min-h-12 flex-row items-center justify-between border-b-hairline border-border py-3 active:opacity-60 dark:border-border-dark"
             >
-              <Text style={[styles.label, { color: colors.text }]}>
+              <Text className="font-sans text-base text-foreground dark:text-foreground-dark">
                 {option.label}
               </Text>
               {selected ? (
-                <Icon name="terpilih" color={colors.primary} filled />
+                <Icon
+                  name="terpilih"
+                  className="text-primary dark:text-primary-dark"
+                  filled
+                />
               ) : null}
             </Pressable>
           );
@@ -99,27 +95,3 @@ export default function FilterScreen() {
     </ScrollView>
   );
 }
-
-const styles = StyleSheet.create({
-  content: {
-    paddingHorizontal: 16,
-    paddingTop: 8,
-  },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    minHeight: 48,
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  pressed: {
-    opacity: 0.6,
-  },
-  label: {
-    fontSize: 16,
-  },
-  close: {
-    fontSize: 16,
-  },
-});

@@ -2,7 +2,7 @@
 // runs Tailwind CSS v3, configured in JavaScript; apps/web and apps/admin
 // are on Tailwind v4, configured in CSS (@theme in src/index.css). The
 // class names are the same; where the theme is written differs.
-const { platformSelect } = require("nativewind/theme");
+const { hairlineWidth, platformSelect } = require("nativewind/theme");
 const { colors } = require("./src/theme/colors");
 const { fonts } = require("./src/theme/fonts");
 
@@ -32,6 +32,12 @@ module.exports = {
         // The OS's monospace font: "monospace" is a name only Android
         // knows; iOS calls its own Menlo.
         mono: platformSelect({ ios: "Menlo", android: "monospace" }),
+      },
+      // border-hairline, border-b-hairline …: StyleSheet.hairlineWidth,
+      // the thinnest line the screen can draw (one physical pixel), for
+      // the dividers between rows.
+      borderWidth: {
+        hairline: hairlineWidth(),
       },
     },
   },

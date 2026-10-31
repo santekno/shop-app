@@ -2,47 +2,30 @@
 // goshop://produkk/kaos, or an old link to a screen that no longer exists.
 // The + prefix marks a special file, not a route of its own; it is the
 // counterpart of apps/web/src/app/not-found.tsx.
-import { Link, useTheme } from "expo-router";
-import { StyleSheet, Text, View } from "react-native";
+import { Link } from "expo-router";
+import { Text, View } from "react-native";
 
 export default function NotFoundScreen() {
-  const { colors } = useTheme();
   return (
-    <View style={styles.container}>
+    <View className="flex-1 items-center justify-center gap-2 p-6">
       <Text
         accessibilityRole="header"
-        style={[styles.title, { color: colors.text }]}
+        className="font-sans text-2xl font-bold text-foreground dark:text-foreground-dark"
       >
         Halaman tidak ditemukan
       </Text>
-      <Text style={[styles.body, { color: colors.text }]}>
+      <Text className="text-center font-sans text-base text-foreground dark:text-foreground-dark">
         Tautan ini tidak mengarah ke halaman mana pun di GoShop.
       </Text>
-      <Link href="/" dismissTo style={[styles.link, { color: colors.primary }]}>
-        Kembali ke beranda
+      {/* Link draws its own Text, which comes precompiled from expo-router
+          and so never sees NativeWind: a className on Link itself would be
+          ignored. asChild hands the link's press and role to our Text
+          instead, which takes classes like any other. */}
+      <Link href="/" dismissTo asChild>
+        <Text className="py-2 font-sans text-base text-primary dark:text-primary-dark">
+          Kembali ke beranda
+        </Text>
       </Link>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    padding: 24,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: "700",
-  },
-  body: {
-    fontSize: 16,
-    textAlign: "center",
-  },
-  link: {
-    fontSize: 16,
-    paddingVertical: 8,
-  },
-});

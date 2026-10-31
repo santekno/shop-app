@@ -2,8 +2,7 @@
 // heading and one sentence, centred. Tabs whose chapter has not come yet
 // (Kategori, Keranjang, Akun) use it, so the navigation can be built and
 // tried in full now.
-import { useTheme } from "expo-router";
-import { StyleSheet, Text, View } from "react-native";
+import { Text, View } from "react-native";
 
 interface ScreenPlaceholderProps {
   title: string;
@@ -11,35 +10,19 @@ interface ScreenPlaceholderProps {
 }
 
 export function ScreenPlaceholder({ title, message }: ScreenPlaceholderProps) {
-  // React Native text is black unless told otherwise, whatever the theme.
-  const { colors } = useTheme();
+  // React Native text is black unless told otherwise, whatever the theme:
+  // every Text names its colour, and its dark: twin.
   return (
-    <View style={styles.container}>
+    <View className="flex-1 items-center justify-center gap-2 p-6">
       <Text
         accessibilityRole="header"
-        style={[styles.title, { color: colors.text }]}
+        className="font-sans text-2xl font-bold text-foreground dark:text-foreground-dark"
       >
         {title}
       </Text>
-      <Text style={[styles.message, { color: colors.text }]}>{message}</Text>
+      <Text className="text-center font-sans text-base text-foreground dark:text-foreground-dark">
+        {message}
+      </Text>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    padding: 24,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: "700",
-  },
-  message: {
-    fontSize: 16,
-    textAlign: "center",
-  },
-});
