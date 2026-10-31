@@ -123,7 +123,7 @@ export function ProductList({ filters, caption, category }: ProductListProps) {
           <Pressable
             accessibilityRole="button"
             onPress={category.onClear}
-            className="min-h-11 justify-center rounded-md border border-border px-4 active:bg-accent dark:border-border-dark dark:active:bg-accent-dark"
+            className="min-h-12 justify-center rounded-md border border-border px-4 active:bg-accent dark:border-border-dark dark:active:bg-accent-dark"
           >
             <Text className="font-sans text-base font-semibold text-primary dark:text-primary-dark">
               Lihat semua produk

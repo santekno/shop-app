@@ -1,7 +1,9 @@
 // The catalog's sort orders, as the storefront offers them
 // (apps/web/src/features/catalog/catalog-filters.ts): the API's value, the
 // word the route carries (Indonesian, like the web's ?urut=…) and the
-// label. Artikel 12 moves the shared part into packages/shared.
+// label. A copy of the storefront's list, as src/lib/error-message.ts is of
+// its sentences: packages/shared does not hold it (artikel 12 shared the
+// types, the client and the schemas), so a new order is added in both.
 
 export const SORT_OPTIONS = [
   { value: "newest", param: "terbaru", label: "Terbaru" },

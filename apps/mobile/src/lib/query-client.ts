@@ -70,7 +70,11 @@ focusManager.setEventListener((setFocused) => {
  * TanStack Query assumes before the first event.
  */
 onlineManager.setEventListener((setOnline) => {
+  // Set by the first change the listener reports; the start-up answer
+  // below is older than that change, so it must not overwrite it.
+  let changed = false;
   const subscription = addNetworkStateListener((state) => {
+    changed = true;
     setOnline(state.isConnected !== false);
   });
   // The listener reports changes only. A phone that is already offline
@@ -79,10 +83,18 @@ onlineManager.setEventListener((setOnline) => {
   // and nothing reloaded it when the network came back (no offline →
   // online change for onlineManager to see). Ask once for the state at
   // start-up. Found in the chapter's native check, airplane mode on before
-  // the app was opened.
-  void getNetworkStateAsync().then((state) => {
-    setOnline(state.isConnected !== false);
-  });
+  // the app was opened. If the question fails, TanStack Query keeps its
+  // own assumption (online) and the listener corrects it on the next
+  // change; a rejection must not go unhandled on the start-up path.
+  getNetworkStateAsync()
+    .then((state) => {
+      if (!changed) {
+        setOnline(state.isConnected !== false);
+      }
+    })
+    .catch(() => {
+      // Nothing to do: see above.
+    });
   return () => {
     subscription.remove();
   };

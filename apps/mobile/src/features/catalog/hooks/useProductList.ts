@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { productListQuery } from "../api/queries";
 import type { ProductListFilters } from "../api/products";
 
@@ -8,8 +8,9 @@ import type { ProductListFilters } from "../api/products";
  * the web's useProductList (apps/web/src/features/catalog/hooks) plus what
  * pull-to-refresh needs.
  *
- * `products` flattens the pages. Unchanged products keep their identity
- * between renders (TanStack Query shares unchanged data structurally), so
+ * `products` flattens the pages, once per change of the pages (useMemo),
+ * not on every render. Unchanged products keep their identity between
+ * renders (TanStack Query shares unchanged data structurally), so
  * memo(ProductCard) skips the cards already on screen when a page arrives.
  *
  * `refresh` is for pull-to-refresh: the buyer is at the top of the list
@@ -52,6 +53,28 @@ export const useProductList = (filters: ProductListFilters) => {
     }
   };
 
-  const products = query.data?.pages.flatMap((page) => page.data) ?? [];
-  return { ...query, products, refresh, isRefreshing };
+  const pages = query.data?.pages;
+  const products = useMemo(
+    () => pages?.flatMap((page) => page.data) ?? [],
+    [pages],
+  );
+  // The fields the list uses, read one by one, not `...query`: TanStack
+  // Query re-renders a component only for the fields it has read (tracked
+  // properties), and spreading the result reads every one of them.
+  return {
+    data: query.data,
+    products,
+    status: query.status,
+    fetchStatus: query.fetchStatus,
+    error: query.error,
+    isFetching: query.isFetching,
+    isFetchingNextPage: query.isFetchingNextPage,
+    isFetchNextPageError: query.isFetchNextPageError,
+    isRefetchError: query.isRefetchError,
+    hasNextPage: query.hasNextPage,
+    fetchNextPage: query.fetchNextPage,
+    refetch: query.refetch,
+    refresh,
+    isRefreshing,
+  };
 };

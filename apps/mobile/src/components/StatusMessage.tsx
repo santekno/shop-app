@@ -3,6 +3,7 @@
 // components/ui/StatusMessage.tsx, with the same words.
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 
+import { useAnnounceOnIos } from "@/lib/announce";
 import { errorMessage, errorRequestId } from "@/lib/error-message";
 
 /**
@@ -44,15 +45,23 @@ interface ErrorStateProps {
 
 /**
  * What went wrong, in Indonesian, with the request ID to quote and a retry
- * button. accessibilityRole "alert" makes TalkBack and VoiceOver announce
- * it when it appears, the web's role="alert".
+ * button. Screen readers announce it when it appears, as the web's
+ * role="alert" does: TalkBack through the live region, VoiceOver through
+ * useAnnounceOnIos (src/lib/announce.ts). accessibilityRole "alert" alone
+ * would announce nothing on either platform.
  */
 export function ErrorState({ error, onRetry }: ErrorStateProps) {
+  const message = errorMessage(error);
   const requestId = errorRequestId(error);
+  useAnnounceOnIos(message);
   return (
-    <View accessibilityRole="alert" className="items-center gap-3 p-4">
+    <View
+      accessibilityRole="alert"
+      accessibilityLiveRegion="polite"
+      className="items-center gap-3 p-4"
+    >
       <Text className="text-center font-sans text-base text-destructive dark:text-destructive-dark">
-        {errorMessage(error)}
+        {message}
       </Text>
       {requestId !== undefined && (
         <Text
@@ -66,7 +75,9 @@ export function ErrorState({ error, onRetry }: ErrorStateProps) {
         <Pressable
           accessibilityRole="button"
           onPress={onRetry}
-          className="min-h-11 justify-center rounded-md border border-border px-4 active:bg-accent dark:border-border-dark dark:active:bg-accent-dark"
+          // min-h-12 is 48 dp, Android's smallest touch target (iOS asks
+          // for 44 pt), as on every button of the app.
+          className="min-h-12 justify-center rounded-md border border-border px-4 active:bg-accent dark:border-border-dark dark:active:bg-accent-dark"
         >
           <Text className="font-sans text-base font-semibold text-primary dark:text-primary-dark">
             Coba lagi
