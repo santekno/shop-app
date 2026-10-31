@@ -15,6 +15,14 @@ import { useColorScheme } from "react-native";
 import { queryClient } from "@/lib/query-client";
 import { navigationTheme } from "@/theme/navigation";
 
+// The screen under any other in the root stack. A link that opens the app
+// cold, goshop://produk/kaos-polos-hitam, builds the stack from the URL
+// alone: without an anchor the detail was the only screen, with no back
+// button, and Back left the app. With (tabs) as the anchor, Expo Router
+// puts the tabs under it, so Back returns to Beranda (found in the
+// chapter's native check).
+export const unstable_settings = { anchor: "(tabs)" };
+
 // TanStack Query's cache around every screen (artikel 06): one client for
 // the app's whole life, made once in src/lib/query-client.ts, which also
 // tells it when the app is in front and when the phone is online.
