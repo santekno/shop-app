@@ -4,7 +4,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { buildCategoryTree } from "@goshop/shared";
 import type { Category, CategoryNode } from "@goshop/shared";
-import { categoriesQuery } from "../api/categories";
+import { categoriesQuery } from "@/features/catalog/api/queries";
 
 /** One category in the list, with how deep it sits in the tree (0 = top). */
 export interface CategoryRow {
@@ -34,7 +34,9 @@ const toCategoryRows = (categories: Category[]): CategoryRow[] =>
   flattenCategoryTree(buildCategoryTree(categories));
 
 /**
- * The categories as list rows, from the cached GET /v1/categories.
+ * The categories as list rows, from the cached GET /v1/categories. The
+ * query is the catalog's categoriesQuery, the one Beranda reads for its
+ * category chip: one definition, one cache entry.
  *
  * `select` reshapes what the screen gets while the cache keeps the API's
  * list, so the web-shaped key ["categories"] holds the same data on every

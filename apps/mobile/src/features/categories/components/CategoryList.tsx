@@ -46,7 +46,7 @@ export function CategoryList({
       accessibilityLiveRegion="polite"
       className="m-4 rounded-lg border border-destructive p-3 dark:border-destructive-dark"
     >
-      <Text className="text-sm text-destructive dark:text-destructive-dark">
+      <Text className="font-sans text-sm text-destructive dark:text-destructive-dark">
         Gagal memperbarui kategori. Daftar di bawah mungkin belum yang terbaru.
       </Text>
     </View>
@@ -74,8 +74,12 @@ export function CategoryList({
       ListHeaderComponent={refreshFailedNote}
       ListEmptyComponent={
         <View className="flex-1 items-center justify-center gap-3 p-6">
-          <Icon name="kategori" color={colors.text} size={40} />
-          <Text className="text-base text-muted-foreground dark:text-muted-foreground-dark">
+          <Icon
+            name="kategori"
+            className="text-muted-foreground dark:text-muted-foreground-dark"
+            size={40}
+          />
+          <Text className="font-sans text-base text-muted-foreground dark:text-muted-foreground-dark">
             Belum ada kategori.
           </Text>
         </View>
@@ -91,15 +95,15 @@ interface CategoryRowItemProps {
 
 /**
  * One category. Top-level rows carry the category icon and a bold name;
- * deeper rows are indented by their depth. The indentation is a number
- * computed from the data, which no class can express, so it is the one
- * inline style (the same reason ProductGrid keeps its cell width as one).
+ * deeper rows are indented by their depth. Every row ends in a chevron,
+ * the platform's sign for "opens another screen". The indentation is a
+ * number computed from the data, which no class can express, so it is the
+ * one inline style (the same reason the safe-area insets are styles).
  */
 const CategoryRowItem = memo(function CategoryRowItem({
   row,
   onPress,
 }: CategoryRowItemProps) {
-  const { colors } = useTheme();
   const { node, depth } = row;
   const isTop = depth === 0;
   const hasChildren = node.children.length > 0;
@@ -120,14 +124,26 @@ const CategoryRowItem = memo(function CategoryRowItem({
       }
       style={{ paddingLeft: 16 + depth * INDENT }}
       // min-h-12 is 48 dp, the smallest comfortable touch target.
-      className={`min-h-12 flex-row items-center gap-3 border-b border-border bg-card py-3 pr-4 active:bg-accent dark:border-border-dark dark:bg-card-dark dark:active:bg-accent-dark ${isTop ? "mt-4" : ""}`}
+      // border-b-hairline is the thinnest line the screen can draw.
+      className={`min-h-12 flex-row items-center gap-3 border-b-hairline border-border bg-card py-3 pr-4 active:bg-accent dark:border-border-dark dark:bg-card-dark dark:active:bg-accent-dark ${isTop ? "mt-4" : ""}`}
     >
-      {isTop && <Icon name="kategori" color={colors.primary} size={20} />}
+      {isTop && (
+        <Icon
+          name="kategori"
+          className="text-primary dark:text-primary-dark"
+          size={20}
+        />
+      )}
       <Text
-        className={`flex-1 text-base text-foreground dark:text-foreground-dark ${isTop ? "font-semibold" : ""}`}
+        className={`flex-1 font-sans text-base text-foreground dark:text-foreground-dark ${isTop ? "font-semibold" : ""}`}
       >
         {node.name}
       </Text>
+      <Icon
+        name="lanjut"
+        className="text-muted-foreground dark:text-muted-foreground-dark"
+        size={20}
+      />
     </Pressable>
   );
 });

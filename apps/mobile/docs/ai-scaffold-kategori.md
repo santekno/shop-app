@@ -396,3 +396,12 @@ The raw file is reproduced in full above, so the before and after can both be re
 - `useQuery` needs a `QueryClientProvider` at the root (`app/_layout.tsx`), which arrives with the catalog's product list (artikel 06). Until it is there the tab throws "No QueryClient set" when opened.
 - Beranda must read `kategori` from its route (`useLocalSearchParams`) and send it to `GET /v1/products` as `category` (artikel 06). Until then a tap switches to Beranda but the list is not filtered.
 - Whether `navigate` to `/` keeps or drops Beranda's current `q` and `urut` is to be checked on a device; the intent is a fresh category view.
+
+## After integration
+
+Changes made when the Kategori screen joined the catalog (artikel 06) and the fonts and icons (artikel 11) on `bab-13`; the record above describes the screen as it was adapted, before them.
+
+- **One categories query.** `categoriesQuery()` now lives in `src/features/catalog/api/queries.ts` with the catalog's other keys (`catalogKeys.categories`, `["categories"]`), as on the web, and `src/features/categories/api/categories.ts` is gone: Beranda reads the same cache entry for its category chip's name, so the two screens share one definition. The cache keeps the API's `Category[]`; the Kategori rows are still built in `useCategoryRows`'s `select`.
+- **The chevron arrived.** `Icon` got `lanjut` (Lucide's chevron-right) in artikel 11, so every row now ends in it, coloured by a class, which completes change 7.
+- **Inter and class colours.** The texts take `font-sans`, the icons take `text-*` classes instead of `useTheme()` colours, and the row divider is `border-b-hairline`. The loading spinner takes its colour from a class too, as `src/components/StatusMessage.tsx` does; `useTheme()` stays only for `RefreshControl`, whose colours are props NativeWind does not map.
+- The QueryClientProvider and the `kategori` filter from "Not verified here" are in place (artikel 06); a device run is still pending.

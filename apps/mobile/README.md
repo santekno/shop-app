@@ -865,25 +865,25 @@ The Kategori tab replaces its placeholder with the real screen: every category f
 
 ### Decisions
 
-- **TanStack Query, with the web's key and stale time.** `categoriesQuery()` is `queryOptions` over `listCategories(api)`, keyed `["categories"]` and fresh for five minutes, like `apps/web/src/features/catalog/api/queries.ts`. `@tanstack/react-query` comes from the workspace catalog (`"catalog:"`, 5.104.5), the same version as the web and the dashboard, rather than whatever `npx expo install` would pick: it has no native code, so Expo's SDK pinning has nothing to add, and one version across the repository keeps the query patterns identical. The `QueryClientProvider` at the root arrives with the catalog's product list (artikel 06).
+- **TanStack Query, with the web's key and stale time, and one query for the whole app.** `categoriesQuery()` is `queryOptions` over `listCategories(api)`, keyed `["categories"]` and fresh for five minutes. It lives with the catalog's other keys in `src/features/catalog/api/queries.ts`, as on the web (`apps/web/src/features/catalog/api/queries.ts`), because Beranda reads the same cache entry for its category chip: one definition, so the two screens can never disagree on the key or on what the cache holds. The cache keeps the API's `Category[]`; the tree rows are built in `select` (`useCategoryRows`), so another screen can reshape the same data its own way. `@tanstack/react-query` comes from the workspace catalog (`"catalog:"`, 5.104.5), the same version as the web and the dashboard, rather than whatever `npx expo install` would pick: it has no native code, so Expo's SDK pinning has nothing to add, and one version across the repository keeps the query patterns identical. The `QueryClientProvider` at the root came with the catalog's product list (artikel 06).
 - **Every category is a link, not only the leaves.** Filtering by a parent includes its sub-categories' products (the API's rule); the website links every node of its tree too. Otherwise a top-level category without children could not be opened at all.
 - **Flat rows with a depth, not nested lists.** `flattenCategoryTree` turns the tree from `buildCategoryTree` into one row per category, so the FlatList recycles rows of one kind and a parent with many children is not one huge item. Depth becomes indentation, the one inline style (a number from the data, which no class can express).
 - **`navigate`, not `push`.** `/` is a tab: `navigate` switches to Beranda with `kategori` as its route parameter; `push` would not switch tabs.
 - **A spinner only for the buyer's pull.** `refreshing` is a local flag set by the pull and cleared when `refetch()` settles, so a refetch TanStack Query starts on its own does not drag the list down. A refresh that fails keeps the old list and shows a note above it.
 - **Errors worded by code, with the request ID.** The same sentences as `apps/web/src/lib/error-message.ts`, kept inside the feature for now; when a second screen needs them they move to `src/lib`.
-- **No chevron on the rows yet.** Icons go through `Icon`, which has no chevron glyph; the glyph belongs in `src/components/Icon.tsx`, which artikel 11 owns.
+- **A chevron on every row, through `Icon`.** The raw output drew a `›` character; the rows use `Icon`'s `lanjut` (Lucide's chevron-right, artikel 11) instead, coloured by a class, so it looks the same on both platforms and changes with the icon set in one file.
 
 ### Where each idea lives
 
 Paths are relative to `apps/mobile`.
 
-| Concept                                                  | Where to read it                                                                                        |
-| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| The AI box: prompt, raw output, changes and why          | `docs/ai-scaffold-kategori.md`                                                                          |
-| The route: which state to show, where a tap leads        | `app/(tabs)/kategori.tsx`                                                                               |
-| `GET /v1/categories` as query options                    | `src/features/categories/api/categories.ts`                                                             |
-| The tree as list rows (`buildCategoryTree` + flattening) | `src/features/categories/hooks/useCategoryRows.ts`                                                      |
-| The rows, pull-to-refresh, the empty state               | `src/features/categories/components/CategoryList.tsx`                                                   |
-| Loading and error with "Coba lagi"                       | `src/features/categories/components/CategoryStatus.tsx`                                                 |
-| The shared pieces it uses                                | `packages/shared/src/api/catalog.ts` (`listCategories`), `packages/shared/src/catalog/category-tree.ts` |
-| The rules the AI box follows                             | `docs/ai-rules.md` (repository root)                                                                    |
+| Concept                                                      | Where to read it                                                                                        |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| The AI box: prompt, raw output, changes and why              | `docs/ai-scaffold-kategori.md`                                                                          |
+| The route: which state to show, where a tap leads            | `app/(tabs)/kategori.tsx`                                                                               |
+| `GET /v1/categories` as query options, shared with Beranda   | `src/features/catalog/api/queries.ts` (`categoriesQuery`)                                               |
+| The tree as list rows (`buildCategoryTree` + flattening)     | `src/features/categories/hooks/useCategoryRows.ts`                                                      |
+| The rows and their chevron, pull-to-refresh, the empty state | `src/features/categories/components/CategoryList.tsx`                                                   |
+| Loading and error with "Coba lagi"                           | `src/features/categories/components/CategoryStatus.tsx`                                                 |
+| The shared pieces it uses                                    | `packages/shared/src/api/catalog.ts` (`listCategories`), `packages/shared/src/catalog/category-tree.ts` |
+| The rules the AI box follows                                 | `docs/ai-rules.md` (repository root)                                                                    |

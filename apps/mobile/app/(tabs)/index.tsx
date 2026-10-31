@@ -16,10 +16,9 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { Category } from "@goshop/shared";
 
 import { Icon } from "@/components/Icon";
-import { catalogKeys } from "@/features/catalog/api/queries";
+import { categoriesQuery } from "@/features/catalog/api/queries";
 import { readCatalogFilters } from "@/features/catalog/catalog-filters";
 import { ProductList } from "@/features/catalog/components/ProductList";
 import { SearchBar } from "@/features/catalog/components/SearchBar";
@@ -48,7 +47,7 @@ export default function HomeScreen() {
     filters.category === undefined
       ? undefined
       : (queryClient
-          .getQueryData<Category[]>(catalogKeys.categories)
+          .getQueryData(categoriesQuery().queryKey)
           ?.find((c) => c.slug === filters.category)?.name ?? filters.category);
 
   return (
