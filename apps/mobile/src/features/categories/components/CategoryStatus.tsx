@@ -26,6 +26,21 @@ export function CategoryLoading() {
 }
 
 /**
+ * No network before the first load: the query waits (fetchStatus
+ * "paused", src/lib/query-client.ts) and runs by itself when the network
+ * is back, so there is nothing to retry; the same words as Beranda's.
+ */
+export function CategoryOffline() {
+  return (
+    <View className="flex-1 items-center justify-center bg-background p-6 dark:bg-background-dark">
+      <Text className="text-center font-sans text-base text-muted-foreground dark:text-muted-foreground-dark">
+        Tidak ada koneksi internet. Kategori dimuat begitu koneksi kembali.
+      </Text>
+    </View>
+  );
+}
+
+/**
  * A short Indonesian sentence for what went wrong. The API's own `message`
  * is English and meant for developers, so the text is picked from the
  * error code, as apps/web/src/lib/error-message.ts does.

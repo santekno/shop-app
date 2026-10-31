@@ -18,6 +18,7 @@ import { CategoryList } from "@/features/categories/components/CategoryList";
 import {
   CategoryError,
   CategoryLoading,
+  CategoryOffline,
 } from "@/features/categories/components/CategoryStatus";
 import { useCategoryRows } from "@/features/categories/hooks/useCategoryRows";
 
@@ -39,7 +40,14 @@ type TabParams = {
 export default function CategoriesScreen() {
   // `status` is about the data ("pending": none yet, "error", "success");
   // `isFetching` is about the network, also true while old data is shown.
-  const { data: rows, status, error, isFetching, refetch } = useCategoryRows();
+  const {
+    data: rows,
+    status,
+    fetchStatus,
+    error,
+    isFetching,
+    refetch,
+  } = useCategoryRows();
   const navigation = useNavigation<BottomTabNavigationProp<TabParams>>();
 
   // The catalog is Beranda ("/"), filtered by ?kategori=<slug>, the word
@@ -76,6 +84,12 @@ export default function CategoriesScreen() {
         refreshFailed={status === "error" && !isFetching}
       />
     );
+  }
+
+  // No network before the first load: the query waits instead of failing
+  // (a spinner here would turn forever) and loads when the network is back.
+  if (fetchStatus === "paused") {
+    return <CategoryOffline />;
   }
 
   // The first load, or a retry after an error.
