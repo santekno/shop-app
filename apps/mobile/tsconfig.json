@@ -27,5 +27,13 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true
   },
-  "include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.ts"]
+  // nativewind-env.d.ts is named on its own although **/*.ts matches it:
+  // NativeWind's Metro plugin looks for the literal entry and, when it is
+  // missing, rewrites this file to add it.
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    ".expo/types/**/*.ts",
+    "nativewind-env.d.ts"
+  ]
 }

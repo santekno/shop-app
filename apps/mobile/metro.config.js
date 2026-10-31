@@ -6,8 +6,14 @@
 // watchFolders / nodeModulesPaths / disableHierarchicalLookup lines found in
 // older monorepo guides are not needed and should not be added back.
 //
-// The file exists so there is one place to wrap the config later (NativeWind
-// in artikel 05 does exactly that).
+// withNativeWind (artikel 05) runs Tailwind on global.css and compiles the
+// result into React Native styles for each platform. inlineRem: 16 makes
+// 1rem 16 dp, the browser's 16 px, so p-3 is 12 and text-sm is 14 as on the
+// web; NativeWind's own default is 14.
 const { getDefaultConfig } = require("expo/metro-config");
+const { withNativeWind } = require("nativewind/metro");
 
-module.exports = getDefaultConfig(__dirname);
+module.exports = withNativeWind(getDefaultConfig(__dirname), {
+  input: "./global.css",
+  inlineRem: 16,
+});

@@ -24,6 +24,11 @@ const MIN_CARD_WIDTH = 160;
  * next row. useWindowDimensions gives the screen's width in dp and
  * re-renders the grid when it changes (a rotation, a foldable unfolding).
  *
+ * It stays a StyleSheet after artikel 05 brought NativeWind, on purpose:
+ * the cell width is a number computed while rendering, which no class can
+ * express, and a StyleSheet next to className is normal in a NativeWind
+ * app. Both end up as the same style objects.
+ *
  * The products arrive as a plain array here and every card is rendered
  * at once; artikel 06 moves the list into a FlatList, which renders only
  * the rows on screen and lays out its columns with `numColumns`.

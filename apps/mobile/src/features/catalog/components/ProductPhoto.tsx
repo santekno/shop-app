@@ -1,4 +1,4 @@
-import { Image, StyleSheet, Text, View } from "react-native";
+import { Image, Text, View } from "react-native";
 import type { ImageURISource } from "react-native";
 import type { ProductImage } from "@goshop/shared";
 
@@ -25,12 +25,23 @@ const sourcesOf = (image: ProductImage): ImageURISource[] =>
   }));
 
 /**
+ * The square both the photo and the placeholder draw: the full width of
+ * the card and as tall as it is wide (the web's `aspect-square`). Written
+ * out in full in one constant, so Tailwind finds every class when it scans
+ * this file; a class assembled from pieces at run time would never be
+ * generated.
+ */
+const PHOTO = "aspect-square w-full rounded-md bg-muted dark:bg-muted-dark";
+
+/**
  * A product's photo, or a placeholder while it has none.
  *
  * Unlike an `<img>`, a remote `Image` has no size of its own: React Native
  * does not download the file to measure it, so a photo without a width and
  * a height in its style is drawn 0 × 0 (an invisible card). Here the width
- * is the card's and `aspectRatio` derives the height (below).
+ * is the card's (w-full) and the height follows from aspect-square, with
+ * the muted colour underneath while the file downloads. An Image clips its
+ * own corners (rounded-md); no overflow-hidden needed.
  *
  * No `alt` here: the card around it is one accessible element whose label
  * already names the product, so the photo would only be read twice.
@@ -42,37 +53,16 @@ export function ProductPhoto({ image }: ProductPhotoProps) {
         source={sourcesOf(image)}
         // cover: fill the square and crop the overflow, like object-cover.
         resizeMode="cover"
-        style={styles.photo}
+        className={PHOTO}
       />
     );
   }
 
   return (
-    <View style={[styles.photo, styles.placeholder]}>
-      <Text style={styles.placeholderText}>Belum ada foto</Text>
+    <View className={`${PHOTO} items-center justify-center`}>
+      <Text className="text-sm text-muted-foreground dark:text-muted-foreground-dark">
+        Belum ada foto
+      </Text>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  photo: {
-    // The full width of the card, and as tall as it is wide: the web's
-    // aspect-square. A percentage is of the parent's width, like CSS.
-    width: "100%",
-    aspectRatio: 1,
-    // An Image clips its own corners; no overflow: "hidden" needed.
-    borderRadius: 6,
-    // Drawn while the photo downloads, so the card never flashes empty.
-    backgroundColor: "#eef1f4",
-  },
-  placeholder: {
-    // Centre the label in the square: the main axis is vertical (column),
-    // so justifyContent centres up-down and alignItems left-right.
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  placeholderText: {
-    fontSize: 14,
-    color: "#59636e",
-  },
-});

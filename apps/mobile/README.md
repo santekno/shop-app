@@ -257,3 +257,70 @@ Paths are relative to `apps/mobile`.
 | The card's panel, text styles, pressed style, badge                  | `src/features/catalog/components/ProductCard.tsx`  |
 | The square photo: `width: "100%"`, `aspectRatio`, `resizeMode`       | `src/features/catalog/components/ProductPhoto.tsx` |
 | The screen's background and scrolling                                | `app/index.tsx`                                    |
+
+## NativeWind: Tailwind di React Native (artikel 05)
+
+The card, its photo and the home screen are now styled with `className`, the same Tailwind classes the storefront uses (`rounded-lg border bg-card p-3`), and they follow the device into dark mode. NativeWind compiles the classes into React Native style objects when the app is built; at run time a `className` becomes the same `style` a `StyleSheet` would have produced.
+
+### The mental model
+
+| Piece                 | What it does                                                                                                                                                                                                                                 | On the web                                                              |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `tailwind.config.js`  | Which files to scan (`content`), NativeWind's preset, the theme: GoShop's colour roles from `src/theme/colors.js`                                                                                                                            | `@theme` in `apps/web/src/index.css` (Tailwind v4 is configured in CSS) |
+| `global.css`          | Tailwind's three layers, the input Tailwind generates CSS from. Imported once, in `app/_layout.tsx`                                                                                                                                          | `src/index.css`, imported by the root layout                            |
+| `metro.config.js`     | `withNativeWind` runs Tailwind on `global.css` for each platform and turns the CSS into a table of style objects (`bg-card` → `{ backgroundColor: "#ffffff" }`) that ships inside the JavaScript bundle. There is no CSS engine on the phone | The PostCSS/Vite plugin that writes a `.css` file the browser applies   |
+| `babel.config.js`     | `jsxImportSource: "nativewind"`: every JSX element goes through NativeWind's JSX runtime, which looks the `className` up in that table and passes `style` to the core component                                                              | Nothing: `className` is an HTML attribute                               |
+| `nativewind-env.d.ts` | Adds `className` to the types of `View`, `Text`, `Image`, `Pressable`, `ScrollView` …                                                                                                                                                        | Built into React's DOM types                                            |
+| `dark:`               | A `prefers-color-scheme: dark` condition kept in the table and checked against the device's appearance (`darkMode: "media"`); switching the phone's theme re-renders with the other values, no restart                                       | A media query (or `data-theme`, the storefront's toggle)                |
+| `active:`             | The pressed state: NativeWind listens to the `Pressable`'s press-in and press-out                                                                                                                                                            | `:active`                                                               |
+| `inlineRem: 16`       | How many dp `1rem` is. NativeWind's default is 14; 16 makes `p-3` 12 dp and `text-sm` 14 dp, as on the web                                                                                                                                   | The browser's 16 px root font size                                      |
+
+### Is NativeWind 4 compatible with Expo SDK 58?
+
+NativeWind 4.2.7 (14 September 2026) is the newest 4.x; its Expo guide names SDK 57 as the newest SDK it was released for, and Expo SDK 58 came out two weeks later. Its peer ranges do not exclude this app: `react-native-css-interop` 0.2.7 asks for `react-native` `*`, `react` `>=18`, `react-native-reanimated` `>=3.6.2` and `tailwindcss` `~3`. Checked on this app (React Native 0.88.1, Expo 58.0.21):
+
+- `pnpm build` (`expo export`, Android and iOS) bundles; `npx expo prebuild --platform all --clean` and `npx expo-doctor` (20/20) pass.
+- In an unminified Android bundle, `global.css` became one `injectData({...})` call with `rem: 16`, `darkMode: "media"`, `"p-3": { padding: 12 }`, `"bg-card": { backgroundColor: "#ffffff" }`, `"dark:bg-card-dark"` under a `prefers-color-scheme: dark` condition and `"active:bg-accent"` with `pseudoClasses: { active: true }`. `ProductCard` compiles to `jsxs(Pressable, { className: "flex-1 gap-1 …" })` through `react-native-css-interop`'s JSX runtime: the transform is in place.
+- Still to see on a device: the cards drawn, the pressed colour, and the switch to dark mode on Android and iOS.
+
+NativeWind 5 (Tailwind v4, the same major as the web apps) is only a release candidate (`5.0.0-rc.0`), so the course stays on 4.
+
+### Decisions
+
+- **Pinned versions.** `nativewind` 4.2.7 and `react-native-css-interop` 0.2.7 (the version nativewind itself depends on), `tailwindcss` 3.4.19, and, from `npx expo install` for SDK 58, `react-native-reanimated` 4.7.1, `react-native-worklets` 0.13.0 (Reanimated 4's worklet runtime), `babel-preset-expo` 58.0.22 and `expo-system-ui` 58.0.7.
+- **Tailwind v3 in this app, v4 everywhere else.** NativeWind 4 is built on Tailwind v3 (`tailwindcss ~3` peer), so `package.json` pins `tailwindcss` 3.4.19 directly instead of the workspace catalog's 4.3.3. Each workspace package resolves its own: the web apps keep v4. The classes used here mean the same in both; what differs is where the theme is written (`tailwind.config.js` here, `@theme` in CSS there).
+- **`react-native-css-interop` is a direct dependency.** `nativewind/babel` rewrites every file's JSX to import `react-native-css-interop/jsx-runtime`. With pnpm's isolated `node_modules`, a package that is only a dependency of `nativewind` cannot be resolved from the app, and the build failed with `Unable to resolve module react-native-css-interop/jsx-runtime from app/_layout.tsx`. Listing it at the exact version `nativewind` uses resolves it to the same single copy, without switching the repository to `node-linker=hoisted`.
+- **Reanimated comes with it.** NativeWind's runtime uses Reanimated for `transition-*` and `animate-*` classes, and `react-native-css-interop` declares it as a peer. It is a native module, so this is the first change since artikel 02 that needs a new development build (Expo Go already contains it). `babel-preset-expo` adds the worklets Babel plugin by itself when `react-native-worklets` is installed, so `babel.config.js` lists only NativeWind's additions.
+- **Colours are the storefront's roles, with an explicit `dark:` twin.** `src/theme/colors.js` holds each role from `apps/web/src/index.css` (`background`, `card`, `primary`, `muted-foreground`, `destructive`, `border` …) with its light (`DEFAULT`) and dark value, so `bg-card` and `dark:bg-card-dark` are both generated. The web swaps CSS variables on `:root`, so its components never write `dark:`; here every colour class carries its `dark:` partner, which is longer to write but readable in place and needs nothing beyond the documented `darkMode: "media"`.
+- **One colour file for classes and for code.** `src/theme/colors.js` is plain CommonJS because `tailwind.config.js` runs in Node and requires it; TypeScript reads it too (`allowJs` in Expo's base config). The navigation theme (`src/theme/navigation.ts`) uses it: Expo Router paints the header and the screen behind the content itself, in a light theme unless given one, so `app/_layout.tsx` wraps the stack in `<ThemeProvider>` with GoShop's colours for the current scheme.
+- **`expo-system-ui`**, because `app.config.ts`'s `userInterfaceStyle: "automatic"` is only applied on Android with it installed (`expo prebuild` warned until it was), and it keeps the window behind the app in the right colour.
+- **Restyled, not duplicated.** There is one `ProductCard`, now with `className`; the `StyleSheet` version stays in the artikel 04 section of this README, and the two side by side are below. `ProductGrid` stays a `StyleSheet` on purpose: its cell width is a number computed during render, which no class can express, and mixing `style` and `className` is normal.
+- **Class names are written out in full.** Tailwind scans the files as text (`content`) and generates only the class names it finds. `"bg-" + role` is never generated; `ProductPhoto` keeps its shared classes in one constant string instead. Words in comments that happen to be class names (`grid`, `filter`) get generated too; they are unused and harmless.
+- **No `prettier-plugin-tailwindcss`.** NativeWind's guide suggests it to sort class names; no other app in the repository sorts them, so neither does this one.
+
+### StyleSheet and className, side by side
+
+```tsx
+// Artikel 04: StyleSheet (colours from a constant, light only)
+<Pressable style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}>
+//   card: { flex: 1, gap: 4, padding: 12, borderRadius: 8, borderWidth: 1,
+//           borderColor: colors.border, backgroundColor: colors.card }
+
+// Artikel 05: NativeWind (the storefront's classes, dark mode included)
+<Pressable className="flex-1 gap-1 rounded-lg border border-border bg-card p-3 active:bg-accent dark:border-border-dark dark:bg-card-dark dark:active:bg-accent-dark">
+```
+
+Both end as the same style object on the native view. `StyleSheet` needs nothing installed and is checked by `tsc` property by property; `className` is shorter, shares its vocabulary with `apps/web`, and has the pressed and dark states built in, at the cost of a build step and a few dependencies.
+
+### Where each idea lives
+
+Paths are relative to `apps/mobile`.
+
+| Concept                                                             | Where to read it                                                                       |
+| ------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Tailwind's configuration: files scanned, preset, colours, dark mode | `tailwind.config.js`                                                                   |
+| GoShop's colour roles, light and dark                               | `src/theme/colors.js`                                                                  |
+| NativeWind in the build: Metro, Babel, the input CSS, the types     | `metro.config.js`, `babel.config.js`, `global.css`, `nativewind-env.d.ts`              |
+| The CSS imported once; the navigation's colours per scheme          | `app/_layout.tsx`, `src/theme/navigation.ts`                                           |
+| The card, photo and screen with `className`                         | `src/features/catalog/components/ProductCard.tsx`, `ProductPhoto.tsx`, `app/index.tsx` |
+| The one `StyleSheet` kept beside NativeWind                         | `src/features/catalog/components/ProductGrid.tsx`                                      |

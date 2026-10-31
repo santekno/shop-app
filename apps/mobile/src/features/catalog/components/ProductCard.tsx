@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { formatRupiah } from "@goshop/shared";
 import type { Product } from "@goshop/shared";
 import { ProductPhoto } from "./ProductPhoto";
@@ -22,6 +22,11 @@ interface ProductCardProps {
  * - `Pressable`, anything that reacts to a touch. There is no `onClick` and
  *   no `<button>`: `Pressable` reports the touch (onPress, onLongPress) and
  *   whether a finger is down (`pressed`), and the app draws the feedback.
+ *
+ * Styled with NativeWind (artikel 05): `className` takes the storefront's
+ * Tailwind classes, compiled into React Native styles when the app is
+ * built. Every colour comes with its `dark:` twin, applied when the device
+ * is in dark mode. The StyleSheet version is in the README (artikel 04).
  *
  * Wrapped in memo, like the web card: a list that re-renders (a new page
  * arriving, artikel 06) leaves the cards whose product did not change.
@@ -55,99 +60,37 @@ export const ProductCard = memo(function ProductCard({
         .filter((part) => part !== null)
         .join(", ")}
       accessibilityHint="Membuka halaman produk"
-      // `style` may be a function of the press state: the web's :active,
-      // written in JavaScript.
-      style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+      // active: is the pressed state (the web's :active): NativeWind
+      // listens to the Pressable's press-in and press-out for it.
+      className="flex-1 gap-1 rounded-lg border border-border bg-card p-3 active:bg-accent dark:border-border-dark dark:bg-card-dark dark:active:bg-accent-dark"
     >
       <ProductPhoto image={product.images[0]} />
       {/* numberOfLines cuts a long name after two lines with "…", what
           line-clamp does on the web. */}
-      <Text numberOfLines={2} style={styles.name}>
+      <Text
+        numberOfLines={2}
+        className="mt-1 text-sm font-semibold text-foreground dark:text-foreground-dark"
+      >
         {name}
       </Text>
-      <Text style={styles.price}>
+      <Text className="text-base font-semibold text-foreground dark:text-foreground-dark">
         {/* Text inside Text is the one place styles are inherited: the
             inner Text keeps the outer's size and changes the weight and
             colour. */}
-        {hasPriceRange && <Text style={styles.priceFrom}>Mulai </Text>}
+        {hasPriceRange && (
+          <Text className="font-normal text-muted-foreground dark:text-muted-foreground-dark">
+            Mulai{" "}
+          </Text>
+        )}
         {price}
       </Text>
       {!inStock && (
-        <View style={styles.soldOut}>
-          <Text style={styles.soldOutText}>Stok habis</Text>
+        <View className="self-start rounded bg-destructive px-2 py-0.5 dark:bg-destructive-dark">
+          <Text className="text-xs font-semibold text-destructive-foreground dark:text-destructive-foreground-dark">
+            Stok habis
+          </Text>
         </View>
       )}
     </Pressable>
   );
-});
-
-// GoShop's colours, the light values of apps/web/src/index.css's tokens
-// (the same roles: card, border, muted-foreground …). A StyleSheet cannot
-// read a CSS variable or a media query, so dark mode would need these in
-// two sets chosen with useColorScheme(); artikel 05 does it with NativeWind.
-const colors = {
-  card: "#ffffff",
-  cardPressed: "#eef1f4", // --accent
-  foreground: "#1f2328",
-  mutedForeground: "#59636e",
-  border: "#d1d9e0",
-  destructive: "#b42318",
-  destructiveForeground: "#ffffff",
-};
-
-// Every number is in density-independent pixels (dp on Android, points on
-// iOS): 16 is the same physical size on a 1× and a 3× screen. There are no
-// units to write, and no rem: a size never follows a parent's font size.
-//
-// Nothing cascades either. A style applies to the one component it is
-// given to; the Text below does not inherit `card`'s colour, so each Text
-// sets its own. (Text inside Text is the exception: `priceFrom` inherits
-// `price`'s size and changes only the weight and the colour.)
-const styles = StyleSheet.create({
-  card: {
-    // Fill the grid cell (ProductGrid sets its width) and, because every
-    // cell in a row is stretched to the tallest, its height too.
-    flex: 1,
-    // flexDirection is "column" by default in React Native (the web's is
-    // "row"): photo, name, price and badge stack top to bottom.
-    gap: 4,
-    padding: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
-  },
-  cardPressed: {
-    backgroundColor: colors.cardPressed,
-  },
-  name: {
-    marginTop: 4,
-    fontSize: 14,
-    lineHeight: 20,
-    fontWeight: "600",
-    color: colors.foreground,
-  },
-  price: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: colors.foreground,
-  },
-  priceFrom: {
-    fontWeight: "400",
-    color: colors.mutedForeground,
-  },
-  soldOut: {
-    // A column stretches its children across its width (alignItems:
-    // "stretch"); this one keeps the badge as wide as its text.
-    alignSelf: "flex-start",
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 4,
-    backgroundColor: colors.destructive,
-  },
-  soldOutText: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: colors.destructiveForeground,
-  },
 });
