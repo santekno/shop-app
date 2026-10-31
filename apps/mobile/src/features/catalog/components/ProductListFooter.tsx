@@ -18,7 +18,8 @@ interface ProductListFooterProps {
  * failed (with a retry, since the list does not retry by itself), or the
  * end of the list. Nothing while there is more to load and nothing is
  * running: the list asks for the next page as the buyer nears the end
- * (FlatList's onEndReached), which on the web is the sentinel's job.
+ * (FlashList's onEndReached, ProductList.tsx), which on the web is the
+ * sentinel's job.
  */
 export function ProductListFooter({
   count,
