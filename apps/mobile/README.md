@@ -462,3 +462,69 @@ Paths are relative to `apps/mobile`.
 | Sort orders and reading them from a route | `src/features/catalog/sort-options.ts`                              |
 | Icons                                     | `src/components/Icon.tsx`                                           |
 | A screen whose feature comes later        | `src/components/ScreenPlaceholder.tsx`                              |
+
+## Safe area, status bar dan keyboard (artikel 10)
+
+A browser gives a web page a rectangle that nothing else draws on. A phone app gets the whole screen, and the system draws on top of it: the status bar and the notch or camera cut-out at the top, the home indicator (iOS) or the navigation bar (Android) at the bottom, the rounded corners, and the keyboard whenever a field is focused. Keeping content out from under them is the app's job. This article does it for every screen so far, and gives Beranda a search field to prove the keyboard part.
+
+### The mental model
+
+| Idea                             | What it means                                                                                                                                                                                                                                        | Web comparison                                                                   |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| **Edge to edge**                 | The app is drawn under the status bar and the bottom system bar on both platforms. Android 15 enforces it and Expo SDK 58 always turns it on (`edgeToEdgeEnabled=true` in the generated `android/gradle.properties`); iOS has always worked this way | `viewport-fit=cover`, permanently on                                             |
+| **Safe-area insets**             | Four numbers (top, right, bottom, left) for how much of each edge the system covers on _this_ device, in this orientation. `react-native-safe-area-context` measures them natively; a screen pads by them                                            | `env(safe-area-inset-top)` and friends                                           |
+| **Who owns which edge**          | A navigation header already sits below the status bar, and a tab bar already sits above the home indicator. A screen pads only the edges nothing else covers                                                                                         | A sticky header that already includes the inset                                  |
+| **The status bar is an overlay** | It has no background of its own any more (edge to edge); `expo-status-bar` only chooses dark or light icons, which must contrast with whatever the app draws behind them                                                                             | `<meta name="theme-color">`, except that you pick the icon colour, not the bar's |
+| **The keyboard covers the app**  | It slides up over the bottom of the screen. Android can resize the app's window to the space above it; iOS never does, so the app shrinks its own layout by the keyboard's height                                                                    | A virtual keyboard on mobile Safari, which pans the page instead                 |
+
+### Which screen handles which edge
+
+| Screen                    | Top                                                                               | Bottom                                                | How                                                |
+| ------------------------- | --------------------------------------------------------------------------------- | ----------------------------------------------------- | -------------------------------------------------- |
+| Beranda                   | its own top bar (no header): `insets.top`, plus left/right for landscape cut-outs | the tab bar                                           | `useSafeAreaInsets()` in `app/(tabs)/index.tsx`    |
+| Kategori, Keranjang, Akun | the tab's header                                                                  | the tab bar                                           | nothing to do                                      |
+| Produk (`/produk/:slug`)  | the stack's header                                                                | **nothing**: it is pushed above the tabs              | `<SafeAreaView edges={["bottom"]}>`                |
+| Urutkan (modal)           | the modal's header                                                                | **nothing**: the home indicator or the navigation bar | `insets.bottom` added to the list's bottom padding |
+
+Two ways to read the insets, both from `react-native-safe-area-context`: the `useSafeAreaInsets()` hook gives the numbers, for a screen that adds them to its own padding (Beranda, the modal); `<SafeAreaView edges={…}>` is a `View` that pads itself, for a screen that only needs the padding (Produk). Pass `edges` every time: a `SafeAreaView` without it pads all four edges, which under a header adds the status bar's height twice. React Native's own `SafeAreaView` is iOS-only and deprecated; do not use it.
+
+### The keyboard on Beranda
+
+The search field sits in Beranda's top bar, so the keyboard never covers the field itself. What it can cover is everything below: the end of the list and the tab bar. The pieces:
+
+| Piece                                             | What it does                                                                                                                                                                                    | iOS                                                   | Android                                                                                                                            |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `KeyboardAvoidingView`                            | Shrinks the screen by the part the keyboard covers, so the list ends above it                                                                                                                   | `behavior="padding"`: the window never resizes        | no `behavior`: the window already resizes (`softwareKeyboardLayoutMode: "resize"`, Expo's default, `adjustResize` in the manifest) |
+| `tabBarHideOnKeyboard` (`app/(tabs)/_layout.tsx`) | Hides the tab bar while the keyboard is open                                                                                                                                                    | the keyboard covers the bar anyway                    | without it, the resized window would lift the tab bar onto the keyboard                                                            |
+| `keyboardDismissMode`                             | Dragging the list puts the keyboard away                                                                                                                                                        | `"interactive"`: the keyboard follows the finger down | `"on-drag"`: Android has no interactive dismissal                                                                                  |
+| `keyboardShouldPersistTaps="handled"`             | A tap on a link or button in the list works at the first touch; a tap on empty space closes the keyboard. The default (`"never"`) would swallow the first tap on a button to close the keyboard | same                                                  | same                                                                                                                               |
+| `enterKeyHint="search"`, `inputMode="search"`     | The keyboard's action key reads "search"; pressing it submits and closes the keyboard                                                                                                           | a blue "search" key                                   | a magnifier key                                                                                                                    |
+| `clearButtonMode="while-editing"`                 | A clear button inside the field                                                                                                                                                                 | shown                                                 | ignored: Android text fields have none                                                                                             |
+| the system back gesture                           | Closes the keyboard first, then navigates                                                                                                                                                       | (no back gesture for this)                            | built in                                                                                                                           |
+
+Submitting puts the search into the route, `router.setParams({ q })`, so Beranda is `/?q=kaos`, the same shape as the storefront's `/?q=kaos`, and `goshop://?q=kaos` opens a search directly. The catalog (artikel 06) reads `q` and `urut` from the route and asks the API with them. The field keeps its own text while the user types and is re-created (`key={query}`) when the route's search changes from outside, such as a deep link.
+
+### The status bar and the theme
+
+`app/_layout.tsx` wraps the navigation in `ThemeProvider` with `navigationTheme(scheme)` (artikel 05: React Navigation's `DefaultTheme` or `DarkTheme` in GoShop's colours), the scheme picked by `useColorScheme()` (the device setting; `app.config.ts` has `userInterfaceStyle: "automatic"`). Headers, the tab bar and screen backgrounds follow it, and screens read the same colours with `useTheme()`, because text in React Native is black unless styled, whatever the theme. `<StatusBar style="auto" />` picks dark icons in light mode and light icons in dark mode, from the same setting, so the icons always contrast with the header or top bar behind them. On Android, `StatusBar`'s `backgroundColor` and `translucent` do nothing any more: edge to edge, the bar is always transparent, and what shows through it is whatever the app draws there.
+
+### Decisions
+
+- **`KeyboardAvoidingView`, not `react-native-keyboard-controller`.** Expo's keyboard guide recommends the built-in component for a screen like this one (`padding` on iOS, nothing on Android) and keyboard-controller for long forms, toolbars between inputs, and animations synced to the keyboard. keyboard-controller is a native module that needs `react-native-reanimated` and a development build (Expo Go does not contain it), which is a lot of machinery for one search field at the top of a screen. The checkout form, when it arrives, is the place to revisit this.
+- **No second `SafeAreaProvider`.** Expo Router mounts one around the whole app; the insets are available on every screen without adding one to `app/_layout.tsx`.
+- **Beranda has its own top bar instead of a header.** A shop's home screen puts the search field first, and a header with a search field inside it (`headerSearchBarOptions`) behaves differently on each platform and only works in a native stack, not in a tab. Drawing the bar in the screen keeps one layout for both platforms, at the price of handling the top inset by hand.
+- **Colours come from the navigation theme, in plain `StyleSheet`.** The screens of this article read their colours with `useTheme()` rather than NativeWind's classes (artikel 05); both come from the same roles in `src/theme/colors.js`, so they match. The placeholder colour of the search field is a grey that reads on both themes.
+- **Not verified on a device in this article's commit.** The checks here are `tsc`, ESLint, `expo export` for both platforms and `expo prebuild` (which writes `adjustResize` and `edgeToEdgeEnabled=true`, as described above). How the keyboard and the insets look on the Android emulator and the iOS simulator is checked with the chapter's native builds.
+
+### Where each idea lives
+
+Paths are relative to `apps/mobile`.
+
+| Concept                                                  | Where to read it                                                    |
+| -------------------------------------------------------- | ------------------------------------------------------------------- |
+| Theme and status bar                                     | `app/_layout.tsx`                                                   |
+| A screen that draws its own top bar under the status bar | `app/(tabs)/index.tsx` (`useSafeAreaInsets`)                        |
+| Keyboard avoidance and dismissal                         | `app/(tabs)/index.tsx` (`KeyboardAvoidingView`, the `ScrollView`)   |
+| The tab bar hiding while typing                          | `app/(tabs)/_layout.tsx` (`tabBarHideOnKeyboard`)                   |
+| The search field                                         | `src/features/catalog/components/SearchBar.tsx`                     |
+| A bottom edge with nothing in front of it                | `app/produk/[slug].tsx` (`SafeAreaView`), `app/filter.tsx` (insets) |

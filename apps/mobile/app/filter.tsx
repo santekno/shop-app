@@ -3,18 +3,36 @@
 // included, and is closed rather than "gone back" from. Beranda opens it
 // with the current order (/filter?urut=…); picking one returns to Beranda
 // with the new order as its route parameter, which the catalog reads.
-import { router, Stack, useLocalSearchParams } from "expo-router";
-import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { router, Stack, useLocalSearchParams, useTheme } from "expo-router";
+import {
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Icon } from "@/components/Icon";
 import { SORT_OPTIONS, sortFromParam } from "@/features/catalog/sort-options";
 
 export default function FilterScreen() {
+  const { colors } = useTheme();
+  // The header covers the top edge; nothing covers the bottom one, where
+  // the home indicator (iOS) or the navigation bar (Android, drawn over
+  // the app edge to edge) sits. The last row must stay above it.
+  const insets = useSafeAreaInsets();
   const { urut } = useLocalSearchParams<{ urut?: string }>();
   const current = sortFromParam(urut);
 
   return (
-    <View style={styles.container}>
+    <ScrollView
+      contentContainerStyle={[
+        styles.content,
+        { paddingBottom: insets.bottom + 16 },
+      ]}
+    >
       {/* iOS shows a modal as a card with no back button: the user swipes
           it down or taps a close button in its header. Android shows it
           full screen with the usual back arrow and the system back
@@ -31,7 +49,9 @@ export default function FilterScreen() {
                       router.back();
                     }}
                   >
-                    <Text style={styles.close}>Tutup</Text>
+                    <Text style={[styles.close, { color: colors.primary }]}>
+                      Tutup
+                    </Text>
                   </Pressable>
                 )
               : undefined,
@@ -54,23 +74,28 @@ export default function FilterScreen() {
                   params: { urut: option.param },
                 });
               }}
-              style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+              style={({ pressed }) => [
+                styles.row,
+                { borderBottomColor: colors.border },
+                pressed && styles.pressed,
+              ]}
             >
-              <Text style={styles.label}>{option.label}</Text>
+              <Text style={[styles.label, { color: colors.text }]}>
+                {option.label}
+              </Text>
               {selected ? (
-                <Icon name="terpilih" color="#2563eb" filled />
+                <Icon name="terpilih" color={colors.primary} filled />
               ) : null}
             </Pressable>
           );
         })}
       </View>
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
+  content: {
     paddingHorizontal: 16,
     paddingTop: 8,
   },
@@ -80,6 +105,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     minHeight: 48,
     paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   pressed: {
     opacity: 0.6,
@@ -89,6 +115,5 @@ const styles = StyleSheet.create({
   },
   close: {
     fontSize: 16,
-    color: "#2563eb",
   },
 });

@@ -25,10 +25,22 @@ const tabIcon =
 
 export default function TabsLayout() {
   return (
-    <Tabs>
+    <Tabs
+      screenOptions={{
+        // Android shrinks the window when the keyboard opens, which would
+        // lift the tab bar onto the keyboard. Hide it while typing (on iOS
+        // the keyboard simply covers it).
+        tabBarHideOnKeyboard: true,
+      }}
+    >
       <Tabs.Screen
         name="index"
-        options={{ title: "Beranda", tabBarIcon: tabIcon("beranda") }}
+        options={{
+          title: "Beranda",
+          tabBarIcon: tabIcon("beranda"),
+          // Beranda draws its own top bar with the search field.
+          headerShown: false,
+        }}
       />
       <Tabs.Screen
         name="kategori"

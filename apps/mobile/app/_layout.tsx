@@ -3,6 +3,9 @@
 // Fragment back stack on Android). Every route that is not inside a group
 // with its own layout is a screen of this stack: the tabs as one screen,
 // and the product detail pushed on top of them.
+//
+// Expo Router already wraps this in a SafeAreaProvider (from
+// react-native-safe-area-context), so any screen can ask for the insets.
 // NativeWind's compiled styles, once for the whole app (artikel 05).
 import "../global.css";
 import { Stack, ThemeProvider } from "expo-router";
@@ -11,10 +14,14 @@ import { useColorScheme } from "react-native";
 import { navigationTheme } from "@/theme/navigation";
 
 export default function RootLayout() {
-  // The device's appearance, re-read when the user switches it.
+  // Light or dark, as the device is set (app.config.ts allows both), re-read
+  // when the user switches it.
   const scheme = useColorScheme() === "dark" ? "dark" : "light";
 
   return (
+    // The navigators' colours (headers, tab bar, screen background) follow
+    // the device, in GoShop's colours (src/theme/navigation.ts). useTheme()
+    // gives the same colours to a screen.
     <ThemeProvider value={navigationTheme(scheme)}>
       <Stack screenOptions={{ title: "GoShop" }}>
         {/* The tab navigator draws its own headers, one per tab. */}
@@ -32,6 +39,8 @@ export default function RootLayout() {
           options={{ title: "Tidak ditemukan" }}
         />
       </Stack>
+      {/* "auto": dark icons on a light theme, light icons on a dark one,
+          following the same device setting as the ThemeProvider. */}
       <StatusBar style="auto" />
     </ThemeProvider>
   );
