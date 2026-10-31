@@ -7,7 +7,7 @@ import {
   onlineManager,
   QueryClient,
 } from "@tanstack/react-query";
-import { addNetworkStateListener } from "expo-network";
+import { addNetworkStateListener, getNetworkStateAsync } from "expo-network";
 import { AppState } from "react-native";
 
 /**
@@ -71,6 +71,16 @@ focusManager.setEventListener((setFocused) => {
  */
 onlineManager.setEventListener((setOnline) => {
   const subscription = addNetworkStateListener((state) => {
+    setOnline(state.isConnected !== false);
+  });
+  // The listener reports changes only. A phone that is already offline
+  // when the app starts sends none, so TanStack Query would assume online:
+  // the first page failed with "Tidak dapat terhubung" instead of waiting,
+  // and nothing reloaded it when the network came back (no offline →
+  // online change for onlineManager to see). Ask once for the state at
+  // start-up. Found in the chapter's native check, airplane mode on before
+  // the app was opened.
+  void getNetworkStateAsync().then((state) => {
     setOnline(state.isConnected !== false);
   });
   return () => {
