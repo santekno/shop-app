@@ -96,6 +96,13 @@ const SHAPES = {
   terpilih: <Path d="M20 6 9 17l-5-5" />,
   // chevron-right: a row that opens another screen
   lanjut: <Path d="m9 18 6-6-6-6" />,
+  // x: removes something, such as the catalog's category filter
+  tutup: (
+    <>
+      <Path d="M18 6 6 18" />
+      <Path d="m6 6 12 12" />
+    </>
+  ),
 } satisfies Record<string, ReactElement>;
 
 export type IconName = keyof typeof SHAPES;

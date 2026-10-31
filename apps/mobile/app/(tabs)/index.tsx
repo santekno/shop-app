@@ -7,7 +7,7 @@
 // bar holds the search field, so it keeps clear of the status bar and the
 // notch itself, with the safe-area insets.
 import { useQueryClient } from "@tanstack/react-query";
-import { Link, router, useLocalSearchParams, useTheme } from "expo-router";
+import { Link, router, useLocalSearchParams } from "expo-router";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -25,7 +25,6 @@ import { SearchBar } from "@/features/catalog/components/SearchBar";
 import { sortFromParam } from "@/features/catalog/sort-options";
 
 export default function HomeScreen() {
-  const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const { kategori, q, urut } = useLocalSearchParams<{
@@ -73,7 +72,7 @@ export default function HomeScreen() {
       >
         <Text
           accessibilityRole="header"
-          className="text-[22px] font-bold text-foreground dark:text-foreground-dark"
+          className="font-sans text-[22px] font-bold text-foreground dark:text-foreground-dark"
         >
           GoShop
         </Text>
@@ -113,7 +112,10 @@ export default function HomeScreen() {
               accessibilityLabel={`Urutkan, saat ini ${sort.label}`}
               hitSlop={10}
             >
-              <Icon name="urutkan" color={colors.primary} />
+              <Icon
+                name="urutkan"
+                className="text-primary dark:text-primary-dark"
+              />
             </Pressable>
           </Link>
         </View>

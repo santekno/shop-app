@@ -20,7 +20,7 @@ export function LoadingState({ label }: { label: string }) {
       className="items-center gap-2 p-4"
     >
       <ActivityIndicator className="text-primary dark:text-primary-dark" />
-      <Text className="text-sm text-muted-foreground dark:text-muted-foreground-dark">
+      <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
         {label}
       </Text>
     </View>
@@ -30,7 +30,7 @@ export function LoadingState({ label }: { label: string }) {
 /** Nothing to show, such as a search that matched no product. */
 export function EmptyState({ message }: { message: string }) {
   return (
-    <Text className="p-4 text-center text-base text-muted-foreground dark:text-muted-foreground-dark">
+    <Text className="p-4 text-center font-sans text-base text-muted-foreground dark:text-muted-foreground-dark">
       {message}
     </Text>
   );
@@ -51,13 +51,13 @@ export function ErrorState({ error, onRetry }: ErrorStateProps) {
   const requestId = errorRequestId(error);
   return (
     <View accessibilityRole="alert" className="items-center gap-3 p-4">
-      <Text className="text-center text-base text-destructive dark:text-destructive-dark">
+      <Text className="text-center font-sans text-base text-destructive dark:text-destructive-dark">
         {errorMessage(error)}
       </Text>
       {requestId !== undefined && (
         <Text
           selectable
-          className="text-center text-sm text-muted-foreground dark:text-muted-foreground-dark"
+          className="text-center font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark"
         >
           Kode permintaan: {requestId}
         </Text>
@@ -68,7 +68,7 @@ export function ErrorState({ error, onRetry }: ErrorStateProps) {
           onPress={onRetry}
           className="min-h-11 justify-center rounded-md border border-border px-4 active:bg-accent dark:border-border-dark dark:active:bg-accent-dark"
         >
-          <Text className="text-base font-semibold text-primary dark:text-primary-dark">
+          <Text className="font-sans text-base font-semibold text-primary dark:text-primary-dark">
             Coba lagi
           </Text>
         </Pressable>

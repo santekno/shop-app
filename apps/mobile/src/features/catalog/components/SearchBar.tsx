@@ -19,15 +19,19 @@ interface SearchBarProps {
 }
 
 export function SearchBar({ initialQuery, onSubmit }: SearchBarProps) {
-  // Colours that are props rather than styles (the icon's, the text
-  // cursor's) come from the navigation theme: the same roles as the
-  // classes (src/theme/navigation.ts).
+  // The text cursor's colour is a prop NativeWind does not map from a
+  // class, so it comes from the navigation theme: the same roles as the
+  // classes (src/theme/navigation.ts). The icon takes a class.
   const { colors } = useTheme();
   const [text, setText] = useState(initialQuery);
 
   return (
     <View className="min-h-11 flex-row items-center gap-2 rounded-[10px] border-hairline border-border px-3 dark:border-border-dark">
-      <Icon name="cari" color={colors.text} size={18} />
+      <Icon
+        name="cari"
+        className="text-foreground dark:text-foreground-dark"
+        size={18}
+      />
       <TextInput
         value={text}
         onChangeText={setText}
@@ -53,7 +57,7 @@ export function SearchBar({ initialQuery, onSubmit }: SearchBarProps) {
         // the smaller android: padding. text-[16px] rather than text-base,
         // which also sets a line height: in a TextInput that shifts the
         // text off centre on iOS.
-        className="flex-1 py-2.5 text-[16px] text-foreground placeholder:text-muted-foreground android:py-1.5 dark:text-foreground-dark dark:placeholder:text-muted-foreground-dark"
+        className="flex-1 py-2.5 font-sans text-[16px] text-foreground placeholder:text-muted-foreground android:py-1.5 dark:text-foreground-dark dark:placeholder:text-muted-foreground-dark"
       />
     </View>
   );

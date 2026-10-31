@@ -37,7 +37,7 @@ export function ProductListFooter({
   // An empty list has its own message (ListEmptyComponent).
   if (!hasNextPage && count > 0) {
     return (
-      <Text className="p-4 text-center text-sm text-muted-foreground dark:text-muted-foreground-dark">
+      <Text className="p-4 text-center font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
         Semua produk sudah ditampilkan.
       </Text>
     );

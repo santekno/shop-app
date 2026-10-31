@@ -11,6 +11,7 @@ import type { ListRenderItem } from "react-native";
 import { isApiError } from "@goshop/shared";
 import type { Product } from "@goshop/shared";
 
+import { Icon } from "@/components/Icon";
 import {
   EmptyState,
   ErrorState,
@@ -115,7 +116,7 @@ export function ProductList({ filters, caption, category }: ProductListProps) {
             onPress={category.onClear}
             className="min-h-11 justify-center rounded-md border border-border px-4 active:bg-accent dark:border-border-dark dark:active:bg-accent-dark"
           >
-            <Text className="text-base font-semibold text-primary dark:text-primary-dark">
+            <Text className="font-sans text-base font-semibold text-primary dark:text-primary-dark">
               Lihat semua produk
             </Text>
           </Pressable>
@@ -156,7 +157,7 @@ export function ProductList({ filters, caption, category }: ProductListProps) {
       ListHeaderComponent={
         <View className="gap-2 px-1.5 pb-1.5 pt-4">
           {/* The active category as a chip; a press clears it, like the
-              "x" on a filter chip. */}
+              "x" on a filter chip (Icon's tutup). */}
           {category !== undefined && (
             <Pressable
               accessibilityRole="button"
@@ -165,15 +166,17 @@ export function ProductList({ filters, caption, category }: ProductListProps) {
               onPress={category.onClear}
               className="flex-row items-center gap-2 self-start rounded-full bg-muted px-3 py-1 active:bg-accent dark:bg-muted-dark dark:active:bg-accent-dark"
             >
-              <Text className="text-sm font-semibold text-foreground dark:text-foreground-dark">
+              <Text className="font-sans text-sm font-semibold text-foreground dark:text-foreground-dark">
                 {category.name}
               </Text>
-              <Text className="text-base text-muted-foreground dark:text-muted-foreground-dark">
-                ×
-              </Text>
+              <Icon
+                name="tutup"
+                className="text-muted-foreground dark:text-muted-foreground-dark"
+                size={16}
+              />
             </Pressable>
           )}
-          <Text className="text-sm text-muted-foreground dark:text-muted-foreground-dark">
+          <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
             {caption}
           </Text>
           {/* The products already on screen stay; this says they may be
