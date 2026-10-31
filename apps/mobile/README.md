@@ -720,14 +720,14 @@ Submitting puts the search into the route, `router.setParams({ q })`, so Beranda
 
 Paths are relative to `apps/mobile`.
 
-| Concept                                                  | Where to read it                                                    |
-| -------------------------------------------------------- | ------------------------------------------------------------------- |
-| Theme and status bar                                     | `app/_layout.tsx`                                                   |
-| A screen that draws its own top bar under the status bar | `app/(tabs)/index.tsx` (`useSafeAreaInsets`)                        |
-| Keyboard avoidance and dismissal                         | `app/(tabs)/index.tsx` (`KeyboardAvoidingView`, the `ScrollView`)   |
-| The tab bar hiding while typing                          | `app/(tabs)/_layout.tsx` (`tabBarHideOnKeyboard`)                   |
-| The search field                                         | `src/features/catalog/components/SearchBar.tsx`                     |
-| A bottom edge with nothing in front of it                | `app/produk/[slug].tsx` (`SafeAreaView`), `app/filter.tsx` (insets) |
+| Concept                                                  | Where to read it                                                                                                                                        |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Theme and status bar                                     | `app/_layout.tsx`                                                                                                                                       |
+| A screen that draws its own top bar under the status bar | `app/(tabs)/index.tsx` (`useSafeAreaInsets`)                                                                                                            |
+| Keyboard avoidance and dismissal                         | `app/(tabs)/index.tsx` (`KeyboardAvoidingView`); `src/features/catalog/components/ProductList.tsx` (`keyboardDismissMode`, `keyboardShouldPersistTaps`) |
+| The tab bar hiding while typing                          | `app/(tabs)/_layout.tsx` (`tabBarHideOnKeyboard`)                                                                                                       |
+| The search field                                         | `src/features/catalog/components/SearchBar.tsx`                                                                                                         |
+| A bottom edge with nothing in front of it                | `app/produk/[slug].tsx` (`SafeAreaView`), `app/filter.tsx` (insets)                                                                                     |
 
 ## Font dan ikon custom (artikel 11)
 
