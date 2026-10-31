@@ -34,19 +34,19 @@ The storefront and the dashboard are React apps that render to the **DOM**: `<di
 
 ### Same and different, in this repository
 
-| Concern           | `apps/web` (Next.js) and `apps/admin` (Vite)                                                                                               | `apps/mobile` (Expo)                                                                                                                                                                                                                                                         |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Components        | HTML elements: `<div>`, `<p>`, `<button>`, `<img>`, `<a>`                                                                                  | Core components: `<View>`, `<Text>`, `<Pressable>`, `<Image>`; links are `<Link>` from Expo Router. Every string must sit inside a `<Text>`: a bare string in a `<View>` is an error, not an anonymous text node (artikel 03)                                                |
-| Styling           | Tailwind v4 classes compiled to CSS; the cascade, inheritance, media queries, units like `rem`                                             | JavaScript objects (`StyleSheet.create`), no cascade and no inheritance (except text inside text), numbers are density-independent pixels; Flexbox is the only layout and `flexDirection` defaults to `column` (artikel 04). NativeWind brings `className` back (artikel 05) |
-| Lists             | `.map()` over an array; the browser handles thousands of rows                                                                              | `FlatList`/`FlashList` render only what is on screen, because every row is a real native view in memory (artikel 06 and 07)                                                                                                                                                  |
-| Navigation        | The URL is the state: React Router (`apps/admin/src/app/routes.tsx`) or Next's App Router (`apps/web/src/app/`), the browser's back button | A stack of screens that slide in and out, tabs, modals, the system back gesture. Expo Router is file-based like Next's App Router (`app/index.tsx` is `/`), and `goshop://…` links map onto routes (artikel 08 and 09)                                                       |
-| Screen edges      | The page scrolls inside a browser window                                                                                                   | Notches, the status bar, the home indicator and the keyboard cover parts of the screen; safe-area insets and keyboard avoidance are the app's job (artikel 10)                                                                                                               |
-| Session storage   | The refresh token in an `HttpOnly` cookie no script can read, the access token in memory (ADR 0008, `packages/shared/src/api/auth.ts`)     | No cookie jar we control and no `HttpOnly`: the token pair from `POST /v1/auth/login` goes into the platform keystore through `expo-secure-store` (Keychain on iOS, Keystore-backed storage on Android), never AsyncStorage                                                  |
-| Networking        | `fetch`, subject to CORS: the API lists the browser origins it allows (`APP_CORS_ALLOWED_ORIGINS`)                                         | The same `fetch`. CORS is a browser rule, so a native app is not subject to it. `localhost` is the device itself, so an emulator needs the host's address (artikel 02)                                                                                                       |
-| Fonts and icons   | `@font-face`, SVG inline in JSX (`lucide-react`)                                                                                           | Fonts are loaded into the app (`expo-font`) before text that uses them renders; icons come from an icon font or `react-native-svg` (artikel 11)                                                                                                                              |
-| Accessibility     | Semantic HTML plus `aria-*`                                                                                                                | `accessibilityRole`, `accessibilityLabel`, `accessibilityState`, mapped to TalkBack and VoiceOver                                                                                                                                                                            |
-| Dev loop          | Vite or Next dev server, hot module replacement, browser DevTools                                                                          | Metro bundler, Fast Refresh on the device, React Native DevTools (artikel 13)                                                                                                                                                                                                |
-| Build and release | `pnpm build` → a Docker image (`apps/*/Dockerfile`) → Railway                                                                              | `eas build` → an `.apk`/`.aab` for Android and an `.ipa` (or a simulator build) for iOS → the stores. No Dockerfile, no Railway service: the app is not a container                                                                                                          |
+| Concern           | `apps/web` (Next.js) and `apps/admin` (Vite)                                                                                               | `apps/mobile` (Expo)                                                                                                                                                                                                                                                                                                                                         |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Components        | HTML elements: `<div>`, `<p>`, `<button>`, `<img>`, `<a>`                                                                                  | Core components: `<View>`, `<Text>`, `<Pressable>`, `<Image>`; links are `<Link>` from Expo Router. Every string must sit inside a `<Text>`: a bare string in a `<View>` is an error, not an anonymous text node (artikel 03)                                                                                                                                |
+| Styling           | Tailwind v4 classes compiled to CSS; the cascade, inheritance, media queries, units like `rem`                                             | JavaScript objects (`StyleSheet.create`), no cascade and no inheritance (except text inside text), numbers are density-independent pixels; Flexbox is the only layout and `flexDirection` defaults to `column` (artikel 04). NativeWind brings `className` back (artikel 05)                                                                                 |
+| Lists             | `.map()` over an array; the browser handles thousands of rows                                                                              | `FlatList`/`FlashList` render only what is on screen, because every row is a real native view in memory (artikel 06 and 07)                                                                                                                                                                                                                                  |
+| Navigation        | The URL is the state: React Router (`apps/admin/src/app/routes.tsx`) or Next's App Router (`apps/web/src/app/`), the browser's back button | A stack of screens that slide in and out, tabs, modals, the system back gesture. Expo Router is file-based like Next's App Router (`app/(tabs)/index.tsx` is `/`), and `goshop://…` links map onto routes (artikel 08 and 09)                                                                                                                                |
+| Screen edges      | The page scrolls inside a browser window                                                                                                   | Notches, the status bar, the home indicator and the keyboard cover parts of the screen; safe-area insets and keyboard avoidance are the app's job (artikel 10)                                                                                                                                                                                               |
+| Session storage   | The refresh token in an `HttpOnly` cookie no script can read, the access token in memory (ADR 0008, `packages/shared/src/api/auth.ts`)     | No cookie jar we control and no `HttpOnly`: the token pair from `POST /v1/auth/login` goes into the platform keystore through `expo-secure-store` (Keychain on iOS, Keystore-backed storage on Android), never AsyncStorage                                                                                                                                  |
+| Networking        | `fetch`, subject to CORS: the API lists the browser origins it allows (`APP_CORS_ALLOWED_ORIGINS`)                                         | The same `fetch` API, but Expo installs its own implementation (`expo/fetch`), which sends and stores cookies unless told otherwise, so the app's API client passes `credentials: "omit"` (artikel 12). CORS is a browser rule, so a native app is not subject to it. `localhost` is the device itself, so an emulator needs the host's address (artikel 02) |
+| Fonts and icons   | `@font-face`, SVG inline in JSX (`lucide-react`)                                                                                           | Fonts are loaded into the app (`expo-font`) before text that uses them renders; icons come from an icon font or `react-native-svg` (artikel 11)                                                                                                                                                                                                              |
+| Accessibility     | Semantic HTML plus `aria-*`                                                                                                                | `accessibilityRole`, `accessibilityLabel`, `accessibilityState`, mapped to TalkBack and VoiceOver                                                                                                                                                                                                                                                            |
+| Dev loop          | Vite or Next dev server, hot module replacement, browser DevTools                                                                          | Metro bundler, Fast Refresh on the device, React Native DevTools (artikel 13)                                                                                                                                                                                                                                                                                |
+| Build and release | `pnpm build` → a Docker image (`apps/*/Dockerfile`) → Railway                                                                              | `eas build` → an `.apk`/`.aab` for Android and an `.ipa` (or a simulator build) for iOS → the stores. No Dockerfile, no Railway service: the app is not a container                                                                                                                                                                                          |
 
 ### What is shared, and what is not
 
@@ -135,14 +135,14 @@ One limit to know before the first API call: Android blocks plain `http://` in r
 
 Paths are relative to `apps/mobile`.
 
-| Concept                                         | Where to read it                                                               |
-| ----------------------------------------------- | ------------------------------------------------------------------------------ |
-| The app's identity, platforms, plugins          | `app.config.ts`                                                                |
-| Build profiles                                  | `eas.json`                                                                     |
-| The API URL                                     | `src/config/env.ts`, `.env.example`                                            |
-| The routes: the root stack and the first screen | `app/_layout.tsx`, `app/index.tsx`                                             |
-| Bundler, types, lint                            | `metro.config.js`, `tsconfig.json`, `src/expo-types.d.ts`, `eslint.config.mjs` |
-| What is generated and never committed           | `.gitignore` (`android/`, `ios/`, `.expo/`, `dist/`)                           |
+| Concept                                         | Where to read it                                                                   |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------- |
+| The app's identity, platforms, plugins          | `app.config.ts`                                                                    |
+| Build profiles                                  | `eas.json`                                                                         |
+| The API URL                                     | `src/config/env.ts`, `.env.example`                                                |
+| The routes: the root stack and the first screen | `app/_layout.tsx`, `app/(tabs)/index.tsx` (moved into the tab group in artikel 08) |
+| Bundler, types, lint                            | `metro.config.js`, `tsconfig.json`, `src/expo-types.d.ts`, `eslint.config.mjs`     |
+| What is generated and never committed           | `.gitignore` (`android/`, `ios/`, `.expo/`, `dist/`)                               |
 
 ## Komponen inti: View, Text, Image dan Pressable (artikel 03)
 
@@ -178,7 +178,7 @@ Paths are relative to `apps/mobile`.
 | The card: core components, pressed state, accessibility | `src/features/catalog/components/ProductCard.tsx`  |
 | The photo: variants as a source list, the placeholder   | `src/features/catalog/components/ProductPhoto.tsx` |
 | The sample products, in the API's shape                 | `src/features/catalog/fixtures.ts`                 |
-| The screen that lists them and decides what a tap does  | `app/index.tsx`                                    |
+| The screen that lists them and decides what a tap does  | `app/(tabs)/index.tsx`                             |
 
 ## Styling dengan StyleSheet dan flexbox (artikel 04)
 
@@ -256,7 +256,7 @@ Paths are relative to `apps/mobile`.
 | The grid: a wrapping row, `gap`, cell widths from the screen's width | `src/features/catalog/components/ProductGrid.tsx`  |
 | The card's panel, text styles, pressed style, badge                  | `src/features/catalog/components/ProductCard.tsx`  |
 | The square photo: `width: "100%"`, `aspectRatio`, `resizeMode`       | `src/features/catalog/components/ProductPhoto.tsx` |
-| The screen's background and scrolling                                | `app/index.tsx`                                    |
+| The screen's background and scrolling                                | `app/(tabs)/index.tsx`                             |
 
 ## NativeWind: Tailwind di React Native (artikel 05)
 
@@ -316,14 +316,14 @@ Both end as the same style object on the native view. `StyleSheet` needs nothing
 
 Paths are relative to `apps/mobile`.
 
-| Concept                                                             | Where to read it                                                                       |
-| ------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| Tailwind's configuration: files scanned, preset, colours, dark mode | `tailwind.config.js`                                                                   |
-| GoShop's colour roles, light and dark                               | `src/theme/colors.js`                                                                  |
-| NativeWind in the build: Metro, Babel, the input CSS, the types     | `metro.config.js`, `babel.config.js`, `global.css`, `nativewind-env.d.ts`              |
-| The CSS imported once; the navigation's colours per scheme          | `app/_layout.tsx`, `src/theme/navigation.ts`                                           |
-| The card, photo and screen with `className`                         | `src/features/catalog/components/ProductCard.tsx`, `ProductPhoto.tsx`, `app/index.tsx` |
-| The one `StyleSheet` kept beside NativeWind                         | `src/features/catalog/components/ProductGrid.tsx`                                      |
+| Concept                                                             | Where to read it                                                                              |
+| ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Tailwind's configuration: files scanned, preset, colours, dark mode | `tailwind.config.js`                                                                          |
+| GoShop's colour roles, light and dark                               | `src/theme/colors.js`                                                                         |
+| NativeWind in the build: Metro, Babel, the input CSS, the types     | `metro.config.js`, `babel.config.js`, `global.css`, `nativewind-env.d.ts`                     |
+| The CSS imported once; the navigation's colours per scheme          | `app/_layout.tsx`, `src/theme/navigation.ts`                                                  |
+| The card, photo and screen with `className`                         | `src/features/catalog/components/ProductCard.tsx`, `ProductPhoto.tsx`, `app/(tabs)/index.tsx` |
+| The one `StyleSheet` kept beside NativeWind                         | `src/features/catalog/components/ProductGrid.tsx`                                             |
 
 ## Expo Router: routing berbasis file (artikel 08)
 
