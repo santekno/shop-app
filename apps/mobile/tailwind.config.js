@@ -2,7 +2,9 @@
 // runs Tailwind CSS v3, configured in JavaScript; apps/web and apps/admin
 // are on Tailwind v4, configured in CSS (@theme in src/index.css). The
 // class names are the same; where the theme is written differs.
+const { platformSelect } = require("nativewind/theme");
 const { colors } = require("./src/theme/colors");
+const { fonts } = require("./src/theme/fonts");
 
 /** @type {import('tailwindcss').Config} */
 module.exports = {
@@ -19,6 +21,18 @@ module.exports = {
       // The storefront's colour roles: bg-card, text-muted-foreground …,
       // each with a -dark twin (bg-card-dark) for the dark: variant.
       colors,
+      // Under extend, because NativeWind's preset sets its own font-sans
+      // and font-mono there, and an extend in this file is applied after
+      // the preset's. A phone takes one family name, not a CSS stack, and
+      // it must be a font the app embeds or the OS has. Nothing is
+      // inherited from a View, so every Text says `font-sans`; the weight
+      // classes (`font-semibold`) pick the file (artikel 11).
+      fontFamily: {
+        sans: [fonts.sans],
+        // The OS's monospace font: "monospace" is a name only Android
+        // knows; iOS calls its own Menlo.
+        mono: platformSelect({ ios: "Menlo", android: "monospace" }),
+      },
     },
   },
   plugins: [],

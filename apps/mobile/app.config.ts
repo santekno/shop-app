@@ -8,6 +8,8 @@
 // lives here or in a config plugin, never in a hand-edited Gradle or Xcode
 // file.
 import type { ExpoConfig } from "expo/config";
+import { colors } from "./src/theme/colors";
+import { fonts } from "./src/theme/fonts";
 
 // One identifier for both stores. Changing it after the first release makes
 // a different app as far as Google Play and the App Store are concerned.
@@ -42,12 +44,29 @@ const config: ExpoConfig = {
   orientation: "portrait",
   // Light or dark follows the device setting.
   userInterfaceStyle: "automatic",
+  // The images are drawn from one mark by assets/brand/render.sh.
+  // icon is iOS's (opaque, iOS rounds the corners) and the fallback for
+  // any platform without its own.
+  icon: "./assets/brand/icon.png",
   android: {
     package: APP_ID,
+    // Two layers the launcher masks to its own shape: the mark (inside
+    // the safe zone) over a plain brand colour. monochromeImage is the
+    // Android 13+ "themed icon", tinted from the wallpaper.
+    adaptiveIcon: {
+      foregroundImage: "./assets/brand/adaptive-icon.png",
+      monochromeImage: "./assets/brand/adaptive-icon.png",
+      backgroundColor: colors.primary.DEFAULT,
+    },
   },
   ios: {
     bundleIdentifier: APP_ID,
     supportsTablet: false,
+    // iOS 18+ shows the dark variant when the home screen is dark.
+    icon: {
+      light: "./assets/brand/icon.png",
+      dark: "./assets/brand/icon-dark.png",
+    },
     // App Transport Security: HTTPS only, except for "local" hosts. Expo's
     // template allows those in every build (NSAllowsLocalNetworking), which
     // is how a development or preview build on the simulator reaches
@@ -76,6 +95,45 @@ const config: ExpoConfig = {
           // the app supports Android 7 (minSdk 24), where leaving it out
           // would mean "allowed".
           usesCleartextTraffic: !isProduction,
+        },
+      },
+    ],
+    // The launch screen, drawn by the OS before any JavaScript runs:
+    // Android 12+'s SplashScreen API and iOS's launch storyboard. The
+    // mark centred on the app's background colour, light or dark as
+    // the device is set.
+    [
+      "expo-splash-screen",
+      {
+        image: "./assets/brand/splash-icon.png",
+        imageWidth: 200,
+        resizeMode: "contain",
+        backgroundColor: colors.background.DEFAULT,
+        dark: {
+          image: "./assets/brand/splash-icon-dark.png",
+          backgroundColor: colors.background.dark,
+        },
+      },
+    ],
+    // Inter, embedded in the native projects at build time (src/theme/
+    // fonts.js): no loading at run time, so no screen ever draws before
+    // its font is there. iOS takes the files; Android gets one
+    // font-family resource named "Inter" with a weight per file, so
+    // fontWeight picks the file there too.
+    [
+      "expo-font",
+      {
+        ios: { fonts: fonts.faces.map((face) => face.path) },
+        android: {
+          fonts: [
+            {
+              fontFamily: fonts.sans,
+              fontDefinitions: fonts.faces.map((face) => ({
+                path: face.path,
+                weight: face.weight,
+              })),
+            },
+          ],
         },
       },
     ],

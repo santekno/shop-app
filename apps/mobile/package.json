@@ -18,7 +18,6 @@
   "dependencies": {
     "@expo/log-box": "58.0.13",
     "@expo/metro-runtime": "58.0.15",
-    "@expo/vector-icons": "15.1.1",
     "@goshop/shared": "workspace:*",
     "@tanstack/react-query": "catalog:",
     "expo": "58.0.21",
@@ -29,6 +28,7 @@
     "expo-linking": "58.0.15",
     "expo-network": "58.0.4",
     "expo-router": "58.0.28",
+    "expo-splash-screen": "58.0.12",
     "expo-status-bar": "58.0.4",
     "expo-system-ui": "58.0.7",
     "nativewind": "4.2.7",
@@ -39,6 +39,7 @@
     "react-native-reanimated": "4.7.1",
     "react-native-safe-area-context": "5.10.1",
     "react-native-screens": "4.30.1",
+    "react-native-svg": "15.16.0",
     "react-native-worklets": "0.13.0"
   },
   "devDependencies": {

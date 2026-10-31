@@ -529,6 +529,121 @@ Paths are relative to `apps/mobile`.
 | The search field                                         | `src/features/catalog/components/SearchBar.tsx`                     |
 | A bottom edge with nothing in front of it                | `app/produk/[slug].tsx` (`SafeAreaView`), `app/filter.tsx` (insets) |
 
+## Font dan ikon custom (artikel 11)
+
+Until now the app spoke in the phone's own voice: Roboto on Android, San Francisco on iOS, Ionicons for the tabs, and Expo's placeholder icon and white launch screen. This article gives GoShop its own: the Inter typeface on both platforms, the same icon drawings the website uses, and an app icon and splash screen drawn from a GoShop mark. All of it is native configuration, so it needs a new development build; none of it is a screen.
+
+### The mental model
+
+| Idea                                   | What it means                                                                                                                                                                                                                                                                    | Web comparison                                                      |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| **A font is part of the app binary**   | `expo-font`'s config plugin copies the `.ttf` files into the native projects at `expo prebuild`: `res/font/` plus a `<font-family>` resource on Android, the app bundle plus `UIAppFonts` in `Info.plist` on iOS. The OS knows the font before the first line of JavaScript runs | A font installed on the user's machine, not a `@font-face` download |
+| **One family name, a weight per file** | `fontFamily: "Inter"` with `fontWeight: "600"` picks `Inter-SemiBold.ttf`. On Android that is only true because the plugin writes the four files into one `font-family` resource named `Inter`; a font loaded any other way on Android is one family per file                    | `font-family: Inter; font-weight: 600` with four `@font-face` rules |
+| **No inheritance from a View**         | A `Text` gets no font from the `View` around it, only from a `Text` around it. So every `Text` says `font-sans`, and the headers and tab labels, which Expo Router draws, get Inter from the navigation theme                                                                    | `body { font-family }` inherited by every element                   |
+| **An icon is a drawing, not a glyph**  | `Icon` draws an SVG path with `react-native-svg`; the colour is the `Svg`'s `color`, which the paths use as `currentColor`                                                                                                                                                       | `lucide-react`'s `<ShoppingCart />`, an inline `<svg>`              |
+| **The launch screen is not React**     | The OS shows it while the app process starts, from the image and colours `expo-splash-screen` wrote into the native projects (Android 12+'s SplashScreen API, iOS's launch storyboard); it hides when the first screen has drawn                                                 | Nothing: a page has no launch screen, only a blank tab              |
+| **The app icon is a set of images**    | One 1024 px source becomes every size each launcher needs at prebuild. Android's adaptive icon is two layers (a foreground image, a background colour) that the launcher masks to its own shape                                                                                  | `favicon.ico`, `apple-touch-icon`                                   |
+
+### Which font, and why Inter
+
+`apps/web` and `apps/admin` use no web font: `--font-sans` in their `index.css` is the system stack (`system-ui, -apple-system, "Segoe UI", Roboto …`), for no download and no layout shift. On a phone the system font is already the default, so the cheapest match to the web is to change nothing. The app takes Inter instead, because a shop's app should look the same on every phone, and Roboto and San Francisco differ in width and rhythm: a product name that fits two lines on one wraps to three on the other. Inter is the closest open font to the web's system stack in spirit: a neutral sans-serif drawn for screens, with full Latin coverage for Indonesian. It is under the SIL Open Font License 1.1, which allows bundling it in an app; the license travels with the files (`assets/fonts/OFL.txt`).
+
+The files are Inter 4.1's static TTFs (`extras/ttf/` in the release archive from github.com/rsms/inter), four weights: 400, 500, 600, 700. 400 and 600 are the app's own (`font-normal`, `font-semibold`); 500 and 600 are what React Navigation uses for tab labels and header titles; 700 for a heading. Each is about 410 KB, 1.67 MB together (0.8 MB compressed, which is roughly what they add to the APK or IPA). Inter also comes as one variable font (880 KB for every weight), which Android's plugin can map to weights; iOS does not reliably pick weights of a variable font by `fontWeight`, so the static files are the safe choice for both.
+
+### Embedded at build time, or loaded at run time
+
+There are two ways to get a font into an Expo app, and this app uses the first:
+
+|                            | Config plugin (this app)                                                                                                 | `useFonts` at run time                                                                                             |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| Where it is configured     | `app.config.ts`, the `expo-font` plugin                                                                                  | the root layout, `useFonts({ "Inter-SemiBold": require("…ttf") })`                                                 |
+| When the font is there     | before the app starts                                                                                                    | after an async load; until then a `Text` would draw in the system font                                             |
+| What the first frame needs | nothing                                                                                                                  | `SplashScreen.preventAutoHideAsync()`, then `hideAsync()` once loaded, so nobody sees the switch                   |
+| Family names               | `Inter` + `fontWeight`, on both platforms                                                                                | one family per file (`Inter-SemiBold`), and `fontWeight` left unset, or Android fakes a bold over the regular file |
+| Expo Go                    | not available (the fonts are in the native build, and Expo Go is a build of its own); text falls back to the system font | works                                                                                                              |
+| Changing it                | a new native build                                                                                                       | a JavaScript reload                                                                                                |
+
+The runtime version, for a reader who stays in Expo Go:
+
+```tsx
+// app/_layout.tsx
+import { useFonts } from "expo-font";
+import * as SplashScreen from "expo-splash-screen";
+import { useEffect } from "react";
+
+// Keep the launch screen up past the first render, until the fonts are in.
+void SplashScreen.preventAutoHideAsync();
+
+export default function RootLayout() {
+  const [loaded, error] = useFonts({
+    "Inter-Regular": require("../assets/fonts/Inter-Regular.ttf"),
+    "Inter-SemiBold": require("../assets/fonts/Inter-SemiBold.ttf"),
+  });
+  useEffect(() => {
+    if (loaded || error) void SplashScreen.hideAsync();
+  }, [loaded, error]);
+  // A failed load still shows the app, in the system font.
+  if (!loaded && !error) return null;
+  // … the ThemeProvider and Stack as before
+}
+```
+
+and in `tailwind.config.js` a family per weight (`sans: ["Inter-Regular"], "sans-semibold": ["Inter-SemiBold"]`), used as `font-sans-semibold` instead of `font-sans font-semibold`. The plugin version needs none of that: no code in the layout, no splash hold, and the weight classes mean what they mean on the web. The price is that fonts change only with a native build, which for a shop's typeface is the right trade.
+
+### Icons: Ionicons or SVG, measured
+
+The tab bar, the sort button, the search field and the sort sheet's check mark used Ionicons from `@expo/vector-icons`, an icon font. The app now draws Lucide's icons as SVG with `react-native-svg`, the same drawings `apps/web` and `apps/admin` get from `lucide-react`. Measured with `pnpm build` (`expo export`, Hermes bytecode) on this commit's parent and on this commit:
+
+|                           | Ionicons (before)                                                                        | SVG (after)                                                                                                                                              |
+| ------------------------- | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Font asset                | `Ionicons.ttf`, 389,724 B, 1,357 glyphs; the app used 14 (7 icons, filled and outlined)  | none                                                                                                                                                     |
+| JavaScript, Android / iOS | 4,460,394 / 4,476,917 B                                                                  | +114,504 / +113,462 B for `react-native-svg` and the paths (measured with only the icons changed); +125,161 / +124,049 B with everything in this article |
+| At run time               | the font loads before an icon can draw (`@expo/vector-icons` draws nothing until it has) | nothing to load                                                                                                                                          |
+| Native code               | none (`expo-font` was already there)                                                     | `react-native-svg`, a native module: a new development build; it is in Expo Go                                                                           |
+
+So the JavaScript and assets an update ships are about 265 KB smaller per platform, and icons draw on the first frame. The native side is not measured here: `react-native-svg` adds compiled code to the APK and the app binary, roughly the size of the font it replaces, and the chapter's native builds are where that number gets recorded. What decided it beyond the bytes: one icon set for the shop on every surface, and an icon is now a component that takes a colour class like any `Text`.
+
+Only the icons used are in the app: their paths are copied into `src/components/Icon.tsx`, not imported from a package (`lucide-react-native` would bring the whole set into the dependency tree for Metro to resolve). Lucide is under the ISC License, whose notice is kept at the top of that file.
+
+### The GoShop mark, the app icon and the splash screen
+
+`assets/brand/render.sh` draws the mark (a shopping bag with a G cut out of it, `goshop-mark.svg`) and renders every image from it with `rsvg-convert`. The G is a hole, not a second colour, so whatever is behind the mark shows through: the icon's background layer, the splash colour, Android's themed-icon tint. Colours are the roles in `src/theme/colors.js`, and `app.config.ts` reads the same file.
+
+| Image                                                                    | Used for                                                                | What `expo prebuild` makes of it                                                                                                                                                                                                                                                                                                       |
+| ------------------------------------------------------------------------ | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `icon.png` (white mark on `primary`, opaque)                             | iOS icon; fallback                                                      | `AppIcon.appiconset/App-Icon-1024x1024@1x.png`                                                                                                                                                                                                                                                                                         |
+| `icon-dark.png` (`primary` dark, transparent)                            | iOS 18 dark icon (`ios.icon.dark`)                                      | the same appiconset, `"appearance": "luminosity", "value": "dark"`                                                                                                                                                                                                                                                                     |
+| `adaptive-icon.png` (white mark, transparent, inside the 66 % safe zone) | Android foreground layer and Android 13 themed icon (`monochromeImage`) | `mipmap-*/ic_launcher_foreground.webp`, `ic_launcher_monochrome.webp`, and `mipmap-anydpi-v26/ic_launcher.xml` with `@color/iconBackground` (`#0b5cad`) behind                                                                                                                                                                         |
+| `splash-icon.png`, `splash-icon-dark.png`                                | the launch screen, light and dark                                       | Android: `drawable-*/splashscreen_logo.png` and `drawable-night-*/`, `splashscreen_background` `#f6f8fa` in `values/` and `#0d1117` in `values-night/`, `Theme.App.SplashScreen`; iOS: `SplashScreenLogo.imageset` (light and dark), `SplashScreenBackground.colorset` with a dark appearance, `SplashScreen.storyboard` (200 pt wide) |
+
+The splash hides by itself when the first screen renders; nothing holds it, since no font is loaded at run time.
+
+### Decisions
+
+- **Inter, embedded with the config plugin.** Reasons above. `src/theme/fonts.js` lists the family and the files once, for `app.config.ts`, `tailwind.config.js` and the navigation theme, the way `colors.js` does for colours.
+- **`font-sans` written on every `Text`.** React Native has no way to set a default font for all text (`Text.defaultProps` is gone in React 19), and a wrapper `Text` component would be a second way to write text next to the core one. A nested `Text` inherits from its parent `Text`, so only the outer one needs it.
+- **`fontFamily` under `extend`.** NativeWind's preset sets its own `font-sans` and `font-mono` under `extend`, which would override a plain `theme.fontFamily`. `font-mono` is `Menlo` on iOS and `monospace` on Android (`platformSelect`): the Produk placeholder asked for `"monospace"`, a name iOS does not know, so on iOS it was drawn in the system font.
+- **The navigation theme carries Inter.** Header titles, the back label and tab labels are drawn by React Navigation from `theme.fonts`; `src/theme/navigation.ts` sets its four styles to Inter at 400/500/600/700.
+- **Lucide, outlines only.** The tab bar showed a filled icon for the selected tab and outlines for the others. Lucide has outlines only; `filled` now means a heavier stroke (2.5 instead of 2), and the tab's colour does the rest.
+- **`Icon` takes `color` or `className`.** `cssInterop(Svg, { className: { target: "style", nativeStyleToProp: { color: true } } })` lets a `text-*` class (with its `dark:` twin) colour the icon, so screens styled with NativeWind need no colour value; the tab bar, which hands its icon a colour, passes `color`.
+- **`@expo/vector-icons` removed** as a dependency: nothing imports it any more. `react-native-svg` 15.16.0 and `expo-splash-screen` 58.0.12 are added (both from `npx expo install`, pinned exactly like the rest).
+- **The images are committed, the script beside them.** A build needs only the PNGs; `render.sh` is there for the next change of colour or shape (`brew install librsvg` for `rsvg-convert`).
+- **Checked here:** `tsc`, ESLint, Prettier, `expo export` for both platforms, `expo-doctor` (20/20), and `npx expo prebuild --platform all --clean`, whose output is the right-hand column of the table above plus `ReactFontManager.getInstance().addCustomFont(this, "Inter", R.font.xml_inter)` in `MainApplication.kt` and the four files in `Info.plist`'s `UIAppFonts`. **Still to see on a device:** Inter at each weight on both platforms (on iOS, the Medium and SemiBold files declare `Inter` as their typographic family; if iOS groups them under `Inter Medium` instead, those weights fall back to the nearest of Regular and Bold), the icons, the adaptive icon in round and squircle launchers, and the splash in light and dark.
+
+### Where each idea lives
+
+Paths are relative to `apps/mobile`.
+
+| Concept                                           | Where to read it                                                                                               |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| The font files and their license                  | `assets/fonts/` (`OFL.txt`)                                                                                    |
+| The family name and the files, once               | `src/theme/fonts.js`                                                                                           |
+| Fonts, app icon and splash in the native projects | `app.config.ts` (`icon`, `android.adaptiveIcon`, `ios.icon`, the `expo-splash-screen` and `expo-font` plugins) |
+| `font-sans`, `font-mono`                          | `tailwind.config.js`                                                                                           |
+| Inter in headers and the tab bar                  | `src/theme/navigation.ts`                                                                                      |
+| Every icon, its drawing, and NativeWind on `Svg`  | `src/components/Icon.tsx`                                                                                      |
+| The mark and the images drawn from it             | `assets/brand/render.sh`, `assets/brand/goshop-mark.svg`                                                       |
+
 ## Berbagi kode dengan web: types, API client, Zod schema di package bersama (artikel 12)
 
 The app depends on `@goshop/shared` (`"workspace:*"` in `package.json`, added in artikel 03 for the `Product` type) and now uses it the way `apps/web` and `apps/admin` do: one API client built with `createApiClient` (`src/lib/api.ts`), the endpoint functions and the types generated from `api/openapi.yaml`, and the same Zod schemas. The first real user is the catalog's product list (`src/features/catalog/api/products.ts`), which the catalog screen of artikel 06 pages through. Nothing in `packages/shared` asks which platform it runs on; the one place where the phone needs something the browser did not, the cookie policy, is an option the app passes, not a branch inside the package.

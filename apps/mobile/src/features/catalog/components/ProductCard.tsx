@@ -69,11 +69,11 @@ export const ProductCard = memo(function ProductCard({
           line-clamp does on the web. */}
       <Text
         numberOfLines={2}
-        className="mt-1 text-sm font-semibold text-foreground dark:text-foreground-dark"
+        className="mt-1 font-sans text-sm font-semibold text-foreground dark:text-foreground-dark"
       >
         {name}
       </Text>
-      <Text className="text-base font-semibold text-foreground dark:text-foreground-dark">
+      <Text className="font-sans text-base font-semibold text-foreground dark:text-foreground-dark">
         {/* Text inside Text is the one place styles are inherited: the
             inner Text keeps the outer's size and changes the weight and
             colour. */}
@@ -86,7 +86,7 @@ export const ProductCard = memo(function ProductCard({
       </Text>
       {!inStock && (
         <View className="self-start rounded bg-destructive px-2 py-0.5 dark:bg-destructive-dark">
-          <Text className="text-xs font-semibold text-destructive-foreground dark:text-destructive-foreground-dark">
+          <Text className="font-sans text-xs font-semibold text-destructive-foreground dark:text-destructive-foreground-dark">
             Stok habis
           </Text>
         </View>

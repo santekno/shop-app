@@ -60,7 +60,7 @@ export function ProductPhoto({ image }: ProductPhotoProps) {
 
   return (
     <View className={`${PHOTO} items-center justify-center`}>
-      <Text className="text-sm text-muted-foreground dark:text-muted-foreground-dark">
+      <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
         Belum ada foto
       </Text>
     </View>
