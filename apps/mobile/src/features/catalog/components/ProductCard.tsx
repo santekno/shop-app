@@ -62,7 +62,11 @@ export const ProductCard = memo(function ProductCard({
       accessibilityHint="Membuka halaman produk"
       // active: is the pressed state (the web's :active): NativeWind
       // listens to the Pressable's press-in and press-out for it.
-      className="flex-1 gap-1 rounded-lg border border-border bg-card p-3 active:bg-accent dark:border-border-dark dark:bg-card-dark dark:active:bg-accent-dark"
+      // grow, not flex-1: flex-1 is a basis of 0%, and a list cell has no
+      // height to grow into, so the cards collapsed to their padding when
+      // FlatList laid out the rows again (README, artikel 06). grow starts
+      // from the content and still fills a row's taller cell.
+      className="grow gap-1 rounded-lg border border-border bg-card p-3 active:bg-accent dark:border-border-dark dark:bg-card-dark dark:active:bg-accent-dark"
     >
       <ProductPhoto image={product.images[0]} />
       {/* numberOfLines cuts a long name after two lines with "…", what
