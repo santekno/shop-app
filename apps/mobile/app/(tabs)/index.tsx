@@ -88,7 +88,11 @@ export default function HomeScreen() {
           </View>
           {/* A modal route: the root stack presents /filter over the tabs.
               asChild hands the link's press to the Pressable, which can
-              take a larger touch area than its 24-point icon. */}
+              take a larger touch area than its 24-point icon. It also
+              hands it role="link", and React Native ranks `role` above
+              accessibilityRole: without its own role="button" (the
+              child's props win over the link's), TalkBack and VoiceOver
+              would call this button, which opens a sheet, a "link". */}
           <Link
             // The sheet gets every filter, not only the order, and hands
             // them back with the new order: returning to "/" replaces the
@@ -104,9 +108,11 @@ export default function HomeScreen() {
             asChild
           >
             <Pressable
-              accessibilityRole="button"
+              role="button"
               accessibilityLabel={`Urutkan, saat ini ${sort.label}`}
-              hitSlop={10}
+              // 24 + 2 × 12 = 48 dp, Android's smallest touch target
+              // (iOS asks for 44 pt), around a 24 dp icon.
+              hitSlop={12}
             >
               <Icon
                 name="urutkan"
