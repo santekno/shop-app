@@ -8,10 +8,12 @@
 // react-native-safe-area-context), so any screen can ask for the insets.
 // NativeWind's compiled styles, once for the whole app (artikel 05).
 import "../global.css";
+import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Stack, ThemeProvider } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useColorScheme } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { queryClient } from "@/lib/query-client";
 import { navigationTheme } from "@/theme/navigation";
 
@@ -29,7 +31,14 @@ export const unstable_settings = { anchor: "(tabs)" };
 export default function RootLayout() {
   return (
     <QueryClientProvider client={queryClient}>
-      <ThemedNavigation />
+      {/* Gesture Handler and the bottom sheet (artikel 07) need their root
+          around everything that can show a sheet: the root view receives
+          the touches, the modal provider hosts the sheets. */}
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <BottomSheetModalProvider>
+          <ThemedNavigation />
+        </BottomSheetModalProvider>
+      </GestureHandlerRootView>
     </QueryClientProvider>
   );
 }
@@ -49,12 +58,6 @@ function ThemedNavigation() {
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         {/* The title is replaced by the screen once it knows the product. */}
         <Stack.Screen name="produk/[slug]" options={{ title: "Produk" }} />
-        {/* Over everything, tab bar included: a card that slides up on
-            iOS, a full screen on Android. */}
-        <Stack.Screen
-          name="filter"
-          options={{ presentation: "modal", title: "Urutkan" }}
-        />
         <Stack.Screen
           name="+not-found"
           options={{ title: "Tidak ditemukan" }}

@@ -1,13 +1,15 @@
 // Beranda, at the route "/" (goshop:// as a deep link): the (tabs) group
 // adds no segment. The catalog from the API, narrowed and sorted by the
 // route's parameters (/?kategori=kaos&q=polos&urut=termurah), which the
-// Kategori tab, the search field and the sort sheet (app/filter.tsx) set.
+// Kategori tab, the search field and the filter sheet (FilterSheet) set.
 //
 // This tab has no navigation header (app/(tabs)/_layout.tsx): its own top
 // bar holds the search field, so it keeps clear of the status bar and the
 // notch itself, with the safe-area insets.
 import { useQueryClient } from "@tanstack/react-query";
-import { Link, router, useLocalSearchParams } from "expo-router";
+import type { BottomSheetModal } from "@gorhom/bottom-sheet";
+import { router, useLocalSearchParams } from "expo-router";
+import { useRef } from "react";
 import { KeyboardAvoidingView, Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -18,8 +20,12 @@ import {
   CATALOG_SIDE_PADDING,
   ProductList,
 } from "@/features/catalog/components/ProductList";
+import {
+  countActiveFilters,
+  FilterSheet,
+} from "@/features/catalog/components/FilterSheet";
 import { SearchBar } from "@/features/catalog/components/SearchBar";
-import { sortFromParam } from "@/features/catalog/sort-options";
+import { DEFAULT_SORT, sortFromParam } from "@/features/catalog/sort-options";
 import {
   bannersQuery,
   featuredProductsQuery,
@@ -40,6 +46,7 @@ export default function HomeScreen() {
   const filters = readCatalogFilters({ kategori, q, urut });
   const sort = sortFromParam(urut);
   const query = filters.q ?? "";
+  const sheetRef = useRef<BottomSheetModal>(null);
   // The category's name, if the Kategori tab has loaded the categories
   // (the ["categories"] query); the slug otherwise, as from a deep link.
   // A read of the cache, not a request: the name is a nicety, and the
@@ -52,6 +59,11 @@ export default function HomeScreen() {
       : (queryClient
           .getQueryData(categoriesQuery().queryKey)
           ?.find((c) => c.slug === filters.category)?.name ?? filters.category);
+
+  const activeFilters = countActiveFilters({
+    category: filters.category,
+    sort,
+  });
 
   // The banners, categories and featured products are the shop window:
   // shown when nothing narrows the catalog. A search or a category is a
@@ -125,40 +137,40 @@ export default function HomeScreen() {
               }}
             />
           </View>
-          {/* A modal route: the root stack presents /filter over the tabs.
-              asChild hands the link's press to the Pressable, which can
-              take a larger touch area than its 24-point icon. It also
-              hands it role="link", and React Native ranks `role` above
-              accessibilityRole: without its own role="button" (the
-              child's props win over the link's), TalkBack and VoiceOver
-              would call this button, which opens a sheet, a "link". */}
-          <Link
-            // The sheet gets every filter, not only the order, and hands
-            // them back with the new order: returning to "/" replaces the
-            // route's parameters, and the category and search must stay.
-            href={{
-              pathname: "/filter",
-              params: {
-                kategori: filters.category,
-                q: filters.q,
-                urut: sort.param,
-              },
+          {/* Opens the filter sheet (FilterSheet), a bottom sheet over this
+              screen, not a route. The badge counts the filters that differ
+              from the default. The Pressable has its own role="button" and
+              a label that says what is applied, since the icon alone says
+              nothing to TalkBack or VoiceOver. */}
+          <Pressable
+            role="button"
+            accessibilityLabel={`Filter dan urutan, saat ini ${sort.label}${
+              categoryName === undefined ? "" : `, kategori ${categoryName}`
+            }`}
+            // 24 + 2 × 12 = 48 dp, Android's smallest touch target
+            // (iOS asks for 44 pt), around a 24 dp icon.
+            hitSlop={12}
+            onPress={() => {
+              sheetRef.current?.present();
             }}
-            asChild
           >
-            <Pressable
-              role="button"
-              accessibilityLabel={`Urutkan, saat ini ${sort.label}`}
-              // 24 + 2 × 12 = 48 dp, Android's smallest touch target
-              // (iOS asks for 44 pt), around a 24 dp icon.
-              hitSlop={12}
-            >
-              <Icon
-                name="urutkan"
-                className="text-primary dark:text-primary-dark"
-              />
-            </Pressable>
-          </Link>
+            <Icon
+              name="filter"
+              className="text-primary dark:text-primary-dark"
+            />
+            {activeFilters > 0 && (
+              <View
+                // Decorative: the label above already says what is applied.
+                importantForAccessibility="no-hide-descendants"
+                accessibilityElementsHidden
+                className="absolute -right-2 -top-2 h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 dark:bg-primary-dark"
+              >
+                <Text className="font-sans text-[10px] font-bold text-primary-foreground dark:text-primary-foreground-dark">
+                  {activeFilters}
+                </Text>
+              </View>
+            )}
+          </Pressable>
         </View>
       </View>
       <ProductList
@@ -187,6 +199,23 @@ export default function HomeScreen() {
             ? `Semua produk · ${sort.label}`
             : `Hasil pencarian "${query}" · ${sort.label}`
         }
+      />
+      {/* Mounted here, not in the header: a modal sheet draws over the
+          whole window, and the route stays Beranda's (?kategori=&urut=). */}
+      <FilterSheet
+        sheetRef={sheetRef}
+        applied={{ category: filters.category, sort }}
+        onApply={(choice) => {
+          // Only what changed is written; an unchanged (default) value
+          // leaves the route, so "/" stays "/". The search stays.
+          router.setParams({
+            kategori: choice.category,
+            urut:
+              choice.sort.value === DEFAULT_SORT.value
+                ? undefined
+                : choice.sort.param,
+          });
+        }}
       />
     </KeyboardAvoidingView>
   );
