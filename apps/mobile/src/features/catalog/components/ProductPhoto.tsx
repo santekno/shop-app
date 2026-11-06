@@ -17,7 +17,7 @@ interface ProductPhotoProps {
  * 1.5× phone takes the 400. Only `url` (the widest) is used when a photo
  * somehow has no variants.
  */
-const sourcesOf = (image: ProductImage): ImageURISource[] =>
+export const photoSources = (image: ProductImage): ImageURISource[] =>
   (image.variants.length > 0 ? image.variants : [image]).map((variant) => ({
     uri: variant.url,
     width: variant.width,
@@ -50,7 +50,7 @@ export function ProductPhoto({ image }: ProductPhotoProps) {
   if (image !== undefined) {
     return (
       <Image
-        source={sourcesOf(image)}
+        source={photoSources(image)}
         // cover: fill the square and crop the overflow, like object-cover.
         resizeMode="cover"
         className={PHOTO}

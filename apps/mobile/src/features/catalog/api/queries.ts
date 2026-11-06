@@ -4,7 +4,7 @@
 // read the same way. The product request itself is fetchProductPage
 // (./products.ts); this file only says how TanStack Query pages through it.
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
-import { listCategories } from "@goshop/shared";
+import { getProduct, listCategories } from "@goshop/shared";
 import { api } from "@/lib/api";
 import { queryKeys } from "@/lib/query-keys";
 import { fetchProductPage } from "./products";
@@ -75,4 +75,16 @@ export const productListQuery = (filters: ProductListFilters) =>
       // page forever: treat it as the end, as the web does.
       return next === null || next === lastPageParam ? undefined : next;
     },
+  });
+
+/**
+ * GET /v1/products/{slug}: one product with its sellable variants, under
+ * ["products", "detail", slug]. The slug is input from outside (a deep link
+ * can say anything), so an unknown one is an ordinary NOT_FOUND error the
+ * screen words, not a crash.
+ */
+export const productDetailQuery = (slug: string) =>
+  queryOptions({
+    queryKey: queryKeys.products.detail(slug),
+    queryFn: ({ signal }) => getProduct(api, slug, { signal }),
   });

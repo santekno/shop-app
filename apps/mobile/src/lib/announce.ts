@@ -23,3 +23,15 @@ export const useAnnounceOnIos = (message: string) => {
     }
   }, [message]);
 };
+
+/**
+ * Tells VoiceOver about a change the user just made, such as a new price
+ * after choosing a size. Not a hook: it is called from the press handler,
+ * so nothing is announced when the screen first appears. iOS only, like
+ * useAnnounceOnIos; on Android the changed text sits in a live region.
+ */
+export const announceOnIos = (message: string) => {
+  if (Platform.OS === "ios") {
+    AccessibilityInfo.announceForAccessibility(message);
+  }
+};
