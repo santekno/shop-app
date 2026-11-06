@@ -67,6 +67,20 @@ describe("queryClient defaults", () => {
     expect(queries?.retry).toBe(false);
     expect(queries?.staleTime).toBe(30_000);
   });
+
+  it("keeps unused data in memory for 24 h, as long as the disk copy lives", () => {
+    const { module } = load();
+    const queries = module.queryClient.getDefaultOptions().queries;
+
+    expect(module.DEFAULT_GC_TIME_MS).toBe(24 * 60 * 60_000);
+    expect(queries?.gcTime).toBe(86_400_000);
+  });
+
+  it("does not retry a mutation: a POST sent twice can charge twice", () => {
+    const { module } = load();
+
+    expect(module.queryClient.getDefaultOptions().mutations?.retry).toBe(false);
+  });
 });
 
 describe("focus: the app in front", () => {
