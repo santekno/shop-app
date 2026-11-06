@@ -68,6 +68,11 @@ interface ProductListProps {
    * vertical list inside a vertical ScrollView.
    */
   header?: ReactNode;
+  /**
+   * Also refetched by a pull to refresh, with the list: the queries of
+   * whatever `header` shows. The spinner stays until both have settled.
+   */
+  refreshAlso?: () => Promise<unknown>;
 }
 
 /**
@@ -90,6 +95,7 @@ export function ProductList({
   caption,
   category,
   header,
+  refreshAlso,
 }: ProductListProps) {
   const { colors } = useTheme();
   const {
@@ -240,7 +246,7 @@ export function ProductList({
         <RefreshControl
           refreshing={isRefreshing}
           onRefresh={() => {
-            void refresh();
+            void refresh(refreshAlso);
           }}
           colors={[colors.primary]}
           progressBackgroundColor={colors.card}

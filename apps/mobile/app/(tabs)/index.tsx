@@ -20,6 +20,10 @@ import {
 } from "@/features/catalog/components/ProductList";
 import { SearchBar } from "@/features/catalog/components/SearchBar";
 import { sortFromParam } from "@/features/catalog/sort-options";
+import {
+  bannersQuery,
+  featuredProductsQuery,
+} from "@/features/home/api/queries";
 import { HomeSections } from "@/features/home/components/HomeSections";
 
 export default function HomeScreen() {
@@ -59,6 +63,23 @@ export default function HomeScreen() {
   const openCategory = (slug: string) => {
     router.setParams({ kategori: slug });
   };
+
+  // Pull to refresh refetches what is on screen and nothing else: the
+  // catalog list (ProductList does that one) and, while the shop window
+  // shows, its three queries. Hidden sections are not queried, and a
+  // search or a category result is its own list. Exact keys, not
+  // everything under ["products"]: that would also refetch every list the
+  // buyer has visited since.
+  const refreshSections = () =>
+    Promise.allSettled(
+      [
+        bannersQuery().queryKey,
+        categoriesQuery().queryKey,
+        featuredProductsQuery().queryKey,
+      ].map((queryKey) =>
+        queryClient.refetchQueries({ queryKey, exact: true, type: "active" }),
+      ),
+    );
 
   return (
     // The keyboard is drawn over the app, and the window keeps its size on
@@ -141,6 +162,7 @@ export default function HomeScreen() {
       </View>
       <ProductList
         filters={filters}
+        refreshAlso={showSections ? refreshSections : undefined}
         header={
           showSections ? (
             <HomeSections

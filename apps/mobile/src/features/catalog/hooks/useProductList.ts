@@ -41,16 +41,29 @@ export const flattenPages = (
  * once. FlashList can call onEndReached twice before the first call has
  * re-rendered anything (`isFetching` is still false), and fetchNextPage's
  * default cancels the running request and starts it again; the ref closes
- * that gap, `cancelRefetch: false` covers any other caller. Unchanged products keep their identity between
- * renders (TanStack Query shares unchanged data structurally), so
- * memo(ProductCard) skips the cards already on screen when a page arrives.
+ * that gap, `cancelRefetch: false` covers any other caller.
+ *
+ * Unchanged products keep their identity between renders (TanStack Query
+ * shares unchanged data structurally), so memo(ProductCard) skips the
+ * cards already on screen when a page arrives.
  *
  * `refresh` is for pull-to-refresh: the buyer is at the top of the list
- * and asks for it again. It keeps only the first page in the cache and
- * refetches that one; the later pages are fetched fresh when the buyer
- * scrolls to them. A plain refetch() of an infinite query fetches every
- * page loaded so far again, one after the other, before anything changes
- * on screen: ten requests for a buyer who had scrolled through ten pages.
+ * and asks for it again. It fetches the first page only (`pages: 1`) and
+ * the cache then holds that one page; the later pages are fetched fresh
+ * when the buyer scrolls to them. A plain refetch() of an infinite query
+ * fetches every page loaded so far again, one after the other: ten
+ * requests for a buyer who had scrolled through ten pages.
+ *
+ * The cache is replaced only when the new first page arrives. An earlier
+ * version cut the cache to its first page and then refetched: the list
+ * shrank at once, and a failed refresh left the buyer with one page
+ * instead of the ten they had. Now the old rows stay on screen until the
+ * new ones replace them in one render (no blank, no flicker), and when
+ * the request fails they are still there, with the note above them.
+ *
+ * `refresh(alsoRefresh)` waits for `alsoRefresh` too, if given: Beranda
+ * passes the refetch of its banners, categories and featured row, so one
+ * pull, one spinner, ends when all of them have settled.
  *
  * `isRefreshing` is true only for that pull, not for the background
  * refetches TanStack Query runs by itself (back to the app, network back,
@@ -67,19 +80,14 @@ export const useProductList = (filters: ProductListFilters) => {
   const query = useInfiniteQuery(options);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const refresh = async () => {
+  const refresh = async (alsoRefresh?: () => Promise<unknown>) => {
     setIsRefreshing(true);
     try {
-      queryClient.setQueryData(options.queryKey, (data) =>
-        data === undefined
-          ? data
-          : {
-              pages: data.pages.slice(0, 1),
-              pageParams: data.pageParams.slice(0, 1),
-            },
-      );
-      // An error is in query.error; the screen shows it.
-      await query.refetch();
+      await Promise.allSettled([
+        // A failure is in query.error (isRefetchError); the screen shows it.
+        queryClient.infiniteQuery({ ...options, pages: 1, staleTime: 0 }),
+        alsoRefresh?.(),
+      ]);
     } finally {
       setIsRefreshing(false);
     }
