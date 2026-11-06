@@ -1,8 +1,12 @@
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Product } from "@goshop/shared";
 import { productListQuery } from "../api/queries";
 import type { ProductListFilters } from "../api/products";
+import { prefetchPhotos, urlForWidth } from "../components/photo-sources";
+
+/** A catalog card's photo is about this wide in dp: half the screen less padding. */
+const CARD_PHOTO_DP = 160;
 
 /**
  * The pages' products as one list, each product once. The API pages by
@@ -100,6 +104,21 @@ export const useProductList = (filters: ProductListFilters) => {
 
   const pages = query.data?.pages;
   const products = useMemo(() => flattenPages(pages), [pages]);
+
+  // Warm the image cache with the photos of every row that has arrived,
+  // not only those FlashList has drawn: it draws a screen and a bit, so
+  // without this a fast scroll shows grey squares until each download is
+  // done. The photos of rows already seen are skipped (prefetchPhotos
+  // remembers); the rows come a page at a time, so this is ~20 files.
+  useEffect(() => {
+    prefetchPhotos(
+      products.flatMap((product) =>
+        product.images[0] === undefined
+          ? []
+          : [urlForWidth(product.images[0], CARD_PHOTO_DP)],
+      ),
+    );
+  }, [products]);
 
   const loadingMore = useRef(false);
   const { hasNextPage, isFetching, isFetchNextPageError, fetchNextPage } =

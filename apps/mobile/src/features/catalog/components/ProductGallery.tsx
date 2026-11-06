@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { FlatList, Image, Text, useWindowDimensions, View } from "react-native";
+import { useEffect, useState } from "react";
+import { FlatList, Text, useWindowDimensions, View } from "react-native";
 import type {
   ListRenderItem,
   NativeScrollEvent,
@@ -8,7 +8,8 @@ import type {
 import type { ProductImage } from "@goshop/shared";
 
 import { PageDots } from "@/components/PageDots";
-import { photoSources } from "./ProductPhoto";
+import { Photo } from "@/components/Photo";
+import { photoSources, prefetchPhotos, urlForWidth } from "./photo-sources";
 
 interface ProductGalleryProps {
   images: readonly ProductImage[];
@@ -21,7 +22,8 @@ interface ProductGalleryProps {
  * between, with dots under them. No pinch to zoom (not in this chapter).
  *
  * Edge cases: no photos is the "Belum ada foto" placeholder; one photo is
- * a plain picture with no dots. Each photo is announced as "<alt>, foto 2
+ * a plain picture with no dots. The other photos are prefetched into the
+ * image cache as soon as the gallery appears. Each photo is announced as "<alt>, foto 2
  * dari 4" (the API's alt text may be empty, then the product's name); a
  * screen reader user swipes through the photos like any list.
  *
@@ -31,6 +33,14 @@ interface ProductGalleryProps {
 export function ProductGallery({ images, productName }: ProductGalleryProps) {
   const { width } = useWindowDimensions();
   const [page, setPage] = useState(0);
+
+  // The first photo is on screen already (the card showed it); fetch the
+  // others now, while the buyer reads the name and price, so a swipe finds
+  // them in the cache instead of a grey square. At the width the gallery
+  // draws them, from the same variant the view will pick.
+  useEffect(() => {
+    prefetchPhotos(images.slice(1).map((image) => urlForWidth(image, width)));
+  }, [images, width]);
 
   if (images.length === 0) {
     return (
@@ -46,9 +56,10 @@ export function ProductGallery({ images, productName }: ProductGalleryProps) {
   }
 
   const renderPhoto: ListRenderItem<ProductImage> = ({ item, index }) => (
-    <Image
+    <Photo
       source={photoSources(item)}
-      resizeMode="cover"
+      recyclingKey={item.id}
+      fit="cover"
       accessible
       accessibilityRole="image"
       accessibilityLabel={`${item.alt === "" ? productName : item.alt}, foto ${index + 1} dari ${images.length}`}
