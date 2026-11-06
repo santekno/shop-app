@@ -79,6 +79,8 @@ export const SERVER_ERROR_CODES = [
   "VARIANT_ARCHIVED",
   "STOCK_OUT_OF_RANGE",
   "STOCK_CHANGED",
+  // The mobile wishlist (Bab 14).
+  "WISHLIST_LIMIT_REACHED",
 ] as const;
 
 /**
