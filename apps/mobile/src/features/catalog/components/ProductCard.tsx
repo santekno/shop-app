@@ -9,6 +9,7 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
+import { countRender } from "@/lib/perf";
 import { LIST_ITEM_ENTERING, PRESSED_SCALE } from "@/lib/motion";
 import { ProductPhoto } from "./ProductPhoto";
 
@@ -43,6 +44,7 @@ export const ProductCard = memo(function ProductCard({
   product,
   onPress,
 }: ProductCardProps) {
+  countRender("ProductCard");
   const { name, variants } = product;
   const { price_from: priceFrom, in_stock: inStock } = product;
   // price_from is the cheapest variant; "Mulai" says other variants cost more.

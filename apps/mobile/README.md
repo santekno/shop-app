@@ -1172,3 +1172,42 @@ Pictures: the GoShop mark (`assets/brand/`) or a large `Icon` (artikel 11). No p
 - At the largest font size, no text is cut off.
 - No token, no personal data and nothing but the one flag is written by this feature; `pnpm --filter @goshop/mobile typecheck`, `lint` and `build` pass, and `npx expo prebuild --platform all --clean` shows the AsyncStorage module on both platforms.
 - For the test stage: the flag logic as a pure function with unit tests (unset, set, read error), and a Maestro flow (Bab 15) that clears the app, skips the slides, relaunches and expects Beranda.
+
+## Performa daftar: ukur dulu, lalu perbaiki (artikel 14)
+
+Bab 14 checklist for a list that must stay smooth. Everything below was measured or reasoned as labelled; there are **no device numbers** here (no phone or emulator was used for this article).
+
+### The harness: `src/lib/perf.ts` (development only)
+
+- `countRender("Name")` in a component body counts its renders; `getRenderCounts()` reads them, `resetPerf()` clears them.
+- `<PerfProfiler id="ProductList">` is React's `<Profiler>` in development and just its children in a release build (`__DEV__` is false and Metro strips it).
+- `perfMark` / `perfMeasure` is a stopwatch; `listLoadReporter("catalog")` is FlashList's `onLoad`, which reports the time to the first drawn rows (undefined in release, so the list gets no handler).
+- It does not measure frames per second or UI-thread time. For that, use Android Studio's profiler / `adb shell dumpsys gfxinfo` and Xcode Instruments on a **release** build. A dev build is several times slower and says nothing about what a buyer gets.
+
+### Measured (Jest, React test renderer, 40 products, FlashList's test layout)
+
+Renders counted with `countRender` after a cache change. This counts React work, not frames.
+
+| Event                                   | Before (every heart reads the whole list) | After (`select` per slug) |
+| --------------------------------------- | ----------------------------------------- | ------------------------- |
+| One heart toggled, 40 hearts mounted    | 40 heart renders                          | 1 heart render            |
+| Two more hearts added in one write      | 40                                        | 2                         |
+| Catalog refetch returning the same data | 0 ProductCard renders                     | 0 ProductCard renders     |
+
+"Before" is a throwaway component that subscribed to `wishlist.ids()` without `select`; "after" is the real `useIsWishlisted`. The throwaway test was not committed. Also measured: with FlashList in the same harness 30 of the 40 cards were mounted at once (the rest are not drawn until scrolled to), and the dev-only first-rows log read 43 ms, which is a Node timer on a laptop and is **not** a phone number.
+
+### Reasoned, not measured on a device
+
+- Cards are `memo`; `renderProduct` and `openProduct` live outside the component, so a refetch with equal data re-renders no card (confirmed above by the count).
+- No inline object or arrow in a row's props that would defeat `memo`; the one arrow in the card calls the stable `onPress`.
+- `estimatedItemSize` does not exist in FlashList 2 (it measures), so there is nothing to tune. `getItemType` is not needed: every cell has one shape. Add it the day a banner row joins the products.
+- The press scale, the heart pop and the list fade-in run on the UI thread (Reanimated), so they do not cost JS-thread frames while the list scrolls. The fade-in plays only for cells that mount, and FlashList recycles cells instead of mounting new ones.
+- The home row of featured products is a short horizontal `FlatList` (at most a handful of items); FlashList would add nothing.
+
+### Checklist
+
+- [ ] No query result is read whole by a list row when it needs one value (`select`).
+- [ ] `renderItem`, `keyExtractor` and row callbacks are defined outside the component or memoised.
+- [ ] Rows have no state (FlashList recycles them).
+- [ ] Heavy images use `expo-image` with a cache policy (artikel 09).
+- [ ] Measure on a release build, on a mid-range Android phone, before and after; write the numbers down.

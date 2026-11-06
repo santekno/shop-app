@@ -7,6 +7,7 @@ import { isApiError } from "@goshop/shared";
 import type { Product } from "@goshop/shared";
 
 import { Icon } from "@/components/Icon";
+import { listLoadReporter, PerfProfiler } from "@/lib/perf";
 import {
   EmptyResult,
   EmptyState,
@@ -43,6 +44,11 @@ const renderProduct: ListRenderItem<Product> = ({ item }) => (
 );
 
 const productKey = (product: Product) => product.id;
+
+// Dev only (artikel 14): logs "first rows drawn after N ms" once per list.
+// undefined in a release build, so the list gets no handler there. Made
+// once, outside the component, so its identity never changes a render.
+const reportFirstRows = listLoadReporter("catalog");
 
 /** The list's side padding in dp: 10 + a card's 6 = 16 at the screen's edge. */
 export const CATALOG_SIDE_PADDING = 10;
@@ -194,107 +200,114 @@ export function ProductList({
     );
 
   return (
-    <FlashList
-      // One list per search, sort and category, like the cache (one entry
-      // per query key): a new filter starts at the top. Without the key the
-      // list kept its scroll offset, and a cached result (no loading state
-      // in between) opened scrolled to wherever the last one was.
-      key={JSON.stringify(filters)}
-      data={products}
-      renderItem={renderProduct}
-      keyExtractor={productKey}
-      numColumns={COLUMNS}
-      // flexGrow: the content is at least as tall as the list, so the
-      // empty state can centre itself in the free space. A style, not
-      // contentContainerClassName: NativeWind maps className props on
-      // React Native's own components; FlashList is not one of them.
-      contentContainerStyle={CONTENT_STYLE}
-      // FlashList 2 keeps the first visible row in place when the data
-      // changes, which suits a chat that grows at the top. The catalog only
-      // grows at the end; with it on, a list that went from the loading
-      // state to its rows opened scrolled to the end.
-      maintainVisibleContentPosition={{ disabled: true }}
-      ListHeaderComponent={
-        <>
-          {header}
-          <View className="gap-2 px-1.5 pb-1.5 pt-4">
-            {/* The active category as a chip; a press clears it, like the
+    <PerfProfiler id="ProductList">
+      <FlashList
+        // One list per search, sort and category, like the cache (one entry
+        // per query key): a new filter starts at the top. Without the key the
+        // list kept its scroll offset, and a cached result (no loading state
+        // in between) opened scrolled to wherever the last one was.
+        key={JSON.stringify(filters)}
+        data={products}
+        renderItem={renderProduct}
+        keyExtractor={productKey}
+        numColumns={COLUMNS}
+        // Every cell is the same card, so there is one recycling pool and no
+        // getItemType: it is for lists that mix row shapes (a banner row
+        // among products), where a cell must not be recycled into another
+        // shape. FlashList 2 also needs no estimatedItemSize; it measures.
+        onLoad={reportFirstRows}
+        // flexGrow: the content is at least as tall as the list, so the
+        // empty state can centre itself in the free space. A style, not
+        // contentContainerClassName: NativeWind maps className props on
+        // React Native's own components; FlashList is not one of them.
+        contentContainerStyle={CONTENT_STYLE}
+        // FlashList 2 keeps the first visible row in place when the data
+        // changes, which suits a chat that grows at the top. The catalog only
+        // grows at the end; with it on, a list that went from the loading
+        // state to its rows opened scrolled to the end.
+        maintainVisibleContentPosition={{ disabled: true }}
+        ListHeaderComponent={
+          <>
+            {header}
+            <View className="gap-2 px-1.5 pb-1.5 pt-4">
+              {/* The active category as a chip; a press clears it, like the
               "x" on a filter chip (Icon's tutup). */}
-            {category !== undefined && (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`Kategori ${category.name}, hapus filter`}
-                hitSlop={6}
-                onPress={category.onClear}
-                className="flex-row items-center gap-2 self-start rounded-full bg-muted px-3 py-1 active:bg-accent dark:bg-muted-dark dark:active:bg-accent-dark"
-              >
-                <Text className="font-sans text-sm font-semibold text-foreground dark:text-foreground-dark">
-                  {category.name}
-                </Text>
-                <Icon
-                  name="tutup"
-                  className="text-muted-foreground dark:text-muted-foreground-dark"
-                  size={16}
-                />
-              </Pressable>
-            )}
-            <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
-              {caption}
-              {/* The rows below are the previous search's until the new
+              {category !== undefined && (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Kategori ${category.name}, hapus filter`}
+                  hitSlop={6}
+                  onPress={category.onClear}
+                  className="flex-row items-center gap-2 self-start rounded-full bg-muted px-3 py-1 active:bg-accent dark:bg-muted-dark dark:active:bg-accent-dark"
+                >
+                  <Text className="font-sans text-sm font-semibold text-foreground dark:text-foreground-dark">
+                    {category.name}
+                  </Text>
+                  <Icon
+                    name="tutup"
+                    className="text-muted-foreground dark:text-muted-foreground-dark"
+                    size={16}
+                  />
+                </Pressable>
+              )}
+              <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                {caption}
+                {/* The rows below are the previous search's until the new
                   ones arrive (placeholderData, queries.ts). */}
-              {isPlaceholderData ? " · memperbarui…" : ""}
-            </Text>
-            {/* The products already on screen stay; this says they may be
+                {isPlaceholderData ? " · memperbarui…" : ""}
+              </Text>
+              {/* The products already on screen stay; this says they may be
               out of date, after a pull or a background refetch failed. */}
-            {isRefetchError && products.length > 0 && (
-              <ErrorState
-                error={error}
-                onRetry={() => {
-                  void refresh();
-                }}
-              />
-            )}
-          </View>
-        </>
-      }
-      ListEmptyComponent={
-        <View className="flex-1 items-center justify-center">{empty}</View>
-      }
-      ListFooterComponent={
-        <ProductListFooter
-          count={products.length}
-          hasNextPage={hasNextPage}
-          isFetchingNextPage={isFetchingNextPage}
-          isFetchNextPageError={isFetchNextPageError}
-          error={error}
-          fetchNextPage={retryNextPage}
-        />
-      }
-      // Ask for the next page when the end is one screen's height away,
-      // so it usually arrives before the buyer gets there.
-      onEndReached={loadMore}
-      onEndReachedThreshold={1}
-      refreshControl={
-        // The platform's pull-to-refresh: Android's circle drops from the
-        // top, iOS's spinner opens above the list. A native component with
-        // colour props rather than a style, so the colours come from the
-        // navigation theme, the same roles as the classes.
-        <RefreshControl
-          refreshing={isRefreshing}
-          onRefresh={() => {
-            void refresh(refreshAlso);
-          }}
-          colors={[colors.primary]}
-          progressBackgroundColor={colors.card}
-          tintColor={colors.primary}
-        />
-      }
-      // Dragging the list puts the keyboard away. iOS can follow the
-      // finger ("interactive"); Android only knows "on-drag".
-      keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
-      // A tap on a card works at the first touch; a tap on empty space
-      // closes the keyboard.
-      keyboardShouldPersistTaps="handled"
-    />
+              {isRefetchError && products.length > 0 && (
+                <ErrorState
+                  error={error}
+                  onRetry={() => {
+                    void refresh();
+                  }}
+                />
+              )}
+            </View>
+          </>
+        }
+        ListEmptyComponent={
+          <View className="flex-1 items-center justify-center">{empty}</View>
+        }
+        ListFooterComponent={
+          <ProductListFooter
+            count={products.length}
+            hasNextPage={hasNextPage}
+            isFetchingNextPage={isFetchingNextPage}
+            isFetchNextPageError={isFetchNextPageError}
+            error={error}
+            fetchNextPage={retryNextPage}
+          />
+        }
+        // Ask for the next page when the end is one screen's height away,
+        // so it usually arrives before the buyer gets there.
+        onEndReached={loadMore}
+        onEndReachedThreshold={1}
+        refreshControl={
+          // The platform's pull-to-refresh: Android's circle drops from the
+          // top, iOS's spinner opens above the list. A native component with
+          // colour props rather than a style, so the colours come from the
+          // navigation theme, the same roles as the classes.
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={() => {
+              void refresh(refreshAlso);
+            }}
+            colors={[colors.primary]}
+            progressBackgroundColor={colors.card}
+            tintColor={colors.primary}
+          />
+        }
+        // Dragging the list puts the keyboard away. iOS can follow the
+        // finger ("interactive"); Android only knows "on-drag".
+        keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+        // A tap on a card works at the first touch; a tap on empty space
+        // closes the keyboard.
+        keyboardShouldPersistTaps="handled"
+      />
+    </PerfProfiler>
   );
 }

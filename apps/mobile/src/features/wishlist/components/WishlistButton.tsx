@@ -1,5 +1,6 @@
 import { Pressable } from "react-native";
 
+import { countRender } from "@/lib/perf";
 import { HeartIcon } from "./HeartIcon";
 import { useIsWishlisted, useToggleWishlist } from "../hooks/useWishlist";
 
@@ -32,6 +33,7 @@ export function WishlistButton({
   productName,
   className = "",
 }: WishlistButtonProps) {
+  countRender("WishlistButton");
   const saved = useIsWishlisted(slug);
   const toggle = useToggleWishlist();
 
