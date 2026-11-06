@@ -103,21 +103,12 @@ export function ProductList({
     isFetchNextPageError,
     isRefetchError,
     hasNextPage,
-    fetchNextPage,
+    loadMore,
+    retryNextPage,
     refetch,
     refresh,
     isRefreshing,
   } = useProductList(filters);
-
-  // Not while a request runs: fetchNextPage would cancel a background
-  // refetch and start over. Not after a failed page: onEndReached fires
-  // again as soon as the list moves, and loading by itself would retry in
-  // a loop; the footer's "Coba lagi" does it.
-  const loadMore = () => {
-    if (hasNextPage && !isFetching && !isFetchNextPageError) {
-      void fetchNextPage();
-    }
-  };
 
   // What the list shows when it has no rows. `data` decides, not `status`:
   // a list that has never loaded is loading, waiting for a network, or
@@ -234,9 +225,7 @@ export function ProductList({
           isFetchingNextPage={isFetchingNextPage}
           isFetchNextPageError={isFetchNextPageError}
           error={error}
-          fetchNextPage={() => {
-            void fetchNextPage();
-          }}
+          fetchNextPage={retryNextPage}
         />
       }
       // Ask for the next page when the end is one screen's height away,
