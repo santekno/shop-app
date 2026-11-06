@@ -10,10 +10,13 @@
 // (React Navigation's bottom tabs). Expo Router 58 deprecates importing it
 // from "expo-router" itself, now that expo-router/native-tabs (the
 // platform's own tab bar) exists next to it.
-import { Tabs } from "expo-router/js-tabs";
+import { BottomTabBar, Tabs } from "expo-router/js-tabs";
+import type { BottomTabBarProps } from "expo-router/js-tabs";
+import { View } from "react-native";
 import type { ColorValue } from "react-native";
 
 import { Icon, type IconName } from "@/components/Icon";
+import { ConnectionBanner } from "@/features/connection/ConnectionBanner";
 
 // The icon for one tab: filled when it is selected, outlined otherwise,
 // in the colour the tab bar picks (active or inactive tint).
@@ -23,9 +26,22 @@ const tabIcon =
     <Icon name={name} color={color} filled={focused} />
   );
 
+// The default tab bar with the connection banner (artikel 11) stacked on
+// top of it. Both are in the layout flow, so the screens above shrink by the
+// banner's height while it shows. Offline, the banner sits above the tab
+// bar and never covers it; the bar's own hide-on-keyboard still works,
+// since it lives inside BottomTabBar.
+const renderTabBar = (props: BottomTabBarProps) => (
+  <View>
+    <ConnectionBanner />
+    <BottomTabBar {...props} />
+  </View>
+);
+
 export default function TabsLayout() {
   return (
     <Tabs
+      tabBar={renderTabBar}
       screenOptions={{
         // Hide the tab bar while typing. The keyboard covers it on iOS and
         // on Android drawn edge to edge (the window does not resize there,
