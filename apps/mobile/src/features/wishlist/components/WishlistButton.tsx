@@ -1,6 +1,6 @@
 import { Pressable } from "react-native";
 
-import { Icon } from "@/components/Icon";
+import { HeartIcon } from "./HeartIcon";
 import { useIsWishlisted, useToggleWishlist } from "../hooks/useWishlist";
 
 interface WishlistButtonProps {
@@ -50,16 +50,7 @@ export function WishlistButton({
       }}
       className={`h-9 w-9 items-center justify-center rounded-full bg-card/90 active:bg-accent dark:bg-card-dark/90 dark:active:bg-accent-dark ${className}`}
     >
-      <Icon
-        name="wishlist"
-        size={20}
-        solid={saved}
-        className={
-          saved
-            ? "text-destructive dark:text-destructive-dark"
-            : "text-muted-foreground dark:text-muted-foreground-dark"
-        }
-      />
+      <HeartIcon saved={saved} />
     </Pressable>
   );
 }

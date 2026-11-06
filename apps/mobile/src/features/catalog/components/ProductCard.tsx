@@ -1,8 +1,15 @@
-import { memo } from "react";
+import { memo, useCallback } from "react";
 import { Pressable, Text, View } from "react-native";
 import { formatRupiah } from "@goshop/shared";
 import type { Product } from "@goshop/shared";
 import { WishlistButton } from "@/features/wishlist/components/WishlistButton";
+import Animated, {
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
+import { LIST_ITEM_ENTERING, PRESSED_SCALE } from "@/lib/motion";
 import { ProductPhoto } from "./ProductPhoto";
 
 interface ProductCardProps {
@@ -44,16 +51,39 @@ export const ProductCard = memo(function ProductCard({
   );
   const price = formatRupiah(priceFrom);
 
+  // Press feedback (artikel 13): the card shrinks a little while a finger
+  // is down. The scale is a shared value on the UI thread; the handlers
+  // only set it. Not a state: a re-render per press would redraw the
+  // photo and texts for a 100 ms effect. Off with "reduce motion".
+  const reduceMotion = useReducedMotion();
+  const scale = useSharedValue(1);
+  const pressStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+  const pressIn = useCallback(() => {
+    if (!reduceMotion)
+      scale.value = withTiming(PRESSED_SCALE, { duration: 90 });
+  }, [reduceMotion, scale]);
+  const pressOut = useCallback(() => {
+    if (!reduceMotion) scale.value = withTiming(1, { duration: 140 });
+  }, [reduceMotion, scale]);
+
   return (
     // The heart is a sibling of the card's Pressable, not a child: a
     // Pressable with a role is ONE accessible element, so a button inside
     // it would be invisible to TalkBack and VoiceOver. `grow` moved here
     // from the Pressable, which now fills this wrapper.
-    <View className="grow">
+    <Animated.View
+      entering={LIST_ITEM_ENTERING}
+      style={pressStyle}
+      className="grow"
+    >
       <Pressable
         onPress={() => {
           onPress(product);
         }}
+        onPressIn={pressIn}
+        onPressOut={pressOut}
         // What TalkBack and VoiceOver announce. The card is one element: the
         // screen reader reads this label, not every Text inside, and says
         // "button" after it.
@@ -107,6 +137,6 @@ export const ProductCard = memo(function ProductCard({
         productName={name}
         className="absolute right-4 top-4"
       />
-    </View>
+    </Animated.View>
   );
 });
