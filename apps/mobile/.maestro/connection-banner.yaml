@@ -1,0 +1,25 @@
+appId: com.santekno.goshop
+name: Offline banner and back online
+tags: [bab-14, connection, android]
+# Whatever happens, leave the device online for the next flow.
+onFlowComplete:
+  - setAirplaneMode: disabled
+---
+- runFlow: subflows/open-home.yaml
+- assertNotVisible: "Anda sedang offline.*"
+# setAirplaneMode is Android only.
+- setAirplaneMode: enabled
+- extendedWaitUntil:
+    visible: "Anda sedang offline. Data yang tampil mungkin sudah lama."
+    timeout: 30000
+# The cached shop window is still on screen.
+- assertVisible: "Produk unggulan"
+- setAirplaneMode: disabled
+# "Kembali online" is shown for 3 seconds, then the bar goes away.
+- extendedWaitUntil:
+    visible: "Kembali online. Memperbarui data…"
+    timeout: 30000
+- extendedWaitUntil:
+    notVisible: "Kembali online.*"
+    timeout: 15000
+- assertNotVisible: "Anda sedang offline.*"

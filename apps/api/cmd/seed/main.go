@@ -10,6 +10,9 @@
 // unless -allow-remote is given: dummy products must never reach a real
 // shop because a production URL was left in the shell.
 //
+// It also marks four products as featured and adds three banners for the
+// mobile home screen (Bab 14).
+//
 // -generated adds that many machine-made products on top, enough for EXPLAIN
 // ANALYZE to show the indexes at work (docs/explain/catalog.md).
 //
@@ -106,6 +109,18 @@ func run(ctx context.Context, databaseURL string, generated int) error {
 		return err
 	}
 	fmt.Printf("vouchers: %d added, %d already there\n", addedVouchers, len(vouchers)-addedVouchers)
+
+	featured, err := seedFeatured(ctx, db)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("featured products: %d marked, %d already featured\n", featured, len(featuredSlugs)-featured)
+
+	addedBanners, err := seedBanners(ctx, db)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("banners: %d added, %d already there\n", addedBanners, len(banners)-addedBanners)
 
 	if generated > 0 {
 		return seedGenerated(ctx, db, categoryIDs, generated)

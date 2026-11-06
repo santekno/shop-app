@@ -1,0 +1,16 @@
+appId: com.santekno.goshop
+name: Category chip filters the list and is cleared
+tags: [bab-14, home]
+---
+- runFlow: subflows/open-home.yaml
+- assertVisible: "Semua produk · Terbaru"
+- tapOn: "Kategori Pakaian"
+# A search or a category narrows the catalog: the shop window steps aside.
+- assertVisible: "Kategori Pakaian, hapus filter"
+- assertNotVisible: "Produk unggulan"
+- assertNotVisible: "Kopi Arabika Gayo 250 g.*"
+# The chip on the list clears the filter.
+- tapOn: "Kategori Pakaian, hapus filter"
+- assertNotVisible: "Kategori Pakaian, hapus filter"
+- assertVisible: "Produk unggulan"
+- assertVisible: "Semua produk · Terbaru"

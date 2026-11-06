@@ -85,6 +85,20 @@ const SHAPES = {
       <Path d="M7 4v16" />
     </>
   ),
+  // sliders-horizontal: opens the filter sheet
+  filter: (
+    <>
+      <Path d="M10 5H3" />
+      <Path d="M12 19H3" />
+      <Path d="M14 3v4" />
+      <Path d="M16 17v4" />
+      <Path d="M21 12h-9" />
+      <Path d="M21 19h-5" />
+      <Path d="M21 5h-7" />
+      <Path d="M8 10v4" />
+      <Path d="M8 12H3" />
+    </>
+  ),
   // search
   cari: (
     <>
@@ -96,6 +110,10 @@ const SHAPES = {
   terpilih: <Path d="M20 6 9 17l-5-5" />,
   // chevron-right: a row that opens another screen
   lanjut: <Path d="m9 18 6-6-6-6" />,
+  // heart: the wishlist
+  wishlist: (
+    <Path d="M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5" />
+  ),
   // x: removes something, such as the catalog's category filter
   tutup: (
     <>
@@ -119,6 +137,8 @@ interface IconProps {
    * stroke. Lucide draws outlines only, so "filled" is weight, not fill.
    */
   filled?: boolean;
+  /** Fills the shape with the icon's colour (a saved heart), not only the stroke. */
+  solid?: boolean;
 }
 
 /**
@@ -131,6 +151,7 @@ export function Icon({
   className,
   size = 24,
   filled = false,
+  solid = false,
 }: IconProps) {
   return (
     <TintedSvg
@@ -141,7 +162,7 @@ export function Icon({
       width={size}
       height={size}
       viewBox="0 0 24 24"
-      fill="none"
+      fill={solid ? "currentColor" : "none"}
       stroke="currentColor"
       strokeWidth={filled ? 2.5 : 2}
       strokeLinecap="round"

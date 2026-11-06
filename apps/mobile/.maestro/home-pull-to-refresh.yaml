@@ -1,0 +1,16 @@
+appId: com.santekno.goshop
+name: Pull to refresh keeps the shop window
+tags: [bab-14, home]
+---
+- runFlow: subflows/open-home.yaml
+- assertVisible: "Banner 1 dari 3.*"
+# Drag the list down from below the header. What the refetch fetched is not
+# visible, so this proves the gesture neither breaks nor empties the screen.
+- swipe:
+    start: 50%,35%
+    end: 50%,85%
+    duration: 600
+- waitForAnimationToEnd
+- assertVisible: "Banner 1 dari 3.*"
+- assertVisible: "Produk unggulan"
+- assertVisible: "Kategori"

@@ -1,0 +1,27 @@
+appId: com.santekno.goshop
+name: Home banner carousel, swipe and CTA
+tags: [bab-14, home]
+---
+- runFlow: subflows/open-home.yaml
+# Seeded banners (apps/api/cmd/seed/home.go): 3 cards, in position order.
+- assertVisible: "Banner 1 dari 3.*Kaos Baru Musim Ini.*Lihat kaos"
+# A paged horizontal list: one swipe on the card moves one page.
+- swipe:
+    from: "Banner 1 dari 3.*"
+    direction: LEFT
+- assertVisible: "Banner 2 dari 3.*Ponsel dan Aksesoris.*Belanja sekarang"
+- swipe:
+    from: "Banner 2 dari 3.*"
+    direction: LEFT
+- assertVisible: "Banner 3 dari 3.*Kopi Nusantara.*Cicipi kopinya"
+- swipe:
+    from: "Banner 3 dari 3.*"
+    direction: RIGHT
+- assertVisible: "Banner 2 dari 3.*"
+# The CTA opens the banner's category on the same screen: the shop window
+# gives way to the filtered list and the category chip appears.
+- tapOn: "Banner 2 dari 3.*"
+- assertVisible: "Kategori Aksesoris Ponsel, hapus filter"
+- assertNotVisible: "Produk unggulan"
+- tapOn: "Kategori Aksesoris Ponsel, hapus filter"
+- assertVisible: "Produk unggulan"

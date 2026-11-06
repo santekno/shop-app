@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, it, jest } from "@jest/globals";
-import { render, screen, userEvent } from "@testing-library/react-native";
+import { screen, userEvent } from "@testing-library/react-native";
+import { withTiming } from "react-native-reanimated";
 import type { Product, ProductImage } from "@goshop/shared";
 
 import { product } from "@/test/fixtures";
+import { setReducedMotion } from "@/test/motion";
+import { renderWithProviders } from "@/test/render";
 import { ProductCard } from "./ProductCard";
 
 // The real ProductPhoto, counted: memo(ProductCard) is observable as the
@@ -44,7 +47,7 @@ const withPrices = (name: string, amounts: number[]): Product => {
 
 describe("ProductCard", () => {
   it("shows one price when every variant costs the same", async () => {
-    await render(
+    await renderWithProviders(
       <ProductCard
         product={withPrices("Kaos Polos", [89_000, 89_000])}
         onPress={noop}
@@ -60,7 +63,7 @@ describe("ProductCard", () => {
   });
 
   it("says Mulai when another variant costs more", async () => {
-    await render(
+    await renderWithProviders(
       <ProductCard
         product={withPrices("Hoodie", [150_000, 175_000])}
         onPress={noop}
@@ -75,7 +78,7 @@ describe("ProductCard", () => {
 
   it("compares amounts, not objects: equal prices in new objects are one price", async () => {
     const p = withPrices("Topi", [50_000]);
-    await render(
+    await renderWithProviders(
       <ProductCard
         product={{ ...p, price_from: { amount: 50_000, currency: "IDR" } }}
         onPress={noop}
@@ -86,7 +89,7 @@ describe("ProductCard", () => {
   });
 
   it("marks a product out of stock with a badge and in its label", async () => {
-    await render(
+    await renderWithProviders(
       <ProductCard
         product={product("Jaket", { in_stock: false })}
         onPress={noop}
@@ -100,7 +103,9 @@ describe("ProductCard", () => {
   });
 
   it("has no badge while the product is in stock", async () => {
-    await render(<ProductCard product={product("Jaket")} onPress={noop} />);
+    await renderWithProviders(
+      <ProductCard product={product("Jaket")} onPress={noop} />,
+    );
 
     expect(screen.queryByText("Stok habis")).not.toBeOnTheScreen();
     expect(
@@ -109,9 +114,11 @@ describe("ProductCard", () => {
   });
 
   it("tells a screen reader what a tap does", async () => {
-    await render(<ProductCard product={product("Jaket")} onPress={noop} />);
+    await renderWithProviders(
+      <ProductCard product={product("Jaket")} onPress={noop} />,
+    );
 
-    expect(screen.getByRole("button")).toHaveProp(
+    expect(screen.getByRole("button", { name: "Jaket, Rp 89.000" })).toHaveProp(
       "accessibilityHint",
       "Membuka halaman produk",
     );
@@ -120,9 +127,11 @@ describe("ProductCard", () => {
   it("hands the tapped product to onPress", async () => {
     const onPress = jest.fn();
     const kaos = product("Kaos Polos");
-    await render(<ProductCard product={kaos} onPress={onPress} />);
+    await renderWithProviders(<ProductCard product={kaos} onPress={onPress} />);
 
-    await userEvent.press(screen.getByRole("button"));
+    await userEvent.press(
+      screen.getByRole("button", { name: "Kaos Polos, Rp 89.000" }),
+    );
 
     expect(onPress).toHaveBeenCalledTimes(1);
     expect(onPress).toHaveBeenCalledWith(kaos);
@@ -130,7 +139,9 @@ describe("ProductCard", () => {
 
   it("cuts a long name after two lines", async () => {
     const name = "Kaos Polos Lengan Panjang Katun Combed 30s Warna Hitam Pekat";
-    await render(<ProductCard product={product(name)} onPress={noop} />);
+    await renderWithProviders(
+      <ProductCard product={product(name)} onPress={noop} />,
+    );
 
     expect(screen.getByText(name)).toHaveProp("numberOfLines", 2);
   });
@@ -155,13 +166,13 @@ describe("ProductCard", () => {
         },
       ],
     });
-    // Every element that hands a source to the native image view.
+    // Every native image view and the source it was handed.
     const sources = () =>
       screen.container
-        .queryAll((element) => element.props.source !== undefined)
+        .queryAll((element) => element.type === "ExpoImage")
         .map((element) => element.props.source as unknown);
 
-    await render(
+    await renderWithProviders(
       <ProductCard
         product={product("Kaos", {
           images: [photo("depan"), photo("belakang")],
@@ -195,7 +206,7 @@ describe("ProductCard", () => {
 
   it("skips rendering again when the product and onPress are the same (memo)", async () => {
     const kaos = product("Kaos");
-    await render(<ProductCard product={kaos} onPress={noop} />);
+    await renderWithProviders(<ProductCard product={kaos} onPress={noop} />);
     expect(mockPhotoRenders).toHaveBeenCalledTimes(1);
 
     await screen.rerender(<ProductCard product={kaos} onPress={noop} />);
@@ -206,5 +217,89 @@ describe("ProductCard", () => {
     );
     expect(mockPhotoRenders).toHaveBeenCalledTimes(2);
     expect(screen.getByText("Kaos Baru")).toBeOnTheScreen();
+  });
+});
+
+describe("ProductCard press feedback and entrance", () => {
+  const scaleShown = () => {
+    const [node] = screen.container.queryAll((n) => {
+      const style = n.props.style as { transform?: unknown } | undefined;
+      return Array.isArray(style?.transform);
+    });
+    const style = node?.props.style as { transform: { scale: number }[] };
+    return style.transform[0]?.scale;
+  };
+
+  it("shrinks to 0.97 in 90 ms when a finger goes down, back to 1 in 140 ms when it lifts", async () => {
+    await renderWithProviders(
+      <ProductCard product={product("Jaket")} onPress={noop} />,
+    );
+    expect(scaleShown()).toBe(1);
+
+    await userEvent.press(
+      screen.getByRole("button", { name: "Jaket, Rp 89.000" }),
+    );
+
+    expect(withTiming).toHaveBeenNthCalledWith(1, 0.97, { duration: 90 });
+    expect(withTiming).toHaveBeenNthCalledWith(2, 1, { duration: 140 });
+    expect(scaleShown()).toBe(1);
+  });
+
+  it("holds the shrunk size while the finger stays down", async () => {
+    await renderWithProviders(
+      <ProductCard product={product("Jaket")} onPress={noop} />,
+    );
+    const user = userEvent.setup();
+
+    await user.longPress(
+      screen.getByRole("button", { name: "Jaket, Rp 89.000" }),
+      {
+        duration: 50,
+      },
+    );
+
+    expect(withTiming).toHaveBeenCalledWith(0.97, { duration: 90 });
+  });
+
+  it("with reduce motion on, the card does not move but still opens", async () => {
+    setReducedMotion(true);
+    const onPress = jest.fn();
+    await renderWithProviders(
+      <ProductCard product={product("Jaket")} onPress={onPress} />,
+    );
+
+    await userEvent.press(
+      screen.getByRole("button", { name: "Jaket, Rp 89.000" }),
+    );
+
+    expect(withTiming).not.toHaveBeenCalled();
+    expect(scaleShown()).toBe(1);
+    expect(onPress).toHaveBeenCalledTimes(1);
+  });
+
+  it("fades in when it first appears", async () => {
+    await renderWithProviders(
+      <ProductCard product={product("Jaket")} onPress={noop} />,
+    );
+
+    const [animated] = screen.container.queryAll(
+      (n) =>
+        (n.props.entering as { name?: string } | undefined)?.name === "FadeIn",
+    );
+    expect(animated?.props.entering).toMatchObject({
+      durationMs: 220,
+      reduceMotionMode: "system",
+    });
+  });
+
+  it("carries a heart for the product, beside the card and not inside it", async () => {
+    await renderWithProviders(
+      <ProductCard product={product("Jaket")} onPress={noop} />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Simpan Jaket ke wishlist" }),
+    ).toBeOnTheScreen();
+    expect(screen.getAllByRole("button")).toHaveLength(2);
   });
 });

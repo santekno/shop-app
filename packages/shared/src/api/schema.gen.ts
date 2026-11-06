@@ -72,6 +72,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/banners": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the home screen banners
+         * @description Returns the active banners of the home screen carousel in display
+         *     order (`position`, then `id`). The list is small, so it is not
+         *     paginated. No authentication needed. Banners are coloured text
+         *     cards: there is no image. Tapping one opens the category named by
+         *     `link_category_slug`. Banners are managed by the seed or by SQL for
+         *     now; there is no admin endpoint yet.
+         */
+        get: operations["listBanners"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/products": {
         parameters: {
             query?: never;
@@ -725,6 +750,61 @@ export interface paths {
          * @description A field left out (or `null`) keeps its value. `is_default` true makes this the default; false on the default address answers 409 `DEFAULT_ADDRESS_REQUIRED` (make another address the default instead).
          */
         patch: operations["updateAddress"];
+        trace?: never;
+    };
+    "/v1/me/wishlist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List my wishlist
+         * @description The products the caller saved, newest saved first, in the same
+         *     shape as `GET /v1/products` (`ProductList`). Buyers only: a seller
+         *     or admin gets 403 `FORBIDDEN`. A product that stopped being active
+         *     is left out. To get the next page, send `cursor` set to the previous
+         *     `page.next_cursor`.
+         */
+        get: operations["listWishlist"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me/wishlist/{slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Product slug. */
+                slug: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Save a product to my wishlist
+         * @description Idempotent: saving a product that is saved already answers 204 and
+         *     changes nothing, also when the wishlist is full. A slug that names
+         *     no active product, or is malformed, answers 404 `NOT_FOUND`. A
+         *     wishlist keeps at most 200 products (409 `WISHLIST_LIMIT_REACHED`).
+         *     Buyers only.
+         */
+        put: operations["addToWishlist"];
+        post?: never;
+        /**
+         * Remove a product from my wishlist
+         * @description Idempotent. 204 whether or not the product was saved, and also for a slug that names no product. Buyers only.
+         */
+        delete: operations["removeFromWishlist"];
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/v1/auth/verify-email": {
@@ -1705,6 +1785,33 @@ export interface components {
             /** @description Cursor for the next page, or `null` on the last page. A page may hold fewer than `limit` products, even none, while `next_cursor` is not null; stop only when it is null. */
             next_cursor: string | null;
         };
+        BannerList: {
+            data: components["schemas"]["Banner"][];
+        };
+        /** @description One card of the home screen carousel. A coloured card with text; there is no image. */
+        Banner: {
+            /** Format: uuid */
+            id: string;
+            /** @example Kaos Baru Musim Ini */
+            title: string;
+            /** @description A second line under the title, or `null`. */
+            subtitle: string | null;
+            /**
+             * @description The label of the banner's button, or `null` for a banner without one.
+             * @example Lihat kaos
+             */
+            cta_label: string | null;
+            /**
+             * @description The category the app opens when the banner is tapped, or `null` for a banner that links nowhere. It is not checked against the categories, so the app handles a slug that names none.
+             * @example kaos
+             */
+            link_category_slug: string | null;
+            /**
+             * @description The card's background as `#RRGGBB`.
+             * @example #1E40AF
+             */
+            background_color: string;
+        };
         CategoryList: {
             data: components["schemas"]["Category"][];
         };
@@ -2673,6 +2780,26 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
+        /** @description The caller already has 200 products on the wishlist (`WISHLIST_LIMIT_REACHED`). */
+        WishlistFull: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "error": {
+                 *         "code": "WISHLIST_LIMIT_REACHED",
+                 *         "message": "your wishlist is full; remove a product first",
+                 *         "details": {
+                 *           "max": 200
+                 *         }
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["Error"];
+            };
+        };
         /** @description Unexpected server error. The code is always `INTERNAL_ERROR`, the code sdk `middleware/chi` `Recovery` writes after a panic, and handlers use the same code for every other 500. The details are in the server log, never in the response. */
         InternalError: {
             headers: {
@@ -3222,6 +3349,41 @@ export interface operations {
             500: components["responses"]["InternalError"];
         };
     };
+    listBanners: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The active banners, possibly none. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": [
+                     *         {
+                     *           "id": "0192f3c0-1c2d-7b4e-8a10-3f5e6d7c8b90",
+                     *           "title": "Kaos Baru Musim Ini",
+                     *           "subtitle": "Katun combed nyaman untuk sehari-hari",
+                     *           "cta_label": "Lihat kaos",
+                     *           "link_category_slug": "kaos",
+                     *           "background_color": "#1E40AF"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["BannerList"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
     listProducts: {
         parameters: {
             query?: {
@@ -3243,7 +3405,14 @@ export interface operations {
                 q?: string;
                 /** @description Sort order. Price sorting uses the cheapest sellable variant (`price_from`). */
                 sort?: "newest" | "price_asc" | "price_desc";
-                /** @description Opaque cursor from `page.next_cursor` of the previous page. Omit it for the first page. Clients must not parse or build it; it is only valid with the same `category`, `q` and `sort`. */
+                /**
+                 * @description `true` keeps only the products the shop features on the home
+                 *     screen. `false`, or leaving it out, lists every product. Any other
+                 *     value is 400 `VALIDATION_FAILED`. Combines with `category`, `q`,
+                 *     `sort` and `cursor`.
+                 */
+                featured?: "true" | "false";
+                /** @description Opaque cursor from `page.next_cursor` of the previous page. Omit it for the first page. Clients must not parse or build it; it is only valid with the same `category`, `q`, `featured` and `sort`. */
                 cursor?: string;
                 /** @description Page size. */
                 limit?: number;
@@ -4290,6 +4459,85 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["AddressConflict"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listWishlist: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor from `page.next_cursor` of the previous page. Omit it for the first page. Clients must not parse or build it; one made for another list is refused with 400. */
+                cursor?: string;
+                /** @description Page size. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the wishlist. `data` is `[]` and `page.next_cursor` is null when nothing is saved. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    addToWishlist: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Product slug. */
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The product is on the wishlist. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["WishlistFull"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    removeFromWishlist: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Product slug. */
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The product is not on the wishlist. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             500: components["responses"]["InternalError"];
         };
     };

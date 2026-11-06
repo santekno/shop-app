@@ -1,0 +1,38 @@
+appId: com.santekno.goshop
+name: Recently viewed row after opening a product
+tags: [bab-14, home, product, android]
+---
+- runFlow: subflows/open-home.yaml
+# A fresh install has no history: no header, no gap.
+- assertNotVisible: "Terakhir dilihat"
+- assertNotVisible:
+    id: "recently-viewed"
+- tapOn:
+    text: "Kaos Polos Hitam.*"
+    index: 0
+- extendedWaitUntil:
+    visible: "Pilih varian"
+    timeout: 15000
+- back
+- extendedWaitUntil:
+    visible: "Produk unggulan"
+    timeout: 15000
+- scrollUntilVisible:
+    element:
+      id: "recently-viewed"
+- assertVisible: "Terakhir dilihat"
+- assertVisible: "Kaos Polos Hitam, mulai Rp.89\\.000"
+# The row opens the product again.
+- tapOn: "Kaos Polos Hitam, mulai Rp.89\\.000"
+- extendedWaitUntil:
+    visible: "Pilih varian"
+    timeout: 15000
+- back
+- scrollUntilVisible:
+    element:
+      id: "recently-viewed"
+# "Hapus" empties the row and the section disappears.
+- tapOn: "Hapus riwayat terakhir dilihat"
+- assertNotVisible: "Terakhir dilihat"
+- assertNotVisible:
+    id: "recently-viewed"

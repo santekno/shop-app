@@ -23,3 +23,26 @@ export const useAnnounceOnIos = (message: string) => {
     }
   }, [message]);
 };
+
+/**
+ * Tells VoiceOver about a change the user just made, such as a new price
+ * after choosing a size. Not a hook: it is called from the press handler,
+ * so nothing is announced when the screen first appears. iOS only, like
+ * useAnnounceOnIos; on Android the changed text sits in a live region.
+ */
+export const announceOnIos = (message: string) => {
+  if (Platform.OS === "ios") {
+    AccessibilityInfo.announceForAccessibility(message);
+  }
+};
+
+/**
+ * Tells the screen reader about a change the user just made, on both
+ * platforms. For a control whose label does not change a live region (a
+ * heart that fills in): Android has no region to put the text in, so it is
+ * announced directly, as iOS is. Called from the press handler, never on
+ * first render.
+ */
+export const announce = (message: string) => {
+  AccessibilityInfo.announceForAccessibility(message);
+};

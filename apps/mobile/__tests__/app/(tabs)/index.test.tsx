@@ -6,12 +6,15 @@ import {
   fireEvent,
   screen,
   userEvent,
+  waitFor,
+  within,
 } from "@testing-library/react-native";
 
 import { queryClient } from "@/lib/query-client";
 import { emitNetworkState, setInitialNetworkState } from "@/test/expo-network";
-import { fakeApi, json } from "@/test/fake-api";
+import { apiError, fakeApi, json } from "@/test/fake-api";
 import { category, product, productPage } from "@/test/fixtures";
+import { refreshControl } from "@/test/list";
 import { renderApp } from "@/test/router";
 
 afterEach(() => {
@@ -19,17 +22,32 @@ afterEach(() => {
   onlineManager.setOnline(true);
 });
 
-/** Answers every product request with the products named. */
+/**
+ * Answers the catalog with the products named. The shop window's other
+ * requests (banners, categories, the featured row, which is the same path
+ * with ?featured=true) get empty answers: these tests are about the list.
+ */
 const answerProducts = (...names: string[]) => {
-  fakeApi.on("GET", "/v1/products", () =>
-    json(productPage(names.map((name) => product(name)))),
+  fakeApi.on("GET", "/v1/products", ({ url }) =>
+    json(
+      productPage(
+        url.searchParams.has("featured")
+          ? []
+          : names.map((name) => product(name)),
+      ),
+    ),
   );
+  fakeApi.on("GET", "/v1/banners", () => json({ data: [] }));
+  fakeApi.on("GET", "/v1/categories", () => json({ data: [] }));
 };
 
-/** The query of the n-th GET /v1/products, as an object. */
+/** The query of the n-th catalog list request (not the featured row). */
 const productQuery = (n: number) =>
   Object.fromEntries(
-    fakeApi.requests("GET", "/v1/products")[n]?.url.searchParams ?? [],
+    fakeApi
+      .requests("GET", "/v1/products")
+      .filter((request) => !request.url.searchParams.has("featured"))[n]?.url
+      .searchParams ?? [],
   );
 
 describe("Beranda: the route is the state", () => {
@@ -189,22 +207,26 @@ describe("Beranda: the search field", () => {
   });
 });
 
-// Link asChild gives the Pressable role="link", and React Native ranks
-// `role` above accessibilityRole. The Pressable's own role="button" wins
-// over the link's, so a screen reader says "button": it opens a sheet.
-describe("Beranda: the sort button", () => {
-  it("opens the sort sheet with every filter, labelled with the current order", async () => {
+// The badge is hidden from screen readers on purpose (the button's label
+// already says what is applied), so RNTL only finds it when asked to look
+// at hidden elements.
+const HIDDEN_TOO = { includeHiddenElements: true };
+
+describe("Beranda: the filter button", () => {
+  it("opens the filter sheet over Beranda, labelled with what is applied", async () => {
     answerProducts("Kaos");
     const app = await renderApp("/?kategori=kaos&q=polos&urut=termahal");
     await screen.findByText("Kaos");
 
     await userEvent.press(
       screen.getByRole("button", {
-        name: "Urutkan, saat ini Harga tertinggi",
+        name: "Filter dan urutan, saat ini Harga tertinggi, kategori kaos",
       }),
     );
 
-    expect(app.getPathname()).toBe("/filter");
+    expect(await screen.findByText("Terapkan")).toBeOnTheScreen();
+    // A sheet, not a route: the screen underneath is still Beranda.
+    expect(app.getPathname()).toBe("/");
     expect(app.getSearchParams()).toEqual({
       kategori: "kaos",
       q: "polos",
@@ -212,16 +234,39 @@ describe("Beranda: the sort button", () => {
     });
   });
 
-  it("passes the default order when the route has none", async () => {
+  it("says the default order when the route has none, and shows no badge", async () => {
     answerProducts("Kaos");
-    const app = await renderApp("/");
+    await renderApp("/");
     await screen.findByText("Kaos");
 
-    await userEvent.press(
-      screen.getByRole("button", { name: "Urutkan, saat ini Terbaru" }),
-    );
+    const button = screen.getByRole("button", {
+      name: "Filter dan urutan, saat ini Terbaru",
+    });
+    expect(button).toBeOnTheScreen();
+    expect(within(button).queryByText("1", HIDDEN_TOO)).not.toBeOnTheScreen();
+    expect(within(button).queryByText("2", HIDDEN_TOO)).not.toBeOnTheScreen();
+  });
 
-    expect(app.getSearchParams()).toEqual({ urut: "terbaru" });
+  it("shows a badge counting the filters that differ from the default", async () => {
+    answerProducts("Kaos");
+    await renderApp("/?kategori=kaos&urut=termurah");
+    await screen.findByText("Kaos");
+
+    const button = screen.getByRole("button", {
+      name: /^Filter dan urutan, saat ini Harga terendah/,
+    });
+    expect(within(button).getByText("2", HIDDEN_TOO)).toBeOnTheScreen();
+  });
+
+  it("counts only the order when no category is set", async () => {
+    answerProducts("Kaos");
+    await renderApp("/?urut=termurah");
+    await screen.findByText("Kaos");
+
+    const button = screen.getByRole("button", {
+      name: "Filter dan urutan, saat ini Harga terendah",
+    });
+    expect(within(button).getByText("1", HIDDEN_TOO)).toBeOnTheScreen();
   });
 
   it("is a button, never a link, with a 48 dp touch target", async () => {
@@ -230,10 +275,10 @@ describe("Beranda: the sort button", () => {
     await screen.findByText("Kaos");
 
     const button = screen.getByRole("button", {
-      name: "Urutkan, saat ini Terbaru",
+      name: "Filter dan urutan, saat ini Terbaru",
     });
-    expect(screen.queryByRole("link", { name: /Urutkan/ })).toBeNull();
-    // 24 dp icon + 2 × 12 = 48 dp, Android's smallest touch target.
+    expect(screen.queryByRole("link", { name: /Filter/ })).toBeNull();
+    // 24 dp icon + 2 x 12 = 48 dp, Android's smallest touch target.
     expect(button).toHaveProp("hitSlop", 12);
   });
 });
@@ -251,5 +296,178 @@ describe("Beranda: the top bar", () => {
       paddingLeft: 16,
       paddingRight: 16,
     });
+  });
+});
+
+describe("Beranda: the shop window", () => {
+  const featured = product("Jaket Unggulan");
+
+  /** The three window requests with content; the catalog has one product. */
+  const answerWindow = () => {
+    fakeApi.on("GET", "/v1/products", ({ url }) =>
+      json(
+        productPage(
+          url.searchParams.has("featured")
+            ? [featured]
+            : [product("Kaos Katalog")],
+        ),
+      ),
+    );
+    fakeApi.on("GET", "/v1/banners", () =>
+      json({
+        data: [
+          {
+            id: "00000000-0000-4000-8000-0000000000a1",
+            title: "Diskon Kaos",
+            subtitle: null,
+            cta_label: "Lihat kaos",
+            link_category_slug: "kaos",
+            background_color: "#1E40AF",
+          },
+        ],
+      }),
+    );
+    fakeApi.on("GET", "/v1/categories", () =>
+      json({ data: [category("kaos", "Kaos"), category("celana", "Celana")] }),
+    );
+  };
+
+  it("shows banners, categories and featured products above the catalog", async () => {
+    answerWindow();
+    await renderApp("/");
+
+    expect(await screen.findByText("Diskon Kaos")).toBeOnTheScreen();
+    expect(
+      await screen.findByRole("button", { name: "Kategori Celana" }),
+    ).toBeOnTheScreen();
+    expect(await screen.findByText("Jaket Unggulan")).toBeOnTheScreen();
+    expect(screen.getByText("Kaos Katalog")).toBeOnTheScreen();
+    expect(
+      screen.getByRole("header", { name: "Produk unggulan" }),
+    ).toBeOnTheScreen();
+  });
+
+  it.each(["/?q=polos", "/?kategori=kaos"])(
+    "is hidden when the route narrows the catalog (%s), and asks for nothing of it",
+    async (url) => {
+      answerWindow();
+      await renderApp(url);
+
+      await screen.findByText("Kaos Katalog");
+      expect(screen.queryByText("Diskon Kaos")).not.toBeOnTheScreen();
+      expect(
+        screen.queryByRole("header", { name: "Produk unggulan" }),
+      ).not.toBeOnTheScreen();
+      expect(fakeApi.requests("GET", "/v1/banners")).toHaveLength(0);
+    },
+  );
+
+  it("a category chip sets ?kategori= and keeps the order", async () => {
+    answerWindow();
+    const app = await renderApp("/?urut=termurah");
+
+    await userEvent.press(
+      await screen.findByRole("button", { name: "Kategori Celana" }),
+    );
+
+    expect(app.getSearchParams()).toEqual({
+      kategori: "celana",
+      urut: "termurah",
+    });
+    await waitFor(() => {
+      expect(screen.queryByText("Diskon Kaos")).not.toBeOnTheScreen();
+    });
+  });
+
+  it("a banner tap opens its category", async () => {
+    answerWindow();
+    const app = await renderApp("/");
+
+    await userEvent.press(
+      await screen.findByRole("button", {
+        name: "Banner 1 dari 1. Diskon Kaos. Lihat kaos",
+      }),
+    );
+
+    expect(app.getSearchParams()).toEqual({ kategori: "kaos" });
+  });
+
+  it("one failing section leaves the other two working", async () => {
+    fakeApi.once("GET", "/v1/banners", () => apiError(500, "INTERNAL", "r-9"));
+    answerWindow();
+    await renderApp("/");
+
+    expect(
+      await screen.findByRole("button", { name: "Coba lagi" }),
+    ).toBeOnTheScreen();
+    expect(
+      await screen.findByRole("button", { name: "Kategori Celana" }),
+    ).toBeOnTheScreen();
+    expect(await screen.findByText("Jaket Unggulan")).toBeOnTheScreen();
+  });
+
+  it("pull to refresh refetches the banners, categories and featured row with the list", async () => {
+    answerWindow();
+    await renderApp("/");
+    await screen.findByText("Jaket Unggulan");
+    await screen.findByText("Diskon Kaos");
+    const before = (path: string) => fakeApi.requests("GET", path).length;
+    const banners = before("/v1/banners");
+    const categories = before("/v1/categories");
+    const products = before("/v1/products");
+
+    await act(async () => {
+      await fireEvent(refreshControl(), "refresh");
+    });
+
+    await waitFor(() => {
+      expect(before("/v1/banners")).toBe(banners + 1);
+    });
+    expect(before("/v1/categories")).toBe(categories + 1);
+    // The list's first page and the featured row.
+    expect(before("/v1/products")).toBe(products + 2);
+  });
+});
+
+describe("Beranda: applying the filter sheet", () => {
+  const openSheet = async () => {
+    await userEvent.press(
+      screen.getByRole("button", { name: /^Filter dan urutan, saat ini/ }),
+    );
+    await screen.findByText("Terapkan");
+  };
+
+  it("writes ?kategori= and ?urut= to the route and keeps the search", async () => {
+    fakeApi.on("GET", "/v1/categories", () =>
+      json({ data: [category("kaos", "Kaos")] }),
+    );
+    answerProducts("Kaos");
+    const app = await renderApp("/?q=polos");
+    await screen.findByText("Kaos");
+    await openSheet();
+
+    await userEvent.press(await screen.findByRole("radio", { name: "Kaos" }));
+    await userEvent.press(
+      screen.getByRole("radio", { name: "Harga terendah" }),
+    );
+    await userEvent.press(screen.getByRole("button", { name: "Terapkan" }));
+
+    expect(app.getSearchParams()).toEqual({
+      q: "polos",
+      kategori: "kaos",
+      urut: "termurah",
+    });
+  });
+
+  it("leaves urut out of the route when the order is the default", async () => {
+    answerProducts("Kaos");
+    const app = await renderApp("/?urut=termahal");
+    await screen.findByText("Kaos");
+    await openSheet();
+
+    await userEvent.press(screen.getByRole("radio", { name: "Terbaru" }));
+    await userEvent.press(screen.getByRole("button", { name: "Terapkan" }));
+
+    expect(app.getSearchParams()).toEqual({});
   });
 });

@@ -1,30 +1,27 @@
 import { FlashList } from "@shopify/flash-list";
 import type { ListRenderItem } from "@shopify/flash-list";
-import { router, useTheme } from "expo-router";
+import { useTheme } from "expo-router";
+import type { ReactNode } from "react";
 import { Platform, Pressable, RefreshControl, Text, View } from "react-native";
 import { isApiError } from "@goshop/shared";
 import type { Product } from "@goshop/shared";
 
 import { Icon } from "@/components/Icon";
+import { listLoadReporter, PerfProfiler } from "@/lib/perf";
 import {
+  EmptyResult,
   EmptyState,
   ErrorState,
-  LoadingState,
 } from "@/components/StatusMessage";
 import type { ProductListFilters } from "../api/products";
+import { openProduct } from "../open-product";
 import { useProductList } from "../hooks/useProductList";
 import { ProductCard } from "./ProductCard";
 import { ProductListFooter } from "./ProductListFooter";
+import { ProductGridSkeleton } from "./ProductSkeletons";
 
 /** Two cards per row: the app is phone-only (supportsTablet is false). */
 const COLUMNS = 2;
-
-// A typed href: with typed routes on, a pathname that is not a route, or a
-// missing slug, is a compile error. The detail screen is pushed on the root
-// stack, above the tab bar.
-const openProduct = (product: Product) => {
-  router.push({ pathname: "/produk/[slug]", params: { slug: product.slug } });
-};
 
 // One cell, with 6 dp of padding all round. FlashList gives each cell its
 // column's width itself (half the list with numColumns 2), so the cell has
@@ -48,10 +45,18 @@ const renderProduct: ListRenderItem<Product> = ({ item }) => (
 
 const productKey = (product: Product) => product.id;
 
+// Dev only (artikel 14): logs "first rows drawn after N ms" once per list.
+// undefined in a release build, so the list gets no handler there. Made
+// once, outside the component, so its identity never changes a render.
+const reportFirstRows = listLoadReporter("catalog");
+
+/** The list's side padding in dp: 10 + a card's 6 = 16 at the screen's edge. */
+export const CATALOG_SIDE_PADDING = 10;
+
 /** grow px-2.5 pb-4, as numbers (see the list's contentContainerStyle). */
 const CONTENT_STYLE = {
   flexGrow: 1,
-  paddingHorizontal: 10,
+  paddingHorizontal: CATALOG_SIDE_PADDING,
   paddingBottom: 16,
 } as const;
 
@@ -64,6 +69,23 @@ interface ProductListProps {
    * when known, and how to go back to every product.
    */
   category?: { name: string; onClear: () => void } | undefined;
+  /**
+   * Clears the search, the category and the order at once ("Reset
+   * filter"). Given only when something is narrowing the list; the empty
+   * state offers it as its way out.
+   */
+  onReset?: () => void;
+  /**
+   * What sits above the caption, scrolling with the list: Beranda's
+   * banners, categories and featured products. One scroll view, not a
+   * vertical list inside a vertical ScrollView.
+   */
+  header?: ReactNode;
+  /**
+   * Also refetched by a pull to refresh, with the list: the queries of
+   * whatever `header` shows. The spinner stays until both have settled.
+   */
+  refreshAlso?: () => Promise<unknown>;
 }
 
 /**
@@ -81,7 +103,14 @@ interface ProductListProps {
  * memory after a long scroll, the first rows sooner. Same props for the
  * rest: header, footer, empty state, onEndReached, the refresh control.
  */
-export function ProductList({ filters, caption, category }: ProductListProps) {
+export function ProductList({
+  filters,
+  caption,
+  category,
+  header,
+  refreshAlso,
+  onReset,
+}: ProductListProps) {
   const { colors } = useTheme();
   const {
     data,
@@ -90,25 +119,45 @@ export function ProductList({ filters, caption, category }: ProductListProps) {
     fetchStatus,
     error,
     isFetching,
+    isPlaceholderData,
     isFetchingNextPage,
     isFetchNextPageError,
     isRefetchError,
     hasNextPage,
-    fetchNextPage,
+    loadMore,
+    retryNextPage,
     refetch,
     refresh,
     isRefreshing,
   } = useProductList(filters);
 
-  // Not while a request runs: fetchNextPage would cancel a background
-  // refetch and start over. Not after a failed page: onEndReached fires
-  // again as soon as the list moves, and loading by itself would retry in
-  // a loop; the footer's "Coba lagi" does it.
-  const loadMore = () => {
-    if (hasNextPage && !isFetching && !isFetchNextPageError) {
-      void fetchNextPage();
-    }
-  };
+  // The list loaded and has no product. Three different reasons, three
+  // different ways out: a search that matched nothing, a category with no
+  // products yet, and a shop with none at all.
+  const searched = filters.q !== undefined;
+  const emptyResult = searched ? (
+    <EmptyResult
+      title={`Tidak ada hasil untuk "${filters.q}"`}
+      hint="Periksa ejaan atau coba kata kunci lain, atau hapus filter."
+      action={
+        onReset === undefined
+          ? undefined
+          : { label: "Reset filter", onPress: onReset }
+      }
+    />
+  ) : filters.category !== undefined ? (
+    <EmptyResult
+      title={`Belum ada produk di ${category?.name ?? "kategori ini"}`}
+      hint="Produk baru akan muncul di sini. Lihat kategori lain sementara itu."
+      action={
+        onReset === undefined
+          ? undefined
+          : { label: "Lihat semua produk", onPress: onReset }
+      }
+    />
+  ) : (
+    <EmptyState message="Belum ada produk." />
+  );
 
   // What the list shows when it has no rows. `data` decides, not `status`:
   // a list that has never loaded is loading, waiting for a network, or
@@ -142,116 +191,123 @@ export function ProductList({ filters, caption, category }: ProductListProps) {
         // waits instead of failing, and runs when the network is back.
         <EmptyState message="Tidak ada koneksi internet. Produk dimuat begitu koneksi kembali." />
       ) : (
-        <LoadingState label="Memuat produk…" />
+        // The grid's own shape, pulsing, instead of a spinner: the first
+        // screen already looks like the catalog (artikel 08).
+        <ProductGridSkeleton />
       )
     ) : (
-      <EmptyState
-        message={
-          filters.q === undefined && filters.category === undefined
-            ? "Belum ada produk."
-            : "Tidak ada produk yang cocok."
-        }
-      />
+      emptyResult
     );
 
   return (
-    <FlashList
-      // One list per search, sort and category, like the cache (one entry
-      // per query key): a new filter starts at the top. Without the key the
-      // list kept its scroll offset, and a cached result (no loading state
-      // in between) opened scrolled to wherever the last one was.
-      key={JSON.stringify(filters)}
-      data={products}
-      renderItem={renderProduct}
-      keyExtractor={productKey}
-      numColumns={COLUMNS}
-      // flexGrow: the content is at least as tall as the list, so the
-      // empty state can centre itself in the free space. A style, not
-      // contentContainerClassName: NativeWind maps className props on
-      // React Native's own components; FlashList is not one of them.
-      contentContainerStyle={CONTENT_STYLE}
-      // FlashList 2 keeps the first visible row in place when the data
-      // changes, which suits a chat that grows at the top. The catalog only
-      // grows at the end; with it on, a list that went from the loading
-      // state to its rows opened scrolled to the end.
-      maintainVisibleContentPosition={{ disabled: true }}
-      ListHeaderComponent={
-        <View className="gap-2 px-1.5 pb-1.5 pt-4">
-          {/* The active category as a chip; a press clears it, like the
+    <PerfProfiler id="ProductList">
+      <FlashList
+        // One list per search, sort and category, like the cache (one entry
+        // per query key): a new filter starts at the top. Without the key the
+        // list kept its scroll offset, and a cached result (no loading state
+        // in between) opened scrolled to wherever the last one was.
+        key={JSON.stringify(filters)}
+        data={products}
+        renderItem={renderProduct}
+        keyExtractor={productKey}
+        numColumns={COLUMNS}
+        // Every cell is the same card, so there is one recycling pool and no
+        // getItemType: it is for lists that mix row shapes (a banner row
+        // among products), where a cell must not be recycled into another
+        // shape. FlashList 2 also needs no estimatedItemSize; it measures.
+        onLoad={reportFirstRows}
+        // flexGrow: the content is at least as tall as the list, so the
+        // empty state can centre itself in the free space. A style, not
+        // contentContainerClassName: NativeWind maps className props on
+        // React Native's own components; FlashList is not one of them.
+        contentContainerStyle={CONTENT_STYLE}
+        // FlashList 2 keeps the first visible row in place when the data
+        // changes, which suits a chat that grows at the top. The catalog only
+        // grows at the end; with it on, a list that went from the loading
+        // state to its rows opened scrolled to the end.
+        maintainVisibleContentPosition={{ disabled: true }}
+        ListHeaderComponent={
+          <>
+            {header}
+            <View className="gap-2 px-1.5 pb-1.5 pt-4">
+              {/* The active category as a chip; a press clears it, like the
               "x" on a filter chip (Icon's tutup). */}
-          {category !== undefined && (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Kategori ${category.name}, hapus filter`}
-              hitSlop={6}
-              onPress={category.onClear}
-              className="flex-row items-center gap-2 self-start rounded-full bg-muted px-3 py-1 active:bg-accent dark:bg-muted-dark dark:active:bg-accent-dark"
-            >
-              <Text className="font-sans text-sm font-semibold text-foreground dark:text-foreground-dark">
-                {category.name}
+              {category !== undefined && (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Kategori ${category.name}, hapus filter`}
+                  hitSlop={6}
+                  onPress={category.onClear}
+                  className="flex-row items-center gap-2 self-start rounded-full bg-muted px-3 py-1 active:bg-accent dark:bg-muted-dark dark:active:bg-accent-dark"
+                >
+                  <Text className="font-sans text-sm font-semibold text-foreground dark:text-foreground-dark">
+                    {category.name}
+                  </Text>
+                  <Icon
+                    name="tutup"
+                    className="text-muted-foreground dark:text-muted-foreground-dark"
+                    size={16}
+                  />
+                </Pressable>
+              )}
+              <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                {caption}
+                {/* The rows below are the previous search's until the new
+                  ones arrive (placeholderData, queries.ts). */}
+                {isPlaceholderData ? " · memperbarui…" : ""}
               </Text>
-              <Icon
-                name="tutup"
-                className="text-muted-foreground dark:text-muted-foreground-dark"
-                size={16}
-              />
-            </Pressable>
-          )}
-          <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
-            {caption}
-          </Text>
-          {/* The products already on screen stay; this says they may be
+              {/* The products already on screen stay; this says they may be
               out of date, after a pull or a background refetch failed. */}
-          {isRefetchError && products.length > 0 && (
-            <ErrorState
-              error={error}
-              onRetry={() => {
-                void refresh();
-              }}
-            />
-          )}
-        </View>
-      }
-      ListEmptyComponent={
-        <View className="flex-1 items-center justify-center">{empty}</View>
-      }
-      ListFooterComponent={
-        <ProductListFooter
-          count={products.length}
-          hasNextPage={hasNextPage}
-          isFetchingNextPage={isFetchingNextPage}
-          isFetchNextPageError={isFetchNextPageError}
-          error={error}
-          fetchNextPage={() => {
-            void fetchNextPage();
-          }}
-        />
-      }
-      // Ask for the next page when the end is one screen's height away,
-      // so it usually arrives before the buyer gets there.
-      onEndReached={loadMore}
-      onEndReachedThreshold={1}
-      refreshControl={
-        // The platform's pull-to-refresh: Android's circle drops from the
-        // top, iOS's spinner opens above the list. A native component with
-        // colour props rather than a style, so the colours come from the
-        // navigation theme, the same roles as the classes.
-        <RefreshControl
-          refreshing={isRefreshing}
-          onRefresh={() => {
-            void refresh();
-          }}
-          colors={[colors.primary]}
-          progressBackgroundColor={colors.card}
-          tintColor={colors.primary}
-        />
-      }
-      // Dragging the list puts the keyboard away. iOS can follow the
-      // finger ("interactive"); Android only knows "on-drag".
-      keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
-      // A tap on a card works at the first touch; a tap on empty space
-      // closes the keyboard.
-      keyboardShouldPersistTaps="handled"
-    />
+              {isRefetchError && products.length > 0 && (
+                <ErrorState
+                  error={error}
+                  onRetry={() => {
+                    void refresh();
+                  }}
+                />
+              )}
+            </View>
+          </>
+        }
+        ListEmptyComponent={
+          <View className="flex-1 items-center justify-center">{empty}</View>
+        }
+        ListFooterComponent={
+          <ProductListFooter
+            count={products.length}
+            hasNextPage={hasNextPage}
+            isFetchingNextPage={isFetchingNextPage}
+            isFetchNextPageError={isFetchNextPageError}
+            error={error}
+            fetchNextPage={retryNextPage}
+          />
+        }
+        // Ask for the next page when the end is one screen's height away,
+        // so it usually arrives before the buyer gets there.
+        onEndReached={loadMore}
+        onEndReachedThreshold={1}
+        refreshControl={
+          // The platform's pull-to-refresh: Android's circle drops from the
+          // top, iOS's spinner opens above the list. A native component with
+          // colour props rather than a style, so the colours come from the
+          // navigation theme, the same roles as the classes.
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={() => {
+              void refresh(refreshAlso);
+            }}
+            colors={[colors.primary]}
+            progressBackgroundColor={colors.card}
+            tintColor={colors.primary}
+          />
+        }
+        // Dragging the list puts the keyboard away. iOS can follow the
+        // finger ("interactive"); Android only knows "on-drag".
+        keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+        // A tap on a card works at the first touch; a tap on empty space
+        // closes the keyboard.
+        keyboardShouldPersistTaps="handled"
+      />
+    </PerfProfiler>
   );
 }

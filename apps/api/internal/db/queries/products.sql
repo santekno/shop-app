@@ -21,7 +21,10 @@
 -- no search; otherwise full-text search on the generated column (name
 -- weighted above description) with the GIN index products_search_idx.
 -- websearch_to_tsquery accepts what people type (words, "quoted phrases",
--- -excluded, or) and never fails on syntax.
+-- -excluded, or) and never fails on syntax. featured false means no
+-- filter; true keeps only the products the shop put on the home screen
+-- (is_featured), which products_active_featured_newest_idx serves for
+-- sort=newest.
 
 -- name: ListProductsNewest :many
 -- sort=newest, served by products_active_newest_idx (or
@@ -34,6 +37,7 @@ WITH page AS (
            OR p.category_id = ANY(sqlc.narg('category_ids')::uuid[]))
       AND (sqlc.narg('search')::text IS NULL
            OR p.search @@ websearch_to_tsquery('indonesian', sqlc.narg('search')))
+      AND (NOT @featured::boolean OR p.is_featured)
       AND (p.created_at, p.id) < (@cursor_created_at::timestamptz, @cursor_id::uuid)
     ORDER BY p.created_at DESC, p.id DESC
     LIMIT @page_size
@@ -56,6 +60,7 @@ WITH page AS (
            OR p.category_id = ANY(sqlc.narg('category_ids')::uuid[]))
       AND (sqlc.narg('search')::text IS NULL
            OR p.search @@ websearch_to_tsquery('indonesian', sqlc.narg('search')))
+      AND (NOT @featured::boolean OR p.is_featured)
       AND (p.price_from, p.id) > (@cursor_price::bigint, @cursor_id::uuid)
     ORDER BY p.price_from, p.id
     LIMIT @page_size
@@ -78,6 +83,7 @@ WITH page AS (
            OR p.category_id = ANY(sqlc.narg('category_ids')::uuid[]))
       AND (sqlc.narg('search')::text IS NULL
            OR p.search @@ websearch_to_tsquery('indonesian', sqlc.narg('search')))
+      AND (NOT @featured::boolean OR p.is_featured)
       AND (p.price_from, p.id) < (@cursor_price::bigint, @cursor_id::uuid)
     ORDER BY p.price_from DESC, p.id DESC
     LIMIT @page_size
@@ -89,6 +95,20 @@ FROM page
 JOIN categories c ON c.id = page.category_id
 JOIN product_variants v ON v.product_id = page.id AND v.archived_at IS NULL
 ORDER BY page.price_from DESC, page.id DESC, v.price, v.position, v.id;
+
+-- name: ListActiveProductsByIDs :many
+-- The storefront columns of the active products among ids, for lists that
+-- are paged elsewhere (the wishlist). Ids of archived or draft products
+-- return nothing. Products come in id order; the caller restores its own
+-- order.
+SELECT p.id, p.slug, p.name, p.description, p.price_from, p.created_at, p.updated_at,
+       c.id AS category_id, c.slug AS category_slug, c.name AS category_name, c.parent_id AS category_parent_id,
+       v.id AS variant_id, v.sku AS variant_sku, v.name AS variant_name, v.price AS variant_price, v.stock AS variant_stock
+FROM products p
+JOIN categories c ON c.id = p.category_id
+JOIN product_variants v ON v.product_id = p.id AND v.archived_at IS NULL
+WHERE p.id = ANY(@ids::uuid[]) AND p.status = 'active'
+ORDER BY p.id, v.price, v.position, v.id;
 
 -- name: GetActiveProductBySlug :many
 -- One active product with its sellable variants, cheapest first. No rows

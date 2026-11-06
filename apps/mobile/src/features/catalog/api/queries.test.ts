@@ -1,9 +1,14 @@
 import { describe, expect, it } from "@jest/globals";
 
 import { createTestQueryClient } from "@/test/render";
-import { deferred, fakeApi, json } from "@/test/fake-api";
+import { apiError, deferred, fakeApi, json } from "@/test/fake-api";
 import { category, product, productPage } from "@/test/fixtures";
-import { catalogKeys, categoriesQuery, productListQuery } from "./queries";
+import {
+  catalogKeys,
+  categoriesQuery,
+  productDetailQuery,
+  productListQuery,
+} from "./queries";
 
 describe("catalogKeys", () => {
   it("nests every product list under ['products']", () => {
@@ -112,5 +117,36 @@ describe("categoriesQuery", () => {
     await pending;
 
     expect(fakeApi.requests()[0]?.init.signal?.aborted).toBe(true);
+  });
+});
+
+describe("productDetailQuery", () => {
+  it("is keyed by the slug under ['products', 'detail']", () => {
+    expect(productDetailQuery("kaos-polos").queryKey).toEqual([
+      "products",
+      "detail",
+      "kaos-polos",
+    ]);
+  });
+
+  it("fetches GET /v1/products/{slug} and returns the product", async () => {
+    const kaos = product("Kaos Polos");
+    fakeApi.on("GET", "/v1/products/kaos-polos", () => json({ data: kaos }));
+
+    const result = await createTestQueryClient().query(
+      productDetailQuery("kaos-polos"),
+    );
+
+    expect(result).toEqual(kaos);
+  });
+
+  it("rejects with the API's NOT_FOUND for an unknown slug", async () => {
+    fakeApi.on("GET", "/v1/products/hilang", () =>
+      apiError(404, "NOT_FOUND", "r-1"),
+    );
+
+    await expect(
+      createTestQueryClient().query(productDetailQuery("hilang")),
+    ).rejects.toMatchObject({ status: 404 });
   });
 });

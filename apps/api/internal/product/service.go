@@ -52,6 +52,9 @@ type ListParams struct {
 	Query string
 	// Sort is the order; the zero value is not valid, use SortNewest.
 	Sort Sort
+	// Featured keeps only the products the shop put on the home screen;
+	// false means every product.
+	Featured bool
 	// Cursor is page.next_cursor of the previous page; empty for the first.
 	Cursor string
 	// Limit is the page size, 1 to MaxLimit.
@@ -87,7 +90,9 @@ func (s *Service) List(ctx context.Context, params ListParams) (Page, error) {
 	if err != nil {
 		return Page{}, err
 	}
-	query := ListQuery{Search: params.Query, Sort: params.Sort, After: after, Limit: params.Limit + 1}
+	query := ListQuery{
+		Search: params.Query, Featured: params.Featured, Sort: params.Sort, After: after, Limit: params.Limit + 1,
+	}
 	if params.Category != "" {
 		ids, err := s.categories.IDsBySlug(ctx, params.Category)
 		if errors.Is(err, category.ErrNotFound) {

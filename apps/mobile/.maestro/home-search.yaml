@@ -1,0 +1,28 @@
+appId: com.santekno.goshop
+name: Search is debounced, shows results and clears
+tags: [bab-14, home]
+---
+- runFlow: subflows/open-home.yaml
+- tapOn: "Cari produk"
+# Below the 2-character minimum nothing is searched, however long we wait
+# (the debounce is 300 ms).
+- inputText: "k"
+- waitForAnimationToEnd:
+    timeout: 1500
+- assertNotVisible: "Hasil pencarian.*"
+- assertVisible: "Produk unggulan"
+# Enough characters: after the pause the search becomes part of the route.
+- inputText: "opi"
+- extendedWaitUntil:
+    visible: 'Hasil pencarian "kopi" · Terbaru'
+    timeout: 10000
+- assertVisible: "Kopi Arabika Gayo 250 g.*"
+- assertNotVisible: "Produk unggulan"
+- assertNotVisible: "Kaos Polos Hitam.*"
+# The clear button empties the field and the search at once.
+- tapOn: "Hapus pencarian"
+- extendedWaitUntil:
+    visible: "Semua produk · Terbaru"
+    timeout: 10000
+- assertVisible: "Produk unggulan"
+- assertNotVisible: "Hapus pencarian"

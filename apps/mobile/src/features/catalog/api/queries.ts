@@ -3,27 +3,31 @@
 // apps/web/src/features/catalog/api/queries.ts so the two apps' caches
 // read the same way. The product request itself is fetchProductPage
 // (./products.ts); this file only says how TanStack Query pages through it.
-import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
-import { listCategories } from "@goshop/shared";
+import {
+  infiniteQueryOptions,
+  keepPreviousData,
+  queryOptions,
+} from "@tanstack/react-query";
+import { getProduct, listCategories } from "@goshop/shared";
 import { api } from "@/lib/api";
+import { queryKeys } from "@/lib/query-keys";
 import { fetchProductPage } from "./products";
 import type { ProductListFilters } from "./products";
 
 /**
- * The catalog's query keys, in one place. A key is an array, like a path:
- * compared by value, and a prefix matches every longer key, so
- * invalidating ["products"] reaches every product list at once.
+ * The catalog's query keys, under the names this feature has always used.
+ * They are the app-wide factory's (src/lib/query-keys.ts), so the home
+ * screen's and the product page's keys sit in the same tree:
  *
  *   ["categories"]
  *   ["products"]
  *   ["products", "list", { category, q, sort }]
  */
 export const catalogKeys = {
-  categories: ["categories"] as const,
-  products: ["products"] as const,
-  productLists: () => [...catalogKeys.products, "list"] as const,
-  productList: (filters: ProductListFilters) =>
-    [...catalogKeys.productLists(), filters] as const,
+  categories: queryKeys.categories,
+  products: queryKeys.products.all,
+  productLists: queryKeys.products.lists,
+  productList: queryKeys.products.list,
 };
 
 /** Categories rarely change: fresh for five minutes, not the default 0. */
@@ -62,6 +66,14 @@ export const categoriesQuery = () =>
  * and a cursor, valid only with the filters it came from, never crosses
  * from one to another. TanStack Query passes a `signal`, so a request for
  * a list nobody shows any more (the search changed) is aborted.
+ *
+ * `placeholderData` keeps the rows of the list before while the list after
+ * loads, but only when the search text is the one thing that changed: the
+ * buyer typing sees the old results until the new ones replace them in one
+ * render, with no blank screen between two keystrokes. A different
+ * category or order is a different list, and showing the old category's
+ * products under the new one's name would be wrong, so those load from
+ * scratch (the skeleton, artikel 08).
  */
 export const productListQuery = (filters: ProductListFilters) =>
   infiniteQueryOptions({
@@ -69,10 +81,30 @@ export const productListQuery = (filters: ProductListFilters) =>
     queryFn: ({ pageParam, signal }) =>
       fetchProductPage(filters, pageParam, signal),
     initialPageParam: null as string | null,
+    placeholderData: (previousData, previousQuery) => {
+      const before = previousQuery?.queryKey[2];
+      return before !== undefined &&
+        before.category === filters.category &&
+        before.sort === filters.sort
+        ? keepPreviousData(previousData)
+        : undefined;
+    },
     getNextPageParam: (lastPage, _allPages, lastPageParam) => {
       const next = lastPage.page.next_cursor;
       // A next cursor equal to the one just used would ask for the same
       // page forever: treat it as the end, as the web does.
       return next === null || next === lastPageParam ? undefined : next;
     },
+  });
+
+/**
+ * GET /v1/products/{slug}: one product with its sellable variants, under
+ * ["products", "detail", slug]. The slug is input from outside (a deep link
+ * can say anything), so an unknown one is an ordinary NOT_FOUND error the
+ * screen words, not a crash.
+ */
+export const productDetailQuery = (slug: string) =>
+  queryOptions({
+    queryKey: queryKeys.products.detail(slug),
+    queryFn: ({ signal }) => getProduct(api, slug, { signal }),
   });

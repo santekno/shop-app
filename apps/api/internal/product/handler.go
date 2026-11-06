@@ -73,6 +73,9 @@ type listQuery struct {
 	Sort     string `query:"sort" validate:"oneof=newest price_asc price_desc"`
 	Cursor   string `query:"cursor" validate:"omitempty,max=512"`
 	Limit    int    `query:"limit" validate:"min=1,max=100"`
+	// Featured is a string, not a bool, so only true and false are
+	// accepted ("1" and "t" are not).
+	Featured string `query:"featured" validate:"omitempty,oneof=true false"`
 }
 
 // List serves GET /v1/products.
@@ -90,6 +93,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	page, err := h.catalog.List(r.Context(), ListParams{
 		Category: q.Category, Query: q.Q, Sort: Sort(q.Sort), Cursor: q.Cursor, Limit: q.Limit,
+		Featured: q.Featured == "true",
 	})
 	if errors.Is(err, ErrUnknownCategory) {
 		// A typo is not mistaken for an empty category.
@@ -125,6 +129,15 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	out := toProductJSON(p)
 	out.Images = h.toImagesJSON(p.Images)
 	httpapi.JSON(w, r, http.StatusOK, dataResponse{Data: out})
+}
+
+// ProductJSON is p as the storefront's list and detail send it, images
+// included. The wishlist (internal/wishlist) answers with the same shape, so
+// the app renders one product summary everywhere; the JSON types stay here.
+func (h *Handler) ProductJSON(p Product) any {
+	out := toProductJSON(p)
+	out.Images = h.toImagesJSON(p.Images)
+	return out
 }
 
 // toHTTPError maps the service's errors to the API's error responses.

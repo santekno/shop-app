@@ -2,8 +2,6 @@ import { afterEach, describe, expect, it } from "@jest/globals";
 import { screen, userEvent } from "@testing-library/react-native";
 
 import { queryClient } from "@/lib/query-client";
-import { fakeApi, json } from "@/test/fake-api";
-import { product, productPage } from "@/test/fixtures";
 import { answerEmptyCatalog, renderApp } from "@/test/router";
 
 afterEach(() => {
@@ -27,9 +25,7 @@ describe("a link to no screen", () => {
   });
 
   it("goes back to Beranda from its link", async () => {
-    fakeApi.on("GET", "/v1/products", () =>
-      json(productPage([product("Kaos")])),
-    );
+    answerEmptyCatalog();
     const app = await renderApp("/tidak/ada");
 
     await userEvent.press(
@@ -37,6 +33,6 @@ describe("a link to no screen", () => {
     );
 
     expect(app.getPathname()).toBe("/");
-    expect(await screen.findByText("Kaos")).toBeOnTheScreen();
+    expect(await screen.findByText("Belum ada produk.")).toBeOnTheScreen();
   });
 });

@@ -418,6 +418,80 @@ func (q *Queries) IsVariantArchived(ctx context.Context, arg IsVariantArchivedPa
 	return archived, err
 }
 
+const listActiveProductsByIDs = `-- name: ListActiveProductsByIDs :many
+SELECT p.id, p.slug, p.name, p.description, p.price_from, p.created_at, p.updated_at,
+       c.id AS category_id, c.slug AS category_slug, c.name AS category_name, c.parent_id AS category_parent_id,
+       v.id AS variant_id, v.sku AS variant_sku, v.name AS variant_name, v.price AS variant_price, v.stock AS variant_stock
+FROM products p
+JOIN categories c ON c.id = p.category_id
+JOIN product_variants v ON v.product_id = p.id AND v.archived_at IS NULL
+WHERE p.id = ANY($1::uuid[]) AND p.status = 'active'
+ORDER BY p.id, v.price, v.position, v.id
+`
+
+type ListActiveProductsByIDsRow struct {
+	ID               string
+	Slug             string
+	Name             string
+	Description      string
+	PriceFrom        sql.NullInt64
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+	CategoryID       string
+	CategorySlug     string
+	CategoryName     string
+	CategoryParentID *string
+	VariantID        string
+	VariantSku       string
+	VariantName      string
+	VariantPrice     int64
+	VariantStock     int32
+}
+
+// The storefront columns of the active products among ids, for lists that
+// are paged elsewhere (the wishlist). Ids of archived or draft products
+// return nothing. Products come in id order; the caller restores its own
+// order.
+func (q *Queries) ListActiveProductsByIDs(ctx context.Context, ids []string) ([]ListActiveProductsByIDsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listActiveProductsByIDs, pq.Array(ids))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListActiveProductsByIDsRow
+	for rows.Next() {
+		var i ListActiveProductsByIDsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Slug,
+			&i.Name,
+			&i.Description,
+			&i.PriceFrom,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CategoryID,
+			&i.CategorySlug,
+			&i.CategoryName,
+			&i.CategoryParentID,
+			&i.VariantID,
+			&i.VariantSku,
+			&i.VariantName,
+			&i.VariantPrice,
+			&i.VariantStock,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAdminProducts = `-- name: ListAdminProducts :many
 SELECT p.id, p.slug, p.name, p.status, p.price_from, p.created_at, p.updated_at,
        c.id AS category_id, c.name AS category_name,
@@ -545,9 +619,10 @@ WITH page AS (
            OR p.category_id = ANY($1::uuid[]))
       AND ($2::text IS NULL
            OR p.search @@ websearch_to_tsquery('indonesian', $2))
-      AND (p.created_at, p.id) < ($3::timestamptz, $4::uuid)
+      AND (NOT $3::boolean OR p.is_featured)
+      AND (p.created_at, p.id) < ($4::timestamptz, $5::uuid)
     ORDER BY p.created_at DESC, p.id DESC
-    LIMIT $5
+    LIMIT $6
 )
 SELECT page.id, page.slug, page.name, page.description, page.price_from, page.created_at, page.updated_at,
        c.id AS category_id, c.slug AS category_slug, c.name AS category_name, c.parent_id AS category_parent_id,
@@ -561,6 +636,7 @@ ORDER BY page.created_at DESC, page.id DESC, v.price, v.position, v.id
 type ListProductsNewestParams struct {
 	CategoryIds     []string
 	Search          sql.NullString
+	Featured        bool
 	CursorCreatedAt time.Time
 	CursorID        string
 	PageSize        int32
@@ -607,13 +683,17 @@ type ListProductsNewestRow struct {
 // no search; otherwise full-text search on the generated column (name
 // weighted above description) with the GIN index products_search_idx.
 // websearch_to_tsquery accepts what people type (words, "quoted phrases",
-// -excluded, or) and never fails on syntax.
+// -excluded, or) and never fails on syntax. featured false means no
+// filter; true keeps only the products the shop put on the home screen
+// (is_featured), which products_active_featured_newest_idx serves for
+// sort=newest.
 // sort=newest, served by products_active_newest_idx (or
 // products_active_category_newest_idx with a category).
 func (q *Queries) ListProductsNewest(ctx context.Context, arg ListProductsNewestParams) ([]ListProductsNewestRow, error) {
 	rows, err := q.db.QueryContext(ctx, listProductsNewest,
 		pq.Array(arg.CategoryIds),
 		arg.Search,
+		arg.Featured,
 		arg.CursorCreatedAt,
 		arg.CursorID,
 		arg.PageSize,
@@ -665,9 +745,10 @@ WITH page AS (
            OR p.category_id = ANY($1::uuid[]))
       AND ($2::text IS NULL
            OR p.search @@ websearch_to_tsquery('indonesian', $2))
-      AND (p.price_from, p.id) > ($3::bigint, $4::uuid)
+      AND (NOT $3::boolean OR p.is_featured)
+      AND (p.price_from, p.id) > ($4::bigint, $5::uuid)
     ORDER BY p.price_from, p.id
-    LIMIT $5
+    LIMIT $6
 )
 SELECT page.id, page.slug, page.name, page.description, page.price_from, page.created_at, page.updated_at,
        c.id AS category_id, c.slug AS category_slug, c.name AS category_name, c.parent_id AS category_parent_id,
@@ -681,6 +762,7 @@ ORDER BY page.price_from, page.id, v.price, v.position, v.id
 type ListProductsPriceAscParams struct {
 	CategoryIds []string
 	Search      sql.NullString
+	Featured    bool
 	CursorPrice int64
 	CursorID    string
 	PageSize    int32
@@ -710,6 +792,7 @@ func (q *Queries) ListProductsPriceAsc(ctx context.Context, arg ListProductsPric
 	rows, err := q.db.QueryContext(ctx, listProductsPriceAsc,
 		pq.Array(arg.CategoryIds),
 		arg.Search,
+		arg.Featured,
 		arg.CursorPrice,
 		arg.CursorID,
 		arg.PageSize,
@@ -761,9 +844,10 @@ WITH page AS (
            OR p.category_id = ANY($1::uuid[]))
       AND ($2::text IS NULL
            OR p.search @@ websearch_to_tsquery('indonesian', $2))
-      AND (p.price_from, p.id) < ($3::bigint, $4::uuid)
+      AND (NOT $3::boolean OR p.is_featured)
+      AND (p.price_from, p.id) < ($4::bigint, $5::uuid)
     ORDER BY p.price_from DESC, p.id DESC
-    LIMIT $5
+    LIMIT $6
 )
 SELECT page.id, page.slug, page.name, page.description, page.price_from, page.created_at, page.updated_at,
        c.id AS category_id, c.slug AS category_slug, c.name AS category_name, c.parent_id AS category_parent_id,
@@ -777,6 +861,7 @@ ORDER BY page.price_from DESC, page.id DESC, v.price, v.position, v.id
 type ListProductsPriceDescParams struct {
 	CategoryIds []string
 	Search      sql.NullString
+	Featured    bool
 	CursorPrice int64
 	CursorID    string
 	PageSize    int32
@@ -806,6 +891,7 @@ func (q *Queries) ListProductsPriceDesc(ctx context.Context, arg ListProductsPri
 	rows, err := q.db.QueryContext(ctx, listProductsPriceDesc,
 		pq.Array(arg.CategoryIds),
 		arg.Search,
+		arg.Featured,
 		arg.CursorPrice,
 		arg.CursorID,
 		arg.PageSize,

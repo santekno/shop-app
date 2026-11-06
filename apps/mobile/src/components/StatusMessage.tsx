@@ -37,6 +37,52 @@ export function EmptyState({ message }: { message: string }) {
   );
 }
 
+interface EmptyResultProps {
+  /** What is missing, in one line: "Tidak ada produk untuk "kaos"". */
+  title: string;
+  /** What the buyer can do about it. */
+  hint?: string;
+  /** The way out, as a button: "Reset filter". */
+  action?: { label: string; onPress: () => void };
+}
+
+/**
+ * An empty result that helps: a title, a hint and one button that gets the
+ * buyer out of the dead end (clear the search and the filters), where
+ * EmptyState only states the fact. Announced like an alert when it appears
+ * after a search, so a screen reader user learns the list is empty without
+ * having to find it.
+ */
+export function EmptyResult({ title, hint, action }: EmptyResultProps) {
+  useAnnounceOnIos(title);
+  return (
+    <View accessibilityLiveRegion="polite" className="items-center gap-2 p-4">
+      <Text
+        accessibilityRole="header"
+        className="text-center font-sans text-base font-semibold text-foreground dark:text-foreground-dark"
+      >
+        {title}
+      </Text>
+      {hint !== undefined && (
+        <Text className="text-center font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+          {hint}
+        </Text>
+      )}
+      {action !== undefined && (
+        <Pressable
+          accessibilityRole="button"
+          onPress={action.onPress}
+          className="mt-1 min-h-12 justify-center rounded-md border border-border px-4 active:bg-accent dark:border-border-dark dark:active:bg-accent-dark"
+        >
+          <Text className="font-sans text-base font-semibold text-primary dark:text-primary-dark">
+            {action.label}
+          </Text>
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
 interface ErrorStateProps {
   error: unknown;
   /** Shows a "Coba lagi" button that calls it. */
