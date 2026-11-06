@@ -91,7 +91,8 @@ export const ReduceMotion = {
 export interface LayoutAnimationSpec {
   name: string;
   durationMs?: number;
-  reduceMotion?: string;
+  /** The mode given to .reduceMotion(): "system", "always" or "never". */
+  reduceMotionMode?: string;
 }
 
 const layoutAnimation = (name: string) => {
@@ -103,7 +104,7 @@ const layoutAnimation = (name: string) => {
   } => ({
     ...spec,
     duration: (durationMs) => make({ ...spec, durationMs }),
-    reduceMotion: (reduceMotion) => make({ ...spec, reduceMotion }),
+    reduceMotion: (reduceMotionMode) => make({ ...spec, reduceMotionMode }),
   });
   return make({ name });
 };
