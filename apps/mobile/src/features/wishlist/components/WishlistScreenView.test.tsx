@@ -15,7 +15,7 @@ import {
 } from "@testing-library/react-native";
 import { router } from "expo-router";
 
-import { apiError, fakeApi, json } from "@/test/fake-api";
+import { apiError, deferred, fakeApi, json } from "@/test/fake-api";
 import { product, productPage } from "@/test/fixtures";
 import { scrollView } from "@/test/list";
 import { renderWithProviders } from "@/test/render";
@@ -58,14 +58,15 @@ describe("WishlistScreenView", () => {
 
   it("shows a loading state until the first page arrives", async () => {
     signIn();
-    fakeApi.on("GET", "/v1/me/wishlist", () =>
-      json(productPage([product("Kaos Polos")])),
-    );
+    const answer = deferred();
+    fakeApi.on("GET", "/v1/me/wishlist", answer.handler);
     await renderWithProviders(<WishlistScreenView />);
 
     expect(
       screen.getByRole("progressbar", { name: "Memuat wishlist…" }),
     ).toBeTruthy();
+
+    answer.resolve(json(productPage([product("Kaos Polos")])));
     expect(await screen.findByText("Kaos Polos")).toBeTruthy();
     expect(screen.queryByRole("progressbar")).toBeNull();
   });
