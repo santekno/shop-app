@@ -117,6 +117,29 @@ func (r *PostgresRepository) GetBySlug(ctx context.Context, slug string) (Produc
 	return products[0], nil
 }
 
+// ListActiveByIDs returns the active products among ids, each with its
+// sellable variants and photos, in no particular order. Ids of products that
+// are draft, archived or unknown are left out. The wishlist uses it to turn
+// a page of product ids into the storefront's product summaries.
+func (r *PostgresRepository) ListActiveByIDs(ctx context.Context, ids []string) ([]Product, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	rows, err := r.q.ListActiveProductsByIDs(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("query products by id: %w", err)
+	}
+	page := make([]productRow, len(rows))
+	for i, row := range rows {
+		page[i] = productRow(row)
+	}
+	products := groupProducts(page)
+	if err := r.attachImages(ctx, products); err != nil {
+		return nil, err
+	}
+	return products, nil
+}
+
 // productRow is one row of the storefront reads: a product, its category
 // and one of its sellable variants.
 type productRow = sqlc.ListProductsNewestRow

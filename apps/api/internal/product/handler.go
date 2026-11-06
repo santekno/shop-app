@@ -131,6 +131,15 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	httpapi.JSON(w, r, http.StatusOK, dataResponse{Data: out})
 }
 
+// ProductJSON is p as the storefront's list and detail send it, images
+// included. The wishlist (internal/wishlist) answers with the same shape, so
+// the app renders one product summary everywhere; the JSON types stay here.
+func (h *Handler) ProductJSON(p Product) any {
+	out := toProductJSON(p)
+	out.Images = h.toImagesJSON(p.Images)
+	return out
+}
+
 // toHTTPError maps the service's errors to the API's error responses.
 // Anything it does not know stays as it is and becomes a 500.
 func toHTTPError(err error) error {

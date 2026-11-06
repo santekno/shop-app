@@ -96,6 +96,20 @@ JOIN categories c ON c.id = page.category_id
 JOIN product_variants v ON v.product_id = page.id AND v.archived_at IS NULL
 ORDER BY page.price_from DESC, page.id DESC, v.price, v.position, v.id;
 
+-- name: ListActiveProductsByIDs :many
+-- The storefront columns of the active products among ids, for lists that
+-- are paged elsewhere (the wishlist). Ids of archived or draft products
+-- return nothing. Products come in id order; the caller restores its own
+-- order.
+SELECT p.id, p.slug, p.name, p.description, p.price_from, p.created_at, p.updated_at,
+       c.id AS category_id, c.slug AS category_slug, c.name AS category_name, c.parent_id AS category_parent_id,
+       v.id AS variant_id, v.sku AS variant_sku, v.name AS variant_name, v.price AS variant_price, v.stock AS variant_stock
+FROM products p
+JOIN categories c ON c.id = p.category_id
+JOIN product_variants v ON v.product_id = p.id AND v.archived_at IS NULL
+WHERE p.id = ANY(@ids::uuid[]) AND p.status = 'active'
+ORDER BY p.id, v.price, v.position, v.id;
+
 -- name: GetActiveProductBySlug :many
 -- One active product with its sellable variants, cheapest first. No rows
 -- means there is no active product with that slug.

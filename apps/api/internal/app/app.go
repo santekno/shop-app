@@ -44,6 +44,7 @@ import (
 	"github.com/santekno/shop-app/apps/api/internal/shipping"
 	"github.com/santekno/shop-app/apps/api/internal/storage"
 	"github.com/santekno/shop-app/apps/api/internal/user"
+	"github.com/santekno/shop-app/apps/api/internal/wishlist"
 )
 
 // App is the wired API, ready to serve.
@@ -87,11 +88,12 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 	productRepo := product.NewPostgresRepository(db)
 	authRepo := auth.NewPostgresRepository(db)
 	// Deleting an account also cancels its unpaid orders and deletes its
-	// cart, in the same transaction (ADR 0006).
-	userRepo := user.NewPostgresRepository(db, order.AccountCloser(o.clock))
+	// cart and wishlist, in the same transaction (ADR 0006).
+	userRepo := user.NewPostgresRepository(db, order.AccountCloser(o.clock), wishlist.AccountCloser())
 	addressRepo := address.NewPostgresRepository(db)
 	cartRepo := cart.NewPostgresRepository(db)
 	orderRepo := order.NewPostgresRepository(db)
+	wishlistRepo := wishlist.NewPostgresRepository(db)
 
 	// Services: the business rules, given their repositories.
 	categoryService := category.NewService(categoryRepo)
@@ -100,6 +102,7 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 	userService := user.NewService(userRepo, o.revocations)
 	addressService := address.NewService(addressRepo)
 	cartService := cart.NewService(cartRepo)
+	wishlistService := wishlist.NewService(wishlistRepo, productRepo)
 	if o.shipping == nil {
 		o.shipping = shippingProvider(cfg.Shipping)
 		if b, ok := o.shipping.(*shipping.Biteship); ok {
@@ -161,6 +164,7 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 	} else {
 		productHandler.WithImages(product.NewImageService(productRepo, o.store), o.store.PublicURL)
 	}
+	wishlistHandler := wishlist.NewHandler(wishlistService, validator, productHandler.ProductJSON)
 	authHandler := auth.NewHandler(auth.HandlerDeps{
 		Service:          authService,
 		Validator:        validator,
@@ -227,6 +231,11 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 				r.Use(guard.Authenticate)
 				userHandler.Routes(r)
 				addressHandler.Routes(r)
+				// Buyers only: sellers and admins have no wishlist.
+				r.Group(func(r chi.Router) {
+					r.Use(auth.RequireRole(user.RoleBuyer))
+					wishlistHandler.Routes(r)
+				})
 				cartHandler.ProtectedRoutes(r)
 				orderHandler.Routes(r)
 				paymentHandler.ProtectedRoutes(r)

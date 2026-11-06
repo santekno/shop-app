@@ -278,3 +278,9 @@ type Voucher struct {
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 }
+
+type WishlistItem struct {
+	UserID    string
+	ProductID string
+	CreatedAt time.Time
+}

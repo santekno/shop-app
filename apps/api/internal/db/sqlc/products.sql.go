@@ -418,6 +418,80 @@ func (q *Queries) IsVariantArchived(ctx context.Context, arg IsVariantArchivedPa
 	return archived, err
 }
 
+const listActiveProductsByIDs = `-- name: ListActiveProductsByIDs :many
+SELECT p.id, p.slug, p.name, p.description, p.price_from, p.created_at, p.updated_at,
+       c.id AS category_id, c.slug AS category_slug, c.name AS category_name, c.parent_id AS category_parent_id,
+       v.id AS variant_id, v.sku AS variant_sku, v.name AS variant_name, v.price AS variant_price, v.stock AS variant_stock
+FROM products p
+JOIN categories c ON c.id = p.category_id
+JOIN product_variants v ON v.product_id = p.id AND v.archived_at IS NULL
+WHERE p.id = ANY($1::uuid[]) AND p.status = 'active'
+ORDER BY p.id, v.price, v.position, v.id
+`
+
+type ListActiveProductsByIDsRow struct {
+	ID               string
+	Slug             string
+	Name             string
+	Description      string
+	PriceFrom        sql.NullInt64
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+	CategoryID       string
+	CategorySlug     string
+	CategoryName     string
+	CategoryParentID *string
+	VariantID        string
+	VariantSku       string
+	VariantName      string
+	VariantPrice     int64
+	VariantStock     int32
+}
+
+// The storefront columns of the active products among ids, for lists that
+// are paged elsewhere (the wishlist). Ids of archived or draft products
+// return nothing. Products come in id order; the caller restores its own
+// order.
+func (q *Queries) ListActiveProductsByIDs(ctx context.Context, ids []string) ([]ListActiveProductsByIDsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listActiveProductsByIDs, pq.Array(ids))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListActiveProductsByIDsRow
+	for rows.Next() {
+		var i ListActiveProductsByIDsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Slug,
+			&i.Name,
+			&i.Description,
+			&i.PriceFrom,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CategoryID,
+			&i.CategorySlug,
+			&i.CategoryName,
+			&i.CategoryParentID,
+			&i.VariantID,
+			&i.VariantSku,
+			&i.VariantName,
+			&i.VariantPrice,
+			&i.VariantStock,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAdminProducts = `-- name: ListAdminProducts :many
 SELECT p.id, p.slug, p.name, p.status, p.price_from, p.created_at, p.updated_at,
        c.id AS category_id, c.name AS category_name,

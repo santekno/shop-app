@@ -752,6 +752,61 @@ export interface paths {
         patch: operations["updateAddress"];
         trace?: never;
     };
+    "/v1/me/wishlist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List my wishlist
+         * @description The products the caller saved, newest saved first, in the same
+         *     shape as `GET /v1/products` (`ProductList`). Buyers only: a seller
+         *     or admin gets 403 `FORBIDDEN`. A product that stopped being active
+         *     is left out. To get the next page, send `cursor` set to the previous
+         *     `page.next_cursor`.
+         */
+        get: operations["listWishlist"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me/wishlist/{slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Product slug. */
+                slug: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Save a product to my wishlist
+         * @description Idempotent: saving a product that is saved already answers 204 and
+         *     changes nothing, also when the wishlist is full. A slug that names
+         *     no active product, or is malformed, answers 404 `NOT_FOUND`. A
+         *     wishlist keeps at most 200 products (409 `WISHLIST_LIMIT_REACHED`).
+         *     Buyers only.
+         */
+        put: operations["addToWishlist"];
+        post?: never;
+        /**
+         * Remove a product from my wishlist
+         * @description Idempotent. 204 whether or not the product was saved, and also for a slug that names no product. Buyers only.
+         */
+        delete: operations["removeFromWishlist"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/auth/verify-email": {
         parameters: {
             query?: never;
@@ -2725,6 +2780,26 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
+        /** @description The caller already has 200 products on the wishlist (`WISHLIST_LIMIT_REACHED`). */
+        WishlistFull: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "error": {
+                 *         "code": "WISHLIST_LIMIT_REACHED",
+                 *         "message": "your wishlist is full; remove a product first",
+                 *         "details": {
+                 *           "max": 200
+                 *         }
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["Error"];
+            };
+        };
         /** @description Unexpected server error. The code is always `INTERNAL_ERROR`, the code sdk `middleware/chi` `Recovery` writes after a panic, and handlers use the same code for every other 500. The details are in the server log, never in the response. */
         InternalError: {
             headers: {
@@ -4384,6 +4459,85 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["AddressConflict"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listWishlist: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor from `page.next_cursor` of the previous page. Omit it for the first page. Clients must not parse or build it; one made for another list is refused with 400. */
+                cursor?: string;
+                /** @description Page size. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the wishlist. `data` is `[]` and `page.next_cursor` is null when nothing is saved. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    addToWishlist: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Product slug. */
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The product is on the wishlist. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["WishlistFull"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    removeFromWishlist: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Product slug. */
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The product is not on the wishlist. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             500: components["responses"]["InternalError"];
         };
     };

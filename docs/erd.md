@@ -30,6 +30,7 @@ Every column is `NOT NULL` unless the diagram says `nullable`.
 | Bab 6 | `000020_index_orders_paid_at` | `orders_paid_at_idx (paid_at) INCLUDE (id, total) WHERE status IN ('paid', 'processing', 'shipped', 'completed')`, for the sales report |
 | Bab 12 | `000021_add_products_version` | `products.version` (`integer NOT NULL DEFAULT 0`, `products_version_check >= 0`): the product's own optimistic lock, bumped by every admin save and archive, never by stock. Existing products get 0 from the default |
 | Bab 14 | `000022_create_banners_and_featured_products` | `products.is_featured` (`boolean NOT NULL DEFAULT false`) with the partial `products_active_featured_newest_idx (created_at DESC, id DESC) WHERE status = 'active' AND is_featured` for `GET /v1/products?featured=true`; `banners` for the mobile home carousel (title, optional subtitle and CTA label, optional `link_category_slug`, `background_color` CHECK `#RRGGBB`, `position`, `is_active`) with the partial `banners_active_position_idx (position, id) WHERE is_active`. **Known gap:** banners and the featured flag are managed by `make seed` or SQL; there is no image upload and no admin CRUD yet |
+| Bab 14 | `000023_create_wishlist_items` | `wishlist_items` (primary key `(user_id, product_id)` makes saving twice a no-op; `wishlist_items_user_created_idx (user_id, created_at DESC, product_id DESC)` serves the cursor page; `wishlist_items_product_id_idx` for the RESTRICT). At most 200 rows per user, enforced by the service under the user-row lock, not by the database |
 
 Two choices made while building it:
 
@@ -50,6 +51,8 @@ erDiagram
     users |o--o| carts : "owns (or a guest token)"
     carts ||--o{ cart_items : "holds"
     product_variants ||--o{ cart_items : "added as"
+    users ||--o{ wishlist_items : "saves"
+    products ||--o{ wishlist_items : "saved as"
     vouchers |o--o{ orders : "applied to"
     users ||--o{ idempotency_keys : "sends"
     orders ||--o{ outbox_events : "announces"
@@ -285,6 +288,12 @@ erDiagram
         timestamptz delivered_at
     }
 
+    wishlist_items {
+        uuid user_id PK,FK
+        uuid product_id PK,FK
+        timestamptz created_at "when it was saved"
+    }
+
     banners {
         uuid id PK
         text title
@@ -333,6 +342,8 @@ The Midtrans `order_id` is not `orders.code`: a buyer may retry payment after an
 | `carts.user_id` → `users` | yes | CASCADE | a cart is the user's working state, not a record |
 | `cart_items.cart_id` → `carts` | no | CASCADE | lines are part of the cart |
 | `cart_items.variant_id` → `product_variants` | no | RESTRICT | variants are archived, never deleted |
+| `wishlist_items.user_id` → `users` | no | CASCADE | a wishlist is the user's working state; account deletion removes the rows itself because users are anonymised, not deleted |
+| `wishlist_items.product_id` → `products` | no | RESTRICT | products are archived, never deleted; an archived product just stops being listed |
 | `idempotency_keys.user_id` → `users` | no | CASCADE | keys are short-lived request state |
 | `order_items.order_id` → `orders` | no | CASCADE | items are part of the order; orders themselves are never deleted |
 | `order_items.variant_id` → `product_variants` | no | RESTRICT | the sales history of a variant must survive |
@@ -475,6 +486,8 @@ Unique constraints and primary keys already create their indexes. These are adde
 | `addresses (user_id)` | a user's address book |
 | `products (created_at DESC, id DESC) WHERE status = 'active' AND is_featured` | `GET /v1/products?featured=true` (Bab 14); the price sorts read the few featured rows and sort them |
 | `banners (position, id) WHERE is_active` | `GET /v1/banners` (Bab 14) |
+| `wishlist_items (user_id, created_at DESC, product_id DESC)` | `GET /v1/me/wishlist`: a buyer's items newest first, row-comparison cursor (Bab 14); also the CASCADE on users |
+| `wishlist_items (product_id)` | the RESTRICT check when a product is deleted |
 
 No separate `order_items (order_id)` index is needed: `UNIQUE (order_id, variant_id)` already leads with `order_id` and serves loading an order's items and the CASCADE.
 
