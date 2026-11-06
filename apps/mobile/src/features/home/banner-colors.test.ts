@@ -32,6 +32,11 @@ describe("bannerForeground", () => {
     expect(bannerForeground("#000000")).toBe("#ffffff");
   });
 
+  it("switches at a relative luminance of 0.4: #BCBCBC (0.50) is light, #A0A0A0 (0.35) is dark", () => {
+    expect(bannerForeground("#BCBCBC")).toBe("#1f2328");
+    expect(bannerForeground("#A0A0A0")).toBe("#ffffff");
+  });
+
   it("judges an invalid colour by the fallback (dark blue), so the text is white", () => {
     expect(bannerForeground("not-a-colour")).toBe("#ffffff");
   });
