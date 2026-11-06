@@ -24,6 +24,9 @@ module.exports = {
   setupFiles: [
     "<rootDir>/src/test/install-fetch.ts",
     "@shopify/flash-list/jestSetup",
+    // Gesture Handler's native module and touchables (the root view of
+    // app/_layout.tsx and the bottom sheet's gestures).
+    "react-native-gesture-handler/jestSetup",
   ],
   setupFilesAfterEnv: ["<rootDir>/jest.setup.ts"],
   // `make test-unit` runs this package next to the web apps' Vitest
@@ -33,7 +36,16 @@ module.exports = {
   // cut off half way leaves its renders running into the next one.
   testTimeout: 30_000,
   // global.css is Tailwind for NativeWind's Metro plugin, not JavaScript.
-  moduleNameMapper: { "\\.css$": "<rootDir>/src/test/css-stub.js" },
+  //
+  // `react-native-reanimated/mock` is mapped to the app's own stub
+  // (src/test/mocks/reanimated.tsx) because Expo Router's test renderer
+  // (expo-router/testing-library) mocks Reanimated with that path when it
+  // loads, and falls back to an empty module when the path cannot load,
+  // which would replace the stub for every __tests__/app file.
+  moduleNameMapper: {
+    "\\.css$": "<rootDir>/src/test/css-stub.js",
+    "^react-native-reanimated/mock$": "<rootDir>/src/test/mocks/reanimated.tsx",
+  },
   // jest-expo's list of packages that ship untranspiled code (and so must
   // go through Babel), plus FlashList, whose dist is ES modules. In a pnpm
   // workspace a package's path ends in node_modules/<name>, after
