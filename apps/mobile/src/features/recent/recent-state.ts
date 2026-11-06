@@ -65,8 +65,9 @@ const sameItem = (a: RecentItem, b: RecentItem): boolean =>
 /**
  * `item` first, any earlier entry for the same slug dropped, at most
  * MAX_RECENT kept. Returns the same array when nothing would change (the
- * product is already first and identical), so the store does not write
- * to storage for a refetch of the page being viewed.
+ * product is already first and identical), so the store keeps the same
+ * list and tells no subscriber for a refetch of the page being viewed.
+ * (zustand's persist middleware still rewrites the same JSON to storage.)
  */
 export function addRecent(
   items: readonly RecentItem[],

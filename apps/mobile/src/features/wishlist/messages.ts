@@ -21,10 +21,6 @@ export class SignInRequiredError extends Error {
  * The sentence for a failed save or removal. The 409 reads the limit from
  * `details.max` (200 today), so the sentence follows the server if the
  * limit changes.
- *
- * WISHLIST_LIMIT_REACHED is compared as a plain string: @goshop/shared's
- * SERVER_ERROR_CODES does not list it yet (reported to frontend-engineer),
- * so isApiError(error, "WISHLIST_LIMIT_REACHED") would not type-check.
  */
 export const wishlistErrorMessage = (error: unknown): string => {
   if (error instanceof SignInRequiredError) return SIGN_IN_MESSAGE;

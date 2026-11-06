@@ -109,17 +109,14 @@ describe("the optimistic wishlist toggle", () => {
     expect(client.getQueryData(IDS)).toEqual(["a", "b"]);
   });
 
-  // Finding: the rollback writes `undefined`, and TanStack Query ignores
-  // setQueryData(key, undefined), so the optimistic slug stays in the cache
-  // until the refetch from onSettled replaces it. Pinned as it is today.
-  it("when the list had not loaded, a failure cannot clear the guess; the refetch is what corrects it", async () => {
+  it("when the list had not loaded, a failure removes the guess and refetches the real list", async () => {
     const { client, add, tap } = setup(null);
     add.mockRejectedValue(new Error("x"));
     const invalidate = jest.spyOn(client, "invalidateQueries");
 
     await expect(tap("c", false)).rejects.toThrow();
 
-    expect(client.getQueryData(IDS)).toEqual(["c"]);
+    expect(client.getQueryData(IDS)).toBeUndefined();
     expect(invalidate).toHaveBeenCalledWith({
       queryKey: queryKeys.wishlist.all,
     });

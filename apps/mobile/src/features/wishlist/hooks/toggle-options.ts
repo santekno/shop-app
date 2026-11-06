@@ -69,9 +69,15 @@ export const toggleMutationOptions = (
   onError: (error, variables, context) => {
     const key = queryKeys.wishlist.ids();
     if (client.isMutating({ mutationKey: queryKeys.wishlist.toggle }) <= 1) {
-      // The only toggle in flight: put the snapshot back. `undefined` (the
-      // list had not loaded) means "nothing known"; onSettled refills it.
-      client.setQueryData(key, context?.previous);
+      // The only toggle in flight: put the snapshot back. When the list had
+      // not loaded there is no snapshot, and setQueryData(key, undefined)
+      // would be ignored, so the optimistic list is removed instead;
+      // onSettled then fetches the real one.
+      if (context?.previous === undefined) {
+        client.removeQueries({ queryKey: key });
+      } else {
+        client.setQueryData(key, context.previous);
+      }
     } else {
       // Another tap happened after this one: its optimistic write is in the
       // cache, and the snapshot would erase it. Undo only this product.

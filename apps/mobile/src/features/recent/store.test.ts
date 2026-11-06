@@ -42,10 +42,9 @@ describe("the recently viewed store", () => {
     });
   });
 
-  // Finding: recent-state.ts says an identical re-record means "no write to
-  // storage", but zustand's persist middleware writes on every set(), even one
-  // that returns the same state. What does hold, and what screens see, is that
-  // nothing is notified and the list keeps its identity.
+  // zustand's persist middleware writes on every set(), even one that returns
+  // the same state. What screens see is that nothing is notified and the list
+  // keeps its identity.
   it("recording the product already on top notifies nobody and keeps the same list", async () => {
     await act(async () => {
       useRecentStore.getState().record(item("a"));
