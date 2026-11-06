@@ -9,7 +9,7 @@ tags: [bab-14, home]
 - inputText: "k"
 - waitForAnimationToEnd:
     timeout: 1500
-- assertNotVisible: 'Hasil pencarian.*'
+- assertNotVisible: "Hasil pencarian.*"
 - assertVisible: "Produk unggulan"
 # Enough characters: after the pause the search becomes part of the route.
 - inputText: "opi"

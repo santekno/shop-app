@@ -230,19 +230,6 @@ func rows(values ...driver.Value) fakeAnswer {
 // failWith is an answer that fails with err.
 func failWith(err error) fakeAnswer { return fakeAnswer{err: err} }
 
-// calledAll returns every statement called name, in order.
-func (f *fakeSQL) calledAll(name string) []fakeCall {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	var out []fakeCall
-	for _, c := range f.calls {
-		if c.name == name {
-			out = append(out, c)
-		}
-	}
-	return out
-}
-
 // assertLockedFirst checks that lock is the first statement after BEGIN
 // and that it and every later statement ran in that same transaction
 // (the helper of internal/auth/session_repository_test.go).

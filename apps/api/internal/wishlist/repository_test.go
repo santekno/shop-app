@@ -100,7 +100,7 @@ func TestPostgresRepository_Add(t *testing.T) {
 					endsWith(t, db, "COMMIT")
 					return
 				}
-				testx.AssertTrue(t, err == tt.wantErr, "err = %v, want %v", err, tt.wantErr)
+				testx.AssertTrue(t, errors.Is(err, tt.wantErr), "err = %v, want %v", err, tt.wantErr)
 				testx.AssertFalse(t, db.ran("InsertWishlistItem"), "nothing is inserted at the cap")
 				endsWith(t, db, "ROLLBACK")
 			})
@@ -111,7 +111,7 @@ func TestPostgresRepository_Add(t *testing.T) {
 
 		err := NewPostgresRepository(db.open(t)).Add(context.Background(), user, slug)
 
-		testx.AssertTrue(t, err == ErrNoUser, "err = %v", err)
+		testx.AssertTrue(t, errors.Is(err, ErrNoUser), "err = %v", err)
 		testx.AssertFalse(t, db.ran("GetActiveProductIDBySlug"))
 		endsWith(t, db, "ROLLBACK")
 	})
@@ -120,7 +120,7 @@ func TestPostgresRepository_Add(t *testing.T) {
 
 		err := NewPostgresRepository(db.open(t)).Add(context.Background(), user, slug)
 
-		testx.AssertTrue(t, err == ErrProductNotFound, "err = %v", err)
+		testx.AssertTrue(t, errors.Is(err, ErrProductNotFound), "err = %v", err)
 		testx.AssertFalse(t, db.ran("InsertWishlistItem"))
 		endsWith(t, db, "ROLLBACK")
 	})

@@ -42,30 +42,8 @@ func TestSeedHome_Idempotent(t *testing.T) {
 		t.Errorf("first run output:\n%s", first)
 	}
 	snapshot := func() (featured []string, banners []string) {
-		rows, err := s.db.QueryContext(t.Context(), `SELECT slug FROM products WHERE is_featured ORDER BY slug`)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for rows.Next() {
-			var v string
-			if err := rows.Scan(&v); err != nil {
-				t.Fatal(err)
-			}
-			featured = append(featured, v)
-		}
-		_ = rows.Close()
-		rows, err = s.db.QueryContext(t.Context(), `SELECT id || '|' || title || '|' || position || '|' || is_active || '|' || updated_at FROM banners ORDER BY position`)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for rows.Next() {
-			var v string
-			if err := rows.Scan(&v); err != nil {
-				t.Fatal(err)
-			}
-			banners = append(banners, v)
-		}
-		_ = rows.Close()
+		featured = queryStrings(t, s.db, `SELECT slug FROM products WHERE is_featured ORDER BY slug`)
+		banners = queryStrings(t, s.db, `SELECT id || '|' || title || '|' || position || '|' || is_active || '|' || updated_at FROM banners ORDER BY position`)
 		return featured, banners
 	}
 	featured1, banners1 := snapshot()
