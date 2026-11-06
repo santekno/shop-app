@@ -1211,3 +1211,26 @@ Renders counted with `countRender` after a cache change. This counts React work,
 - [ ] Rows have no state (FlashList recycles them).
 - [ ] Heavy images use `expo-image` with a cache policy (artikel 09).
 - [ ] Measure on a release build, on a mid-range Android phone, before and after; write the numbers down.
+
+## Terakhir dilihat: state milik aplikasi, disimpan di ponsel (artikel 15)
+
+Home shows a "Terakhir dilihat" row under "Produk unggulan": the products the buyer opened, newest first. It is client-only (no API, no account) and lives in `src/features/recent/`.
+
+- **Store.** `store.ts` is a Zustand store with `persist` + `createJSONStorage(() => AsyncStorage)` under the key `goshop.recent.v1`. `zustand` is `"catalog:"` (5.0.15, the same version as `apps/web`). Zustand and not the TanStack Query cache, because this is state the app writes, not a copy of the server's; the persisted query cache stays an allow-list of public queries and gains nothing from this feature.
+- **What is stored** (`recent-state.ts`): `slug`, `name`, the narrowest photo variant (`id`, `url`, `width`, `height`), `priceFrom` (whole rupiah) and `hasPriceRange`. At most 10, newest first, one entry per slug (viewing a product again moves it to the front). No token, no user id, no search text. The price is a snapshot that decorates a link; the product page shows the real one.
+- **Recording.** `useRecordRecentlyViewed(query.data)` in `app/produk/[slug].tsx` runs only once the product has loaded, so a slug that names nothing, a loading page, an offline page or an error is never recorded. A refetch of the same page changes nothing (`addRecent` returns the same array, so nothing is written).
+- **No flash.** `hydrated` is false until AsyncStorage has been read, and `RecentlyViewed` renders `null` until then and when the list is empty: no empty section for a new buyer, no jump for a returning one. `onRehydrateStorage` sets it also when the read failed, so a storage error only means an empty list.
+- **Safe reads.** `merge` runs stored data through `readRecentItems` (wrong shapes dropped, cap and dedupe applied again) and keeps a product recorded while the read was running first.
+- **Clear.** "Hapus" empties the list and announces it to screen readers; the section disappears.
+- **Checked here** with a throwaway Jest test (not committed, the app's Jest setup has no AsyncStorage mock): 12 recordings keep 10, the re-viewed one is first and unique, an identical re-record returns the same array, the stored JSON holds only `items`, rehydrate restores 10 with the right first, and corrupt JSON ends with `hydrated: true` and an empty list.
+
+### Bab 14 in one list
+
+- Artikel 06 to 08: debounced search that keeps the previous results, filter and sort in a bottom sheet, skeletons and helpful empty states.
+- Artikel 09 and 10: `expo-image` with a memory-disk cache and prefetch; the public catalog query cache persisted to AsyncStorage by an allow-list.
+- Artikel 11: one offline banner above the tab bar, and a refetch of active stale queries when the network returns.
+- Artikel 12: wishlist with an optimistic heart; signed out, the heart answers "Masuk dulu"; wishlist queries and mutations are never persisted.
+- Artikel 13: Reanimated heart pop, card press scale and list fade-in, all off with reduced motion.
+- Artikel 14: a dev-only perf harness; one heart re-render per tap instead of one per card.
+- Artikel 15: recently viewed, persisted on the phone with no PII and no token.
+- Still for Bab 15: sign-in (the `auth-seam` returns `null` until then) and `expo-secure-store` for tokens.

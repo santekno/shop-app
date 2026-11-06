@@ -12,6 +12,7 @@ import { EmptyState, ErrorState } from "@/components/StatusMessage";
 import { productDetailQuery } from "@/features/catalog/api/queries";
 import { ProductDetailSkeleton } from "@/features/catalog/components/ProductSkeletons";
 import { ProductDetailView } from "@/features/catalog/components/ProductDetailView";
+import { useRecordRecentlyViewed } from "@/features/recent/hooks/useRecentlyViewed";
 import { queryView } from "@/lib/query-state";
 
 export default function ProductScreen() {
@@ -21,6 +22,9 @@ export default function ProductScreen() {
   const { slug } = useLocalSearchParams<"/produk/[slug]">();
   const query = useQuery(productDetailQuery(slug));
   const view = queryView(query);
+  // Only once the product has loaded: a slug that names nothing is not
+  // "viewed" (Terakhir dilihat, artikel 15).
+  useRecordRecentlyViewed(query.data);
 
   return (
     // Pushed above the tabs, so no tab bar protects the bottom edge. The

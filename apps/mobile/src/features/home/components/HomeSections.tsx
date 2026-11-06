@@ -2,6 +2,7 @@ import { View } from "react-native";
 
 import { BannerCarousel } from "./BannerCarousel";
 import { CategoryChips } from "./CategoryChips";
+import { RecentlyViewed } from "@/features/recent/components/RecentlyViewed";
 import { FeaturedProducts } from "./FeaturedProducts";
 
 interface HomeSectionsProps {
@@ -13,8 +14,9 @@ interface HomeSectionsProps {
 
 /**
  * What Beranda shows above the full catalog when nothing narrows it: the
- * banner carousel, the category row and the featured products. Three
- * independent queries, three independent states.
+ * banner carousel, the category row and the featured products, then
+ * "Terakhir dilihat" from the phone itself (no query). Three independent
+ * queries, three independent states.
  */
 export function HomeSections({ onOpenCategory, bleed }: HomeSectionsProps) {
   return (
@@ -22,6 +24,7 @@ export function HomeSections({ onOpenCategory, bleed }: HomeSectionsProps) {
       <BannerCarousel onOpenCategory={onOpenCategory} bleed={bleed} />
       <CategoryChips onOpenCategory={onOpenCategory} bleed={bleed} />
       <FeaturedProducts bleed={bleed} />
+      <RecentlyViewed bleed={bleed} />
     </View>
   );
 }
