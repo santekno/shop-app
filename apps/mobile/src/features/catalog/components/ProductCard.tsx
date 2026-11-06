@@ -2,6 +2,7 @@ import { memo } from "react";
 import { Pressable, Text, View } from "react-native";
 import { formatRupiah } from "@goshop/shared";
 import type { Product } from "@goshop/shared";
+import { WishlistButton } from "@/features/wishlist/components/WishlistButton";
 import { ProductPhoto } from "./ProductPhoto";
 
 interface ProductCardProps {
@@ -44,57 +45,68 @@ export const ProductCard = memo(function ProductCard({
   const price = formatRupiah(priceFrom);
 
   return (
-    <Pressable
-      onPress={() => {
-        onPress(product);
-      }}
-      // What TalkBack and VoiceOver announce. The card is one element: the
-      // screen reader reads this label, not every Text inside, and says
-      // "button" after it.
-      accessibilityRole="button"
-      accessibilityLabel={[
-        name,
-        hasPriceRange ? `mulai ${price}` : price,
-        inStock ? null : "stok habis",
-      ]
-        .filter((part) => part !== null)
-        .join(", ")}
-      accessibilityHint="Membuka halaman produk"
-      // active: is the pressed state (the web's :active): NativeWind
-      // listens to the Pressable's press-in and press-out for it.
-      // grow, not flex-1: flex-1 is a basis of 0%, and a list cell has no
-      // height to grow into, so the cards collapsed to their padding when
-      // FlatList laid out the rows again (README, artikel 06). grow starts
-      // from the content and still fills a row's taller cell.
-      className="grow gap-1 rounded-lg border border-border bg-card p-3 active:bg-accent dark:border-border-dark dark:bg-card-dark dark:active:bg-accent-dark"
-    >
-      <ProductPhoto image={product.images[0]} />
-      {/* numberOfLines cuts a long name after two lines with "…", what
-          line-clamp does on the web. */}
-      <Text
-        numberOfLines={2}
-        className="mt-1 font-sans text-sm font-semibold text-foreground dark:text-foreground-dark"
+    // The heart is a sibling of the card's Pressable, not a child: a
+    // Pressable with a role is ONE accessible element, so a button inside
+    // it would be invisible to TalkBack and VoiceOver. `grow` moved here
+    // from the Pressable, which now fills this wrapper.
+    <View className="grow">
+      <Pressable
+        onPress={() => {
+          onPress(product);
+        }}
+        // What TalkBack and VoiceOver announce. The card is one element: the
+        // screen reader reads this label, not every Text inside, and says
+        // "button" after it.
+        accessibilityRole="button"
+        accessibilityLabel={[
+          name,
+          hasPriceRange ? `mulai ${price}` : price,
+          inStock ? null : "stok habis",
+        ]
+          .filter((part) => part !== null)
+          .join(", ")}
+        accessibilityHint="Membuka halaman produk"
+        // active: is the pressed state (the web's :active): NativeWind
+        // listens to the Pressable's press-in and press-out for it.
+        // grow, not flex-1: flex-1 is a basis of 0%, and a list cell has no
+        // height to grow into, so the cards collapsed to their padding when
+        // FlatList laid out the rows again (README, artikel 06). grow starts
+        // from the content and still fills a row's taller cell.
+        className="grow gap-1 rounded-lg border border-border bg-card p-3 active:bg-accent dark:border-border-dark dark:bg-card-dark dark:active:bg-accent-dark"
       >
-        {name}
-      </Text>
-      <Text className="font-sans text-base font-semibold text-foreground dark:text-foreground-dark">
-        {/* Text inside Text is the one place styles are inherited: the
+        <ProductPhoto image={product.images[0]} />
+        {/* numberOfLines cuts a long name after two lines with "…", what
+          line-clamp does on the web. */}
+        <Text
+          numberOfLines={2}
+          className="mt-1 font-sans text-sm font-semibold text-foreground dark:text-foreground-dark"
+        >
+          {name}
+        </Text>
+        <Text className="font-sans text-base font-semibold text-foreground dark:text-foreground-dark">
+          {/* Text inside Text is the one place styles are inherited: the
             inner Text keeps the outer's size and changes the weight and
             colour. */}
-        {hasPriceRange && (
-          <Text className="font-normal text-muted-foreground dark:text-muted-foreground-dark">
-            Mulai{" "}
-          </Text>
+          {hasPriceRange && (
+            <Text className="font-normal text-muted-foreground dark:text-muted-foreground-dark">
+              Mulai{" "}
+            </Text>
+          )}
+          {price}
+        </Text>
+        {!inStock && (
+          <View className="self-start rounded bg-destructive px-2 py-0.5 dark:bg-destructive-dark">
+            <Text className="font-sans text-xs font-semibold text-destructive-foreground dark:text-destructive-foreground-dark">
+              Stok habis
+            </Text>
+          </View>
         )}
-        {price}
-      </Text>
-      {!inStock && (
-        <View className="self-start rounded bg-destructive px-2 py-0.5 dark:bg-destructive-dark">
-          <Text className="font-sans text-xs font-semibold text-destructive-foreground dark:text-destructive-foreground-dark">
-            Stok habis
-          </Text>
-        </View>
-      )}
-    </Pressable>
+      </Pressable>
+      <WishlistButton
+        slug={product.slug}
+        productName={name}
+        className="absolute right-4 top-4"
+      />
+    </View>
   );
 });

@@ -35,3 +35,14 @@ export const announceOnIos = (message: string) => {
     AccessibilityInfo.announceForAccessibility(message);
   }
 };
+
+/**
+ * Tells the screen reader about a change the user just made, on both
+ * platforms. For a control whose label does not change a live region (a
+ * heart that fills in): Android has no region to put the text in, so it is
+ * announced directly, as iOS is. Called from the press handler, never on
+ * first render.
+ */
+export const announce = (message: string) => {
+  AccessibilityInfo.announceForAccessibility(message);
+};

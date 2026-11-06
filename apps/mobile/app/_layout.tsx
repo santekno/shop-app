@@ -14,6 +14,7 @@ import { Stack, ThemeProvider } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useColorScheme } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { NoticeHost } from "@/components/NoticeHost";
 import { queryClient } from "@/lib/query-client";
 import { persistOptions } from "@/lib/query-persist";
 import { navigationTheme } from "@/theme/navigation";
@@ -51,6 +52,8 @@ export default function RootLayout() {
       <GestureHandlerRootView style={{ flex: 1 }}>
         <BottomSheetModalProvider>
           <ThemedNavigation />
+          {/* Short messages over any screen (src/lib/notice.ts). */}
+          <NoticeHost />
         </BottomSheetModalProvider>
       </GestureHandlerRootView>
     </PersistQueryClientProvider>
@@ -72,6 +75,7 @@ function ThemedNavigation() {
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         {/* The title is replaced by the screen once it knows the product. */}
         <Stack.Screen name="produk/[slug]" options={{ title: "Produk" }} />
+        <Stack.Screen name="wishlist" options={{ title: "Wishlist saya" }} />
         <Stack.Screen
           name="+not-found"
           options={{ title: "Tidak ditemukan" }}

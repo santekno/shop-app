@@ -23,6 +23,12 @@ export type ProductListKeyFilters = Omit<ListProductsQuery, "cursor">;
  *   ["products", "list", { category, q, sort }]   one catalog list
  *   ["products", "featured"]                      Beranda's featured row
  *   ["products", "detail", slug]                  one product page
+ *   ["wishlist", "ids"]                           the saved slugs (hearts)
+ *   ["wishlist", "list"]                          the wishlist screen's pages
+ *
+ * ["wishlist"] is the buyer's own data: it is NEVER persisted to disk
+ * (shouldPersistQuery in query-persist.ts allow-lists the catalog keys
+ * only, so a new scope is excluded until someone adds it there).
  */
 export const queryKeys = {
   categories: ["categories"] as const,
@@ -35,5 +41,11 @@ export const queryKeys = {
     featured: () => [...queryKeys.products.all, "featured"] as const,
     detail: (slug: string) =>
       [...queryKeys.products.all, "detail", slug] as const,
+  },
+  wishlist: {
+    all: ["wishlist"] as const,
+    ids: () => [...queryKeys.wishlist.all, "ids"] as const,
+    list: () => [...queryKeys.wishlist.all, "list"] as const,
+    toggle: ["wishlist", "toggle"] as const,
   },
 };

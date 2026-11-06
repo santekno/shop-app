@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ScrollView, Text, View } from "react-native";
 import type { Product, ProductVariant } from "@goshop/shared";
 
+import { WishlistButton } from "@/features/wishlist/components/WishlistButton";
 import { announceOnIos } from "@/lib/announce";
 import { priceLabel, selectedVariant, stockLabel } from "../variants";
 import { ProductGallery } from "./ProductGallery";
@@ -48,16 +49,23 @@ export function ProductDetailView({ product }: ProductDetailViewProps) {
         productName={product.name}
       />
       <View className="gap-4 px-4 pt-2">
-        <View className="gap-1">
-          <Text
-            accessibilityRole="header"
-            className="font-sans text-2xl font-bold text-foreground dark:text-foreground-dark"
-          >
-            {product.name}
-          </Text>
-          <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
-            {product.category.name}
-          </Text>
+        <View className="flex-row items-start justify-between gap-3">
+          <View className="flex-1 gap-1">
+            <Text
+              accessibilityRole="header"
+              className="font-sans text-2xl font-bold text-foreground dark:text-foreground-dark"
+            >
+              {product.name}
+            </Text>
+            <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+              {product.category.name}
+            </Text>
+          </View>
+          <WishlistButton
+            slug={product.slug}
+            productName={product.name}
+            className="border border-border dark:border-border-dark"
+          />
         </View>
         <View
           accessible
