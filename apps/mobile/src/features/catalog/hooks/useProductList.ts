@@ -47,6 +47,11 @@ export const flattenPages = (
  * shares unchanged data structurally), so memo(ProductCard) skips the
  * cards already on screen when a page arrives.
  *
+ * While the search text changes, `products` stays the previous search's
+ * (`isPlaceholderData` is true) until the new first page arrives; see
+ * productListQuery. The infinite scroll is off for those rows: their
+ * cursor belongs to the old search.
+ *
  * `refresh` is for pull-to-refresh: the buyer is at the top of the list
  * and asks for it again. It fetches the first page only (`pages: 1`) and
  * the cache then holds that one page; the later pages are fetched fresh
@@ -111,7 +116,7 @@ export const useProductList = (filters: ProductListFilters) => {
     // list moves, and loading by itself would loop; retryNextPage is the
     // buyer's way out.
     if (loadingMore.current || !hasNextPage || isFetching) return;
-    if (isFetchNextPageError) return;
+    if (isFetchNextPageError || query.isPlaceholderData) return;
     requestNextPage();
   };
   // The footer's "Coba lagi" after a page failed: the same request, asked
@@ -130,6 +135,8 @@ export const useProductList = (filters: ProductListFilters) => {
     fetchStatus: query.fetchStatus,
     error: query.error,
     isFetching: query.isFetching,
+    // The rows are the previous search's, kept while this one loads.
+    isPlaceholderData: query.isPlaceholderData,
     isFetchingNextPage: query.isFetchingNextPage,
     isFetchNextPageError: query.isFetchNextPageError,
     isRefetchError: query.isRefetchError,

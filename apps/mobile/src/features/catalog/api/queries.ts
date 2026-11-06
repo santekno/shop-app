@@ -3,7 +3,11 @@
 // apps/web/src/features/catalog/api/queries.ts so the two apps' caches
 // read the same way. The product request itself is fetchProductPage
 // (./products.ts); this file only says how TanStack Query pages through it.
-import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
+import {
+  infiniteQueryOptions,
+  keepPreviousData,
+  queryOptions,
+} from "@tanstack/react-query";
 import { getProduct, listCategories } from "@goshop/shared";
 import { api } from "@/lib/api";
 import { queryKeys } from "@/lib/query-keys";
@@ -62,6 +66,14 @@ export const categoriesQuery = () =>
  * and a cursor, valid only with the filters it came from, never crosses
  * from one to another. TanStack Query passes a `signal`, so a request for
  * a list nobody shows any more (the search changed) is aborted.
+ *
+ * `placeholderData` keeps the rows of the list before while the list after
+ * loads, but only when the search text is the one thing that changed: the
+ * buyer typing sees the old results until the new ones replace them in one
+ * render, with no blank screen between two keystrokes. A different
+ * category or order is a different list, and showing the old category's
+ * products under the new one's name would be wrong, so those load from
+ * scratch (the skeleton, artikel 08).
  */
 export const productListQuery = (filters: ProductListFilters) =>
   infiniteQueryOptions({
@@ -69,6 +81,14 @@ export const productListQuery = (filters: ProductListFilters) =>
     queryFn: ({ pageParam, signal }) =>
       fetchProductPage(filters, pageParam, signal),
     initialPageParam: null as string | null,
+    placeholderData: (previousData, previousQuery) => {
+      const before = previousQuery?.queryKey[2];
+      return before !== undefined &&
+        before.category === filters.category &&
+        before.sort === filters.sort
+        ? keepPreviousData(previousData)
+        : undefined;
+    },
     getNextPageParam: (lastPage, _allPages, lastPageParam) => {
       const next = lastPage.page.next_cursor;
       // A next cursor equal to the one just used would ask for the same

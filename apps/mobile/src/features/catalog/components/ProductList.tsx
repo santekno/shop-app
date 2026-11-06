@@ -105,6 +105,7 @@ export function ProductList({
     fetchStatus,
     error,
     isFetching,
+    isPlaceholderData,
     isFetchingNextPage,
     isFetchNextPageError,
     isRefetchError,
@@ -207,6 +208,9 @@ export function ProductList({
             )}
             <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
               {caption}
+              {/* The rows below are the previous search's until the new
+                  ones arrive (placeholderData, queries.ts). */}
+              {isPlaceholderData ? " · memperbarui…" : ""}
             </Text>
             {/* The products already on screen stay; this says they may be
               out of date, after a pull or a background refetch failed. */}

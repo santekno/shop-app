@@ -112,14 +112,15 @@ export default function HomeScreen() {
         </Text>
         <View className="flex-row items-center gap-3">
           <View className="flex-1">
-            {/* A new key when the route's search changes (a deep link,
-                for one) starts the field again from it. */}
+            {/* No key: the field keeps its focus and its text while the
+                route's search follows it. A change that did not come from
+                the field (a deep link, "Reset filter") starts it again. */}
             <SearchBar
-              key={query}
               initialQuery={query}
               onSubmit={(text) => {
                 // The search becomes part of the route, like ?q= on the
-                // web: an empty search removes it.
+                // web: an empty search removes it. The field calls this
+                // once the user pauses typing, not on every keystroke.
                 router.setParams({ q: text === "" ? undefined : text });
               }}
             />
