@@ -428,3 +428,44 @@ describe("Beranda: the shop window", () => {
     expect(before("/v1/products")).toBe(products + 2);
   });
 });
+
+describe("Beranda: applying the filter sheet", () => {
+  const openSheet = async () => {
+    await userEvent.press(
+      screen.getByRole("button", { name: /^Filter dan urutan, saat ini/ }),
+    );
+    await screen.findByText("Terapkan");
+  };
+
+  it("writes ?kategori= and ?urut= to the route and keeps the search", async () => {
+    fakeApi.on("GET", "/v1/categories", () =>
+      json({ data: [category("kaos", "Kaos")] }),
+    );
+    answerProducts("Kaos");
+    const app = await renderApp("/?q=polos");
+    await screen.findByText("Kaos");
+    await openSheet();
+
+    await userEvent.press(await screen.findByRole("radio", { name: "Kaos" }));
+    await userEvent.press(screen.getByRole("radio", { name: "Harga terendah" }));
+    await userEvent.press(screen.getByRole("button", { name: "Terapkan" }));
+
+    expect(app.getSearchParams()).toEqual({
+      q: "polos",
+      kategori: "kaos",
+      urut: "termurah",
+    });
+  });
+
+  it("leaves urut out of the route when the order is the default", async () => {
+    answerProducts("Kaos");
+    const app = await renderApp("/?urut=termahal");
+    await screen.findByText("Kaos");
+    await openSheet();
+
+    await userEvent.press(screen.getByRole("radio", { name: "Terbaru" }));
+    await userEvent.press(screen.getByRole("button", { name: "Terapkan" }));
+
+    expect(app.getSearchParams()).toEqual({});
+  });
+});
