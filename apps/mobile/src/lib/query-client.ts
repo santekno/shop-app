@@ -21,18 +21,21 @@ export const DEFAULT_STALE_TIME_MS = 30_000;
 /**
  * How long a cache entry that no screen uses any more is kept before it is
  * thrown away (TanStack Query calls it `gcTime`). TanStack's default is
- * five minutes; here ten, twice the longest `staleTime` of the app: on a
- * phone the buyer goes into a product and back out all the time, and the
- * list they left must still be there, scroll position and pages included,
- * not fetched again from the first page. Kept in memory only, and a phone
- * evicts the whole app under pressure anyway, so a long gcTime costs little.
+ * five minutes; here a day, for two reasons. On a phone the buyer goes into
+ * a product and back out all the time, and the list they left must still
+ * be there, scroll position and pages included, not fetched again from the
+ * first page. And the cache is saved to disk (src/lib/query-persist.ts,
+ * artikel 10) for as long as PERSIST_MAX_AGE_MS: TanStack Query requires
+ * gcTime to be at least that, or an entry is collected from memory before
+ * the disk copy could ever be restored. A phone evicts the whole app under
+ * pressure anyway, so a long gcTime costs little.
  * Must stay longer than the staleTime: an entry cannot be fresh and gone.
  */
-export const DEFAULT_GC_TIME_MS = 10 * 60_000;
+export const DEFAULT_GC_TIME_MS = 24 * 60 * 60_000;
 
 /**
  * The cache of server state, shared by every screen under
- * <QueryClientProvider> (app/_layout.tsx). The same defaults as the web:
+ * <PersistQueryClientProvider> (app/_layout.tsx). The same defaults as the web:
  *
  * - `retry: false`: the API client (src/lib/api.ts) already retries a GET
  *   once when retrying can help (network failure, timeout, 502/503/504).
