@@ -111,7 +111,13 @@ func decodeCursor(params ListParams) (position, error) {
 // filterKey is a short fingerprint of the request's filters, so a cursor
 // stays small however long the search text is. A category slug never
 // contains a newline, so the two values cannot run into each other.
+// featured=true adds a third line; without it the key is what it was before
+// the filter existed, so cursors already handed out stay valid.
 func filterKey(params ListParams) string {
-	sum := sha256.Sum256([]byte(params.Category + "\n" + params.Query))
+	key := params.Category + "\n" + params.Query
+	if params.Featured {
+		key += "\nfeatured"
+	}
+	sum := sha256.Sum256([]byte(key))
 	return hex.EncodeToString(sum[:8])
 }

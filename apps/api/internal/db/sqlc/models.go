@@ -25,6 +25,19 @@ type Address struct {
 	UpdatedAt     time.Time
 }
 
+type Banner struct {
+	ID               string
+	Title            string
+	Subtitle         sql.NullString
+	CtaLabel         sql.NullString
+	LinkCategorySlug sql.NullString
+	BackgroundColor  string
+	Position         int32
+	IsActive         bool
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+}
+
 type Cart struct {
 	ID        string
 	UserID    *string
@@ -174,6 +187,7 @@ type Product struct {
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 	Version     int32
+	IsFeatured  bool
 }
 
 type ProductImage struct {

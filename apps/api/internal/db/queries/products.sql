@@ -21,7 +21,10 @@
 -- no search; otherwise full-text search on the generated column (name
 -- weighted above description) with the GIN index products_search_idx.
 -- websearch_to_tsquery accepts what people type (words, "quoted phrases",
--- -excluded, or) and never fails on syntax.
+-- -excluded, or) and never fails on syntax. featured false means no
+-- filter; true keeps only the products the shop put on the home screen
+-- (is_featured), which products_active_featured_newest_idx serves for
+-- sort=newest.
 
 -- name: ListProductsNewest :many
 -- sort=newest, served by products_active_newest_idx (or
@@ -34,6 +37,7 @@ WITH page AS (
            OR p.category_id = ANY(sqlc.narg('category_ids')::uuid[]))
       AND (sqlc.narg('search')::text IS NULL
            OR p.search @@ websearch_to_tsquery('indonesian', sqlc.narg('search')))
+      AND (NOT @featured::boolean OR p.is_featured)
       AND (p.created_at, p.id) < (@cursor_created_at::timestamptz, @cursor_id::uuid)
     ORDER BY p.created_at DESC, p.id DESC
     LIMIT @page_size
@@ -56,6 +60,7 @@ WITH page AS (
            OR p.category_id = ANY(sqlc.narg('category_ids')::uuid[]))
       AND (sqlc.narg('search')::text IS NULL
            OR p.search @@ websearch_to_tsquery('indonesian', sqlc.narg('search')))
+      AND (NOT @featured::boolean OR p.is_featured)
       AND (p.price_from, p.id) > (@cursor_price::bigint, @cursor_id::uuid)
     ORDER BY p.price_from, p.id
     LIMIT @page_size
@@ -78,6 +83,7 @@ WITH page AS (
            OR p.category_id = ANY(sqlc.narg('category_ids')::uuid[]))
       AND (sqlc.narg('search')::text IS NULL
            OR p.search @@ websearch_to_tsquery('indonesian', sqlc.narg('search')))
+      AND (NOT @featured::boolean OR p.is_featured)
       AND (p.price_from, p.id) < (@cursor_price::bigint, @cursor_id::uuid)
     ORDER BY p.price_from DESC, p.id DESC
     LIMIT @page_size

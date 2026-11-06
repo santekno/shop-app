@@ -73,6 +73,9 @@ type listQuery struct {
 	Sort     string `query:"sort" validate:"oneof=newest price_asc price_desc"`
 	Cursor   string `query:"cursor" validate:"omitempty,max=512"`
 	Limit    int    `query:"limit" validate:"min=1,max=100"`
+	// Featured is a string, not a bool, so only true and false are
+	// accepted ("1" and "t" are not).
+	Featured string `query:"featured" validate:"omitempty,oneof=true false"`
 }
 
 // List serves GET /v1/products.
@@ -90,6 +93,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	page, err := h.catalog.List(r.Context(), ListParams{
 		Category: q.Category, Query: q.Q, Sort: Sort(q.Sort), Cursor: q.Cursor, Limit: q.Limit,
+		Featured: q.Featured == "true",
 	})
 	if errors.Is(err, ErrUnknownCategory) {
 		// A typo is not mistaken for an empty category.

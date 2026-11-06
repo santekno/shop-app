@@ -22,6 +22,7 @@ import (
 	"github.com/santekno/shop-app/apps/api/internal/address"
 	"github.com/santekno/shop-app/apps/api/internal/adminevents"
 	"github.com/santekno/shop-app/apps/api/internal/auth"
+	"github.com/santekno/shop-app/apps/api/internal/banner"
 	"github.com/santekno/shop-app/apps/api/internal/cart"
 	"github.com/santekno/shop-app/apps/api/internal/category"
 	"github.com/santekno/shop-app/apps/api/internal/config"
@@ -82,6 +83,7 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 
 	// Repositories: SQL on the shared pool.
 	categoryRepo := category.NewPostgresRepository(db)
+	bannerRepo := banner.NewPostgresRepository(db)
 	productRepo := product.NewPostgresRepository(db)
 	authRepo := auth.NewPostgresRepository(db)
 	// Deleting an account also cancels its unpaid orders and deletes its
@@ -93,6 +95,7 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 
 	// Services: the business rules, given their repositories.
 	categoryService := category.NewService(categoryRepo)
+	bannerService := banner.NewService(bannerRepo)
 	productService := product.NewService(productRepo, categoryService)
 	userService := user.NewService(userRepo, o.revocations)
 	addressService := address.NewService(addressRepo)
@@ -138,6 +141,7 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 	// Handlers: HTTP in and out, given their services.
 	validator := httpapi.NewValidator()
 	categoryHandler := category.NewHandler(categoryService)
+	bannerHandler := banner.NewHandler(bannerService)
 	productHandler := product.NewHandler(productService, productService, validator).
 		WithTable(product.NewTableService(productRepo)).
 		WithStock(product.NewStockService(productRepo))
@@ -206,6 +210,7 @@ func New(cfg config.Config, logger logx.Logger, db *sql.DB, rdb redis.UniversalC
 	}, func(r chi.Router) {
 		r.Route("/v1", func(r chi.Router) {
 			categoryHandler.Routes(r)
+			bannerHandler.Routes(r)
 			productHandler.Routes(r)
 			authHandler.Routes(r)
 			// Called by Midtrans, which has no GoShop token: the

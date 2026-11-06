@@ -170,6 +170,36 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /v1/banners:
+    get:
+      tags: [Catalog]
+      operationId: listBanners
+      summary: List the home screen banners
+      description: |
+        Returns the active banners of the home screen carousel in display
+        order (`position`, then `id`). The list is small, so it is not
+        paginated. No authentication needed. Banners are coloured text
+        cards: there is no image. Tapping one opens the category named by
+        `link_category_slug`. Banners are managed by the seed or by SQL for
+        now; there is no admin endpoint yet.
+      responses:
+        "200":
+          description: The active banners, possibly none.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BannerList"
+              example:
+                data:
+                  - id: 0192f3c0-1c2d-7b4e-8a10-3f5e6d7c8b90
+                    title: Kaos Baru Musim Ini
+                    subtitle: Katun combed nyaman untuk sehari-hari
+                    cta_label: Lihat kaos
+                    link_category_slug: kaos
+                    background_color: "#1E40AF"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /v1/products:
     get:
       tags: [Catalog]
@@ -207,9 +237,20 @@ paths:
             type: string
             enum: [newest, price_asc, price_desc]
             default: newest
+        - name: featured
+          in: query
+          description: |
+            `true` keeps only the products the shop features on the home
+            screen. `false`, or leaving it out, lists every product. Any other
+            value is 400 `VALIDATION_FAILED`. Combines with `category`, `q`,
+            `sort` and `cursor`.
+          schema:
+            type: string
+            enum: ["true", "false"]
+            default: "false"
         - name: cursor
           in: query
-          description: Opaque cursor from `page.next_cursor` of the previous page. Omit it for the first page. Clients must not parse or build it; it is only valid with the same `category`, `q` and `sort`.
+          description: Opaque cursor from `page.next_cursor` of the previous page. Omit it for the first page. Clients must not parse or build it; it is only valid with the same `category`, `q`, `featured` and `sort`.
           schema:
             type: string
             maxLength: 512
@@ -3085,6 +3126,50 @@ components:
         next_cursor:
           type: [string, "null"]
           description: Cursor for the next page, or `null` on the last page. A page may hold fewer than `limit` products, even none, while `next_cursor` is not null; stop only when it is null.
+
+    BannerList:
+      type: object
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Banner"
+
+    Banner:
+      type: object
+      description: One card of the home screen carousel. A coloured card with text; there is no image.
+      required: [id, title, subtitle, cta_label, link_category_slug, background_color]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          maxLength: 100
+          example: Kaos Baru Musim Ini
+        subtitle:
+          type: [string, "null"]
+          maxLength: 200
+          description: A second line under the title, or `null`.
+        cta_label:
+          type: [string, "null"]
+          maxLength: 40
+          description: The label of the banner's button, or `null` for a banner without one.
+          example: Lihat kaos
+        link_category_slug:
+          type: [string, "null"]
+          pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
+          maxLength: 100
+          description: The category the app opens when the banner is tapped, or `null` for a banner that links nowhere. It is not checked against the categories, so the app handles a slug that names none.
+          example: kaos
+        background_color:
+          type: string
+          pattern: "^#[0-9A-Fa-f]{6}$"
+          description: The card's background as `#RRGGBB`.
+          example: "#1E40AF"
 
     CategoryList:
       type: object

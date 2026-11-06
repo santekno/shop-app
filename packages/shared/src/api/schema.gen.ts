@@ -72,6 +72,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/banners": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the home screen banners
+         * @description Returns the active banners of the home screen carousel in display
+         *     order (`position`, then `id`). The list is small, so it is not
+         *     paginated. No authentication needed. Banners are coloured text
+         *     cards: there is no image. Tapping one opens the category named by
+         *     `link_category_slug`. Banners are managed by the seed or by SQL for
+         *     now; there is no admin endpoint yet.
+         */
+        get: operations["listBanners"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/products": {
         parameters: {
             query?: never;
@@ -1705,6 +1730,33 @@ export interface components {
             /** @description Cursor for the next page, or `null` on the last page. A page may hold fewer than `limit` products, even none, while `next_cursor` is not null; stop only when it is null. */
             next_cursor: string | null;
         };
+        BannerList: {
+            data: components["schemas"]["Banner"][];
+        };
+        /** @description One card of the home screen carousel. A coloured card with text; there is no image. */
+        Banner: {
+            /** Format: uuid */
+            id: string;
+            /** @example Kaos Baru Musim Ini */
+            title: string;
+            /** @description A second line under the title, or `null`. */
+            subtitle: string | null;
+            /**
+             * @description The label of the banner's button, or `null` for a banner without one.
+             * @example Lihat kaos
+             */
+            cta_label: string | null;
+            /**
+             * @description The category the app opens when the banner is tapped, or `null` for a banner that links nowhere. It is not checked against the categories, so the app handles a slug that names none.
+             * @example kaos
+             */
+            link_category_slug: string | null;
+            /**
+             * @description The card's background as `#RRGGBB`.
+             * @example #1E40AF
+             */
+            background_color: string;
+        };
         CategoryList: {
             data: components["schemas"]["Category"][];
         };
@@ -3222,6 +3274,41 @@ export interface operations {
             500: components["responses"]["InternalError"];
         };
     };
+    listBanners: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The active banners, possibly none. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": [
+                     *         {
+                     *           "id": "0192f3c0-1c2d-7b4e-8a10-3f5e6d7c8b90",
+                     *           "title": "Kaos Baru Musim Ini",
+                     *           "subtitle": "Katun combed nyaman untuk sehari-hari",
+                     *           "cta_label": "Lihat kaos",
+                     *           "link_category_slug": "kaos",
+                     *           "background_color": "#1E40AF"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["BannerList"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
     listProducts: {
         parameters: {
             query?: {
@@ -3243,7 +3330,14 @@ export interface operations {
                 q?: string;
                 /** @description Sort order. Price sorting uses the cheapest sellable variant (`price_from`). */
                 sort?: "newest" | "price_asc" | "price_desc";
-                /** @description Opaque cursor from `page.next_cursor` of the previous page. Omit it for the first page. Clients must not parse or build it; it is only valid with the same `category`, `q` and `sort`. */
+                /**
+                 * @description `true` keeps only the products the shop features on the home
+                 *     screen. `false`, or leaving it out, lists every product. Any other
+                 *     value is 400 `VALIDATION_FAILED`. Combines with `category`, `q`,
+                 *     `sort` and `cursor`.
+                 */
+                featured?: "true" | "false";
+                /** @description Opaque cursor from `page.next_cursor` of the previous page. Omit it for the first page. Clients must not parse or build it; it is only valid with the same `category`, `q`, `featured` and `sort`. */
                 cursor?: string;
                 /** @description Page size. */
                 limit?: number;

@@ -34,6 +34,8 @@ type ListQuery struct {
 	CategoryIDs []string
 	// Search is the text to search for; empty for no search.
 	Search string
+	// Featured limits the page to featured products.
+	Featured bool
 	// Sort picks the order, and so which of the three queries runs.
 	Sort Sort
 	// After is where the page starts: just after this position.
@@ -55,7 +57,7 @@ func (r *PostgresRepository) List(ctx context.Context, q ListQuery) ([]Product, 
 	switch q.Sort {
 	case SortNewest:
 		rows, err := r.q.ListProductsNewest(ctx, sqlc.ListProductsNewestParams{
-			CategoryIds: q.CategoryIDs, Search: q.search(), CursorCreatedAt: q.After.CreatedAt, CursorID: q.After.ID, PageSize: limit,
+			CategoryIds: q.CategoryIDs, Search: q.search(), Featured: q.Featured, CursorCreatedAt: q.After.CreatedAt, CursorID: q.After.ID, PageSize: limit,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("query products: %w", err)
@@ -63,7 +65,7 @@ func (r *PostgresRepository) List(ctx context.Context, q ListQuery) ([]Product, 
 		page = rows
 	case SortPriceAsc:
 		rows, err := r.q.ListProductsPriceAsc(ctx, sqlc.ListProductsPriceAscParams{
-			CategoryIds: q.CategoryIDs, Search: q.search(), CursorPrice: q.After.Price, CursorID: q.After.ID, PageSize: limit,
+			CategoryIds: q.CategoryIDs, Search: q.search(), Featured: q.Featured, CursorPrice: q.After.Price, CursorID: q.After.ID, PageSize: limit,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("query products: %w", err)
@@ -75,7 +77,7 @@ func (r *PostgresRepository) List(ctx context.Context, q ListQuery) ([]Product, 
 		}
 	case SortPriceDesc:
 		rows, err := r.q.ListProductsPriceDesc(ctx, sqlc.ListProductsPriceDescParams{
-			CategoryIds: q.CategoryIDs, Search: q.search(), CursorPrice: q.After.Price, CursorID: q.After.ID, PageSize: limit,
+			CategoryIds: q.CategoryIDs, Search: q.search(), Featured: q.Featured, CursorPrice: q.After.Price, CursorID: q.After.ID, PageSize: limit,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("query products: %w", err)
