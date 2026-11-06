@@ -1,0 +1,54 @@
+appId: com.santekno.goshop
+name: Product detail, gallery and variants with a sold-out one
+tags: [bab-14, product]
+---
+- runFlow: subflows/open-home.yaml
+- tapOn:
+    text: "Kaos Polos Hitam.*"
+    index: 0
+- extendedWaitUntil:
+    visible: "Pilih varian"
+    timeout: 15000
+# Gallery. The seed adds no photos (they come from the upload flow), so on a
+# plain seeded stack the gallery says so; with two or more photos the swipe
+# must move to the second one.
+- runFlow:
+    when:
+      visible: "Kaos Polos Hitam, foto 1 dari .*"
+    commands:
+      - swipe:
+          from: "Kaos Polos Hitam, foto 1 dari .*"
+          direction: LEFT
+      - assertVisible: "Kaos Polos Hitam, foto 2 dari .*"
+- runFlow:
+    when:
+      visible: "Belum ada foto"
+    commands:
+      - assertVisible: "Belum ada foto"
+# Variants of kaos-polos-hitam: S, M and L in stock, XL sold out, XXL archived
+# (not listed at all). The first available one is selected.
+- assertVisible: "S, Rp.89\\.000"
+- assertVisible:
+    text: "S, Rp.89\\.000"
+    checked: true
+- assertVisible: "Rp.89\\.000, Stok tersedia"
+- assertVisible:
+    text: "XL, Rp.99\\.000, stok habis"
+    enabled: false
+- assertNotVisible: "XXL.*"
+# A press on the sold-out variant changes nothing.
+- tapOn: "XL, Rp.99\\.000, stok habis"
+- assertVisible:
+    text: "S, Rp.89\\.000"
+    checked: true
+- assertVisible:
+    text: "XL, Rp.99\\.000, stok habis"
+    checked: false
+# An available variant takes the selection.
+- tapOn: "L, Rp.89\\.000"
+- assertVisible:
+    text: "L, Rp.89\\.000"
+    checked: true
+- assertVisible:
+    text: "S, Rp.89\\.000"
+    checked: false

@@ -1,0 +1,13 @@
+# Shared start: a fresh install (no recently viewed, no saved filters) that
+# has loaded the shop window from the seeded API (make seed).
+appId: com.santekno.goshop
+---
+- launchApp:
+    clearState: true
+    stopApp: true
+- extendedWaitUntil:
+    visible: "GoShop"
+    timeout: 30000
+- extendedWaitUntil:
+    visible: "Produk unggulan"
+    timeout: 30000

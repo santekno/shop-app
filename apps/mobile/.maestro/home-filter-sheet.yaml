@@ -1,0 +1,28 @@
+appId: com.santekno.goshop
+name: Filter sheet applies and resets
+tags: [bab-14, home]
+---
+- runFlow: subflows/open-home.yaml
+- tapOn: "Filter dan urutan, saat ini Terbaru"
+- assertVisible: "Tutup filter"
+- tapOn: "Harga terendah"
+- tapOn: "Terapkan"
+# The sheet closes; the choice is now part of the route and the label.
+- assertNotVisible: "Tutup filter"
+- assertVisible: "Semua produk · Harga terendah"
+- assertVisible: "Filter dan urutan, saat ini Harga terendah"
+# Reopen: it starts from what is applied. Reset goes back to the defaults,
+# but only "Terapkan" writes them.
+- tapOn: "Filter dan urutan, saat ini Harga terendah"
+- tapOn: "Reset"
+- tapOn: "Terapkan"
+- assertVisible: "Semua produk · Terbaru"
+- assertVisible: "Filter dan urutan, saat ini Terbaru"
+# A category from the sheet shows as the chip on the list.
+- tapOn: "Filter dan urutan, saat ini Terbaru"
+- scrollUntilVisible:
+    element: "Kopi & Teh"
+- tapOn: "Kopi & Teh"
+- tapOn: "Terapkan"
+- assertVisible: "Kategori Kopi & Teh, hapus filter"
+- assertVisible: "Kopi Arabika Gayo 250 g.*"
