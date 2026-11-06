@@ -4,6 +4,7 @@
 import { listProducts } from "@goshop/shared";
 import { queryOptions } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { queryKeys } from "@/lib/query-keys";
 import { fetchBanners } from "./banners";
 
 /** How many featured products the home screen shows. */
@@ -15,7 +16,7 @@ const BANNERS_STALE_TIME_MS = 5 * 60_000;
 /** GET /v1/banners as query options (key and function kept together). */
 export const bannersQuery = () =>
   queryOptions({
-    queryKey: ["banners"] as const,
+    queryKey: queryKeys.banners,
     queryFn: ({ signal }) => fetchBanners(signal),
     staleTime: BANNERS_STALE_TIME_MS,
   });
@@ -27,7 +28,7 @@ export const bannersQuery = () =>
  */
 export const featuredProductsQuery = () =>
   queryOptions({
-    queryKey: ["products", "featured"] as const,
+    queryKey: queryKeys.products.featured(),
     queryFn: async ({ signal }) =>
       (
         await listProducts(

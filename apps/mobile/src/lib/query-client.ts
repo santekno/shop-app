@@ -19,6 +19,18 @@ import { AppState } from "react-native";
 export const DEFAULT_STALE_TIME_MS = 30_000;
 
 /**
+ * How long a cache entry that no screen uses any more is kept before it is
+ * thrown away (TanStack Query calls it `gcTime`). TanStack's default is
+ * five minutes; here ten, twice the longest `staleTime` of the app: on a
+ * phone the buyer goes into a product and back out all the time, and the
+ * list they left must still be there, scroll position and pages included,
+ * not fetched again from the first page. Kept in memory only, and a phone
+ * evicts the whole app under pressure anyway, so a long gcTime costs little.
+ * Must stay longer than the staleTime: an entry cannot be fresh and gone.
+ */
+export const DEFAULT_GC_TIME_MS = 10 * 60_000;
+
+/**
  * The cache of server state, shared by every screen under
  * <QueryClientProvider> (app/_layout.tsx). The same defaults as the web:
  *
@@ -27,9 +39,14 @@ export const DEFAULT_STALE_TIME_MS = 30_000;
  *   TanStack's own three retries on top would turn one failed screen into
  *   up to eight requests and over a minute of spinner before the error.
  * - `staleTime`, above, instead of TanStack's 0.
+ * - `gcTime`, above, instead of TanStack's 5 minutes.
+ * - mutations do not retry either (TanStack's default for them is already
+ *   0, written out so a reader does not have to know): a POST that is sent
+ *   twice can charge twice. Safe retries are the API client's business and
+ *   only for GET (src/lib/api.ts).
  *
  * Kept as they are: `refetchOnWindowFocus` and `refetchOnReconnect` (both
- * driven by the managers below), `gcTime` (5 minutes) and `networkMode`
+ * driven by the managers below) and `networkMode`
  * "online": while the phone has no network, a query waits (fetchStatus
  * "paused") instead of failing, and runs when the network is back.
  */
@@ -38,6 +55,10 @@ export const queryClient = new QueryClient({
     queries: {
       retry: false,
       staleTime: DEFAULT_STALE_TIME_MS,
+      gcTime: DEFAULT_GC_TIME_MS,
+    },
+    mutations: {
+      retry: false,
     },
   },
 });

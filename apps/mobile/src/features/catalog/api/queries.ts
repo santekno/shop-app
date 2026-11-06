@@ -6,24 +6,24 @@
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 import { listCategories } from "@goshop/shared";
 import { api } from "@/lib/api";
+import { queryKeys } from "@/lib/query-keys";
 import { fetchProductPage } from "./products";
 import type { ProductListFilters } from "./products";
 
 /**
- * The catalog's query keys, in one place. A key is an array, like a path:
- * compared by value, and a prefix matches every longer key, so
- * invalidating ["products"] reaches every product list at once.
+ * The catalog's query keys, under the names this feature has always used.
+ * They are the app-wide factory's (src/lib/query-keys.ts), so the home
+ * screen's and the product page's keys sit in the same tree:
  *
  *   ["categories"]
  *   ["products"]
  *   ["products", "list", { category, q, sort }]
  */
 export const catalogKeys = {
-  categories: ["categories"] as const,
-  products: ["products"] as const,
-  productLists: () => [...catalogKeys.products, "list"] as const,
-  productList: (filters: ProductListFilters) =>
-    [...catalogKeys.productLists(), filters] as const,
+  categories: queryKeys.categories,
+  products: queryKeys.products.all,
+  productLists: queryKeys.products.lists,
+  productList: queryKeys.products.list,
 };
 
 /** Categories rarely change: fresh for five minutes, not the default 0. */
