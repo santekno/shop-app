@@ -16,6 +16,7 @@ import type {
 import { PageDots } from "@/components/PageDots";
 import { SectionStatus } from "@/components/SectionStatus";
 import { queryView } from "@/lib/query-state";
+import { BannerSkeleton } from "./HomeSkeletons";
 import { bannerBackground, bannerForeground } from "../banner-colors";
 import type { Banner } from "../api/banners";
 import { bannersQuery } from "../api/queries";
@@ -39,7 +40,7 @@ interface BannerCarouselProps {
  * the finger snaps between, dots under them. A tap on a banner that links
  * to a category opens the catalog narrowed to it.
  *
- * States: loading (a box the card's size), offline, failed with a retry,
+ * States: loading (a skeleton the card's size), offline, failed with a retry,
  * and no banners at all, which draws nothing: a shop without a campaign
  * has no carousel, and an empty box titled "Banner" would only be noise.
  */
@@ -48,6 +49,8 @@ export function BannerCarousel({ onOpenCategory, bleed }: BannerCarouselProps) {
   const { width } = useWindowDimensions();
   const [page, setPage] = useState(0);
   const view = queryView(query);
+
+  if (view === "loading") return <BannerSkeleton />;
 
   if (view !== "ready") {
     return (

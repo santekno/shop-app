@@ -175,6 +175,18 @@ export default function HomeScreen() {
       </View>
       <ProductList
         filters={filters}
+        // Clear everything that narrows the list; the empty state's way out.
+        onReset={
+          showSections
+            ? undefined
+            : () => {
+                router.setParams({
+                  q: undefined,
+                  kategori: undefined,
+                  urut: undefined,
+                });
+              }
+        }
         refreshAlso={showSections ? refreshSections : undefined}
         header={
           showSections ? (

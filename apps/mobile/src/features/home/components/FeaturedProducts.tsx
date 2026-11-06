@@ -8,6 +8,7 @@ import { SectionStatus } from "@/components/SectionStatus";
 import { EmptyState } from "@/components/StatusMessage";
 import { openProduct } from "@/features/catalog/open-product";
 import { ProductCard } from "@/features/catalog/components/ProductCard";
+import { FeaturedSkeleton } from "@/features/catalog/components/ProductSkeletons";
 import { queryView } from "@/lib/query-state";
 import { featuredProductsQuery } from "../api/queries";
 
@@ -41,7 +42,9 @@ export function FeaturedProducts({ bleed }: FeaturedProductsProps) {
   return (
     <View>
       <SectionHeader title="Produk unggulan" />
-      {view !== "ready" ? (
+      {view === "loading" ? (
+        <FeaturedSkeleton />
+      ) : view !== "ready" ? (
         <SectionStatus
           view={view}
           what="produk unggulan"

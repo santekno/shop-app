@@ -8,15 +8,16 @@ import type { Product } from "@goshop/shared";
 
 import { Icon } from "@/components/Icon";
 import {
+  EmptyResult,
   EmptyState,
   ErrorState,
-  LoadingState,
 } from "@/components/StatusMessage";
 import type { ProductListFilters } from "../api/products";
 import { openProduct } from "../open-product";
 import { useProductList } from "../hooks/useProductList";
 import { ProductCard } from "./ProductCard";
 import { ProductListFooter } from "./ProductListFooter";
+import { ProductGridSkeleton } from "./ProductSkeletons";
 
 /** Two cards per row: the app is phone-only (supportsTablet is false). */
 const COLUMNS = 2;
@@ -63,6 +64,12 @@ interface ProductListProps {
    */
   category?: { name: string; onClear: () => void } | undefined;
   /**
+   * Clears the search, the category and the order at once ("Reset
+   * filter"). Given only when something is narrowing the list; the empty
+   * state offers it as its way out.
+   */
+  onReset?: () => void;
+  /**
    * What sits above the caption, scrolling with the list: Beranda's
    * banners, categories and featured products. One scroll view, not a
    * vertical list inside a vertical ScrollView.
@@ -96,6 +103,7 @@ export function ProductList({
   category,
   header,
   refreshAlso,
+  onReset,
 }: ProductListProps) {
   const { colors } = useTheme();
   const {
@@ -116,6 +124,34 @@ export function ProductList({
     refresh,
     isRefreshing,
   } = useProductList(filters);
+
+  // The list loaded and has no product. Three different reasons, three
+  // different ways out: a search that matched nothing, a category with no
+  // products yet, and a shop with none at all.
+  const searched = filters.q !== undefined;
+  const emptyResult = searched ? (
+    <EmptyResult
+      title={`Tidak ada hasil untuk "${filters.q}"`}
+      hint="Periksa ejaan atau coba kata kunci lain, atau hapus filter."
+      action={
+        onReset === undefined
+          ? undefined
+          : { label: "Reset filter", onPress: onReset }
+      }
+    />
+  ) : filters.category !== undefined ? (
+    <EmptyResult
+      title={`Belum ada produk di ${category?.name ?? "kategori ini"}`}
+      hint="Produk baru akan muncul di sini. Lihat kategori lain sementara itu."
+      action={
+        onReset === undefined
+          ? undefined
+          : { label: "Lihat semua produk", onPress: onReset }
+      }
+    />
+  ) : (
+    <EmptyState message="Belum ada produk." />
+  );
 
   // What the list shows when it has no rows. `data` decides, not `status`:
   // a list that has never loaded is loading, waiting for a network, or
@@ -149,16 +185,12 @@ export function ProductList({
         // waits instead of failing, and runs when the network is back.
         <EmptyState message="Tidak ada koneksi internet. Produk dimuat begitu koneksi kembali." />
       ) : (
-        <LoadingState label="Memuat produk…" />
+        // The grid's own shape, pulsing, instead of a spinner: the first
+        // screen already looks like the catalog (artikel 08).
+        <ProductGridSkeleton />
       )
     ) : (
-      <EmptyState
-        message={
-          filters.q === undefined && filters.category === undefined
-            ? "Belum ada produk."
-            : "Tidak ada produk yang cocok."
-        }
-      />
+      emptyResult
     );
 
   return (

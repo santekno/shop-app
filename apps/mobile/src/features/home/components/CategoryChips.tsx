@@ -7,6 +7,7 @@ import { SectionStatus } from "@/components/SectionStatus";
 import { EmptyState } from "@/components/StatusMessage";
 import { categoriesQuery } from "@/features/catalog/api/queries";
 import { queryView } from "@/lib/query-state";
+import { CategoryChipsSkeleton } from "./HomeSkeletons";
 
 /**
  * The top-level categories only: the row is a shortcut, the Kategori tab
@@ -36,7 +37,9 @@ export function CategoryChips({ onOpenCategory, bleed }: CategoryChipsProps) {
   return (
     <View>
       <SectionHeader title="Kategori" />
-      {view !== "ready" ? (
+      {view === "loading" ? (
+        <CategoryChipsSkeleton />
+      ) : view !== "ready" ? (
         <SectionStatus
           view={view}
           what="kategori"

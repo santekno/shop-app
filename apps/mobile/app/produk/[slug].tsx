@@ -8,12 +8,9 @@ import { View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { isApiError } from "@goshop/shared";
 
-import {
-  EmptyState,
-  ErrorState,
-  LoadingState,
-} from "@/components/StatusMessage";
+import { EmptyState, ErrorState } from "@/components/StatusMessage";
 import { productDetailQuery } from "@/features/catalog/api/queries";
+import { ProductDetailSkeleton } from "@/features/catalog/components/ProductSkeletons";
 import { ProductDetailView } from "@/features/catalog/components/ProductDetailView";
 import { queryView } from "@/lib/query-state";
 
@@ -36,9 +33,11 @@ export default function ProductScreen() {
       <Stack.Screen options={{ title: query.data?.name ?? "Produk" }} />
       {query.data !== undefined ? (
         <ProductDetailView product={query.data} />
+      ) : view === "loading" ? (
+        // The page's own outline while it loads (artikel 08).
+        <ProductDetailSkeleton />
       ) : (
         <View className="flex-1 items-center justify-center p-6">
-          {view === "loading" && <LoadingState label="Memuat produk…" />}
           {view === "offline" && (
             <EmptyState message="Tidak ada koneksi internet. Produk dimuat begitu koneksi kembali." />
           )}
