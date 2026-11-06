@@ -6,6 +6,7 @@ import {
   fireEvent,
   screen,
   userEvent,
+  within,
 } from "@testing-library/react-native";
 
 import { queryClient } from "@/lib/query-client";
@@ -19,17 +20,32 @@ afterEach(() => {
   onlineManager.setOnline(true);
 });
 
-/** Answers every product request with the products named. */
+/**
+ * Answers the catalog with the products named. The shop window's other
+ * requests (banners, categories, the featured row, which is the same path
+ * with ?featured=true) get empty answers: these tests are about the list.
+ */
 const answerProducts = (...names: string[]) => {
-  fakeApi.on("GET", "/v1/products", () =>
-    json(productPage(names.map((name) => product(name)))),
+  fakeApi.on("GET", "/v1/products", ({ url }) =>
+    json(
+      productPage(
+        url.searchParams.has("featured")
+          ? []
+          : names.map((name) => product(name)),
+      ),
+    ),
   );
+  fakeApi.on("GET", "/v1/banners", () => json({ data: [] }));
+  fakeApi.on("GET", "/v1/categories", () => json({ data: [] }));
 };
 
-/** The query of the n-th GET /v1/products, as an object. */
+/** The query of the n-th catalog list request (not the featured row). */
 const productQuery = (n: number) =>
   Object.fromEntries(
-    fakeApi.requests("GET", "/v1/products")[n]?.url.searchParams ?? [],
+    fakeApi
+      .requests("GET", "/v1/products")
+      .filter((request) => !request.url.searchParams.has("featured"))[n]?.url
+      .searchParams ?? [],
   );
 
 describe("Beranda: the route is the state", () => {
@@ -189,22 +205,26 @@ describe("Beranda: the search field", () => {
   });
 });
 
-// Link asChild gives the Pressable role="link", and React Native ranks
-// `role` above accessibilityRole. The Pressable's own role="button" wins
-// over the link's, so a screen reader says "button": it opens a sheet.
-describe("Beranda: the sort button", () => {
-  it("opens the sort sheet with every filter, labelled with the current order", async () => {
+// The badge is hidden from screen readers on purpose (the button's label
+// already says what is applied), so RNTL only finds it when asked to look
+// at hidden elements.
+const HIDDEN_TOO = { includeHiddenElements: true };
+
+describe("Beranda: the filter button", () => {
+  it("opens the filter sheet over Beranda, labelled with what is applied", async () => {
     answerProducts("Kaos");
     const app = await renderApp("/?kategori=kaos&q=polos&urut=termahal");
     await screen.findByText("Kaos");
 
     await userEvent.press(
       screen.getByRole("button", {
-        name: "Urutkan, saat ini Harga tertinggi",
+        name: "Filter dan urutan, saat ini Harga tertinggi, kategori kaos",
       }),
     );
 
-    expect(app.getPathname()).toBe("/filter");
+    expect(await screen.findByText("Terapkan")).toBeOnTheScreen();
+    // A sheet, not a route: the screen underneath is still Beranda.
+    expect(app.getPathname()).toBe("/");
     expect(app.getSearchParams()).toEqual({
       kategori: "kaos",
       q: "polos",
@@ -212,16 +232,39 @@ describe("Beranda: the sort button", () => {
     });
   });
 
-  it("passes the default order when the route has none", async () => {
+  it("says the default order when the route has none, and shows no badge", async () => {
     answerProducts("Kaos");
-    const app = await renderApp("/");
+    await renderApp("/");
     await screen.findByText("Kaos");
 
-    await userEvent.press(
-      screen.getByRole("button", { name: "Urutkan, saat ini Terbaru" }),
-    );
+    const button = screen.getByRole("button", {
+      name: "Filter dan urutan, saat ini Terbaru",
+    });
+    expect(button).toBeOnTheScreen();
+    expect(within(button).queryByText("1", HIDDEN_TOO)).not.toBeOnTheScreen();
+    expect(within(button).queryByText("2", HIDDEN_TOO)).not.toBeOnTheScreen();
+  });
 
-    expect(app.getSearchParams()).toEqual({ urut: "terbaru" });
+  it("shows a badge counting the filters that differ from the default", async () => {
+    answerProducts("Kaos");
+    await renderApp("/?kategori=kaos&urut=termurah");
+    await screen.findByText("Kaos");
+
+    const button = screen.getByRole("button", {
+      name: /^Filter dan urutan, saat ini Harga terendah/,
+    });
+    expect(within(button).getByText("2", HIDDEN_TOO)).toBeOnTheScreen();
+  });
+
+  it("counts only the order when no category is set", async () => {
+    answerProducts("Kaos");
+    await renderApp("/?urut=termurah");
+    await screen.findByText("Kaos");
+
+    const button = screen.getByRole("button", {
+      name: "Filter dan urutan, saat ini Harga terendah",
+    });
+    expect(within(button).getByText("1", HIDDEN_TOO)).toBeOnTheScreen();
   });
 
   it("is a button, never a link, with a 48 dp touch target", async () => {
@@ -230,10 +273,10 @@ describe("Beranda: the sort button", () => {
     await screen.findByText("Kaos");
 
     const button = screen.getByRole("button", {
-      name: "Urutkan, saat ini Terbaru",
+      name: "Filter dan urutan, saat ini Terbaru",
     });
-    expect(screen.queryByRole("link", { name: /Urutkan/ })).toBeNull();
-    // 24 dp icon + 2 × 12 = 48 dp, Android's smallest touch target.
+    expect(screen.queryByRole("link", { name: /Filter/ })).toBeNull();
+    // 24 dp icon + 2 x 12 = 48 dp, Android's smallest touch target.
     expect(button).toHaveProp("hitSlop", 12);
   });
 });

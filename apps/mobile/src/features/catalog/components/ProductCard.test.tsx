@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, jest } from "@jest/globals";
-import { render, screen, userEvent } from "@testing-library/react-native";
+import { screen, userEvent } from "@testing-library/react-native";
 import type { Product, ProductImage } from "@goshop/shared";
 
 import { product } from "@/test/fixtures";
+import { renderWithProviders } from "@/test/render";
 import { ProductCard } from "./ProductCard";
 
 // The real ProductPhoto, counted: memo(ProductCard) is observable as the
@@ -44,7 +45,7 @@ const withPrices = (name: string, amounts: number[]): Product => {
 
 describe("ProductCard", () => {
   it("shows one price when every variant costs the same", async () => {
-    await render(
+    await renderWithProviders(
       <ProductCard
         product={withPrices("Kaos Polos", [89_000, 89_000])}
         onPress={noop}
@@ -60,7 +61,7 @@ describe("ProductCard", () => {
   });
 
   it("says Mulai when another variant costs more", async () => {
-    await render(
+    await renderWithProviders(
       <ProductCard
         product={withPrices("Hoodie", [150_000, 175_000])}
         onPress={noop}
@@ -75,7 +76,7 @@ describe("ProductCard", () => {
 
   it("compares amounts, not objects: equal prices in new objects are one price", async () => {
     const p = withPrices("Topi", [50_000]);
-    await render(
+    await renderWithProviders(
       <ProductCard
         product={{ ...p, price_from: { amount: 50_000, currency: "IDR" } }}
         onPress={noop}
@@ -86,7 +87,7 @@ describe("ProductCard", () => {
   });
 
   it("marks a product out of stock with a badge and in its label", async () => {
-    await render(
+    await renderWithProviders(
       <ProductCard
         product={product("Jaket", { in_stock: false })}
         onPress={noop}
@@ -100,7 +101,7 @@ describe("ProductCard", () => {
   });
 
   it("has no badge while the product is in stock", async () => {
-    await render(<ProductCard product={product("Jaket")} onPress={noop} />);
+    await renderWithProviders(<ProductCard product={product("Jaket")} onPress={noop} />);
 
     expect(screen.queryByText("Stok habis")).not.toBeOnTheScreen();
     expect(
@@ -109,9 +110,9 @@ describe("ProductCard", () => {
   });
 
   it("tells a screen reader what a tap does", async () => {
-    await render(<ProductCard product={product("Jaket")} onPress={noop} />);
+    await renderWithProviders(<ProductCard product={product("Jaket")} onPress={noop} />);
 
-    expect(screen.getByRole("button")).toHaveProp(
+    expect(screen.getByRole("button", { name: "Jaket, Rp 89.000" })).toHaveProp(
       "accessibilityHint",
       "Membuka halaman produk",
     );
@@ -120,9 +121,11 @@ describe("ProductCard", () => {
   it("hands the tapped product to onPress", async () => {
     const onPress = jest.fn();
     const kaos = product("Kaos Polos");
-    await render(<ProductCard product={kaos} onPress={onPress} />);
+    await renderWithProviders(<ProductCard product={kaos} onPress={onPress} />);
 
-    await userEvent.press(screen.getByRole("button"));
+    await userEvent.press(
+      screen.getByRole("button", { name: "Kaos Polos, Rp 89.000" }),
+    );
 
     expect(onPress).toHaveBeenCalledTimes(1);
     expect(onPress).toHaveBeenCalledWith(kaos);
@@ -130,7 +133,7 @@ describe("ProductCard", () => {
 
   it("cuts a long name after two lines", async () => {
     const name = "Kaos Polos Lengan Panjang Katun Combed 30s Warna Hitam Pekat";
-    await render(<ProductCard product={product(name)} onPress={noop} />);
+    await renderWithProviders(<ProductCard product={product(name)} onPress={noop} />);
 
     expect(screen.getByText(name)).toHaveProp("numberOfLines", 2);
   });
@@ -155,13 +158,13 @@ describe("ProductCard", () => {
         },
       ],
     });
-    // Every element that hands a source to the native image view.
+    // Every native image view and the source it was handed.
     const sources = () =>
       screen.container
-        .queryAll((element) => element.props.source !== undefined)
+        .queryAll((element) => element.type === "ExpoImage")
         .map((element) => element.props.source as unknown);
 
-    await render(
+    await renderWithProviders(
       <ProductCard
         product={product("Kaos", {
           images: [photo("depan"), photo("belakang")],
@@ -195,7 +198,7 @@ describe("ProductCard", () => {
 
   it("skips rendering again when the product and onPress are the same (memo)", async () => {
     const kaos = product("Kaos");
-    await render(<ProductCard product={kaos} onPress={noop} />);
+    await renderWithProviders(<ProductCard product={kaos} onPress={noop} />);
     expect(mockPhotoRenders).toHaveBeenCalledTimes(1);
 
     await screen.rerender(<ProductCard product={kaos} onPress={noop} />);

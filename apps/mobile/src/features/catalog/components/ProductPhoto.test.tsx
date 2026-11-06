@@ -17,11 +17,18 @@ const image = (overrides: Partial<ProductImage> = {}): ProductImage => ({
   ...overrides,
 });
 
+/** The native image view the photo draws (expo-image, src/test/mocks). */
+const photoView = () => {
+  const [view] = screen.container.queryAll((i) => i.type === "ExpoImage");
+  if (view === undefined) throw new Error("no image on screen");
+  return view;
+};
+
 describe("ProductPhoto", () => {
   it("hands every variant to Image as a source list, narrowest first", async () => {
     await render(<ProductPhoto image={image()} />);
 
-    expect(screen.root).toHaveProp("source", [
+    expect(photoView()).toHaveProp("source", [
       {
         uri: "https://cdn.goshop.test/p/kaos-400.jpg",
         width: 400,
@@ -33,8 +40,16 @@ describe("ProductPhoto", () => {
         height: 800,
       },
     ]);
-    expect(screen.root).toHaveProp("resizeMode", "cover");
+    expect(photoView()).toHaveProp("contentFit", "cover");
+    expect(photoView()).toHaveProp("recyclingKey", image().id);
     expect(screen.queryByText("Belum ada foto")).not.toBeOnTheScreen();
+  });
+
+  it("caches the photo in memory and on disk and fades it in", async () => {
+    await render(<ProductPhoto image={image()} />);
+
+    expect(photoView()).toHaveProp("cachePolicy", "memory-disk");
+    expect(photoView()).toHaveProp("transition", 150);
   });
 
   it("falls back to url when the photo has no variants", async () => {
@@ -49,7 +64,7 @@ describe("ProductPhoto", () => {
       />,
     );
 
-    expect(screen.root).toHaveProp("source", [
+    expect(photoView()).toHaveProp("source", [
       { uri: "https://cdn.goshop.test/p/kecil.jpg", width: 300, height: 240 },
     ]);
   });
@@ -58,6 +73,8 @@ describe("ProductPhoto", () => {
     await render(<ProductPhoto image={undefined} />);
 
     expect(screen.getByText("Belum ada foto")).toBeOnTheScreen();
-    expect(screen.root).not.toHaveProp("source");
+    expect(screen.container.queryAll((i) => i.type === "ExpoImage")).toEqual(
+      [],
+    );
   });
 });

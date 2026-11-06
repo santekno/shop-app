@@ -115,8 +115,8 @@ describe("useProductList", () => {
       code: "INTERNAL",
       requestId: "r-1",
     });
-    // The first page stays on screen.
-    expect(names(result.current.products)).toEqual(["A", "B"]);
+    // A failed pull loses nothing: every page loaded stays on screen.
+    expect(names(result.current.products)).toEqual(["A", "B", "C"]);
   });
 
   it("isRefreshing stays false for a background refetch", async () => {

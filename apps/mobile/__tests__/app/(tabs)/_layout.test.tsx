@@ -5,17 +5,22 @@ import type { StyleProp, ViewStyle } from "react-native";
 
 import { queryClient } from "@/lib/query-client";
 import { fakeApi, json } from "@/test/fake-api";
-import { category, product, productPage } from "@/test/fixtures";
-import { renderApp } from "@/test/router";
+import { category } from "@/test/fixtures";
+import { answerEmptyCatalog, renderApp } from "@/test/router";
 
 afterEach(() => {
   queryClient.clear();
 });
 
 const openBeranda = async () => {
-  fakeApi.on("GET", "/v1/products", () => json(productPage([product("Kaos")])));
+  // Registered first, so it wins over the empty answer: Beranda's chips
+  // and the Kategori tab share this one request.
+  fakeApi.on("GET", "/v1/categories", () =>
+    json({ data: [category("kaos", "Kaos")] }),
+  );
+  answerEmptyCatalog();
   const app = await renderApp("/");
-  await screen.findByText("Kaos");
+  await screen.findByText("Belum ada produk.");
   return app;
 };
 
@@ -83,9 +88,6 @@ describe("the tab bar", () => {
       screen.getByText("Keranjang belanja Anda akan tampil di sini."),
     ).toBeOnTheScreen();
 
-    fakeApi.on("GET", "/v1/categories", () =>
-      json({ data: [category("kaos", "Kaos")] }),
-    );
     await userEvent.press(tab("Kategori", 2));
     expect(app.getPathname()).toBe("/kategori");
     expect(

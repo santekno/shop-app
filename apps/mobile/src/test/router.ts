@@ -26,14 +26,18 @@ export const headerTitles = (): unknown[] =>
     .map((i) => i.props.title as unknown);
 
 /**
- * Answers the catalog with an empty list. Any screen opened from a link
- * has the tabs under it (the root stack's anchor), so Beranda mounts and
- * asks for its products even when the test is about another screen.
+ * Answers every request Beranda makes with an empty list: the catalog and
+ * the featured row (both GET /v1/products), the banners and the
+ * categories. Any screen opened from a link has the tabs under it (the root
+ * stack's anchor), so Beranda mounts and asks for all of them even when the
+ * test is about another screen.
  */
 export const answerEmptyCatalog = () => {
   fakeApi.on("GET", "/v1/products", () =>
     json({ data: [], page: { next_cursor: null } }),
   );
+  fakeApi.on("GET", "/v1/banners", () => json({ data: [] }));
+  fakeApi.on("GET", "/v1/categories", () => json({ data: [] }));
 };
 
 /**

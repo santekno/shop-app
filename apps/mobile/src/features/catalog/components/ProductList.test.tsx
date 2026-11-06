@@ -191,26 +191,71 @@ describe("ProductList: the first page", () => {
     expect(screen.queryByText("Kategori ini tidak ada.")).not.toBeOnTheScreen();
   });
 
-  it.each([
-    ["no filter", NEWEST, "Belum ada produk."],
-    ["a search", { q: "zzz", sort: "newest" }, "Tidak ada produk yang cocok."],
-    [
-      "a category",
-      { category: "topi", sort: "newest" },
-      "Tidak ada produk yang cocok.",
-    ],
-  ] as const)(
-    "says why the list is empty with %s",
-    async (_name, filters, message) => {
-      answerPage([]);
-      await renderList({ filters });
+  it("says why the list is empty with no filter", async () => {
+    answerPage([]);
+    await renderList();
 
-      expect(await screen.findByText(message)).toBeOnTheScreen();
-      expect(
-        screen.queryByText("Semua produk sudah ditampilkan."),
-      ).not.toBeOnTheScreen();
-    },
-  );
+    expect(await screen.findByText("Belum ada produk.")).toBeOnTheScreen();
+    expect(
+      screen.queryByText("Semua produk sudah ditampilkan."),
+    ).not.toBeOnTheScreen();
+    expect(screen.queryByRole("button", { name: "Reset filter" })).toBeNull();
+  });
+
+  it("says a search matched nothing, and Reset filter hands back to the screen", async () => {
+    answerPage([]);
+    const onReset = jest.fn();
+    await renderList({ filters: { q: "zzz", sort: "newest" }, onReset });
+
+    expect(
+      await screen.findByText('Tidak ada hasil untuk "zzz"'),
+    ).toBeOnTheScreen();
+    expect(
+      screen.getByText(
+        "Periksa ejaan atau coba kata kunci lain, atau hapus filter.",
+      ),
+    ).toBeOnTheScreen();
+
+    await userEvent.press(screen.getByRole("button", { name: "Reset filter" }));
+    expect(onReset).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers no Reset filter for an empty search when the screen gave no way to reset", async () => {
+    answerPage([]);
+    await renderList({ filters: { q: "zzz", sort: "newest" } });
+
+    expect(
+      await screen.findByText('Tidak ada hasil untuk "zzz"'),
+    ).toBeOnTheScreen();
+    expect(screen.queryByRole("button", { name: "Reset filter" })).toBeNull();
+  });
+
+  it("names the empty category and offers every product instead", async () => {
+    answerPage([]);
+    const onReset = jest.fn();
+    await renderList({
+      filters: { category: "topi", sort: "newest" },
+      category: { name: "Topi", onClear: jest.fn() },
+      onReset,
+    });
+
+    expect(
+      await screen.findByText("Belum ada produk di Topi"),
+    ).toBeOnTheScreen();
+    await userEvent.press(
+      screen.getByRole("button", { name: "Lihat semua produk" }),
+    );
+    expect(onReset).toHaveBeenCalledTimes(1);
+  });
+
+  it("says kategori ini when the category's name is not known", async () => {
+    answerPage([]);
+    await renderList({ filters: { category: "topi", sort: "newest" } });
+
+    expect(
+      await screen.findByText("Belum ada produk di kategori ini"),
+    ).toBeOnTheScreen();
+  });
 });
 
 describe("ProductList: header", () => {

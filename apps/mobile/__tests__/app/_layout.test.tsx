@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, jest } from "@jest/globals";
 import { router } from "expo-router";
-import { act, screen } from "@testing-library/react-native";
+import { act, screen, waitFor } from "@testing-library/react-native";
 import { useColorScheme } from "react-native";
 
 import { unstable_settings } from "../../app/_layout";
 import { queryClient } from "@/lib/query-client";
 import { deferred, fakeApi, json } from "@/test/fake-api";
-import { product, productPage } from "@/test/fixtures";
+import { product } from "@/test/fixtures";
 import { answerEmptyCatalog, headerTitles, renderApp } from "@/test/router";
 
 afterEach(() => {
@@ -20,8 +20,11 @@ describe("the root stack", () => {
   });
 
   it("puts the tabs under a product opened cold from a link, so Back goes to Beranda", async () => {
-    const answer = deferred();
-    fakeApi.on("GET", "/v1/products", answer.handler);
+    answerEmptyCatalog();
+    // Registered first, so the product page wins over the list answer.
+    fakeApi.on("GET", "/v1/products/kaos-polos-hitam", () =>
+      json({ data: product("Kaos Polos Hitam") }),
+    );
     const app = await renderApp("/produk/kaos-polos-hitam");
 
     const root = app.getRouterState()?.routes[0]?.state;
@@ -31,40 +34,33 @@ describe("the root stack", () => {
     ]);
     expect(router.canGoBack()).toBe(true);
 
-    // Beranda mounted under the product and asked for its first page.
-    expect(fakeApi.requests("GET", "/v1/products")).toHaveLength(1);
     await act(() => {
       router.back();
-      answer.resolve(json(productPage([product("Kaos")])));
     });
 
     expect(app.getPathname()).toBe("/");
-    expect(await screen.findByText("Kaos")).toBeOnTheScreen();
+    expect(await screen.findByText("Belum ada produk.")).toBeOnTheScreen();
   });
 
   it("titles the product screen Produk until the screen names it", async () => {
     answerEmptyCatalog();
+    const answer = deferred();
+    fakeApi.on("GET", "/v1/products/topi-baseball", answer.handler);
     await renderApp("/produk/topi-baseball");
-    // The screen replaces the stack's "Produk" with the slug.
-    expect(headerTitles()).toEqual(["topi-baseball"]);
+    expect(headerTitles()).toEqual(["Produk"]);
+
+    await act(() => {
+      answer.resolve(json({ data: product("Topi Baseball") }));
+    });
+    await waitFor(() => {
+      expect(headerTitles()).toEqual(["Topi Baseball"]);
+    });
   });
 
-  it("presents the sort sheet as a modal titled Urutkan, over the tabs", async () => {
+  it("titles the wishlist screen Wishlist saya", async () => {
     answerEmptyCatalog();
-    const app = await renderApp("/filter");
-    const root = app.getRouterState()?.routes[0]?.state;
-    expect(root?.routes.map((route) => route.name)).toEqual([
-      "(tabs)",
-      "filter",
-    ]);
-    expect(headerTitles()).toEqual(["Urutkan"]);
-    // react-native-screens draws each screen as a host with its
-    // stackPresentation: the tabs as a card, the sheet as a modal
-    // (RNSModalScreen). "card" here would push the sheet like a page.
-    const presentations = screen.container
-      .queryAll((i) => i.props.stackPresentation !== undefined)
-      .map((i) => [i.type, i.props.stackPresentation] as const);
-    expect(presentations).toContainEqual(["RNSModalScreen", "modal"]);
+    await renderApp("/wishlist");
+    expect(headerTitles()).toEqual(["Wishlist saya"]);
   });
 
   it("titles an unknown link Tidak ditemukan", async () => {
@@ -75,7 +71,7 @@ describe("the root stack", () => {
 
   it("paints the headers in the theme's colours", async () => {
     answerEmptyCatalog();
-    await renderApp("/produk/kaos");
+    await renderApp("/wishlist");
     const [header] = screen.container.queryAll(
       (i) => i.type === "RNSScreenStackHeaderConfig" && i.props.hidden !== true,
     );
@@ -87,7 +83,7 @@ describe("the root stack", () => {
     // "light"; the device switched to dark says "dark".
     jest.mocked(useColorScheme).mockReturnValue("dark");
     answerEmptyCatalog();
-    await renderApp("/produk/kaos");
+    await renderApp("/wishlist");
 
     const [header] = screen.container.queryAll(
       (i) => i.type === "RNSScreenStackHeaderConfig" && i.props.hidden !== true,
