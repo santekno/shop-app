@@ -6,13 +6,15 @@ import {
   fireEvent,
   screen,
   userEvent,
+  waitFor,
   within,
 } from "@testing-library/react-native";
 
 import { queryClient } from "@/lib/query-client";
 import { emitNetworkState, setInitialNetworkState } from "@/test/expo-network";
-import { fakeApi, json } from "@/test/fake-api";
+import { apiError, fakeApi, json } from "@/test/fake-api";
 import { category, product, productPage } from "@/test/fixtures";
+import { refreshControl } from "@/test/list";
 import { renderApp } from "@/test/router";
 
 afterEach(() => {
@@ -294,5 +296,135 @@ describe("Beranda: the top bar", () => {
       paddingLeft: 16,
       paddingRight: 16,
     });
+  });
+});
+
+describe("Beranda: the shop window", () => {
+  const featured = product("Jaket Unggulan");
+
+  /** The three window requests with content; the catalog has one product. */
+  const answerWindow = () => {
+    fakeApi.on("GET", "/v1/products", ({ url }) =>
+      json(
+        productPage(
+          url.searchParams.has("featured")
+            ? [featured]
+            : [product("Kaos Katalog")],
+        ),
+      ),
+    );
+    fakeApi.on("GET", "/v1/banners", () =>
+      json({
+        data: [
+          {
+            id: "00000000-0000-4000-8000-0000000000a1",
+            title: "Diskon Kaos",
+            subtitle: null,
+            cta_label: "Lihat kaos",
+            link_category_slug: "kaos",
+            background_color: "#1E40AF",
+          },
+        ],
+      }),
+    );
+    fakeApi.on("GET", "/v1/categories", () =>
+      json({ data: [category("kaos", "Kaos"), category("celana", "Celana")] }),
+    );
+  };
+
+  it("shows banners, categories and featured products above the catalog", async () => {
+    answerWindow();
+    await renderApp("/");
+
+    expect(await screen.findByText("Diskon Kaos")).toBeOnTheScreen();
+    expect(
+      await screen.findByRole("button", { name: "Kategori Celana" }),
+    ).toBeOnTheScreen();
+    expect(await screen.findByText("Jaket Unggulan")).toBeOnTheScreen();
+    expect(screen.getByText("Kaos Katalog")).toBeOnTheScreen();
+    expect(
+      screen.getByRole("header", { name: "Produk unggulan" }),
+    ).toBeOnTheScreen();
+  });
+
+  it.each(["/?q=polos", "/?kategori=kaos"])(
+    "is hidden when the route narrows the catalog (%s), and asks for nothing of it",
+    async (url) => {
+      answerWindow();
+      await renderApp(url);
+
+      await screen.findByText("Kaos Katalog");
+      expect(screen.queryByText("Diskon Kaos")).not.toBeOnTheScreen();
+      expect(
+        screen.queryByRole("header", { name: "Produk unggulan" }),
+      ).not.toBeOnTheScreen();
+      expect(fakeApi.requests("GET", "/v1/banners")).toHaveLength(0);
+    },
+  );
+
+  it("a category chip sets ?kategori= and keeps the order", async () => {
+    answerWindow();
+    const app = await renderApp("/?urut=termurah");
+
+    await userEvent.press(
+      await screen.findByRole("button", { name: "Kategori Celana" }),
+    );
+
+    expect(app.getSearchParams()).toEqual({
+      kategori: "celana",
+      urut: "termurah",
+    });
+    await waitFor(() => {
+      expect(screen.queryByText("Diskon Kaos")).not.toBeOnTheScreen();
+    });
+  });
+
+  it("a banner tap opens its category", async () => {
+    answerWindow();
+    const app = await renderApp("/");
+
+    await userEvent.press(
+      await screen.findByRole("button", {
+        name: "Banner 1 dari 1. Diskon Kaos. Lihat kaos",
+      }),
+    );
+
+    expect(app.getSearchParams()).toEqual({ kategori: "kaos" });
+  });
+
+  it("one failing section leaves the other two working", async () => {
+    fakeApi.once("GET", "/v1/banners", () => apiError(500, "INTERNAL", "r-9"));
+    answerWindow();
+    await renderApp("/");
+
+    expect(
+      await screen.findByRole("button", { name: "Coba lagi" }),
+    ).toBeOnTheScreen();
+    expect(
+      await screen.findByRole("button", { name: "Kategori Celana" }),
+    ).toBeOnTheScreen();
+    expect(await screen.findByText("Jaket Unggulan")).toBeOnTheScreen();
+  });
+
+  it("pull to refresh refetches the banners, categories and featured row with the list", async () => {
+    answerWindow();
+    await renderApp("/");
+    await screen.findByText("Jaket Unggulan");
+    await screen.findByText("Diskon Kaos");
+    const before = (path: string) => fakeApi.requests("GET", path).length;
+    const banners = before("/v1/banners");
+    const categories = before("/v1/categories");
+    const products = before("/v1/products");
+
+    await act(() => {
+      fireEvent(refreshControl(), "refresh");
+    });
+
+    await waitFor(() => {
+      expect(before("/v1/banners")).toBe(banners + 1);
+    });
+    expect(before("/v1/categories")).toBe(categories + 1);
+    // The list's first page and the featured row.
+    expect(before("/v1/products")).toBe(products + 2);
   });
 });
