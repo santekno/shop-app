@@ -33,6 +33,8 @@ describe("Photo", () => {
 
     expect(view()).toHaveProp("contentFit", "contain");
     expect(view()).toHaveProp("recyclingKey", "p1");
-    expect(screen.getByRole("image", { name: "Kaos, foto 1 dari 2" })).toBeTruthy();
+    expect(
+      screen.getByRole("image", { name: "Kaos, foto 1 dari 2" }),
+    ).toBeTruthy();
   });
 });

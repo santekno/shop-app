@@ -1,4 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it, jest } from "@jest/globals";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  jest,
+} from "@jest/globals";
 import { onlineManager } from "@tanstack/react-query";
 import { screen, userEvent } from "@testing-library/react-native";
 import { router } from "expo-router";
@@ -26,7 +33,9 @@ describe("FeaturedProducts", () => {
 
     expect(await screen.findByText("Kaos Polos")).toBeTruthy();
     expect(screen.getByText("Celana Chino")).toBeTruthy();
-    expect(screen.getByRole("header", { name: "Produk unggulan" })).toBeTruthy();
+    expect(
+      screen.getByRole("header", { name: "Produk unggulan" }),
+    ).toBeTruthy();
     const params = fakeApi.requests("GET", "/v1/products")[0]?.url.searchParams;
     expect(params?.get("featured")).toBe("true");
     expect(params?.get("limit")).toBe("8");
@@ -34,7 +43,9 @@ describe("FeaturedProducts", () => {
   });
 
   it("pressing a card opens its product page", async () => {
-    fakeApi.on("GET", "/v1/products", () => json(productPage([product("Kaos Polos")])));
+    fakeApi.on("GET", "/v1/products", () =>
+      json(productPage([product("Kaos Polos")])),
+    );
     await renderWithProviders(<FeaturedProducts bleed={16} />);
 
     await userEvent.press(await screen.findByText("Kaos Polos"));
@@ -54,7 +65,9 @@ describe("FeaturedProducts", () => {
 
   it("a failure shows Coba lagi, which reloads the row", async () => {
     fakeApi.once("GET", "/v1/products", () => apiError(500, "INTERNAL", "r-4"));
-    fakeApi.on("GET", "/v1/products", () => json(productPage([product("Pulih")])));
+    fakeApi.on("GET", "/v1/products", () =>
+      json(productPage([product("Pulih")])),
+    );
     await renderWithProviders(<FeaturedProducts bleed={16} />);
 
     await userEvent.press(

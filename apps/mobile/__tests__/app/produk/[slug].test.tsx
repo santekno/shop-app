@@ -21,7 +21,12 @@ afterEach(() => {
 /** A product with a cheap M in stock, an XL that costs more, and a sold-out S. */
 const kaos = () => {
   const base = product("Kaos Polos Hitam", { slug: "kaos-polos-hitam" });
-  const variant = (id: string, name: string, amount: number, stock: number) => ({
+  const variant = (
+    id: string,
+    name: string,
+    amount: number,
+    stock: number,
+  ) => ({
     id,
     sku: `kaos-${name}`,
     name,
@@ -71,14 +76,14 @@ describe("the product screen: states", () => {
     await renderApp("/produk/kaos%20polos");
 
     await screen.findByRole("header", { name: "Kaos Polos Hitam" });
-    expect(fakeApi.requests("GET", "/v1/products/kaos%20polos")).toHaveLength(1);
+    expect(fakeApi.requests("GET", "/v1/products/kaos%20polos")).toHaveLength(
+      1,
+    );
   });
 
   it("says the product was not found, without a retry that would fail the same way", async () => {
     answerEmptyCatalog();
-    fakeApi.on("GET", "/v1/products/hilang", () =>
-      apiError(404, "NOT_FOUND"),
-    );
+    fakeApi.on("GET", "/v1/products/hilang", () => apiError(404, "NOT_FOUND"));
     await renderApp("/produk/hilang");
 
     expect(
@@ -166,7 +171,9 @@ describe("the product screen: the loaded product", () => {
     await userEvent.press(screen.getByRole("radio", { name: "XL, Rp 99.000" }));
 
     expect(screen.getByRole("radio", { name: "XL, Rp 99.000" })).toBeChecked();
-    expect(screen.getByRole("radio", { name: "M, Rp 89.000" })).not.toBeChecked();
+    expect(
+      screen.getByRole("radio", { name: "M, Rp 89.000" }),
+    ).not.toBeChecked();
     expect(screen.getByLabelText("Rp 99.000, Stok tersedia")).toBeOnTheScreen();
     expect(announce).toHaveBeenCalledTimes(1);
     // formatRupiah puts a non-breaking space after "Rp".

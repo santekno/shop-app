@@ -20,7 +20,12 @@
 //   whose settings stay readable, and Animated.View keeps `entering` and
 //   `exiting` as props.
 import { jest } from "@jest/globals";
-import { createElement, forwardRef, useRef, useSyncExternalStore } from "react";
+import {
+  createElement,
+  forwardRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import type { ComponentType } from "react";
 
 import { onReset } from "./registry";
@@ -42,8 +47,8 @@ interface SharedValue<T> {
 }
 
 export const useSharedValue = <T,>(initial: T): SharedValue<T> => {
-  const box = useRef<SharedValue<T> | null>(null);
-  box.current ??= (() => {
+  // The lazy initialiser runs once, so the box keeps its identity.
+  const [box] = useState<SharedValue<T>>(() => {
     let current = initial;
     return {
       get value() {
@@ -56,8 +61,8 @@ export const useSharedValue = <T,>(initial: T): SharedValue<T> => {
         for (const listener of [...listeners]) listener();
       },
     };
-  })();
-  return box.current;
+  });
+  return box;
 };
 
 export const useAnimatedStyle = <T extends object>(worklet: () => T): T => {
@@ -67,13 +72,23 @@ export const useAnimatedStyle = <T extends object>(worklet: () => T): T => {
 
 // -- animations ----------------------------------------------------------
 
-export const withTiming = jest.fn(<T,>(to: T, _config?: unknown) => to);
-export const withSpring = jest.fn(<T,>(to: T, _config?: unknown) => to);
-export const withRepeat = jest.fn(
-  <T,>(animation: T, _count?: number, _reverse?: boolean) => animation,
+// The implementations take fewer parameters than the types declare: the
+// extra ones (config, count, reverse) exist so a test can assert on them.
+export const withTiming = jest.fn<<T>(to: T, config?: unknown) => T>(
+  (to) => to,
 );
-export const withSequence = jest.fn(<T,>(...steps: T[]) => steps.at(-1) as T);
-export const cancelAnimation = jest.fn((_value: unknown) => undefined);
+export const withSpring = jest.fn<<T>(to: T, config?: unknown) => T>(
+  (to) => to,
+);
+export const withRepeat = jest.fn<
+  <T>(animation: T, count?: number, reverse?: boolean) => T
+>((animation) => animation);
+export const withSequence = jest.fn<<T>(...steps: T[]) => T>(
+  (...steps) => steps[steps.length - 1] as (typeof steps)[number],
+);
+export const cancelAnimation = jest.fn<(value: unknown) => undefined>(
+  () => undefined,
+);
 
 // -- reduced motion ------------------------------------------------------
 
@@ -95,13 +110,14 @@ export interface LayoutAnimationSpec {
   reduceMotionMode?: string;
 }
 
-const layoutAnimation = (name: string) => {
-  const make = (
-    spec: LayoutAnimationSpec,
-  ): LayoutAnimationSpec & {
-    duration: (ms: number) => ReturnType<typeof make>;
-    reduceMotion: (mode: string) => ReturnType<typeof make>;
-  } => ({
+/** A layout animation: its settings, and the builders that chain. */
+interface LayoutAnimation extends LayoutAnimationSpec {
+  duration: (ms: number) => LayoutAnimation;
+  reduceMotion: (mode: string) => LayoutAnimation;
+}
+
+const layoutAnimation = (name: string): LayoutAnimation => {
+  const make = (spec: LayoutAnimationSpec): LayoutAnimation => ({
     ...spec,
     duration: (durationMs) => make({ ...spec, durationMs }),
     reduceMotion: (reduceMotionMode) => make({ ...spec, reduceMotionMode }),
@@ -120,14 +136,15 @@ export const SlideInDown = layoutAnimation("SlideInDown");
 // loading react-native that early would hand the tests that isolate
 // modules (src/lib/query-client.test.ts) a different AppState.
 const animated = (name: "View" | "Text") =>
-  forwardRef<unknown, Record<string, unknown>>((props, ref) =>
-    createElement(
-      (require("react-native") as Record<string, ComponentType<unknown>>)[
-        name
-      ] as ComponentType<Record<string, unknown>>,
-      { ...props, ref },
-    ),
-  );
+  forwardRef<unknown, Record<string, unknown>>((props, ref) => {
+    // A lazy require, for the reason above.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const reactNative = require("react-native") as Record<
+      "View" | "Text",
+      ComponentType<Record<string, unknown>>
+    >;
+    return createElement(reactNative[name], { ...props, ref });
+  });
 
 const Animated = {
   View: animated("View"),

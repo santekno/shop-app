@@ -8,9 +8,9 @@ import { createElement, forwardRef } from "react";
 
 import { onReset } from "./registry";
 
-export const prefetch = jest.fn(
-  (_urls: string | string[], _cachePolicy?: string) => Promise.resolve(true),
-);
+export const prefetch = jest.fn<
+  (urls: string | string[], cachePolicy?: string) => Promise<boolean>
+>(() => Promise.resolve(true));
 
 export const Image = Object.assign(
   forwardRef<unknown, Record<string, unknown>>(function ExpoImage(props, ref) {

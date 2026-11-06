@@ -416,8 +416,8 @@ describe("Beranda: the shop window", () => {
     const categories = before("/v1/categories");
     const products = before("/v1/products");
 
-    await act(() => {
-      fireEvent(refreshControl(), "refresh");
+    await act(async () => {
+      await fireEvent(refreshControl(), "refresh");
     });
 
     await waitFor(() => {
@@ -447,7 +447,9 @@ describe("Beranda: applying the filter sheet", () => {
     await openSheet();
 
     await userEvent.press(await screen.findByRole("radio", { name: "Kaos" }));
-    await userEvent.press(screen.getByRole("radio", { name: "Harga terendah" }));
+    await userEvent.press(
+      screen.getByRole("radio", { name: "Harga terendah" }),
+    );
     await userEvent.press(screen.getByRole("button", { name: "Terapkan" }));
 
     expect(app.getSearchParams()).toEqual({

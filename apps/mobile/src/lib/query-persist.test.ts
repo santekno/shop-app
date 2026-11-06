@@ -25,7 +25,7 @@ const queryOf = (
     // Fails once, with nothing cached.
     query.setState({ status: "error", error: new Error("boom") } as never);
   }
-  return query as unknown as Query;
+  return query;
 };
 
 describe("shouldPersistQuery: what goes to the phone's disk", () => {
@@ -33,8 +33,14 @@ describe("shouldPersistQuery: what goes to the phone's disk", () => {
     ["categories", queryKeys.categories],
     ["banners", queryKeys.banners],
     ["a catalog list", queryKeys.products.list({ sort: "newest" })],
-    ["a category list", queryKeys.products.list({ category: "kaos", sort: "newest" })],
-    ["a list with an empty q", queryKeys.products.list({ q: "", sort: "newest" })],
+    [
+      "a category list",
+      queryKeys.products.list({ category: "kaos", sort: "newest" }),
+    ],
+    [
+      "a list with an empty q",
+      queryKeys.products.list({ q: "", sort: "newest" }),
+    ],
     ["the featured row", queryKeys.products.featured()],
     ["a product page", queryKeys.products.detail("kaos-polos")],
   ])("saves %s", (_name, key) => {
@@ -55,8 +61,12 @@ describe("shouldPersistQuery: what goes to the phone's disk", () => {
   });
 
   it("does not save a query that has not succeeded", () => {
-    expect(shouldPersistQuery(queryOf(queryKeys.categories, "pending"))).toBe(false);
-    expect(shouldPersistQuery(queryOf(queryKeys.categories, "error"))).toBe(false);
+    expect(shouldPersistQuery(queryOf(queryKeys.categories, "pending"))).toBe(
+      false,
+    );
+    expect(shouldPersistQuery(queryOf(queryKeys.categories, "error"))).toBe(
+      false,
+    );
   });
 });
 
@@ -75,8 +85,6 @@ describe("persistOptions", () => {
   it("filters queries with shouldPersistQuery and never saves a mutation", () => {
     const dehydrate = persistOptions.dehydrateOptions;
     expect(dehydrate?.shouldDehydrateQuery).toBe(shouldPersistQuery);
-    expect(
-      dehydrate?.shouldDehydrateMutation?.({} as never),
-    ).toBe(false);
+    expect(dehydrate?.shouldDehydrateMutation?.({} as never)).toBe(false);
   });
 });

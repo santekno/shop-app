@@ -7,12 +7,7 @@ import {
   jest,
 } from "@jest/globals";
 import { onlineManager } from "@tanstack/react-query";
-import {
-  fireEvent,
-  screen,
-  userEvent,
-  waitFor,
-} from "@testing-library/react-native";
+import { fireEvent, screen, userEvent } from "@testing-library/react-native";
 import { router } from "expo-router";
 
 import { apiError, deferred, fakeApi, json } from "@/test/fake-api";
@@ -153,7 +148,7 @@ describe("WishlistScreenView", () => {
     await renderWithProviders(<WishlistScreenView />);
     await screen.findByText("Kaos Polos");
 
-    fireEvent(scrollView(), "onEndReached");
+    await fireEvent(scrollView(), "onEndReached");
 
     expect(await screen.findByText("Topi")).toBeTruthy();
     expect(pagesAsked()).toEqual([null, "c2"]);
@@ -167,7 +162,7 @@ describe("WishlistScreenView", () => {
     await renderWithProviders(<WishlistScreenView />);
     await screen.findByText("Kaos Polos");
 
-    fireEvent(scrollView(), "onEndReached");
+    await fireEvent(scrollView(), "onEndReached");
     await Promise.resolve();
 
     expect(pagesAsked()).toEqual([null]);

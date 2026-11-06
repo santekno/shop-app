@@ -1,11 +1,23 @@
 import { describe, expect, it, jest } from "@jest/globals";
 import { Image } from "expo-image";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react-native";
 import { Dimensions, PixelRatio } from "react-native";
 import type { ProductImage } from "@goshop/shared";
 
 import { scrollView } from "@/test/list";
 import { ProductGallery } from "./ProductGallery";
+
+// Image.prefetch is the jest.fn of src/test/mocks/expo-image.tsx; spyOn hands
+// it back as it is, and keeps the lint rule about unbound methods quiet.
+const prefetchSpy = () =>
+  jest.spyOn(Image, "prefetch") as unknown as jest.Mock<
+    (urls: string | string[], cachePolicy?: string) => Promise<boolean>
+  >;
 
 let n = 0;
 const image = (alt = ""): ProductImage => {
@@ -28,8 +40,8 @@ const longDot = () =>
     .queryAll(
       (i) =>
         typeof i.props.className === "string" &&
-        (i.props.className as string).includes("rounded-full") &&
-        (i.props.className as string).includes("h-2"),
+        i.props.className.includes("rounded-full") &&
+        i.props.className.includes("h-2"),
     )
     .map((i) => (i.props.className as string).includes("w-5"));
 
@@ -38,25 +50,38 @@ describe("ProductGallery", () => {
     await render(<ProductGallery images={[]} productName="Kaos" />);
 
     expect(screen.getByText("Belum ada foto")).toBeTruthy();
-    expect(Image.prefetch).not.toHaveBeenCalled();
+    expect(prefetchSpy()).not.toHaveBeenCalled();
   });
 
   it("one photo: no dots, no prefetch", async () => {
-    await render(<ProductGallery images={[image("Depan")]} productName="Kaos" />);
+    await render(
+      <ProductGallery images={[image("Depan")]} productName="Kaos" />,
+    );
 
-    expect(screen.getByRole("image", { name: "Depan, foto 1 dari 1" })).toBeTruthy();
+    expect(
+      screen.getByRole("image", { name: "Depan, foto 1 dari 1" }),
+    ).toBeTruthy();
     expect(longDot()).toEqual([]);
-    expect(Image.prefetch).not.toHaveBeenCalled();
+    expect(prefetchSpy()).not.toHaveBeenCalled();
   });
 
   it("several photos: labelled by position, the product name stands in for an empty alt, one dot each", async () => {
     await render(
-      <ProductGallery images={[image("Depan"), image(""), image("Belakang")]} productName="Kaos Polos" />,
+      <ProductGallery
+        images={[image("Depan"), image(""), image("Belakang")]}
+        productName="Kaos Polos"
+      />,
     );
 
-    expect(screen.getByRole("image", { name: "Depan, foto 1 dari 3" })).toBeTruthy();
-    expect(screen.getByRole("image", { name: "Kaos Polos, foto 2 dari 3" })).toBeTruthy();
-    expect(screen.getByRole("image", { name: "Belakang, foto 3 dari 3" })).toBeTruthy();
+    expect(
+      screen.getByRole("image", { name: "Depan, foto 1 dari 3" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("image", { name: "Kaos Polos, foto 2 dari 3" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("image", { name: "Belakang, foto 3 dari 3" }),
+    ).toBeTruthy();
     expect(longDot()).toEqual([true, false, false]);
   });
 
@@ -69,9 +94,9 @@ describe("ProductGallery", () => {
     // Dimensions in the test renderer are wider than every variant, so the widest.
     expect(width).toBeGreaterThan(0);
     await waitFor(() => {
-      expect(Image.prefetch).toHaveBeenCalledTimes(1);
+      expect(prefetchSpy()).toHaveBeenCalledTimes(1);
     });
-    const [urls, policy] = jest.mocked(Image.prefetch).mock.calls[0] ?? [];
+    const [urls, policy] = prefetchSpy().mock.calls[0] ?? [];
     expect(policy).toBe("memory-disk");
     expect(urls).toEqual([images[1]?.url, images[2]?.url]);
     jest.restoreAllMocks();
@@ -80,10 +105,13 @@ describe("ProductGallery", () => {
   it("the dots follow the page the swipe came to rest on", async () => {
     const { width } = Dimensions.get("window");
     await render(
-      <ProductGallery images={[image(), image(), image(), image()]} productName="Kaos" />,
+      <ProductGallery
+        images={[image(), image(), image(), image()]}
+        productName="Kaos"
+      />,
     );
 
-    fireEvent(scrollView(), "momentumScrollEnd", {
+    await fireEvent(scrollView(), "momentumScrollEnd", {
       nativeEvent: { contentOffset: { x: width * 3 } },
     });
 

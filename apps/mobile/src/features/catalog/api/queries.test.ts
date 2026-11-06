@@ -133,7 +133,7 @@ describe("productDetailQuery", () => {
     const kaos = product("Kaos Polos");
     fakeApi.on("GET", "/v1/products/kaos-polos", () => json({ data: kaos }));
 
-    const result = await createTestQueryClient().fetchQuery(
+    const result = await createTestQueryClient().query(
       productDetailQuery("kaos-polos"),
     );
 
@@ -146,7 +146,7 @@ describe("productDetailQuery", () => {
     );
 
     await expect(
-      createTestQueryClient().fetchQuery(productDetailQuery("hilang")),
+      createTestQueryClient().query(productDetailQuery("hilang")),
     ).rejects.toMatchObject({ status: 404 });
   });
 });

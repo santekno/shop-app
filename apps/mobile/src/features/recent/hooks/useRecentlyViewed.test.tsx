@@ -29,7 +29,7 @@ describe("useRecentlyViewed", () => {
     expect(result.current.items).toEqual([item("a")]);
     expect(result.current.hydrated).toBe(true);
 
-    await act(async () => {
+    await act(() => {
       result.current.clear();
     });
     expect(result.current.items).toEqual([]);

@@ -28,10 +28,11 @@ const signIn = (token: string | null) => {
   jest.mocked(getAccessToken).mockReturnValue(token);
 };
 
-const savedSlugs = (...names: string[]) =>
+const savedSlugs = (...names: string[]) => {
   fakeApi.on("GET", "/v1/me/wishlist", () =>
     json(productPage(names.map((n) => product(n)))),
   );
+};
 
 const useBoth = (slug: string, saved: boolean) => ({
   toggle: useToggleWishlist(),
@@ -40,8 +41,11 @@ const useBoth = (slug: string, saved: boolean) => ({
   wasSaved: saved,
 });
 
+const announced = () =>
+  jest.spyOn(AccessibilityInfo, "announceForAccessibility");
+
 beforeEach(() => {
-  jest.spyOn(AccessibilityInfo, "announceForAccessibility").mockClear();
+  announced().mockClear();
 });
 
 afterEach(() => {
@@ -107,7 +111,7 @@ describe("useToggleWishlist", () => {
       useBoth("kaos", false),
     );
 
-    await act(async () => {
+    await act(() => {
       result.current.toggle("kaos", false);
     });
 
@@ -134,16 +138,14 @@ describe("useToggleWishlist", () => {
       expect(fakeApi.requests("GET", "/v1/me/wishlist")).toHaveLength(1);
     });
 
-    await act(async () => {
+    await act(() => {
       result.current.toggle("kaos", false);
     });
 
     await waitFor(() => {
       expect(result.current.saved).toBe(true);
     });
-    expect(AccessibilityInfo.announceForAccessibility).toHaveBeenCalledWith(
-      "Disimpan ke wishlist",
-    );
+    expect(announced()).toHaveBeenCalledWith("Disimpan ke wishlist");
     await waitFor(() => {
       expect(fakeApi.requests("PUT", "/v1/me/wishlist/kaos")).toHaveLength(1);
     });
@@ -166,16 +168,14 @@ describe("useToggleWishlist", () => {
       expect(result.current.saved).toBe(true);
     });
 
-    await act(async () => {
+    await act(() => {
       result.current.toggle("kaos", true);
     });
 
     await waitFor(() => {
       expect(result.current.saved).toBe(false);
     });
-    expect(AccessibilityInfo.announceForAccessibility).toHaveBeenCalledWith(
-      "Dihapus dari wishlist",
-    );
+    expect(announced()).toHaveBeenCalledWith("Dihapus dari wishlist");
     expect(fakeApi.requests("DELETE", "/v1/me/wishlist/kaos")).toHaveLength(1);
   });
 
@@ -192,7 +192,7 @@ describe("useToggleWishlist", () => {
       expect(fakeApi.requests("GET", "/v1/me/wishlist")).toHaveLength(1);
     });
 
-    await act(async () => {
+    await act(() => {
       result.current.toggle("kaos", false);
     });
 

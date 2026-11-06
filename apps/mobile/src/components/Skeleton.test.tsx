@@ -76,7 +76,9 @@ describe("Skeleton", () => {
     );
 
     const [shape] = screen.container.queryAll(
-      (i) => typeof i.props.className === "string" && (i.props.className as string).includes("h-4 w-1/2"),
+      (i) =>
+        typeof i.props.className === "string" &&
+        i.props.className.includes("h-4 w-1/2"),
     );
     expect(shape?.props.importantForAccessibility).toBe("no-hide-descendants");
     expect(shape?.props.accessibilityElementsHidden).toBe(true);

@@ -5,7 +5,11 @@ import type { ProductVariant } from "@goshop/shared";
 
 import { VariantPicker } from "./VariantPicker";
 
-const variant = (name: string, stock: number, amount = 89_000): ProductVariant => ({
+const variant = (
+  name: string,
+  stock: number,
+  amount = 89_000,
+): ProductVariant => ({
   id: `id-${name}`,
   sku: name,
   name,
@@ -18,7 +22,11 @@ const price = (amount: number) => formatRupiah({ amount, currency: "IDR" });
 describe("VariantPicker", () => {
   it("draws nothing when the product has no variant", async () => {
     const { toJSON } = await render(
-      <VariantPicker variants={[]} selectedId={undefined} onSelect={jest.fn()} />,
+      <VariantPicker
+        variants={[]}
+        selectedId={undefined}
+        onSelect={jest.fn()}
+      />,
     );
 
     expect(toJSON()).toBeNull();
@@ -35,10 +43,15 @@ describe("VariantPicker", () => {
 
     expect(screen.getByRole("header", { name: "Pilih varian" })).toBeTruthy();
     expect(
-      screen.container.queryAll((i) => i.props.accessibilityRole === "radiogroup"),
+      screen.container.queryAll(
+        (i) => i.props.accessibilityRole === "radiogroup",
+      ),
     ).toHaveLength(1);
     expect(
-      screen.getByRole("radio", { name: `M, ${price(89_000)}`, checked: false }),
+      screen.getByRole("radio", {
+        name: `M, ${price(89_000)}`,
+        checked: false,
+      }),
     ).toBeTruthy();
     expect(
       screen.getByRole("radio", { name: `L, ${price(99_000)}`, checked: true }),
@@ -53,7 +66,9 @@ describe("VariantPicker", () => {
       <VariantPicker variants={[m, l]} selectedId="id-M" onSelect={onSelect} />,
     );
 
-    await userEvent.press(screen.getByRole("radio", { name: `L, ${price(89_000)}` }));
+    await userEvent.press(
+      screen.getByRole("radio", { name: `L, ${price(89_000)}` }),
+    );
 
     expect(onSelect).toHaveBeenCalledTimes(1);
     expect(onSelect).toHaveBeenCalledWith(l);

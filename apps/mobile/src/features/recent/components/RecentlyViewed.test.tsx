@@ -32,10 +32,13 @@ const show = (items: RecentItem[], hydrated = true) => {
   useRecentStore.setState({ items, hydrated });
 };
 
+const announced = () =>
+  jest.spyOn(AccessibilityInfo, "announceForAccessibility");
+
 beforeEach(() => {
   show([], false);
   jest.spyOn(router, "push").mockImplementation(() => undefined);
-  jest.spyOn(AccessibilityInfo, "announceForAccessibility").mockClear();
+  announced().mockClear();
 });
 
 afterEach(() => {
@@ -137,7 +140,7 @@ describe("RecentlyViewed", () => {
 
     expect(useRecentStore.getState().items).toEqual([]);
     expect(screen.queryByText("Terakhir dilihat")).toBeNull();
-    expect(AccessibilityInfo.announceForAccessibility).toHaveBeenCalledWith(
+    expect(announced()).toHaveBeenCalledWith(
       "Riwayat terakhir dilihat dihapus",
     );
   });
@@ -146,7 +149,7 @@ describe("RecentlyViewed", () => {
     await render(<RecentlyViewed bleed={16} />);
     expect(screen.queryByText("Terakhir dilihat")).toBeNull();
 
-    await act(async () => {
+    await act(() => {
       show([item("a", "Kaos")]);
     });
 

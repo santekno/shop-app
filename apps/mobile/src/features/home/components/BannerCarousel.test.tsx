@@ -33,9 +33,9 @@ const answer = (banners: Banner[]) => {
 };
 
 const renderCarousel = (onOpenCategory = jest.fn<(slug: string) => void>()) =>
-  renderWithProviders(<BannerCarousel onOpenCategory={onOpenCategory} bleed={16} />).then(
-    (result) => ({ ...result, onOpenCategory }),
-  );
+  renderWithProviders(
+    <BannerCarousel onOpenCategory={onOpenCategory} bleed={16} />,
+  ).then((result) => ({ ...result, onOpenCategory }));
 
 afterEach(() => {
   onlineManager.setOnline(true);
@@ -103,7 +103,9 @@ describe("BannerCarousel", () => {
 
     expect(await screen.findByText("Gratis ongkir")).toBeTruthy();
     expect(screen.queryByRole("button")).toBeNull();
-    expect(screen.getByLabelText("Banner 1 dari 1. Gratis ongkir")).toBeTruthy();
+    expect(
+      screen.getByLabelText("Banner 1 dari 1. Gratis ongkir"),
+    ).toBeTruthy();
   });
 
   it("the dots follow the page the scroll came to rest on", async () => {
@@ -115,21 +117,21 @@ describe("BannerCarousel", () => {
       screen.container.queryAll(
         (i) =>
           typeof i.props.className === "string" &&
-          (i.props.className as string).includes("h-2 w-5"),
+          i.props.className.includes("h-2 w-5"),
       );
     const dotClasses = () =>
       screen.container
         .queryAll(
           (i) =>
             typeof i.props.className === "string" &&
-            (i.props.className as string).includes("rounded-full") &&
-            (i.props.className as string).includes("h-2"),
+            i.props.className.includes("rounded-full") &&
+            i.props.className.includes("h-2"),
         )
         .map((i) => (i.props.className as string).includes("w-5"));
 
     expect(dotClasses()).toEqual([true, false, false]);
     const { width } = Dimensions.get("window");
-    fireEvent(scrollView(), "momentumScrollEnd", {
+    await fireEvent(scrollView(), "momentumScrollEnd", {
       nativeEvent: { contentOffset: { x: width * 2 } },
     });
 

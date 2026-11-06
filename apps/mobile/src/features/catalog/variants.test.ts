@@ -11,7 +11,11 @@ import {
   stockLabel,
 } from "./variants";
 
-const variant = (id: string, stock: number, amount = 50_000): ProductVariant => ({
+const variant = (
+  id: string,
+  stock: number,
+  amount = 50_000,
+): ProductVariant => ({
   id,
   sku: id,
   name: id,
@@ -48,7 +52,9 @@ describe("selectedVariant", () => {
   });
 
   it("is undefined when every variant is sold out", () => {
-    expect(selectedVariant({ variants: [m, variant("x", 0)] }, "m")).toBeUndefined();
+    expect(
+      selectedVariant({ variants: [m, variant("x", 0)] }, "m"),
+    ).toBeUndefined();
   });
 
   it("is undefined when the product has no variant", () => {
@@ -58,7 +64,9 @@ describe("selectedVariant", () => {
 
 describe("priceLabel", () => {
   it("is the variant's own price when one is selected", () => {
-    const p = product("Kaos", { price_from: { amount: 50_000, currency: "IDR" } });
+    const p = product("Kaos", {
+      price_from: { amount: 50_000, currency: "IDR" },
+    });
 
     expect(priceLabel(p, variant("a", 1, 70_000))).toBe(
       formatRupiah({ amount: 70_000, currency: "IDR" }),

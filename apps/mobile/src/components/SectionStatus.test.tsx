@@ -7,7 +7,12 @@ import { SectionStatus } from "./SectionStatus";
 describe("SectionStatus", () => {
   it("loading: a progressbar that names what is loading", async () => {
     await render(
-      <SectionStatus view="loading" what="banner" error={null} onRetry={jest.fn()} />,
+      <SectionStatus
+        view="loading"
+        what="banner"
+        error={null}
+        onRetry={jest.fn()}
+      />,
     );
 
     expect(
@@ -36,7 +41,12 @@ describe("SectionStatus", () => {
     const onRetry = jest.fn();
     const error = new Error("boom");
     await render(
-      <SectionStatus view="error" what="kategori" error={error} onRetry={onRetry} />,
+      <SectionStatus
+        view="error"
+        what="kategori"
+        error={error}
+        onRetry={onRetry}
+      />,
     );
 
     expect(

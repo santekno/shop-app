@@ -29,18 +29,18 @@ describe("notice", () => {
   it("shows the message, then removes it after 4 seconds", async () => {
     const { result } = await renderHook(() => useNotice());
 
-    await act(async () => {
+    await act(() => {
       showNotice("Wishlist penuh");
     });
     expect(NOTICE_MS).toBe(4000);
     expect(result.current?.message).toBe("Wishlist penuh");
 
-    await act(async () => {
+    await act(() => {
       jest.advanceTimersByTime(3999);
     });
     expect(result.current?.message).toBe("Wishlist penuh");
 
-    await act(async () => {
+    await act(() => {
       jest.advanceTimersByTime(1);
     });
     expect(result.current).toBeNull();
@@ -49,19 +49,19 @@ describe("notice", () => {
   it("a new notice replaces the old one and restarts the clock", async () => {
     const { result } = await renderHook(() => useNotice());
 
-    await act(async () => {
+    await act(() => {
       showNotice("satu");
       jest.advanceTimersByTime(3000);
       showNotice("dua");
     });
     expect(result.current?.message).toBe("dua");
 
-    await act(async () => {
+    await act(() => {
       jest.advanceTimersByTime(3000);
     });
     expect(result.current?.message).toBe("dua");
 
-    await act(async () => {
+    await act(() => {
       jest.advanceTimersByTime(1000);
     });
     expect(result.current).toBeNull();
@@ -70,11 +70,11 @@ describe("notice", () => {
   it("the same sentence twice still gets a new id, so it replays", async () => {
     const { result } = await renderHook(() => useNotice());
 
-    await act(async () => {
+    await act(() => {
       showNotice("sama");
     });
     const first = result.current?.id;
-    await act(async () => {
+    await act(() => {
       showNotice("sama");
     });
 
@@ -84,7 +84,7 @@ describe("notice", () => {
   it("honours a custom duration", async () => {
     const { result } = await renderHook(() => useNotice());
 
-    await act(async () => {
+    await act(() => {
       showNotice("cepat", 500);
       jest.advanceTimersByTime(500);
     });
@@ -95,11 +95,11 @@ describe("notice", () => {
   it("dismissNotice removes it at once and is harmless when nothing is shown", async () => {
     const { result } = await renderHook(() => useNotice());
 
-    await act(async () => {
+    await act(() => {
       dismissNotice();
       showNotice("x");
     });
-    await act(async () => {
+    await act(() => {
       dismissNotice();
     });
 

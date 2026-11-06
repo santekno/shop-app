@@ -32,7 +32,7 @@ describe("the recently viewed store", () => {
   });
 
   it("writes only the list, at version 1: no flag, no function", async () => {
-    await act(async () => {
+    await act(() => {
       useRecentStore.getState().record(item("a"));
     });
 
@@ -46,14 +46,14 @@ describe("the recently viewed store", () => {
   // the same state. What screens see is that nothing is notified and the list
   // keeps its identity.
   it("recording the product already on top notifies nobody and keeps the same list", async () => {
-    await act(async () => {
+    await act(() => {
       useRecentStore.getState().record(item("a"));
     });
     const before = useRecentStore.getState().items;
     const listener = jest.fn();
     const unsubscribe = useRecentStore.subscribe(listener);
 
-    await act(async () => {
+    await act(() => {
       useRecentStore.getState().record(item("a"));
     });
     unsubscribe();
@@ -63,7 +63,7 @@ describe("the recently viewed store", () => {
   });
 
   it("clear empties the list and the stored copy", async () => {
-    await act(async () => {
+    await act(() => {
       useRecentStore.getState().record(item("a"));
       useRecentStore.getState().clear();
     });

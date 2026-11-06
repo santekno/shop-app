@@ -99,7 +99,11 @@ describe("perf, in development", () => {
 
 describe("perf, in a release build", () => {
   beforeEach(() => {
-    jest.replaceProperty(globalThis as { __DEV__: boolean }, "__DEV__", false);
+    jest.replaceProperty(
+      globalThis as unknown as { __DEV__: boolean },
+      "__DEV__",
+      false,
+    );
   });
 
   it("counts, marks and measures nothing", () => {

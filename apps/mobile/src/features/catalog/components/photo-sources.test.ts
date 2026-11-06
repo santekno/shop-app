@@ -5,6 +5,13 @@ import type { ProductImage } from "@goshop/shared";
 
 import { photoSources, prefetchPhotos, urlForWidth } from "./photo-sources";
 
+// Image.prefetch is the jest.fn of src/test/mocks/expo-image.tsx; spyOn hands
+// it back as it is, and keeps the lint rule about unbound methods quiet.
+const prefetchSpy = () =>
+  jest.spyOn(Image, "prefetch") as unknown as jest.Mock<
+    (urls: string | string[], cachePolicy?: string) => Promise<boolean>
+  >;
+
 const image = (overrides: Partial<ProductImage> = {}): ProductImage => ({
   id: "00000000-0000-4000-8000-0000000000aa",
   url: "https://cdn.goshop.test/p/full.jpg",
@@ -72,13 +79,13 @@ describe("prefetchPhotos", () => {
       "https://cdn.goshop.test/pf/b.jpg",
     ]);
 
-    expect(Image.prefetch).toHaveBeenCalledTimes(2);
-    expect(Image.prefetch).toHaveBeenNthCalledWith(
+    expect(prefetchSpy()).toHaveBeenCalledTimes(2);
+    expect(prefetchSpy()).toHaveBeenNthCalledWith(
       1,
       ["https://cdn.goshop.test/pf/a.jpg"],
       "memory-disk",
     );
-    expect(Image.prefetch).toHaveBeenNthCalledWith(
+    expect(prefetchSpy()).toHaveBeenNthCalledWith(
       2,
       ["https://cdn.goshop.test/pf/b.jpg"],
       "memory-disk",
@@ -88,18 +95,18 @@ describe("prefetchPhotos", () => {
   it("does nothing for an empty list", () => {
     prefetchPhotos([]);
 
-    expect(Image.prefetch).not.toHaveBeenCalled();
+    expect(prefetchSpy()).not.toHaveBeenCalled();
   });
 
   it("forgets URLs that failed, so a later call may try again", async () => {
     const url = "https://cdn.goshop.test/pf/fail.jpg";
-    jest.mocked(Image.prefetch).mockRejectedValueOnce(new Error("offline"));
+    prefetchSpy().mockRejectedValueOnce(new Error("offline"));
 
     prefetchPhotos([url]);
     await Promise.resolve();
     await Promise.resolve();
     prefetchPhotos([url]);
 
-    expect(Image.prefetch).toHaveBeenCalledTimes(2);
+    expect(prefetchSpy()).toHaveBeenCalledTimes(2);
   });
 });

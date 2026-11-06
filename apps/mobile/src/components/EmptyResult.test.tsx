@@ -11,7 +11,10 @@ afterEach(() => {
 describe("EmptyResult", () => {
   it("shows the title as a header, with the hint under it", async () => {
     await render(
-      <EmptyResult title='Tidak ada produk untuk "kaos"' hint="Coba kata lain." />,
+      <EmptyResult
+        title='Tidak ada produk untuk "kaos"'
+        hint="Coba kata lain."
+      />,
     );
 
     expect(
@@ -30,7 +33,10 @@ describe("EmptyResult", () => {
   it("the action is a button that calls its handler", async () => {
     const onPress = jest.fn();
     await render(
-      <EmptyResult title="Kosong" action={{ label: "Reset filter", onPress }} />,
+      <EmptyResult
+        title="Kosong"
+        action={{ label: "Reset filter", onPress }}
+      />,
     );
 
     await userEvent.press(screen.getByRole("button", { name: "Reset filter" }));

@@ -7,7 +7,7 @@ const dots = () =>
   screen.container.queryAll(
     (i) =>
       typeof i.props.className === "string" &&
-      (i.props.className as string).includes("rounded-full"),
+      i.props.className.includes("rounded-full"),
   );
 
 describe("PageDots", () => {

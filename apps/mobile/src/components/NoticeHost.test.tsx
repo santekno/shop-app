@@ -33,7 +33,7 @@ describe("NoticeHost", () => {
   it("shows the message as a polite alert that says how to close it", async () => {
     await renderHost();
 
-    await act(async () => {
+    await act(() => {
       showNotice(
         "Wishlist penuh (maksimal 200 produk). Hapus satu produk dulu.",
       );
@@ -49,7 +49,7 @@ describe("NoticeHost", () => {
   it("sits above the tab bar and the bottom inset", async () => {
     await renderHost();
 
-    await act(async () => {
+    await act(() => {
       showNotice("x");
     });
 
@@ -62,7 +62,7 @@ describe("NoticeHost", () => {
 
   it("tapping it closes it", async () => {
     await renderHost();
-    await act(async () => {
+    await act(() => {
       showNotice("Ketuk aku");
     });
 
@@ -77,7 +77,7 @@ describe("NoticeHost", () => {
       .mockClear();
     await renderHost();
 
-    await act(async () => {
+    await act(() => {
       showNotice("Masuk dulu");
     });
 
@@ -91,7 +91,7 @@ describe("NoticeHost", () => {
       .mockClear();
     await renderHost();
 
-    await act(async () => {
+    await act(() => {
       showNotice("Masuk dulu");
     });
 

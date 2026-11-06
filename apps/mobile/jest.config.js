@@ -35,6 +35,11 @@ module.exports = {
   // load the first test of a file ran past Jest's default 5 s, and a test
   // cut off half way leaves its renders running into the next one.
   testTimeout: 30_000,
+  // Half the cores. Alone, Jest takes cores - 1 workers; next to the web
+  // apps' Vitest runs (pnpm -r) that is more busy processes than cores, and
+  // the suites that load the whole app starve past the timeout above while
+  // doing nothing wrong (each takes seconds alone).
+  maxWorkers: "50%",
   // global.css is Tailwind for NativeWind's Metro plugin, not JavaScript.
   //
   // `react-native-reanimated/mock` is mapped to the app's own stub

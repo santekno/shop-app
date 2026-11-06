@@ -15,7 +15,9 @@ describe("ProductSkeletons", () => {
   it("the grid is a progressbar 'Memuat produk…' with six two-column cards by default", async () => {
     await render(<ProductGridSkeleton />);
 
-    expect(screen.getByRole("progressbar", { name: "Memuat produk…" })).toBeTruthy();
+    expect(
+      screen.getByRole("progressbar", { name: "Memuat produk…" }),
+    ).toBeTruthy();
     expect(cells("w-1/2 p-1.5")).toHaveLength(6);
   });
 
@@ -37,7 +39,9 @@ describe("ProductSkeletons", () => {
   it("the detail skeleton is 'Memuat produk…' too", async () => {
     await render(<ProductDetailSkeleton />);
 
-    expect(screen.getByRole("progressbar", { name: "Memuat produk…" })).toBeTruthy();
+    expect(
+      screen.getByRole("progressbar", { name: "Memuat produk…" }),
+    ).toBeTruthy();
   });
 
   it("a card skeleton is hidden from screen readers (the group speaks for it)", async () => {

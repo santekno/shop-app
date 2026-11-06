@@ -1,13 +1,29 @@
-import { afterEach, beforeEach, describe, expect, it, jest } from "@jest/globals";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  jest,
+} from "@jest/globals";
 import { onlineManager, useQuery } from "@tanstack/react-query";
 import { act, screen } from "@testing-library/react-native";
 
-import { renderHookWithProviders, renderWithProviders, createTestQueryClient } from "@/test/render";
+import {
+  renderHookWithProviders,
+  renderWithProviders,
+  createTestQueryClient,
+} from "@/test/render";
 import { ConnectionBanner } from "./ConnectionBanner";
-import { RESTORED_VISIBLE_MS, refetchAfterReconnect, useConnectionBanner } from "./useConnectionBanner";
+import {
+  RESTORED_VISIBLE_MS,
+  refetchAfterReconnect,
+  useConnectionBanner,
+} from "./useConnectionBanner";
 import { useIsOnline } from "./useIsOnline";
 
-const OFFLINE_TEXT = "Anda sedang offline. Data yang tampil mungkin sudah lama.";
+const OFFLINE_TEXT =
+  "Anda sedang offline. Data yang tampil mungkin sudah lama.";
 const RESTORED_TEXT = "Kembali online. Memperbarui data…";
 
 beforeEach(() => {
@@ -46,7 +62,9 @@ describe("useIsOnline", () => {
 
 describe("useConnectionBanner", () => {
   it("is hidden for a phone that starts online, and never says 'restored'", async () => {
-    const { result } = await renderHookWithProviders(() => useConnectionBanner());
+    const { result } = await renderHookWithProviders(() =>
+      useConnectionBanner(),
+    );
     expect(result.current).toBe("hidden");
 
     await act(() => {
@@ -57,13 +75,17 @@ describe("useConnectionBanner", () => {
 
   it("is offline while there is no network, including at launch", async () => {
     onlineManager.setOnline(false);
-    const { result } = await renderHookWithProviders(() => useConnectionBanner());
+    const { result } = await renderHookWithProviders(() =>
+      useConnectionBanner(),
+    );
 
     expect(result.current).toBe("offline");
   });
 
   it("says 'restored' for 3 s after the network returns, then hides", async () => {
-    const { result } = await renderHookWithProviders(() => useConnectionBanner());
+    const { result } = await renderHookWithProviders(() =>
+      useConnectionBanner(),
+    );
     await setOnline(false);
     expect(result.current).toBe("offline");
 
@@ -82,7 +104,9 @@ describe("useConnectionBanner", () => {
   });
 
   it("going offline again within the 3 s shows offline, and the old timer does not hide the next 'restored'", async () => {
-    const { result } = await renderHookWithProviders(() => useConnectionBanner());
+    const { result } = await renderHookWithProviders(() =>
+      useConnectionBanner(),
+    );
     await setOnline(false);
     await setOnline(true);
     await act(() => {
@@ -134,7 +158,7 @@ describe("refetchAfterReconnect", () => {
     };
     const client = createTestQueryClient();
     // In the cache, out of date, but no screen shows it.
-    await client.prefetchQuery({
+    await client.query({
       queryKey: ["unused"],
       queryFn: () => Promise.resolve((calls.unused += 1)),
       staleTime: 0,

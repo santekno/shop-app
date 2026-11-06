@@ -19,17 +19,29 @@ describe("CategoryChips", () => {
     const kaos = category("kaos", "Kaos");
     fakeApi.on("GET", "/v1/categories", () =>
       json({
-        data: [kaos, category("celana", "Celana"), category("polo", "Polo", kaos.id)],
+        data: [
+          kaos,
+          category("celana", "Celana"),
+          category("polo", "Polo", kaos.id),
+        ],
       }),
     );
     const { onOpenCategory } = await renderChips();
 
-    expect(await screen.findByRole("header", { name: "Kategori" })).toBeTruthy();
-    expect(await screen.findByRole("button", { name: "Kategori Kaos" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Kategori Celana" })).toBeTruthy();
+    expect(
+      await screen.findByRole("header", { name: "Kategori" }),
+    ).toBeTruthy();
+    expect(
+      await screen.findByRole("button", { name: "Kategori Kaos" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Kategori Celana" }),
+    ).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Kategori Polo" })).toBeNull();
 
-    await userEvent.press(screen.getByRole("button", { name: "Kategori Celana" }));
+    await userEvent.press(
+      screen.getByRole("button", { name: "Kategori Celana" }),
+    );
     expect(onOpenCategory).toHaveBeenCalledTimes(1);
     expect(onOpenCategory).toHaveBeenCalledWith("celana");
   });
@@ -42,7 +54,9 @@ describe("CategoryChips", () => {
   });
 
   it("a failure shows the error with Coba lagi, which reloads", async () => {
-    fakeApi.once("GET", "/v1/categories", () => apiError(500, "INTERNAL", "r-2"));
+    fakeApi.once("GET", "/v1/categories", () =>
+      apiError(500, "INTERNAL", "r-2"),
+    );
     fakeApi.on("GET", "/v1/categories", () =>
       json({ data: [category("kaos", "Kaos")] }),
     );
@@ -52,7 +66,9 @@ describe("CategoryChips", () => {
       await screen.findByRole("button", { name: "Coba lagi" }),
     );
 
-    expect(await screen.findByRole("button", { name: "Kategori Kaos" })).toBeTruthy();
+    expect(
+      await screen.findByRole("button", { name: "Kategori Kaos" }),
+    ).toBeTruthy();
   });
 
   it("offline at start says the categories load when the connection returns", async () => {

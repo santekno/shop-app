@@ -4,17 +4,19 @@ import { onlineManager } from "@tanstack/react-query";
 import { act, screen, userEvent } from "@testing-library/react-native";
 import { useRef } from "react";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { AccessibilityInfo, BackHandler, Platform, Pressable, Text } from "react-native";
+import {
+  AccessibilityInfo,
+  BackHandler,
+  Platform,
+  Pressable,
+  Text,
+} from "react-native";
 
 import { apiError, fakeApi, json } from "@/test/fake-api";
 import { category } from "@/test/fixtures";
 import { renderWithProviders } from "@/test/render";
 import { DEFAULT_SORT, SORT_OPTIONS } from "../sort-options";
-import {
-  DEFAULT_CHOICE,
-  FilterSheet,
-  countActiveFilters,
-} from "./FilterSheet";
+import { DEFAULT_CHOICE, FilterSheet, countActiveFilters } from "./FilterSheet";
 import type { FilterChoice } from "./FilterSheet";
 
 const [NEWEST, CHEAPEST, PRICIEST] = SORT_OPTIONS;
@@ -51,7 +53,11 @@ const answerCategories = () => {
   fakeApi.on("GET", "/v1/categories", () => {
     const pakaian = category("pakaian", "Pakaian");
     return json({
-      data: [pakaian, category("kaos", "Kaos", pakaian.id), category("sepatu", "Sepatu")],
+      data: [
+        pakaian,
+        category("kaos", "Kaos", pakaian.id),
+        category("sepatu", "Sepatu"),
+      ],
     });
   });
 };
@@ -60,7 +66,9 @@ const open = async (
   applied: FilterChoice = DEFAULT_CHOICE,
   onApply: (choice: FilterChoice) => void = jest.fn(),
 ) => {
-  const view = await renderWithProviders(<Harness applied={applied} onApply={onApply} />);
+  const view = await renderWithProviders(
+    <Harness applied={applied} onApply={onApply} />,
+  );
   await userEvent.press(screen.getByRole("button", { name: "Buka" }));
   return { ...view, onApply };
 };
@@ -73,7 +81,9 @@ afterEach(() => {
 describe("countActiveFilters", () => {
   it("counts the category and the order when they differ from the default", () => {
     expect(countActiveFilters(DEFAULT_CHOICE)).toBe(0);
-    expect(countActiveFilters({ category: "kaos", sort: DEFAULT_SORT })).toBe(1);
+    expect(countActiveFilters({ category: "kaos", sort: DEFAULT_SORT })).toBe(
+      1,
+    );
     expect(countActiveFilters({ category: undefined, sort: CHEAPEST })).toBe(1);
     expect(countActiveFilters({ category: "kaos", sort: PRICIEST })).toBe(2);
   });
@@ -83,17 +93,30 @@ describe("FilterSheet", () => {
   it("draws nothing until it is presented, then opens on what the route applies", async () => {
     answerCategories();
     await renderWithProviders(
-      <Harness applied={{ category: "kaos", sort: CHEAPEST }} onApply={jest.fn()} />,
+      <Harness
+        applied={{ category: "kaos", sort: CHEAPEST }}
+        onApply={jest.fn()}
+      />,
     );
     expect(screen.queryByText("Filter dan urutan")).toBeNull();
 
     await userEvent.press(screen.getByRole("button", { name: "Buka" }));
 
-    expect(screen.getByRole("header", { name: "Filter dan urutan" })).toBeTruthy();
-    expect(screen.getByRole("radio", { name: "Harga terendah", checked: true })).toBeTruthy();
-    expect(screen.getByRole("radio", { name: "Terbaru", checked: false })).toBeTruthy();
-    expect(await screen.findByRole("radio", { name: "Kaos", checked: true })).toBeTruthy();
-    expect(screen.getByRole("radio", { name: "Semua kategori", checked: false })).toBeTruthy();
+    expect(
+      screen.getByRole("header", { name: "Filter dan urutan" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("radio", { name: "Harga terendah", checked: true }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("radio", { name: "Terbaru", checked: false }),
+    ).toBeTruthy();
+    expect(
+      await screen.findByRole("radio", { name: "Kaos", checked: true }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("radio", { name: "Semua kategori", checked: false }),
+    ).toBeTruthy();
   });
 
   it("lists the categories as a tree, children after their parent", async () => {
@@ -120,7 +143,9 @@ describe("FilterSheet", () => {
     const { onApply } = await open();
 
     await userEvent.press(await screen.findByRole("radio", { name: "Kaos" }));
-    await userEvent.press(screen.getByRole("radio", { name: "Harga tertinggi" }));
+    await userEvent.press(
+      screen.getByRole("radio", { name: "Harga tertinggi" }),
+    );
     expect(onApply).not.toHaveBeenCalled();
     await userEvent.press(screen.getByRole("button", { name: "Terapkan" }));
 
@@ -141,8 +166,12 @@ describe("FilterSheet", () => {
     await userEvent.press(screen.getByRole("button", { name: "Reset" }));
 
     expect(announce).toHaveBeenCalledWith("Filter diatur ulang");
-    expect(screen.getByRole("radio", { name: "Terbaru", checked: true })).toBeTruthy();
-    expect(screen.getByRole("radio", { name: "Semua kategori", checked: true })).toBeTruthy();
+    expect(
+      screen.getByRole("radio", { name: "Terbaru", checked: true }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("radio", { name: "Semua kategori", checked: true }),
+    ).toBeTruthy();
     await userEvent.press(screen.getByRole("button", { name: "Terapkan" }));
     expect(onApply).toHaveBeenCalledWith({ category: undefined, sort: NEWEST });
   });
@@ -164,14 +193,18 @@ describe("FilterSheet", () => {
   it("starts from the route again each time it is opened, forgetting an unapplied draft", async () => {
     answerCategories();
     await open();
-    await userEvent.press(screen.getByRole("radio", { name: "Harga terendah" }));
+    await userEvent.press(
+      screen.getByRole("radio", { name: "Harga terendah" }),
+    );
     // The scrim closes it without applying.
     await userEvent.press(screen.getByRole("button", { name: "Tutup filter" }));
     expect(screen.queryByText("Filter dan urutan")).toBeNull();
 
     await userEvent.press(screen.getByRole("button", { name: "Buka" }));
 
-    expect(screen.getByRole("radio", { name: "Terbaru", checked: true })).toBeTruthy();
+    expect(
+      screen.getByRole("radio", { name: "Terbaru", checked: true }),
+    ).toBeTruthy();
   });
 
   it("the scrim is a button named 'Tutup filter' that closes the sheet", async () => {
@@ -195,11 +228,13 @@ describe("FilterSheet", () => {
       const add = backPress();
       await open();
 
-      const call = add.mock.calls.find(([name]) => name === "hardwareBackPress");
+      const call = add.mock.calls.find(
+        ([name]) => name === "hardwareBackPress",
+      );
       expect(call).toBeDefined();
       let handled: unknown;
       await act(() => {
-        handled = call?.[1]();
+        handled = call?.[1]({ type: "hardwareBackPress", timeStamp: 0 });
       });
 
       expect(handled).toBe(true);
@@ -212,12 +247,16 @@ describe("FilterSheet", () => {
       const add = jest
         .spyOn(BackHandler, "addEventListener")
         .mockReturnValue({ remove });
-      await renderWithProviders(<Harness applied={DEFAULT_CHOICE} onApply={jest.fn()} />);
+      await renderWithProviders(
+        <Harness applied={DEFAULT_CHOICE} onApply={jest.fn()} />,
+      );
       expect(add).not.toHaveBeenCalled();
 
       await userEvent.press(screen.getByRole("button", { name: "Buka" }));
       expect(add).toHaveBeenCalledTimes(1);
-      await userEvent.press(screen.getByRole("button", { name: "Tutup filter" }));
+      await userEvent.press(
+        screen.getByRole("button", { name: "Tutup filter" }),
+      );
 
       expect(remove).toHaveBeenCalledTimes(1);
     });
@@ -225,11 +264,19 @@ describe("FilterSheet", () => {
 
   describe("the category list", () => {
     it("loading: the order stays usable and 'Memuat kategori…' shows", async () => {
-      fakeApi.on("GET", "/v1/categories", () => new Promise<Response>(() => undefined));
+      fakeApi.on(
+        "GET",
+        "/v1/categories",
+        () => new Promise<Response>(() => undefined),
+      );
       await open();
 
-      expect(screen.getByRole("progressbar", { name: "Memuat kategori…" })).toBeTruthy();
-      expect(screen.getByRole("radio", { name: "Semua kategori", checked: true })).toBeTruthy();
+      expect(
+        screen.getByRole("progressbar", { name: "Memuat kategori…" }),
+      ).toBeTruthy();
+      expect(
+        screen.getByRole("radio", { name: "Semua kategori", checked: true }),
+      ).toBeTruthy();
       // The pending request is released by the next test's reset; do not fail the held check.
     });
 
@@ -246,14 +293,20 @@ describe("FilterSheet", () => {
     });
 
     it("failed: shows the error, and Coba lagi loads the categories", async () => {
-      fakeApi.once("GET", "/v1/categories", () => apiError(500, "INTERNAL", "r-8"));
+      fakeApi.once("GET", "/v1/categories", () =>
+        apiError(500, "INTERNAL", "r-8"),
+      );
       answerCategories();
       await open();
 
-      await userEvent.press(await screen.findByRole("button", { name: "Coba lagi" }));
+      await userEvent.press(
+        await screen.findByRole("button", { name: "Coba lagi" }),
+      );
 
       expect(await screen.findByRole("radio", { name: "Sepatu" })).toBeTruthy();
-      expect(screen.getByRole("radio", { name: "Harga terendah" })).toBeTruthy();
+      expect(
+        screen.getByRole("radio", { name: "Harga terendah" }),
+      ).toBeTruthy();
     });
   });
 });
