@@ -1,6 +1,7 @@
 import { FlashList } from "@shopify/flash-list";
 import type { ListRenderItem } from "@shopify/flash-list";
-import { router, useTheme } from "expo-router";
+import { useTheme } from "expo-router";
+import type { ReactNode } from "react";
 import { Platform, Pressable, RefreshControl, Text, View } from "react-native";
 import { isApiError } from "@goshop/shared";
 import type { Product } from "@goshop/shared";
@@ -12,19 +13,13 @@ import {
   LoadingState,
 } from "@/components/StatusMessage";
 import type { ProductListFilters } from "../api/products";
+import { openProduct } from "../open-product";
 import { useProductList } from "../hooks/useProductList";
 import { ProductCard } from "./ProductCard";
 import { ProductListFooter } from "./ProductListFooter";
 
 /** Two cards per row: the app is phone-only (supportsTablet is false). */
 const COLUMNS = 2;
-
-// A typed href: with typed routes on, a pathname that is not a route, or a
-// missing slug, is a compile error. The detail screen is pushed on the root
-// stack, above the tab bar.
-const openProduct = (product: Product) => {
-  router.push({ pathname: "/produk/[slug]", params: { slug: product.slug } });
-};
 
 // One cell, with 6 dp of padding all round. FlashList gives each cell its
 // column's width itself (half the list with numColumns 2), so the cell has
@@ -48,10 +43,13 @@ const renderProduct: ListRenderItem<Product> = ({ item }) => (
 
 const productKey = (product: Product) => product.id;
 
+/** The list's side padding in dp: 10 + a card's 6 = 16 at the screen's edge. */
+export const CATALOG_SIDE_PADDING = 10;
+
 /** grow px-2.5 pb-4, as numbers (see the list's contentContainerStyle). */
 const CONTENT_STYLE = {
   flexGrow: 1,
-  paddingHorizontal: 10,
+  paddingHorizontal: CATALOG_SIDE_PADDING,
   paddingBottom: 16,
 } as const;
 
@@ -64,6 +62,12 @@ interface ProductListProps {
    * when known, and how to go back to every product.
    */
   category?: { name: string; onClear: () => void } | undefined;
+  /**
+   * What sits above the caption, scrolling with the list: Beranda's
+   * banners, categories and featured products. One scroll view, not a
+   * vertical list inside a vertical ScrollView.
+   */
+  header?: ReactNode;
 }
 
 /**
@@ -81,7 +85,12 @@ interface ProductListProps {
  * memory after a long scroll, the first rows sooner. Same props for the
  * rest: header, footer, empty state, onEndReached, the refresh control.
  */
-export function ProductList({ filters, caption, category }: ProductListProps) {
+export function ProductList({
+  filters,
+  caption,
+  category,
+  header,
+}: ProductListProps) {
   const { colors } = useTheme();
   const {
     data,
@@ -176,41 +185,44 @@ export function ProductList({ filters, caption, category }: ProductListProps) {
       // state to its rows opened scrolled to the end.
       maintainVisibleContentPosition={{ disabled: true }}
       ListHeaderComponent={
-        <View className="gap-2 px-1.5 pb-1.5 pt-4">
-          {/* The active category as a chip; a press clears it, like the
+        <>
+          {header}
+          <View className="gap-2 px-1.5 pb-1.5 pt-4">
+            {/* The active category as a chip; a press clears it, like the
               "x" on a filter chip (Icon's tutup). */}
-          {category !== undefined && (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Kategori ${category.name}, hapus filter`}
-              hitSlop={6}
-              onPress={category.onClear}
-              className="flex-row items-center gap-2 self-start rounded-full bg-muted px-3 py-1 active:bg-accent dark:bg-muted-dark dark:active:bg-accent-dark"
-            >
-              <Text className="font-sans text-sm font-semibold text-foreground dark:text-foreground-dark">
-                {category.name}
-              </Text>
-              <Icon
-                name="tutup"
-                className="text-muted-foreground dark:text-muted-foreground-dark"
-                size={16}
-              />
-            </Pressable>
-          )}
-          <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
-            {caption}
-          </Text>
-          {/* The products already on screen stay; this says they may be
+            {category !== undefined && (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Kategori ${category.name}, hapus filter`}
+                hitSlop={6}
+                onPress={category.onClear}
+                className="flex-row items-center gap-2 self-start rounded-full bg-muted px-3 py-1 active:bg-accent dark:bg-muted-dark dark:active:bg-accent-dark"
+              >
+                <Text className="font-sans text-sm font-semibold text-foreground dark:text-foreground-dark">
+                  {category.name}
+                </Text>
+                <Icon
+                  name="tutup"
+                  className="text-muted-foreground dark:text-muted-foreground-dark"
+                  size={16}
+                />
+              </Pressable>
+            )}
+            <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+              {caption}
+            </Text>
+            {/* The products already on screen stay; this says they may be
               out of date, after a pull or a background refetch failed. */}
-          {isRefetchError && products.length > 0 && (
-            <ErrorState
-              error={error}
-              onRetry={() => {
-                void refresh();
-              }}
-            />
-          )}
-        </View>
+            {isRefetchError && products.length > 0 && (
+              <ErrorState
+                error={error}
+                onRetry={() => {
+                  void refresh();
+                }}
+              />
+            )}
+          </View>
+        </>
       }
       ListEmptyComponent={
         <View className="flex-1 items-center justify-center">{empty}</View>

@@ -14,9 +14,13 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Icon } from "@/components/Icon";
 import { categoriesQuery } from "@/features/catalog/api/queries";
 import { readCatalogFilters } from "@/features/catalog/catalog-filters";
-import { ProductList } from "@/features/catalog/components/ProductList";
+import {
+  CATALOG_SIDE_PADDING,
+  ProductList,
+} from "@/features/catalog/components/ProductList";
 import { SearchBar } from "@/features/catalog/components/SearchBar";
 import { sortFromParam } from "@/features/catalog/sort-options";
+import { HomeSections } from "@/features/home/components/HomeSections";
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
@@ -44,6 +48,17 @@ export default function HomeScreen() {
       : (queryClient
           .getQueryData(categoriesQuery().queryKey)
           ?.find((c) => c.slug === filters.category)?.name ?? filters.category);
+
+  // The banners, categories and featured products are the shop window:
+  // shown when nothing narrows the catalog. A search or a category is a
+  // search for something, and the window would only push it down.
+  const showSections =
+    filters.q === undefined && filters.category === undefined;
+  // Banners and the category row set the same ?kategori= the Kategori tab
+  // does; setParams keeps the search and the sort.
+  const openCategory = (slug: string) => {
+    router.setParams({ kategori: slug });
+  };
 
   return (
     // The keyboard is drawn over the app, and the window keeps its size on
@@ -126,6 +141,14 @@ export default function HomeScreen() {
       </View>
       <ProductList
         filters={filters}
+        header={
+          showSections ? (
+            <HomeSections
+              onOpenCategory={openCategory}
+              bleed={CATALOG_SIDE_PADDING}
+            />
+          ) : undefined
+        }
         category={
           categoryName === undefined
             ? undefined
